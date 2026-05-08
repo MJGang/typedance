@@ -24,6 +24,7 @@ V1 采用“结果优先”范围基线：
 - Skill Runtime 是资料读取和证据提取能力，不等同于插件平台。
 - 内部多 Agent 用于压缩资料、提取证据和降低主 Agent 上下文负担，不作为面向用户的 Agent 平台。
 - 联网搜索只用于目标岗位、公司和行业语言校准，不能作为用户经历证据。
+- 前端必须支持中文和英文切换；UI 语言、简历目标语言和 AI 输出语言需要分层管理，不能强行绑定。
 - 所有 AI 生成都必须围绕真实资料、目标岗位和可解释证据链闭环。
 
 ---
@@ -134,10 +135,13 @@ V1 支持用户粘贴招聘信息文本，后续可扩展为截图/OCR、浏览�
 每个版本需要记录：
 
 - 关联的目标岗位
+- 目标语言：中文或英文
 - 使用的资料来源
 - AI 修改历史
 - 用户接受的改动
 - 导出时间
+
+UI 语言和简历目标语言彼此独立。用户可以使用中文界面编辑英文简历，也可以使用英文界面编辑中文简历。AI 输出和 PDF 排版默认跟随当前简历版本的目标语言，而不是跟随应用 UI 语言。
 
 ---
 
@@ -278,6 +282,24 @@ V1 不做完整知识库管理，不提供标签系统、云同步、复杂资�
 | 本地模型 | 支持 Ollama 等本地 Provider | P1 |
 | Provider 配置 | 支持 OpenAI、DeepSeek、Ollama 或兼容接口 | P0 |
 
+### 7.6 双语体验
+
+| 功能 | 描述 | 优先级 |
+| --- | --- | --- |
+| UI 语言切换 | 前端界面支持简体中文和英文切换，覆盖导航、按钮、表单、空状态、错误、权限提示和 Review Gate 文案 | P0 |
+| 语言偏好保存 | 应用记录用户的 UI 语言偏好，重启后保持一致 | P0 |
+| 简历目标语言 | 每个 Resume Version 记录独立的目标语言：中文或英文 | P0 |
+| 双语简历模板 | 中文和英文简历模板分别维护，不依赖机器翻译模板 | P0 |
+| AI 输出语言 | AI 改写、质量检查、风险提示默认跟随 Resume Version 的目标语言 | P0 |
+| PDF 语言排版 | PDF 导出根据 Resume Version 的目标语言选择字体、标点、断行和版式细节 | P0 |
+
+原则：
+
+1. UI 语言只决定应用界面文案。
+2. Resume Version 的目标语言决定模板、AI 输出、Review Gate 文案和 PDF 排版策略。
+3. 用户正文不被自动翻译；任何中英转换都必须由用户明确触发 AI 动作。
+4. 双语文案必须通过 i18n key 管理，不能在组件中散落硬编码文案。
+
 ---
 
 ## 8. 非目标
@@ -332,6 +354,7 @@ React App
   +--> Evidence Vault UI
   +--> Quality Dashboard
   +--> Review Gate
+  +--> Locale / i18n Layer
   |
   v
 FastAPI Sidecar
@@ -384,9 +407,9 @@ Evidence Card
 对象边界：
 
 - `Job Target`：目标岗位，包含 JD 原文、解析结果、兴趣等级、关键词、公司/岗位背景。
-- `Resume Version`：围绕一个目标岗位生成或编辑的简历版本，记录使用的资料来源和用户接受的改动。
+- `Resume Version`：围绕一个目标岗位生成或编辑的简历版本，记录目标语言、使用的资料来源和用户接受的改动。
 - `Evidence Card`：可引用证据片段，包含来源类型、来源位置、摘录、摘要、可信度和风险标签。
-- `AI Edit Run`：一次 AI 改写或分析过程，记录输入摘要、引用证据、输出建议、用户处理结果和错误状态。
+- `AI Edit Run`：一次 AI 改写或分析过程，记录输入摘要、引用证据、输出语言、输出建议、用户处理结果和错误状态。
 - `External Background`：授权联网后获得的公司、岗位或行业背景，只能用于语言校准和岗位理解，不能作为用户经历证据。
 - `PDF Export`：一次导出记录，包含关联简历版本、导出时间、Review Gate 状态和排版检查结果。
 - `Skill Pack`：受控资料读取/证据提取能力包，不是 V1 插件平台。
@@ -560,6 +583,21 @@ V1 的主数据流如下：
 17. PDF Export
 ```
 
+语言路径：
+
+```text
+App UI Locale
+  |
+  +--> UI labels / errors / permission prompts
+
+Resume Version target language
+  |
+  +--> Resume template
+  +--> AI output language
+  +--> Review Gate wording
+  +--> PDF font and layout profile
+```
+
 影子路径：
 
 | Node | Nil / missing | Empty | Error | Partial |
@@ -591,7 +629,7 @@ V1 实施必须按可验证闭环切片，而不是按底层平台能力横向�
 
 | Slice | Goal | Includes | Excludes | Acceptance |
 | --- | --- | --- | --- | --- |
-| 1. Editable Resume to PDF | 用户能编辑一份简历并稳定导出 PDF | TipTap 3.x 基础编辑、Resume Version、A4 预览、受控 HTML/CSS PDF 管线 | AI、Evidence Vault、Skill Runtime | 一份模板简历可编辑、预览、导出，PDF 排版稳定 |
+| 1. Editable Resume to PDF | 用户能编辑一份简历并稳定导出 PDF | TipTap 3.x 基础编辑、Resume Version、目标语言、中文/英文模板、A4 预览、受控 HTML/CSS PDF 管线 | AI、Evidence Vault、Skill Runtime | 一份中文或英文模板简历可编辑、预览、导出，PDF 排版稳定 |
 | 2. Job Target Loop | 简历能绑定目标岗位并看到基础匹配 | Job Target、JD 粘贴、JD 解析、简历版本关联、基础匹配评分 | 联网搜索、公司语言校准 | 用户能为同一简历创建至少 3 个岗位版本 |
 | 3. Evidence Vault Loop | 用户资料能转化为可引用证据 | Skill Pack 权限、资料导入、Evidence Card、来源类型、Secret 扫描 | 泛用知识库、标签系统、云同步 | 至少支持 Markdown/PDF/手动文本生成 Evidence Card |
 | 4. AI Rewrite Loop | AI 能基于证据改写简历并给出风险 | AI Edit Run、context preview、主 Agent、逐条证据链、接受/拒绝 | 通用聊天助手、面试/求职信 | 用户选中 bullet 后可生成有证据和风险标记的改写建议 |
@@ -616,6 +654,7 @@ V1 实施必须按可验证闭环切片，而不是按底层平台能力横向�
 5. 内部多 Agent 负责资料压缩、证据提取和语言校准；面向用户只暴露简历动作和结果。
 6. AI Edit Run 使用 checkpointed 状态机，支持取消、恢复、重试和部分结果保留。
 7. 每次云端 LLM 调用前必须进行上下文预览和用户确认。
+8. App UI Locale 与 Resume Version target language 分离；前者控制界面，后者控制模板、AI 输出、Review Gate 和 PDF 排版。
 
 ---
 
@@ -628,6 +667,7 @@ V1 验收标准：
 - 用户能在 30 分钟内从旧简历和目标 JD 生成一份可投递简历。
 - 每条 AI 强化后的经历都能看到依据或风险提示。
 - 用户能为至少 3 个不同岗位生成不同版本简历。
+- 用户能在中文和英文界面之间切换，并能分别创建中文或英文目标语言的简历版本。
 - 导出的 PDF 排版稳定，可直接投递。
 - 用户能清楚知道哪些资料会被发送给云端模型。
 

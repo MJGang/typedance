@@ -56,6 +56,7 @@ V1 的第一条工程铁律：任何底层抽象如果不能直接服务当前 s
 5. **AI 不直接覆盖简历**：AI 只能生成建议，用户接受后才写入 Resume Version。
 6. **PDF 走受控渲染管线**：导出只渲染当前简历版本的显式内容，不直接把编辑器 DOM 当最终产物。
 7. **失败可见、可恢复**：任何读取、生成、验证、导出失败都必须进入明确状态，并给用户可理解的救援动作。
+8. **界面语言与简历语言分离**：App Locale 控制 UI 文案，Resume Version `target_language` 控制模板、AI 输出、Review Gate 文案和 PDF 排版。
 
 Context7 校验备注：Tauri 2 官方文档确认 sidecar 可通过 shell plugin 管理，插件权限可限制文件系统读写范围；工程计划据此把 Tauri 层定位为桌面壳、权限入口和 sidecar 管理层，而不是业务逻辑层。
 
@@ -79,6 +80,7 @@ React + Vite + TypeScript App
   +--> Evidence Vault UI
   +--> Quality Dashboard
   +--> Review Gate UI
+  +--> Locale / i18n Provider
   |
   |  HTTP/SSE over localhost
   v
@@ -163,16 +165,17 @@ SQLite 存结构化对象和索引，文件系统存原始导入文件、导出 
 
 | Entity | 关键字段 | 说明 |
 | --- | --- | --- |
-| `ResumeVersion` | `id`, `title`, `job_target_id`, `doc_json`, `plain_text_snapshot`, `source_refs`, `accepted_edit_ids`, `created_at`, `updated_at` | 编辑态主对象。`doc_json` 使用 ProseMirror JSON，PDF 导出走受控 HTML/CSS。 |
+| `UserPreference` | `id`, `ui_locale`, `created_at`, `updated_at` | 应用级偏好。`ui_locale` 控制界面文案，不决定简历正文语言。 |
+| `ResumeVersion` | `id`, `title`, `job_target_id`, `target_language`, `template_id`, `doc_json`, `plain_text_snapshot`, `source_refs`, `accepted_edit_ids`, `created_at`, `updated_at` | 编辑态主对象。`target_language` 控制模板、AI 输出、Review Gate 文案和 PDF 排版；`doc_json` 使用 ProseMirror JSON。 |
 | `JobTarget` | `id`, `title`, `company`, `jd_raw`, `jd_summary`, `keywords`, `salary_range`, `seniority`, `interest_level`, `created_at` | 轻量岗位模型，不做投递 CRM。 |
 | `EvidenceSource` | `id`, `type`, `display_name`, `uri`, `permission_grant_id`, `hash`, `read_status`, `error_summary` | 用户资料来源或目标 JD。 |
 | `EvidenceCard` | `id`, `source_id`, `source_type`, `locator`, `excerpt`, `summary`, `confidence`, `risk_tags`, `created_by_run_id` | 可引用证据片段。 |
 | `PermissionGrant` | `id`, `scope_type`, `scope_uri`, `capabilities`, `expires_at`, `revoked_at` | 路径、联网、模型调用和缓存写入授权。 |
-| `AIEditRun` | `id`, `resume_version_id`, `job_target_id`, `command`, `selected_range`, `state`, `input_summary`, `output_summary`, `error_code` | 一次 AI 改写或分析。 |
+| `AIEditRun` | `id`, `resume_version_id`, `job_target_id`, `command`, `selected_range`, `state`, `input_summary`, `output_language`, `output_summary`, `error_code` | 一次 AI 改写或分析。`output_language` 默认来自 Resume Version，可由用户明确覆盖。 |
 | `AIEditRunEvent` | `id`, `run_id`, `event_type`, `payload`, `created_at` | 流式输出、状态变化和用户确认记录。 |
 | `ExternalBackground` | `id`, `job_target_id`, `source_url`, `summary`, `confidence`, `created_by_run_id` | 只用于语言校准和岗位理解。 |
-| `ReviewGateResult` | `id`, `resume_version_id`, `job_target_id`, `status`, `findings`, `created_at` | 导出前质量检查结果。 |
-| `PDFExport` | `id`, `resume_version_id`, `review_gate_result_id`, `file_path`, `layout_status`, `created_at` | 一次 PDF 导出记录。 |
+| `ReviewGateResult` | `id`, `resume_version_id`, `job_target_id`, `status`, `language`, `findings`, `created_at` | 导出前质量检查结果。文案语言默认跟随 Resume Version。 |
+| `PDFExport` | `id`, `resume_version_id`, `review_gate_result_id`, `file_path`, `language`, `layout_profile`, `layout_status`, `created_at` | 一次 PDF 导出记录。 |
 
 ### 4.3 对象关系
 
@@ -200,6 +203,7 @@ PermissionGrant
 
 重要约束：
 
+- `UserPreference.ui_locale` 与 `ResumeVersion.target_language` 不互相覆盖。
 - `ExternalBackground` 不能被引用为用户经历证据。
 - `EvidenceCard.source_type = external_web` 仅允许代表岗位/公司背景，不允许代表用户做过的事情。
 - `ReviewGateResult.status != pass` 时默认阻止导出，但允许用户在明确风险后强制导出并记录原因。
@@ -229,8 +233,9 @@ Tauri commands 只处理 OS 和进程相关能力：
 | Endpoint | 方法 | 说明 |
 | --- | --- | --- |
 | `/health` | `GET` | sidecar 健康状态和版本。 |
+| `/preferences` | `GET/PATCH` | 读取和保存 UI 语言等应用级偏好。 |
 | `/resume-versions` | `GET/POST` | 列表和创建简历版本。 |
-| `/resume-versions/{id}` | `GET/PATCH` | 读取/保存 ProseMirror JSON 和元信息。 |
+| `/resume-versions/{id}` | `GET/PATCH` | 读取/保存 ProseMirror JSON、目标语言和元信息。 |
 | `/job-targets` | `GET/POST` | 创建岗位目标，保存 JD 原文。 |
 | `/job-targets/{id}/parse` | `POST` | 解析 JD 字段、关键词和基础匹配输入。 |
 | `/materials` | `POST` | 添加文件、文件夹、手动文本来源。 |
@@ -249,11 +254,31 @@ Tauri commands 只处理 OS 和进程相关能力：
 前端不把服务端 run state 复制成另一套真相。React 本地状态只保存：
 
 - 当前编辑器 selection 和临时 UI 展开态。
+- 当前 UI locale 和已加载的 message bundle。
 - SSE 流式输出缓存。
 - 用户正在确认的上下文预览。
 - 乐观保存状态和错误提示。
 
 领域状态以 sidecar 查询结果为准。
+
+语言状态边界：
+
+```text
+UserPreference.ui_locale
+  |
+  +--> React i18n Provider
+          |
+          +--> navigation / buttons / forms / errors / permission prompts
+
+ResumeVersion.target_language
+  |
+  +--> template selection
+  +--> AIEditRun.output_language
+  +--> ReviewGateResult.language
+  +--> PDFExport.layout_profile
+```
+
+用户可以在中文 UI 中编辑英文简历，也可以在英文 UI 中编辑中文简历。任何自动翻译都必须是显式 AI action，而不是 locale 切换的副作用。
 
 ---
 
@@ -265,7 +290,10 @@ Tauri commands 只处理 OS 和进程相关能力：
 Create Template / Import Markdown
   |
   v
-ResumeVersion.doc_json
+Choose target language
+  |
+  v
+ResumeVersion.doc_json + target_language
   |
   +--> TipTap Editor
   |
@@ -285,6 +313,7 @@ PDFExport
 
 - 编辑器保存和预览稳定。
 - PDF 导出只包含当前简历显式内容。
+- 中文和英文模板分别维护，导出时按目标语言选择字体和布局 profile。
 - 超页、空简历、字体 fallback、渲染失败都有明确提示。
 
 ### 6.2 证据驱动 AI 改写
@@ -304,6 +333,8 @@ Permission + Context Preview
   |
   v
 Main Resume Agent
+  |
+  |  output_language = ResumeVersion.target_language
   |
   v
 Evidence/Risk Validator
@@ -400,12 +431,14 @@ running
 - FastAPI sidecar 启动、健康检查、日志目录。
 - SQLite 初始化和迁移机制。
 - `packages/contracts` 的基础 schema。
+- React i18n provider、`zh-CN` / `en-US` message bundle 和 UI language preference。
 - 本地 app data/cache/export 路径约定。
 
 验收：
 
 - 桌面应用启动后自动拉起 sidecar。
 - 前端能显示 sidecar 健康状态和版本。
+- 前端能切换中文/英文 UI，并在重启后保持偏好。
 - 重启应用后 SQLite 数据保留。
 
 测试：
@@ -421,6 +454,7 @@ running
 包含：
 
 - 简历模板。
+- 中文/英文模板和目标语言选择。
 - Markdown 导入。
 - TipTap 基础富文本编辑。
 - Resume Version 保存。
@@ -437,6 +471,7 @@ running
 验收：
 
 - 一份模板简历可编辑、自动保存、预览和导出。
+- 中文模板和英文模板分别可创建，不依赖机器翻译。
 - PDF 排版稳定，导出失败时保留预览并显示原因。
 - 空简历、超页、字体缺失有可理解提示。
 
@@ -444,6 +479,7 @@ running
 
 - ProseMirror JSON 保存/读取往返。
 - Markdown 导入样例。
+- UI locale 与 Resume Version target language 独立切换测试。
 - PDF 导出 smoke test。
 - A4 页面分页和超页检查。
 
@@ -521,6 +557,7 @@ running
 - 流式生成。
 - Evidence/Risk Validator。
 - 接受、拒绝、重新生成。
+- AI prompt 和 validator 均接收 `output_language`，默认来自 Resume Version。
 
 不包含：
 
@@ -531,6 +568,7 @@ running
 验收：
 
 - 用户选中 bullet 后可生成带证据引用和风险标记的改写建议。
+- 中文目标语言输出中文建议；英文目标语言输出英文建议。
 - 用户拒绝发送云端上下文时 run 停在可理解状态。
 - LLM 输出不可解析时不写入编辑器。
 
@@ -538,6 +576,7 @@ running
 
 - Provider mock 流式输出。
 - Context Preview 内容审计。
+- AI 输出语言约束测试。
 - 缺证据主张标记。
 - 接受建议后的文档 patch 测试。
 
@@ -553,6 +592,7 @@ running
 - Review Gate。
 - 缺证据主张、敏感信息、JD 不匹配、超页、排版异常检查。
 - 强制导出确认。
+- Review Gate 文案和规则解释跟随 Resume Version 目标语言。
 
 不包含：
 
@@ -568,6 +608,7 @@ running
 测试：
 
 - Review Gate 规则单元测试。
+- Review Gate 双语文案和 fallback 测试。
 - 超页和空页样例。
 - 敏感信息和无证据主张样例。
 - 强制导出审计记录。
@@ -644,6 +685,7 @@ Tauri Commands
 
 React UI
   +--> component tests for editor panels and review gate states
+  +--> i18n key coverage and locale fallback tests
   +--> Playwright E2E for primary user flows
 
 FastAPI Sidecar
@@ -663,6 +705,7 @@ AI Pipeline
 
 PDF Pipeline
   +--> render smoke tests
+  +--> zh-CN / en-US font and line-break fixtures
   +--> layout regression snapshots
   +--> failure fallback tests
 ```
@@ -676,6 +719,7 @@ PDF Pipeline
 5. Review Gate 发现风险 -> 阻止导出 -> 修复后导出。
 6. 用户拒绝云端发送 -> run 停止且不丢失已生成证据。
 7. 外部网页 prompt injection -> 不能改变权限和证据规则。
+8. 切换 UI 语言不改变当前简历正文；切换 Resume Version 目标语言会影响模板、AI 输出和 PDF layout profile。
 
 ### 9.3 回归测试铁律
 
@@ -688,6 +732,7 @@ PDF Pipeline
 | Codepath | 生产失败方式 | 测试要求 | 处理要求 | 用户可见 |
 | --- | --- | --- | --- | --- |
 | Sidecar 启动 | 端口占用或二进制缺失 | 启动失败 smoke test | 重试备用端口，给出诊断 | “本地服务启动失败，可重试或查看日志” |
+| i18n 文案 | 缺失 key 或 fallback 错误 | key coverage test | 回退到默认语言并记录缺失 key | “部分界面文案暂时使用默认语言” |
 | SQLite 迁移 | 旧版本 schema 不兼容 | migration fixture | 自动备份后迁移，失败回滚 | “数据升级失败，已保留备份” |
 | 文件读取 | 文件移动、权限不足、编码错误 | 失败路径单测 | 跳过来源并记录错误 | “部分资料无法读取，已跳过” |
 | PDF 解析 | 扫描件无文本或加密 | PDF fixture | 建议 OCR/手动文本，不生成证据 | “这个 PDF 暂时无法解析” |
@@ -696,6 +741,7 @@ PDF Pipeline
 | Evidence 验证 | 无证据主张被放行 | validation tests | 标记 `needs_confirmation` 或阻止 | “这条表达缺少证据” |
 | Review Gate | 超页/敏感信息漏检 | rule regression | 默认阻止导出 | “这份简历还有投递风险” |
 | PDF 导出 | 字体缺失、分页异常 | render regression | fallback 字体/保留 HTML 预览 | “PDF 导出失败，预览未丢失” |
+| 双语 PDF 排版 | 中文断行异常或英文字体 fallback 错误 | zh/en render fixtures | 按目标语言选择 fallback 字体和布局 profile | “当前字体不可用，已使用备用字体” |
 | Checkpoint 恢复 | checkpoint 损坏 | corrupt fixture | 恢复已完成节点，提示重跑缺失步骤 | “任务只能部分恢复” |
 
 关键红线：没有测试、没有错误处理、用户又看不到的失败模式，不允许进入实现计划。
@@ -707,6 +753,7 @@ PDF Pipeline
 | 场景 | 目标 |
 | --- | --- |
 | App cold start | 首屏可见 < 3s，sidecar 健康 < 5s。 |
+| Locale switch | UI 文案切换 < 200ms，不触发简历正文重写。 |
 | Resume save | 绝大多数保存 < 200ms，失败可重试。 |
 | A4 preview update | 编辑后节流更新，避免每次 keystroke 重渲染 PDF。 |
 | PDF export | 常规 1-2 页简历 < 10s，失败保留 HTML 预览。 |
@@ -717,6 +764,7 @@ PDF Pipeline
 性能设计：
 
 - PDF 导出和资料解析必须在 sidecar worker 中执行，不能阻塞 React UI。
+- i18n message bundle 按语言静态拆分；V1 只内置 `zh-CN` 和 `en-US`。
 - Evidence extraction 按来源分批，允许 partial 成功。
 - A4 预览使用轻量 HTML 预览，最终 PDF 渲染只在导出或显式预览时触发。
 - 大文件夹/代码项目扫描必须有文件数、大小、token/cost budget。
@@ -732,6 +780,7 @@ PDF Pipeline
 5. 云端 Provider Adapter 必须先通过 Context Preview，用户确认后才能发送。
 6. API Key 只来自环境变量或本地安全配置，不写入文档、日志、checkpoint。
 7. PDF 导出不嵌入 Evidence Vault、prompt、隐藏注释或内部日志。
+8. UI locale 切换不能隐式翻译或上传用户简历内容。
 
 ---
 
@@ -771,6 +820,7 @@ PDF Pipeline
 | Workstream | Modules touched | Depends on |
 | --- | --- | --- |
 | App Foundation | `apps/desktop`, `apps/web`, `services/sidecar`, `packages/contracts` | - |
+| i18n Foundation | `apps/web`, `services/sidecar`, `packages/contracts` | App Foundation |
 | Resume Editor & Storage | `apps/web`, `services/sidecar`, `packages/contracts` | App Foundation |
 | PDF Rendering | `services/sidecar`, `packages/resume-renderer`, `apps/web` | Resume Editor & Storage |
 | Job Target | `apps/web`, `services/sidecar`, `packages/contracts` | App Foundation |
@@ -783,7 +833,7 @@ PDF Pipeline
 ### 15.2 推荐 lanes
 
 ```text
-Lane A: App Foundation -> Resume Editor & Storage -> PDF Rendering
+Lane A: App Foundation -> i18n Foundation -> Resume Editor & Storage -> PDF Rendering
 Lane B: App Foundation -> Job Target
 Lane C: App Foundation -> Evidence Vault
 Lane D: Job Target + Evidence Vault -> AI Rewrite -> Checkpoint Polish
