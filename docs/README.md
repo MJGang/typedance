@@ -31,3 +31,22 @@
 2. 暂不实现但方向正确的想法写入 `product-vision.md`。
 3. 被替换的历史文档移入 `archive/`，不要删除。
 4. 新增重要产品方向前，先判断属于 V1 需求、后续路线，还是长期愿景。
+
+## 当前实施计划
+
+- `superpowers/plans/2026-05-08-typedance-foundation-slice-1.md`
+  - Slice 0 + Slice 1 工程落地计划。
+  - 目标是先完成可运行的本地优先简历编辑、A4 预览、sidecar 持久化和 PDF 导出闭环。
+
+## Slice 1 本地运行
+
+1. `corepack pnpm install`
+2. `cd services/sidecar && python -m pip install -e ".[dev]"`
+3. `corepack pnpm --filter @typedance/sidecar dev`
+4. `corepack pnpm --filter @typedance/web dev`
+5. 打开 `http://127.0.0.1:5173`
+
+验收命令：
+
+- `corepack pnpm test`
+- `corepack pnpm --filter @typedance/web test:e2e`

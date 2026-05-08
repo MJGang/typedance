@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://typedance.local/schemas/resume-version.schema.json",
+  "title": "ResumeVersion",
+  "type": "object",
+  "required": ["id", "title", "target_language", "template_id", "doc_json", "plain_text_snapshot", "created_at", "updated_at"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "job_target_id": { "type": ["string", "null"] },
+    "target_language": { "type": "string", "enum": ["zh-CN", "en-US"] },
+    "template_id": { "type": "string", "minLength": 1 },
+    "doc_json": { "type": "object" },
+    "plain_text_snapshot": { "type": "string" },
+    "source_refs": { "type": "array", "items": { "type": "string" } },
+    "accepted_edit_ids": { "type": "array", "items": { "type": "string" } },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

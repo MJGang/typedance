@@ -1,0 +1,156 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Inter, "Noto Sans SC", system-ui, sans-serif;
+  color: #17202a;
+  background: #eef1f4;
+}
+
+button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #c5ccd5;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #17202a;
+  font: 600 13px/1 system-ui, sans-serif;
+}
+
+.workspace {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 300px minmax(360px, 1fr) 340px;
+  grid-template-rows: 56px minmax(420px, 1fr) 280px;
+}
+
+.topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+  border-bottom: 1px solid #d9dee5;
+  background: #ffffff;
+}
+
+.topbar strong {
+  font-size: 17px;
+}
+
+.topbar button:last-child {
+  margin-left: auto;
+  background: #17202a;
+  color: #ffffff;
+  border-color: #17202a;
+}
+
+.local {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #566371;
+  font-size: 13px;
+}
+
+.rail,
+.insights {
+  padding: 16px;
+  background: #f8fafc;
+  border-right: 1px solid #d9dee5;
+}
+
+.insights {
+  border-right: 0;
+  border-left: 1px solid #d9dee5;
+}
+
+.rail h2,
+.insights h2 {
+  font-size: 14px;
+  margin: 0 0 10px;
+}
+
+.rail p,
+.insights p,
+dd,
+dt {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #566371;
+}
+
+dl {
+  margin-top: 18px;
+}
+
+dt {
+  font-weight: 700;
+  color: #263241;
+}
+
+dd {
+  margin: 0 0 12px;
+  overflow-wrap: anywhere;
+}
+
+.editor {
+  padding: 18px;
+}
+
+textarea {
+  width: 100%;
+  height: 100%;
+  min-height: 360px;
+  resize: none;
+  border: 1px solid #c5ccd5;
+  border-radius: 6px;
+  padding: 14px;
+  background: #ffffff;
+  color: #17202a;
+  font: 14px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.metric {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #e3e8ef;
+  font-size: 13px;
+}
+
+.metric strong {
+  color: #155e3b;
+}
+
+.preview {
+  grid-column: 2 / 3;
+  padding: 0 18px 18px;
+}
+
+iframe {
+  width: 100%;
+  height: 100%;
+  border: 1px solid #c5ccd5;
+  border-radius: 4px;
+  background: white;
+}
+
+@media (max-width: 900px) {
+  .workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: 56px auto 380px auto 320px;
+  }
+
+  .rail,
+  .insights,
+  .preview {
+    grid-column: 1;
+  }
+}

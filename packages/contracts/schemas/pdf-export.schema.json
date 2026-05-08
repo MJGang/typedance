@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://typedance.local/schemas/pdf-export.schema.json",
+  "title": "PDFExport",
+  "type": "object",
+  "required": ["id", "resume_version_id", "file_path", "language", "layout_status", "created_at"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "resume_version_id": { "type": "string", "minLength": 1 },
+    "review_gate_result_id": { "type": ["string", "null"] },
+    "file_path": { "type": "string", "minLength": 1 },
+    "language": { "type": "string", "enum": ["zh-CN", "en-US"] },
+    "layout_profile": { "type": "string", "enum": ["single-page-a4", "multi-page-a4"] },
+    "layout_status": { "type": "string", "enum": ["ready", "overflow", "render_failed"] },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

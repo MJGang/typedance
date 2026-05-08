@@ -1,0 +1,9 @@
+{
+  "name": "@typedance/sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "uvicorn typedance_sidecar.main:app --reload --app-dir src --port 4317",
+    "test": "pytest"
+  }
+}

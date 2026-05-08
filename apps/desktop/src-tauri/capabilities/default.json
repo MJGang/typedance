@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Main TypeDance desktop window permissions",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "binaries/typedance-sidecar",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    }
+  ]
+}
