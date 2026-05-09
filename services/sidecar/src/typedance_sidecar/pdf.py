@@ -122,13 +122,15 @@ def _write_resume_pdf(resume: ResumeVersion, pdf_path: Path) -> None:
     """Generate a PDF from a ResumeVersion using fpdf2."""
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_auto_page_break(auto=True, margin=_MARGIN)
+    pdf.set_compression(False)
     pdf.add_page()
 
     # ── font setup ──
     cjk_font = _find_cjk_font()
     if cjk_font:
         font_path, _ = cjk_font
-        pdf.add_font("CJK", "", font_path, uni=True)
+        pdf.add_font("CJK", "", font_path)
+        pdf.add_font("CJK", "B", font_path)
         main_font = "CJK"
         is_cjk = True
     else:
