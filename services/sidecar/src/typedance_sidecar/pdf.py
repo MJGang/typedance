@@ -42,7 +42,7 @@ def _wrap_lines(text: str, max_width: float, font_size: float, cjk: bool) -> lis
 
 # ── font detection ─────────────────────────────────────────────────
 
-_FONT_CANDIDATES: dict[str, Sequence[tuple[str, str]]] = {
+_FONT_CANDIDATES: dict[str, list[tuple[str, str]]] = {
     "Windows": [
         ("C:\\Windows\\Fonts\\msyh.ttc", "Microsoft YaHei"),       # Simplified Chinese
         ("C:\\Windows\\Fonts\\simsun.ttc", "SimSun"),              # Chinese (serif)
@@ -127,13 +127,14 @@ def _write_resume_pdf(resume: ResumeVersion, pdf_path: Path) -> None:
     # ── font setup ──
     cjk_font = _find_cjk_font()
     if cjk_font:
-        font_path, font_name = cjk_font
+        font_path, _ = cjk_font
         pdf.add_font("CJK", "", font_path, uni=True)
         main_font = "CJK"
         is_cjk = True
     else:
-        # Fallback to built-in DejaVu (good for Latin/ASCII, blank for CJK)
-        main_font = pdf.font_name  # fpdf2 default
+        import warnings
+        warnings.warn("No system CJK font found; non-Latin characters may not render in PDF")
+        main_font = pdf.font_name
         is_cjk = False
 
     # ── title ──
@@ -158,3 +159,5 @@ def export_resume_pdf(resume: ResumeVersion, exports_dir: Path) -> Path:
     pdf_path = exports_dir / f"{resume.id}.pdf"
     _write_resume_pdf(resume, pdf_path)
     return pdf_path
+
+
