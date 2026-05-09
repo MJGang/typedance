@@ -94,7 +94,13 @@ export function App() {
   const handleEditorChange = useCallback((change: ResumeEditorChange) => {
     setText(change.plainText)
     setDocJson(change.docJson)
+    setSavedResume(null)
     setRunState("waiting_user_confirmation")
+  }, [])
+
+  const handleTargetLanguageChange = useCallback((language: TargetLanguage) => {
+    setSavedResume(null)
+    setTargetLanguage(language)
   }, [])
 
   const handleToggleJobPanel = useCallback(() => {
@@ -129,7 +135,7 @@ export function App() {
           reviewGate={reviewGate}
           isJobPanelOpen={isJobPanelOpen}
           onEditorChange={handleEditorChange}
-          onTargetLanguageChange={setTargetLanguage}
+          onTargetLanguageChange={handleTargetLanguageChange}
           onRunAction={handleRunAction}
           onToggleJobPanel={handleToggleJobPanel}
         />
