@@ -48,7 +48,7 @@ export function WorkspaceSidebar({ activeSection, copy, onSectionChange, setting
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent">
+            <SidebarMenuButton size="lg" className="cursor-default hover:bg-transparent">
               <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
                 <ClipboardCheck />
               </div>
