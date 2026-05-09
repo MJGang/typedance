@@ -1,6 +1,78 @@
+﻿"""
+Pure-Python PDF export using fpdf2.
+
+No native library dependencies. Supports Unicode/CJK text via system font detection.
+"""
+
+from __future__ import annotations
+
+import platform
 from pathlib import Path
+from typing import Sequence
+
+from fpdf import FPDF
 
 from .models import ResumeVersion
+
+# ── line wrapping ──────────────────────────────────────────────────
+
+
+def _wrap_lines(text: str, max_width: float, font_size: float, cjk: bool) -> list[str]:
+    """Split text into lines that fit within max_width."""
+    # CJK characters are roughly 2x the width of Latin characters in proportional fonts.
+    # We use a simple heuristic: count CJK vs Latin chars.
+    cjk_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff' or '\u3000' <= c <= '\u30ff')
+    latin_chars = len(text) - cjk_chars
+    char_width = 1.8 if cjk else 1.0  # approximate
+    avg_width = (cjk_chars * char_width + latin_chars * 1.0) / max(len(text), 1)
+    chars_per_line = max(int(max_width / (font_size * 0.5 * avg_width)), 1)
+
+    lines: list[str] = []
+    for paragraph in text.split("\n"):
+        while len(paragraph) > chars_per_line:
+            split_at = paragraph.rfind(" ", 0, chars_per_line)
+            if split_at < 1:
+                split_at = chars_per_line
+            lines.append(paragraph[:split_at])
+            paragraph = paragraph[split_at:].lstrip()
+        if paragraph:
+            lines.append(paragraph)
+    return lines if lines else [""]
+
+
+# ── font detection ─────────────────────────────────────────────────
+
+_FONT_CANDIDATES: dict[str, Sequence[tuple[str, str]]] = {
+    "Windows": [
+        ("C:\\Windows\\Fonts\\msyh.ttc", "Microsoft YaHei"),       # Simplified Chinese
+        ("C:\\Windows\\Fonts\\simsun.ttc", "SimSun"),              # Chinese (serif)
+        ("C:\\Windows\\Fonts\\mingliu.ttc", "MingLiU"),            # Traditional Chinese
+        ("C:\\Windows\\Fonts\\msgothic.ttc", "MS Gothic"),         # Japanese
+    ],
+    "Darwin": [
+        ("/System/Library/Fonts/PingFang.ttc", "PingFang"),         # macOS Chinese
+        ("/System/Library/Fonts/STHeiti Light.ttc", "STHeiti"),
+        ("/Library/Fonts/Arial Unicode.ttf", "Arial Unicode"),
+    ],
+    "Linux": [
+        ("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc", "Noto Sans CJK"),
+        ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "Noto Sans CJK"),
+        ("/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc", "Noto Sans CJK"),
+    ],
+}
+
+
+def _find_cjk_font() -> tuple[str, str] | None:
+    """Try to locate a system CJK font. Returns (path, name) or None."""
+    system = platform.system()
+    candidates = _FONT_CANDIDATES.get(system, [])
+    for path, name in candidates:
+        if Path(path).exists():
+            return (path, name)
+    return None
+
+
+# ── resume HTML rendering (kept for compatibility) ─────────────────
 
 
 def escape_html(value: str) -> str:
@@ -13,6 +85,7 @@ def escape_html(value: str) -> str:
 
 
 def render_resume_html(resume: ResumeVersion) -> str:
+    """Render a ResumeVersion to an HTML string (used for A4 preview, not for PDF anymore)."""
     lines = [line.strip() for line in resume.plain_text_snapshot.splitlines() if line.strip()]
     body = "".join(f"<p>{escape_html(line)}</p>" for line in lines)
     if not body:
@@ -37,55 +110,51 @@ def render_resume_html(resume: ResumeVersion) -> str:
 </html>"""
 
 
-def _pdf_escape(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+# ── PDF export ─────────────────────────────────────────────────────
+
+_PAGE_W = 210  # A4 width in mm
+_PAGE_H = 297  # A4 height in mm
+_MARGIN = 18   # mm
+_BODY_W = _PAGE_W - 2 * _MARGIN  # usable width
 
 
-def _write_basic_pdf(resume: ResumeVersion, pdf_path: Path) -> None:
-    lines = [resume.title, "", *resume.plain_text_snapshot.splitlines()]
-    y = 800
-    text_commands = ["BT", "/F1 12 Tf", "72 800 Td"]
-    for index, raw_line in enumerate(lines[:55]):
-        line = raw_line.encode("latin-1", errors="replace").decode("latin-1")
-        if index:
-            y -= 16
-            text_commands.append(f"0 -16 Td")
-        text_commands.append(f"({_pdf_escape(line)}) Tj")
-    text_commands.append("ET")
-    stream = "\n".join(text_commands).encode("latin-1")
+def _write_resume_pdf(resume: ResumeVersion, pdf_path: Path) -> None:
+    """Generate a PDF from a ResumeVersion using fpdf2."""
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=True, margin=_MARGIN)
+    pdf.add_page()
 
-    objects = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-        b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"\nendstream",
-    ]
+    # ── font setup ──
+    cjk_font = _find_cjk_font()
+    if cjk_font:
+        font_path, font_name = cjk_font
+        pdf.add_font("CJK", "", font_path, uni=True)
+        main_font = "CJK"
+        is_cjk = True
+    else:
+        # Fallback to built-in DejaVu (good for Latin/ASCII, blank for CJK)
+        main_font = pdf.font_name  # fpdf2 default
+        is_cjk = False
 
-    chunks = [b"%PDF-1.4\n"]
-    offsets = [0]
-    for number, payload in enumerate(objects, start=1):
-        offsets.append(sum(len(chunk) for chunk in chunks))
-        chunks.append(f"{number} 0 obj\n".encode("ascii") + payload + b"\nendobj\n")
+    # ── title ──
+    pdf.set_font(main_font, size=16, style="B")
+    pdf.cell(_BODY_W, 10, text=resume.title, new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
 
-    xref_offset = sum(len(chunk) for chunk in chunks)
-    xref = [b"xref\n", f"0 {len(objects) + 1}\n".encode("ascii"), b"0000000000 65535 f \n"]
-    for offset in offsets[1:]:
-        xref.append(f"{offset:010d} 00000 n \n".encode("ascii"))
-    chunks.extend(xref)
-    chunks.append(
-        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii")
-    )
-    pdf_path.write_bytes(b"".join(chunks))
+    # ── body ──
+    pdf.set_font(main_font, size=11)
+    for line in _wrap_lines(resume.plain_text_snapshot, _BODY_W, 11, is_cjk):
+        pdf.cell(_BODY_W, 6, text=line, new_x="LMARGIN", new_y="NEXT")
+
+    pdf.output(str(pdf_path))
 
 
 def export_resume_pdf(resume: ResumeVersion, exports_dir: Path) -> Path:
+    """Export a ResumeVersion to PDF.
+
+    Returns the Path to the generated PDF file.
+    """
     exports_dir.mkdir(parents=True, exist_ok=True)
     pdf_path = exports_dir / f"{resume.id}.pdf"
-    try:
-        from weasyprint import HTML
-
-        HTML(string=render_resume_html(resume)).write_pdf(pdf_path)
-    except OSError:
-        _write_basic_pdf(resume, pdf_path)
+    _write_resume_pdf(resume, pdf_path)
     return pdf_path
