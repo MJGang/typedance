@@ -11,6 +11,8 @@
     "lint": "eslint src --ext ts,tsx"
   },
   "dependencies": {
+    "@tiptap/react": "^3.23.1",
+    "@tiptap/starter-kit": "^3.23.1",
     "@typedance/contracts": "workspace:*",
     "@typedance/resume-renderer": "workspace:*",
     "lucide-react": "^0.511.0",
