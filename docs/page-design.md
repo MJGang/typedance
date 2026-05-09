@@ -61,6 +61,33 @@ TypeDance V1 的第一屏不是营销页，而是一个面向求职闭环的工�
 - 1366px 以下允许右侧 Rail 折叠为抽屉。
 - 768px 以下进入单列任务流：岗位、简历、证据、导出检查以 Tabs 切换。
 
+### 3.3 首屏优先级
+
+如果首屏只能让用户注意到 3 件事，顺序必须是：
+
+1. `Resume Canvas`：最终会被投递的简历内容和页数状态。
+2. `Review Gate`：这份简历现在能不能安全导出。
+3. `Current Job Target`：当前优化目标是哪一个岗位。
+
+第二层信息才是匹配分、证据覆盖率、关键词和最近 AI 建议。匹配分不能比 Review Gate 更抢眼；TypeDance 要优先回答“能不能投”和“为什么可信”，而不是制造游戏化分数焦虑。
+
+### 3.4 导航流
+
+```text
+Start
+  -> Import Resume / Start from Template
+  -> Paste Job Target
+  -> Add Evidence Sources
+  -> Select Resume Text
+  -> Run Resume Action
+  -> Review Context Preview
+  -> Accept / Edit / Reject Suggestion
+  -> Run Review Gate
+  -> Export PDF
+```
+
+用户可以跳过 `Add Evidence Sources`，但 UI 必须明确告诉用户：缺少资料库时，AI 只能做低可信的结构和表达建议，不能生成有证据背书的新经历。
+
 ---
 
 ## 4. 首屏状态
@@ -117,6 +144,7 @@ TypeDance V1 的第一屏不是营销页，而是一个面向求职闭环的工�
 - Resume Version 选择器
 - 本地存储状态：`Local`
 - 主题切换：`Light / Dark / System`
+- UI 语言切换：`中文 / English`
 - Run 状态：`Idle / Extracting evidence / Waiting for confirmation / Completed`
 - 主 CTA：`Export PDF`
 
@@ -125,6 +153,7 @@ TypeDance V1 的第一屏不是营销页，而是一个面向求职闭环的工�
 - 所有图标按钮使用 Lucide 图标，并提供 `aria-label`。
 - 导出按钮在 Review Gate 有风险时显示警示标记，但不使用红绿颜色作为唯一提示。
 - 本地状态点击后展示当前资料目录与权限摘要。
+- UI 语言只影响应用界面文案；简历目标语言跟随 Resume Version，不跟随 UI 语言。
 
 ### 5.2 Job Rail
 
@@ -232,6 +261,19 @@ P0 命令：
 - 风险提示
 - 操作：接受、编辑后接受、重新生成、拒绝
 
+### 6.4 用户旅程与情绪弧
+
+| Step | 用户动作 | 用户感受 | 页面要提供的支持 |
+| --- | --- | --- | --- |
+| 1 | 打开应用 | 不确定从哪里开始 | 空状态只给 3 个主入口：导入简历、从模板开始、粘贴 JD |
+| 2 | 导入旧简历 | 担心格式乱掉 | 显示 A4 预览、结构识别结果和可手动修复入口 |
+| 3 | 粘贴目标岗位 | 想知道值不值得投 | Job Rail 提炼公司、年限、薪资、关键词和硬性要求 |
+| 4 | 添加资料来源 | 担心隐私泄露 | Local 状态、路径授权、Secret 扫描和“不会静默上传”提示常驻 |
+| 5 | 运行 AI 动作 | 希望快，但不想失控 | Context Preview 先展示将发送内容，再允许确认运行 |
+| 6 | 查看建议 | 怀疑 AI 是否编造 | 建议卡绑定 Evidence Cards、风险标签和可展开来源 |
+| 7 | 接受改写 | 需要保持自己掌控 | 接受、编辑后接受、拒绝、重新生成并列，默认不覆盖正文 |
+| 8 | 导出 PDF | 需要确定可投递 | Review Gate 把阻塞项、建议修复项和强制导出分清楚 |
+
 ---
 
 ## 7. 状态与反馈
@@ -268,6 +310,19 @@ completed
 Toast 只用于短暂反馈，例如保存成功、导出完成。
 
 权限、风险、失败恢复不能只用 Toast，必须留在页面上的持久区域。
+
+### 7.4 交互状态矩阵
+
+| Feature | Loading | Empty | Error | Success | Partial |
+| --- | --- | --- | --- | --- | --- |
+| Resume Import | 文件名 + 解析进度，不遮挡页面 | 导入简历、从模板开始、粘贴 JD | 显示失败原因和重新选择入口 | A4 预览出现，结构摘要可检查 | 部分结构识别失败时显示可手动修复区域 |
+| Job Target | JD 解析中显示行内 skeleton | 粘贴 JD 或手动录入岗位 | 保留原文，提示哪些字段无法解析 | 岗位卡显示关键词、年限、薪资和要求 | 缺公司/薪资时用 `Not provided`，不编造 |
+| Evidence Vault | 来源逐条解析进度 | 添加文件、文件夹或手动文本 | 标记失败来源，允许移除或重试 | Evidence Cards 按来源类型归档 | 可用证据先显示，失败来源留在列表中 |
+| AI Action | 阶段进度：检查权限、准备上下文、生成建议 | 选中文本后提示可用命令 | 进入 `failed_retryable`，给出重试/换 Provider | 建议卡出现，默认等待用户处理 | 有证据建议和风险建议分组显示 |
+| Context Preview | Secret 扫描和上下文整理进度 | 无可发送内容时提示选择文本或证据 | 权限不足时展示授权入口 | 用户确认后进入运行状态 | 用户删减上下文后重新计算摘要 |
+| Review Gate | PDF/证据/敏感信息检查进度 | 简历为空时禁止导出并给入口 | 阻塞项固定显示在导出区域 | `Ready` 状态可导出 | 建议修复项和强制导出入口分开 |
+| Theme Switch | 无全屏 loading，立即切换 token | 默认 `System` | 本地设置写入失败时回退当前主题 | 偏好持久化并更新 `data-theme` | System 改变时只更新 resolved theme |
+| UI Language | 当前界面原地更新 | 默认跟随系统或安装语言 | 缺失翻译 key 显示 fallback 并记录 | 界面语言持久化 | 简历语言不受 UI 语言切换影响 |
 
 ---
 
@@ -448,6 +503,10 @@ Overlay:          rgba(2, 6, 23, 0.72)
 - 使用 Tabs：`Resume`、`Job`、`Evidence`、`Review`。
 - 导出按钮固定在底部操作栏。
 - A4 预览默认只读，编辑进入独立编辑模式。
+- 触控目标不小于 44px，工具栏按钮保持单行图标，不用长文字挤压。
+- Tabs 顺序固定为主任务顺序：`Resume -> Job -> Evidence -> Review`。
+- Context Preview 和 Evidence Drawer 在移动端使用全屏 sheet，不使用窄弹窗。
+- `/` action menu 在移动端改为底部命令面板，支持搜索和最近命令。
 
 ---
 
@@ -458,6 +517,9 @@ Overlay:          rgba(2, 6, 23, 0.72)
 - 表单输入必须有 label，不依赖 placeholder。
 - 图标按钮必须有 accessible name。
 - 所有功能必须可键盘操作。
+- 桌面端 `/` action menu 支持 ArrowUp、ArrowDown、Enter、Escape。
+- 抽屉和 modal 必须管理焦点：打开时聚焦标题或第一个操作，关闭后返回触发按钮。
+- 移动端触控目标不小于 44px。
 - Focus 顺序遵循视觉顺序：Top Bar -> Job Rail -> Resume Canvas -> Insight Rail。
 - 正文对比度不低于 4.5:1。
 - 大号标题和装饰性次要文本也不低于 3:1；交互控件边框和 focus ring 不低于 3:1。
@@ -493,7 +555,25 @@ Overlay:          rgba(2, 6, 23, 0.72)
 
 ---
 
-## 12. 设计验收标准
+## 12. 设计评审记录
+
+### 12.1 What already exists
+
+- 当前仓库没有可复用的前端组件或 `DESIGN.md`。
+- 已有设计依据来自 `docs/requirements.md`、`docs/product-vision.md` 和 `docs/engineering-plan.md`。
+- 当前文档中的 token、布局、状态和响应式规则将作为 V1 初始设计系统来源。
+
+### 12.2 NOT in scope
+
+- 不做营销首页：V1 的第一屏是工作台，用户目标是生成可投递简历。
+- 不做完整知识库浏览器：资料库只服务证据提取和简历可信度。
+- 不做投递 CRM：岗位版本只记录简历优化目标，不管理面试流程。
+- 不做用户可见 Agent 编排：内部多 Agent 只体现为动作状态和证据结果。
+- 不做 Dark PDF 模板：Dark 主题只影响应用外壳，简历预览保持最终 PDF 语义。
+
+---
+
+## 13. 设计验收标准
 
 1. 非工程用户能在首屏理解当前下一步。
 2. 用户能区分“自己的证据”和“外部岗位背景”。
@@ -505,3 +585,5 @@ Overlay:          rgba(2, 6, 23, 0.72)
 8. `Light / Dark / System` 三种主题都能切换、持久化，并跟随系统主题变化。
 9. 两种实际渲染主题下正文、静音文字、边框、按钮、状态标签和错误提示都通过对比度检查。
 10. Dark 模式下 A4 简历预览仍保持最终 PDF 的白纸黑字可读效果。
+11. 中英 UI 切换不改变 Resume Version 的目标语言和 PDF 排版语言。
+12. 所有 P0 Feature 都覆盖 loading、empty、error、success、partial 状态。
