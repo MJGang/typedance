@@ -1,97 +1,149 @@
-import { FileDown, HardDrive, Plus } from "lucide-react";
-import { useState } from "react";
-import type { ResumeVersion } from "@typedance/contracts";
-import { renderResumeHtml } from "@typedance/resume-renderer";
-import { createResumeVersion, exportResumePdf } from "./api";
-import "./styles.css";
-
-function makeDraftResume(snapshot: string): ResumeVersion {
-  const now = new Date().toISOString();
-  return {
-    id: "draft",
-    title: "我的目标岗位简历",
-    target_language: "zh-CN",
-    template_id: "classic-a4",
-    doc_json: { type: "doc", content: [] },
-    plain_text_snapshot: snapshot,
-    source_refs: [],
-    accepted_edit_ids: [],
-    created_at: now,
-    updated_at: now
-  };
-}
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { renderResumeHtml } from "@typedance/resume-renderer"
+import { createResumeVersion, exportResumePdf } from "./api"
+import { computeReviewGate, copy, evidenceCards, initialResumeText, jobTarget, makeDraftResume } from "./features/workspace/data"
+import { makeResumeDocFromText, type ResumeEditorChange } from "./features/workspace/editor"
+import { getSavedPreference, getSystemPrefersDark, resolveTheme } from "./features/workspace/theme"
+import type { RunState, TargetLanguage, ThemePreference, UiLanguage, WorkspaceSection } from "./features/workspace/types"
+import { WorkspaceLayout } from "./features/workspace/components/WorkspaceLayout"
+import { JobTargetPanel } from "./features/workspace/components/JobTargetPanel"
+import { ResumeCanvas } from "./features/workspace/components/ResumeCanvas"
+import { InsightPanel } from "./features/workspace/components/InsightPanel"
+import { QuickActions } from "./features/workspace/components/QuickActions"
+import "./styles.css"
+import type { ResumeVersion } from "@typedance/contracts"
 
 export function App() {
-  const [text, setText] = useState("张三\n全栈开发者\n\n负责 TypeDance 首版简历工作台的产品与工程落地。");
-  const [savedResume, setSavedResume] = useState<ResumeVersion | null>(null);
-  const [status, setStatus] = useState("Local draft");
-  const resume = makeDraftResume(text);
-  const preview = renderResumeHtml(savedResume ?? resume);
+  const [text, setText] = useState(initialResumeText)
+  const [docJson, setDocJson] = useState(() => makeResumeDocFromText(initialResumeText))
+  const [savedResume, setSavedResume] = useState<ResumeVersion | null>(null)
+  const [status, setStatus] = useState("Local draft")
+  const [runState, setRunState] = useState<RunState>("waiting_user_confirmation")
+  const [uiLanguage, setUiLanguage] = useState<UiLanguage>(() =>
+    getSavedPreference("typedance.uiLanguage", "zh-CN", ["zh-CN", "en-US"])
+  )
+  const [targetLanguage, setTargetLanguage] = useState<TargetLanguage>("zh-CN")
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
+    getSavedPreference("typedance.theme", "system", ["light", "dark", "system"])
+  )
+  const [systemPrefersDark, setSystemPrefersDark] = useState(getSystemPrefersDark)
+  const [activeSection, setActiveSection] = useState<WorkspaceSection>("workspace")
+  const [isJobPanelOpen, setIsJobPanelOpen] = useState(true)
 
-  async function handleCreateVersion() {
-    setStatus("Saving...");
+  const t = copy[uiLanguage]
+  const resume = useMemo(() => makeDraftResume(text, targetLanguage, docJson), [docJson, targetLanguage, text])
+  const preview = useMemo(() => renderResumeHtml(savedResume ?? resume), [resume, savedResume])
+  const reviewGate = useMemo(() => computeReviewGate(text), [text])
+  const resolvedTheme = resolveTheme(themePreference, systemPrefersDark)
+  const evidenceCoverage = Math.round((evidenceCards.filter((card) => card.type !== "external_background").length / 4) * 100)
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = resolvedTheme
+    document.documentElement.classList.toggle("dark", resolvedTheme === "dark")
+  }, [resolvedTheme])
+
+  useEffect(() => {
+    window.localStorage.setItem("typedance.theme", themePreference)
+  }, [themePreference])
+
+  useEffect(() => {
+    window.localStorage.setItem("typedance.uiLanguage", uiLanguage)
+  }, [uiLanguage])
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") {
+      return undefined
+    }
+
+    const media = window.matchMedia("(prefers-color-scheme: dark)")
+    const handleChange = (event: MediaQueryListEvent) => setSystemPrefersDark(event.matches)
+    media.addEventListener("change", handleChange)
+    return () => media.removeEventListener("change", handleChange)
+  }, [])
+
+  const handleCreateVersion = useCallback(async () => {
+    setStatus("Saving...")
     const created = await createResumeVersion({
       title: resume.title,
       target_language: resume.target_language,
       template_id: resume.template_id,
       doc_json: resume.doc_json,
-      plain_text_snapshot: resume.plain_text_snapshot
-    });
-    setSavedResume(created);
-    setStatus(`Saved ${created.id.slice(0, 14)}`);
-  }
+      plain_text_snapshot: resume.plain_text_snapshot,
+    })
+    setSavedResume(created)
+    setStatus(`Saved ${created.id.slice(0, 14)}`)
+  }, [resume])
 
-  async function handleExportPdf() {
+  const handleExportPdf = useCallback(async () => {
     if (!savedResume) {
-      await handleCreateVersion();
-      setStatus("Saved. Export again.");
-      return;
+      await handleCreateVersion()
+      setStatus("Saved. Export again after Review Gate.")
+      return
     }
-    setStatus("Exporting PDF...");
-    const exported = await exportResumePdf(savedResume.id);
-    setStatus(`Exported ${exported.file_path}`);
-  }
+
+    setStatus("Exporting PDF...")
+    const exported = await exportResumePdf(savedResume.id)
+    setStatus(`Exported ${exported.file_path}`)
+  }, [handleCreateVersion, savedResume])
+
+  const handleRunAction = useCallback(() => {
+    setRunState("running")
+    window.setTimeout(() => setRunState("completed"), 700)
+  }, [])
+
+  const handleEditorChange = useCallback((change: ResumeEditorChange) => {
+    setText(change.plainText)
+    setDocJson(change.docJson)
+    setRunState("waiting_user_confirmation")
+  }, [])
+
+  const handleToggleJobPanel = useCallback(() => {
+    setIsJobPanelOpen((isOpen) => !isOpen)
+  }, [])
 
   return (
-    <main className="workspace">
-      <header className="topbar">
-        <strong>TypeDance</strong>
-        <span className="local"><HardDrive size={16} /> {status}</span>
-        <button type="button" onClick={handleCreateVersion}>
-          <Plus size={16} /> Save version
-        </button>
-        <button type="button" onClick={handleExportPdf}>
-          <FileDown size={16} /> Export PDF
-        </button>
-      </header>
-      <aside className="rail">
-        <h2>目标岗位</h2>
-        <p>先粘贴 JD，下一阶段会接入岗位解析、关键词和匹配评分。</p>
-        <dl>
-          <dt>Version</dt>
-          <dd>{savedResume?.id ?? "Draft"}</dd>
-          <dt>Language</dt>
-          <dd>{resume.target_language}</dd>
-        </dl>
-      </aside>
-      <section className="editor">
-        <textarea aria-label="Resume text" value={text} onChange={(event) => setText(event.target.value)} />
-      </section>
-      <aside className="insights">
-        <h2>质量概览</h2>
-        <p>Slice 1 检查可编辑、可预览、可保存和可导出。证据链与 Review Gate 将在后续切片加入。</p>
-        <div className="metric">
-          <span>Editable</span>
-          <strong>Ready</strong>
-        </div>
-        <div className="metric">
-          <span>A4 Preview</span>
-          <strong>Ready</strong>
-        </div>
-      </aside>
-      <section className="preview" aria-label="A4 resume preview">
-        <iframe title="A4 resume preview" srcDoc={preview} />
-      </section>
-    </main>
-  );
+    <WorkspaceLayout
+      copy={t}
+      activeSection={activeSection}
+      status={status}
+      reviewGate={reviewGate}
+      onSectionChange={setActiveSection}
+      onSave={handleCreateVersion}
+      onExport={handleExportPdf}
+      settings={{
+        copy: t,
+        uiLanguage,
+        themePreference,
+        onUiLanguageChange: setUiLanguage,
+        onThemePreferenceChange: setThemePreference,
+      }}
+    >
+      <main className="td-workspace-shell" data-job-panel={isJobPanelOpen ? "open" : "closed"}>
+        <JobTargetPanel copy={t} jobTarget={jobTarget} isOpen={isJobPanelOpen} />
+        <ResumeCanvas
+          copy={t}
+          docJson={docJson}
+          preview={preview}
+          title={savedResume?.title ?? resume.title}
+          targetLanguage={targetLanguage}
+          reviewGate={reviewGate}
+          isJobPanelOpen={isJobPanelOpen}
+          onEditorChange={handleEditorChange}
+          onTargetLanguageChange={setTargetLanguage}
+          onRunAction={handleRunAction}
+          onToggleJobPanel={handleToggleJobPanel}
+        />
+        <InsightPanel
+          copy={t}
+          text={text}
+          runState={runState}
+          reviewGate={reviewGate}
+          evidenceCards={evidenceCards}
+          matchScore={jobTarget.matchScore}
+          evidenceCoverage={evidenceCoverage}
+        />
+        <QuickActions />
+      </main>
+    </WorkspaceLayout>
+  )
 }
