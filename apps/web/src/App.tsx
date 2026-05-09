@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { renderResumeHtml } from "@typedance/resume-renderer"
 import { createResumeVersion, exportResumePdf } from "./api"
 import { computeReviewGate, copy, evidenceCards, initialResumeText, jobTarget, makeDraftResume } from "./features/workspace/data"
@@ -31,11 +31,17 @@ export function App() {
   const [isJobPanelOpen, setIsJobPanelOpen] = useState(true)
 
   const t = copy[uiLanguage]
+  const draftKey = useMemo(() => JSON.stringify({ text, docJson, targetLanguage }), [docJson, targetLanguage, text])
+  const draftKeyRef = useRef(draftKey)
   const resume = useMemo(() => makeDraftResume(text, targetLanguage, docJson), [docJson, targetLanguage, text])
   const preview = useMemo(() => renderResumeHtml(savedResume ?? resume), [resume, savedResume])
   const reviewGate = useMemo(() => computeReviewGate(text), [text])
   const resolvedTheme = resolveTheme(themePreference, systemPrefersDark)
   const evidenceCoverage = Math.round((evidenceCards.filter((card) => card.type !== "external_background").length / 4) * 100)
+
+  useEffect(() => {
+    draftKeyRef.current = draftKey
+  }, [draftKey])
 
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme
@@ -62,6 +68,7 @@ export function App() {
   }, [])
 
   const handleCreateVersion = useCallback(async () => {
+    const requestDraftKey = draftKey
     setStatus("Saving...")
     const created = await createResumeVersion({
       title: resume.title,
@@ -70,14 +77,23 @@ export function App() {
       doc_json: resume.doc_json,
       plain_text_snapshot: resume.plain_text_snapshot,
     })
+
+    if (draftKeyRef.current !== requestDraftKey) {
+      setStatus("Saved older draft; current draft has changed.")
+      return null
+    }
+
     setSavedResume(created)
     setStatus(`Saved ${created.id.slice(0, 14)}`)
-  }, [resume])
+    return created
+  }, [draftKey, resume])
 
   const handleExportPdf = useCallback(async () => {
     if (!savedResume) {
-      await handleCreateVersion()
-      setStatus("Saved. Export again after Review Gate.")
+      const created = await handleCreateVersion()
+      if (created) {
+        setStatus("Saved. Export again after Review Gate.")
+      }
       return
     }
 
@@ -100,6 +116,7 @@ export function App() {
 
   const handleTargetLanguageChange = useCallback((language: TargetLanguage) => {
     setSavedResume(null)
+    setRunState("waiting_user_confirmation")
     setTargetLanguage(language)
   }, [])
 
