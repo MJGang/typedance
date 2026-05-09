@@ -52,4 +52,8 @@ describe("resume editor document utilities", () => {
 
     expect(resumeDocToPlainText(doc)).toBe("Alice\n\nBuilt TypeDance")
   })
+
+  it("returns empty text for malformed document content", () => {
+    expect(resumeDocToPlainText({ type: "doc", content: "abc" })).toBe("")
+  })
 })

@@ -39,7 +39,7 @@ export function makeResumeDocFromText(text: string): ResumeDocJson {
 }
 
 export function resumeDocToPlainText(doc: ResumeDocJson | Record<string, unknown>): string {
-  const root = isResumeNode(doc) ? doc : undefined
+  const root = isResumeDoc(doc) ? doc : undefined
 
   if (!root?.content?.length) {
     return ""
@@ -51,7 +51,11 @@ export function resumeDocToPlainText(doc: ResumeDocJson | Record<string, unknown
     .join("\n\n")
 }
 
-function collectNodeText(node: ResumeNodeJson): string {
+function collectNodeText(node: unknown): string {
+  if (!isResumeNode(node)) {
+    return ""
+  }
+
   if (typeof node.text === "string") {
     return node.text
   }
@@ -63,6 +67,19 @@ function collectNodeText(node: ResumeNodeJson): string {
   return node.content.map(collectNodeText).join(node.type === "paragraph" ? "" : "\n")
 }
 
-function isResumeNode(value: unknown): value is ResumeDocJson {
-  return Boolean(value && typeof value === "object" && "type" in value)
+function isResumeDoc(value: unknown): value is ResumeDocJson {
+  return (
+    isResumeNode(value) &&
+    value.type === "doc" &&
+    (value.content === undefined || Array.isArray(value.content))
+  )
+}
+
+function isResumeNode(value: unknown): value is ResumeNodeJson {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "type" in value &&
+      typeof value.type === "string",
+  )
 }
