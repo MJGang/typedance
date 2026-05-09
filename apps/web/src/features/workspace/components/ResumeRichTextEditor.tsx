@@ -1,5 +1,5 @@
 import { useEffect } from "react"
-import { EditorContent, useEditor } from "@tiptap/react"
+import { EditorContent, useEditor, useEditorState } from "@tiptap/react"
 import type { JSONContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import { Bold, Heading2, Italic, List, Pilcrow } from "lucide-react"
@@ -11,6 +11,20 @@ type ResumeRichTextEditorProps = {
   ariaLabel: string
   docJson: ResumeDocJson
   onChange: (change: ResumeEditorChange) => void
+}
+
+type ToolbarState = {
+  isBold: boolean
+  isItalic: boolean
+  isHeading2: boolean
+  isBulletList: boolean
+}
+
+const inactiveToolbarState: ToolbarState = {
+  isBold: false,
+  isItalic: false,
+  isHeading2: false,
+  isBulletList: false,
 }
 
 export function ResumeRichTextEditor({
@@ -35,6 +49,23 @@ export function ResumeRichTextEditor({
     },
   })
 
+  const toolbarState =
+    useEditorState<ToolbarState>({
+      editor,
+      selector: ({ editor }) => {
+        if (!editor) {
+          return inactiveToolbarState
+        }
+
+        return {
+          isBold: editor.isActive("bold"),
+          isItalic: editor.isActive("italic"),
+          isHeading2: editor.isActive("heading", { level: 2 }),
+          isBulletList: editor.isActive("bulletList"),
+        }
+      },
+    }) ?? inactiveToolbarState
+
   useEffect(() => {
     if (!editor || editor.isDestroyed) {
       return
@@ -44,16 +75,16 @@ export function ResumeRichTextEditor({
     const next = JSON.stringify(docJson)
 
     if (current !== next) {
-      editor.commands.setContent(docJson as unknown as JSONContent)
+      editor.commands.setContent(docJson as unknown as JSONContent, { emitUpdate: false })
     }
   }, [docJson, editor])
 
   return (
     <div className="td-rich-editor">
-      <div className="td-rich-editor-toolbar" aria-label="简历格式工具栏">
+      <div className="td-rich-editor-toolbar" role="toolbar" aria-label="简历格式工具栏">
         <Button
           type="button"
-          variant={editor?.isActive("bold") ? "default" : "outline"}
+          variant={toolbarState.isBold ? "default" : "outline"}
           size="icon"
           aria-label="加粗"
           onClick={() => editor?.chain().focus().toggleBold().run()}
@@ -63,7 +94,7 @@ export function ResumeRichTextEditor({
         </Button>
         <Button
           type="button"
-          variant={editor?.isActive("italic") ? "default" : "outline"}
+          variant={toolbarState.isItalic ? "default" : "outline"}
           size="icon"
           aria-label="斜体"
           onClick={() => editor?.chain().focus().toggleItalic().run()}
@@ -73,7 +104,7 @@ export function ResumeRichTextEditor({
         </Button>
         <Button
           type="button"
-          variant={editor?.isActive("heading", { level: 2 }) ? "default" : "outline"}
+          variant={toolbarState.isHeading2 ? "default" : "outline"}
           size="icon"
           aria-label="二级标题"
           onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
@@ -83,7 +114,7 @@ export function ResumeRichTextEditor({
         </Button>
         <Button
           type="button"
-          variant={editor?.isActive("bulletList") ? "default" : "outline"}
+          variant={toolbarState.isBulletList ? "default" : "outline"}
           size="icon"
           aria-label="无序列表"
           onClick={() => editor?.chain().focus().toggleBulletList().run()}
