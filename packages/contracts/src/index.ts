@@ -44,15 +44,17 @@ export const templateSampleContentSchema = z.object({
 export const templateStyleSlotSchema = z.object({
   label: z.string().min(1),
   class_name: z.string().min(1),
-  allowed_class_groups: z.array(z.string().min(1))
+  allowed_class_groups: z.array(z.string().min(1)).default([])
 });
 
 export const templateStyleConfigSchema = z.object({
   template_id: z.string().min(1),
-  slots: z.record(templateStyleSlotSchema)
+  slots: z.record(templateStyleSlotSchema),
+  updated_at: z.string().datetime()
 });
 
 export const pdfClassPolicyGroupSchema = z.object({
+  label: localizedTextSchema,
   allowlist: z.array(z.string().min(1)),
   blocklist: z.array(z.string().min(1)).default([])
 });
@@ -60,7 +62,8 @@ export const pdfClassPolicyGroupSchema = z.object({
 export const pdfClassPolicySchema = z.object({
   allowlist: z.array(z.string().min(1)),
   blocklist: z.array(z.string().min(1)).default([]),
-  groups: z.record(pdfClassPolicyGroupSchema)
+  groups: z.record(pdfClassPolicyGroupSchema),
+  updated_at: z.string().datetime()
 });
 
 export type ResumeVersion = z.infer<typeof resumeVersionSchema>;
