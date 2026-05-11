@@ -43,33 +43,55 @@ export const templateSampleContentSchema = z.object({
   updated_at: z.string().datetime()
 });
 
-export const templateStyleSlotSchema = z.object({
-  label: localizedTextSchema,
-  class_name: z.string().min(1),
-  allowed_class_groups: z.array(z.string().min(1)).default([])
+export const blockTypeSchema = z.enum([
+  "heading1", "heading2", "heading3",
+  "paragraph", "bulletList", "orderedList",
+]);
+
+export const borderBottomSchema = z.object({
+  style: z.enum(["none", "solid", "double"]).default("none"),
+  width: z.string().optional(),
+  color: z.string().optional(),
+});
+
+export const blockStyleSchema = z.object({
+  // 排版
+  fontFamily: z.string().optional(),
+  fontSize: z.string().optional(),
+  fontWeight: z.union([z.literal(400), z.literal(500), z.literal(600), z.literal(700)]).optional(),
+  lineHeight: z.number().positive().optional(),
+  letterSpacing: z.string().optional(),
+  textTransform: z.enum(["none", "uppercase", "capitalize"]).optional(),
+
+  // 颜色
+  color: z.string().optional(),
+  backgroundColor: z.string().optional(),
+
+  // 对齐
+  textAlign: z.enum(["left", "center", "right"]).optional(),
+
+  // 间距
+  marginTop: z.string().optional(),
+  marginBottom: z.string().optional(),
+
+  // 边框
+  borderBottom: borderBottomSchema.optional(),
+
+  // 列表专属
+  listStyleType: z.enum(["disc", "circle", "square", "decimal", "none"]).optional(),
+  paddingLeft: z.string().optional(),
 });
 
 export const templateStyleConfigSchema = z.object({
   template_id: z.string().min(1),
-  slots: z.record(templateStyleSlotSchema),
-  updated_at: z.string().datetime()
-});
-
-export const pdfClassPolicyGroupSchema = z.object({
-  label: localizedTextSchema,
-  allowlist: z.array(z.string().min(1)),
-  blocklist: z.array(z.string().min(1)).default([])
-});
-
-export const pdfClassPolicySchema = z.object({
-  allowlist: z.array(z.string().min(1)),
-  blocklist: z.array(z.string().min(1)).default([]),
-  groups: z.record(pdfClassPolicyGroupSchema),
-  updated_at: z.string().datetime()
+  preset: z.string().default("classic"),
+  blocks: z.record(blockTypeSchema, blockStyleSchema),
+  updated_at: z.string().datetime(),
 });
 
 export type ResumeVersion = z.infer<typeof resumeVersionSchema>;
 export type PDFExport = z.infer<typeof pdfExportSchema>;
 export type TemplateSampleContent = z.infer<typeof templateSampleContentSchema>;
 export type TemplateStyleConfig = z.infer<typeof templateStyleConfigSchema>;
-export type PdfClassPolicy = z.infer<typeof pdfClassPolicySchema>;
+export type BlockStyle = z.infer<typeof blockStyleSchema>;
+export type BlockType = z.infer<typeof blockTypeSchema>;
