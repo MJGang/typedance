@@ -1,11 +1,12 @@
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 
 Language = Literal["zh-CN", "en-US"]
+NonEmptyString = Annotated[str, StringConstraints(min_length=1)]
 
 
 def utc_now() -> str:
@@ -17,8 +18,8 @@ def default_doc_json() -> dict[str, Any]:
 
 
 class LocalizedText(BaseModel):
-    zh_cn: str = Field(alias="zh-CN")
-    en_us: str = Field(alias="en-US")
+    zh_cn: NonEmptyString = Field(alias="zh-CN")
+    en_us: NonEmptyString = Field(alias="en-US")
 
 
 class ResumeVersionCreate(BaseModel):
@@ -71,8 +72,8 @@ class TemplateSampleContent(BaseModel):
 
 class TemplateStyleSlot(BaseModel):
     label: LocalizedText
-    class_name: str = ""
-    allowed_class_groups: list[str] = Field(default_factory=list)
+    class_name: NonEmptyString
+    allowed_class_groups: list[NonEmptyString] = Field(default_factory=list)
 
 
 class TemplateStyleConfig(BaseModel):
@@ -83,13 +84,13 @@ class TemplateStyleConfig(BaseModel):
 
 class PdfClassPolicyGroup(BaseModel):
     label: LocalizedText
-    allowlist: list[str] = Field(default_factory=list)
-    blocklist: list[str] = Field(default_factory=list)
+    allowlist: list[NonEmptyString]
+    blocklist: list[NonEmptyString] = Field(default_factory=list)
 
 
 class PdfClassPolicy(BaseModel):
-    allowlist: list[str] = Field(default_factory=list)
-    blocklist: list[str] = Field(default_factory=list)
+    allowlist: list[NonEmptyString]
+    blocklist: list[NonEmptyString] = Field(default_factory=list)
     groups: dict[str, PdfClassPolicyGroup] = Field(default_factory=dict)
     updated_at: str = Field(default_factory=utc_now)
 
