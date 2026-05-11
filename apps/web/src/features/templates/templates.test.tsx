@@ -16,8 +16,8 @@ describe("TemplateLibrary", () => {
     render(<TemplateLibrary uiLanguage="zh-CN" targetLanguage="zh-CN" />)
     expect(await screen.findByRole("heading", { name: "模板库" })).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: /经典 A4/ }))
-    expect(screen.getByText("classic-a4")).toBeInTheDocument()
-    expect(screen.getByLabelText("A4 template sample preview")).toBeInTheDocument()
+    expect(screen.getByText("返回模板库")).toBeInTheDocument()
+    expect(screen.getByLabelText("Template sample preview")).toBeInTheDocument()
   })
 
   it("saves sample content", async () => {

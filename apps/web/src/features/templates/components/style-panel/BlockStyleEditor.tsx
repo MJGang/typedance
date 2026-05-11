@@ -1,4 +1,4 @@
-import type { BlockStyle, BlockType } from "../../../style-engine/types";
+import type { BlockStyle, BlockType } from "../../style-engine/types";
 import { TypographySection } from "./sections/TypographySection";
 import { ColorSection } from "./sections/ColorSection";
 import { SpacingSection } from "./sections/SpacingSection";

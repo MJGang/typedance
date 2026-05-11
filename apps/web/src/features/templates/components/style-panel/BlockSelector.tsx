@@ -1,5 +1,5 @@
-import type { BlockType } from "../../../style-engine/types";
-import { BLOCK_TYPES, BLOCK_TYPE_LABELS } from "../../../style-engine/types";
+import type { BlockType } from "../../style-engine/types";
+import { BLOCK_TYPES, BLOCK_TYPE_LABELS } from "../../style-engine/types";
 
 type BlockSelectorProps = {
   active: BlockType;

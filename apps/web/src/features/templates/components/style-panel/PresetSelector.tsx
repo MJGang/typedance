@@ -1,5 +1,5 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { getPresetNames } from "../../../style-engine/presets";
+import { getPresetNames } from "../../style-engine/presets";
 
 type PresetSelectorProps = {
   value: string;

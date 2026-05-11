@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { getTemplateSample, getTemplateStyle, saveTemplateSample, saveTemplateStyle } from "@/api"
-import type { TargetLanguage, UiLanguage, WorkspaceCopy } from "../../workspace/types"
+import type { TargetLanguage, UiLanguage } from "../../workspace/types"
 import { builtInSamples, defaultClassicA4Style, templateRegistry } from "../data"
 import type { ResumeTemplateDefinition, TemplateLibraryTab, TemplateSampleContent, TemplateStyleConfig } from "../types"
 import { TemplateCard } from "./TemplateCard"
@@ -8,7 +8,6 @@ import { TemplateDetail } from "./TemplateDetail"
 import { TemplateSampleEditor } from "./TemplateSampleEditor"
 
 type TemplateLibraryProps = {
-  copy: WorkspaceCopy
   uiLanguage: UiLanguage
   targetLanguage: TargetLanguage
 }

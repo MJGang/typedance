@@ -142,7 +142,7 @@ export function App() {
       }}
     >
       {activeSection === "templates" ? (
-        <TemplateLibrary copy={t} uiLanguage={uiLanguage} targetLanguage={targetLanguage} />
+        <TemplateLibrary uiLanguage={uiLanguage} targetLanguage={targetLanguage} />
       ) : (
         <main className="td-workspace-shell" data-job-panel={isJobPanelOpen ? "open" : "closed"}>
           <JobTargetPanel copy={t} jobTarget={jobTarget} isOpen={isJobPanelOpen} />

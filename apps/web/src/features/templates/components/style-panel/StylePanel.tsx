@@ -1,10 +1,10 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import type { BlockType, TemplateStyleConfig } from "../../../style-engine/types";
+import type { BlockType, TemplateStyleConfig } from "../../style-engine/types";
 import { BlockSelector } from "./BlockSelector";
 import { BlockStyleEditor } from "./BlockStyleEditor";
 import { PresetSelector } from "./PresetSelector";
 import { StyleStatusBar } from "./StyleStatusBar";
-import { getPreset } from "../../../style-engine/presets";
+import { getPreset } from "../../style-engine/presets";
 import { saveTemplateStyle } from "@/api";
 
 type StylePanelProps = {
