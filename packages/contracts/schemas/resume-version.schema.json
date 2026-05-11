@@ -12,6 +12,8 @@
     "template_id": { "type": "string", "minLength": 1 },
     "doc_json": { "type": "object" },
     "plain_text_snapshot": { "type": "string" },
+    "preview_pdf_path": { "type": ["string", "null"] },
+    "preview_pdf_url": { "type": ["string", "null"] },
     "source_refs": { "type": "array", "items": { "type": "string" } },
     "accepted_edit_ids": { "type": "array", "items": { "type": "string" } },
     "created_at": { "type": "string", "format": "date-time" },

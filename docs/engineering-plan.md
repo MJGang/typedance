@@ -166,7 +166,7 @@ SQLite 存结构化对象和索引，文件系统存原始导入文件、导出 
 | Entity | 关键字段 | 说明 |
 | --- | --- | --- |
 | `UserPreference` | `id`, `ui_locale`, `created_at`, `updated_at` | 应用级偏好。`ui_locale` 控制界面文案，不决定简历正文语言。 |
-| `ResumeVersion` | `id`, `title`, `job_target_id`, `target_language`, `template_id`, `doc_json`, `plain_text_snapshot`, `source_refs`, `accepted_edit_ids`, `created_at`, `updated_at` | 编辑态主对象。`target_language` 控制模板、AI 输出、Review Gate 文案和 PDF 排版；`doc_json` 使用 ProseMirror JSON。 |
+| `ResumeVersion` | `id`, `title`, `job_target_id`, `target_language`, `template_id`, `doc_json`, `plain_text_snapshot`, `preview_pdf_path`, `preview_pdf_url`, `source_refs`, `accepted_edit_ids`, `created_at`, `updated_at` | 编辑态主对象。`target_language` 控制模板、AI 输出、Review Gate 文案和 PDF 排版；`doc_json` 使用 ProseMirror JSON；`preview_pdf_path` 指向保存后生成的最新预览 PDF，`preview_pdf_url` 供前端 iframe 加载。 |
 | `JobTarget` | `id`, `title`, `company`, `jd_raw`, `jd_summary`, `keywords`, `salary_range`, `seniority`, `interest_level`, `created_at` | 轻量岗位模型，不做投递 CRM。 |
 | `EvidenceSource` | `id`, `type`, `display_name`, `uri`, `permission_grant_id`, `hash`, `read_status`, `error_summary` | 用户资料来源或目标 JD。 |
 | `EvidenceCard` | `id`, `source_id`, `source_type`, `locator`, `excerpt`, `summary`, `confidence`, `risk_tags`, `created_by_run_id` | 可引用证据片段。 |
@@ -297,13 +297,17 @@ ResumeVersion.doc_json + target_language
   |
   +--> TipTap Editor
   |
-  +--> A4 Preview HTML
+  +--> Save ResumeVersion
           |
           v
-Review Gate
-  |
-  v
-Controlled HTML/CSS Render
+      Controlled HTML/CSS Template
+          |
+          v
+      Preview PDF
+          |
+          +--> A4 PDF Preview
+          |
+          +--> PDF Export
   |
   v
 PDFExport
@@ -313,6 +317,7 @@ PDFExport
 
 - 编辑器保存和预览稳定。
 - PDF 导出只包含当前简历显式内容。
+- 预览和导出必须使用同一份保存后生成的 PDF 产物。
 - 中文和英文模板分别维护，导出时按目标语言选择字体和布局 profile。
 - 超页、空简历、字体 fallback、渲染失败都有明确提示。
 
@@ -457,9 +462,11 @@ running
 - 中文/英文模板和目标语言选择。
 - Markdown 导入。
 - TipTap 基础富文本编辑。
+- 保存 TipTap/ProseMirror JSON 作为 Resume Version 的主编辑数据。
 - Resume Version 保存。
-- A4 预览。
-- 受控 HTML/CSS 渲染。
+- 保存或更新 Resume Version 后生成预览 PDF。
+- 基于 TipTap JSON 套用受控 HTML/CSS 模板，再由 sidecar 生成 PDF。
+- A4 预览加载该 PDF；导出复用同一份 PDF 产物。
 - PDF 导出记录。
 
 不包含：
@@ -472,6 +479,7 @@ running
 
 - 一份模板简历可编辑、自动保存、预览和导出。
 - 中文模板和英文模板分别可创建，不依赖机器翻译。
+- 预览和导出使用同一份由 TipTap JSON + HTML/CSS 模板生成的 PDF，`plain_text_snapshot` 只作为搜索、兼容和导出失败诊断快照。
 - PDF 排版稳定，导出失败时保留预览并显示原因。
 - 空简历、超页、字体缺失有可理解提示。
 
@@ -480,7 +488,8 @@ running
 - ProseMirror JSON 保存/读取往返。
 - Markdown 导入样例。
 - UI locale 与 Resume Version target language 独立切换测试。
-- PDF 导出 smoke test。
+- 保存后预览 PDF 生成 smoke test。
+- PDF 导出复用最新预览 PDF 的 smoke test。
 - A4 页面分页和超页检查。
 
 ### Slice 2: Job Target Loop
@@ -740,7 +749,7 @@ PDF Pipeline
 | AI 输出 | 空内容、JSON 不合法、拒答 | provider mock | 不写入编辑器，进入失败状态 | “AI 返回内容无法使用” |
 | Evidence 验证 | 无证据主张被放行 | validation tests | 标记 `needs_confirmation` 或阻止 | “这条表达缺少证据” |
 | Review Gate | 超页/敏感信息漏检 | rule regression | 默认阻止导出 | “这份简历还有投递风险” |
-| PDF 导出 | 字体缺失、分页异常 | render regression | fallback 字体/保留 HTML 预览 | “PDF 导出失败，预览未丢失” |
+| PDF 导出 | 字体缺失、分页异常 | render regression | fallback 字体/保留上一份可用 PDF 预览 | “PDF 导出失败，预览未丢失” |
 | 双语 PDF 排版 | 中文断行异常或英文字体 fallback 错误 | zh/en render fixtures | 按目标语言选择 fallback 字体和布局 profile | “当前字体不可用，已使用备用字体” |
 | Checkpoint 恢复 | checkpoint 损坏 | corrupt fixture | 恢复已完成节点，提示重跑缺失步骤 | “任务只能部分恢复” |
 
@@ -755,8 +764,8 @@ PDF Pipeline
 | App cold start | 首屏可见 < 3s，sidecar 健康 < 5s。 |
 | Locale switch | UI 文案切换 < 200ms，不触发简历正文重写。 |
 | Resume save | 绝大多数保存 < 200ms，失败可重试。 |
-| A4 preview update | 编辑后节流更新，避免每次 keystroke 重渲染 PDF。 |
-| PDF export | 常规 1-2 页简历 < 10s，失败保留 HTML 预览。 |
+| A4 preview update | 保存或自动保存后生成预览 PDF；编辑中避免每次 keystroke 重渲染 PDF。 |
+| PDF export | 常规 1-2 页简历 < 10s；优先复用最新预览 PDF，失败保留上一份可用预览。 |
 | Evidence extraction | 长资料异步执行，UI 展示进度和部分结果。 |
 | AI streaming | 首 token 或首事件 < 3s；长等待必须有状态。 |
 | Local storage | 原始资料和缓存可清理；日志不无限增长。 |
@@ -766,7 +775,7 @@ PDF Pipeline
 - PDF 导出和资料解析必须在 sidecar worker 中执行，不能阻塞 React UI。
 - i18n message bundle 按语言静态拆分；V1 只内置 `zh-CN` 和 `en-US`。
 - Evidence extraction 按来源分批，允许 partial 成功。
-- A4 预览使用轻量 HTML 预览，最终 PDF 渲染只在导出或显式预览时触发。
+- A4 预览加载保存后生成的 PDF；HTML/CSS 只作为 sidecar 内部模板中间产物，不作为用户最终预览。
 - 大文件夹/代码项目扫描必须有文件数、大小、token/cost budget。
 
 ---

@@ -10,7 +10,7 @@ import { ResumeRichTextEditor } from "./ResumeRichTextEditor"
 type ResumeCanvasProps = {
   copy: WorkspaceCopy
   docJson: ResumeDocJson
-  preview: string
+  previewPdfUrl: string | null
   title: string
   targetLanguage: TargetLanguage
   reviewGate: ReviewGateResult
@@ -24,7 +24,7 @@ type ResumeCanvasProps = {
 export function ResumeCanvas({
   copy,
   docJson,
-  preview,
+  previewPdfUrl,
   title,
   targetLanguage,
   reviewGate,
@@ -91,7 +91,11 @@ export function ResumeCanvas({
                   <DialogDescription>{reviewGate.status === "ready" ? "Ready" : "Needs review"}</DialogDescription>
                 </DialogHeader>
                 <div className="td-preview-modal-body">
-                  <iframe title="A4 resume preview" aria-label="A4 resume preview" srcDoc={preview} />
+                  {previewPdfUrl ? (
+                    <iframe title="A4 resume preview" aria-label="A4 resume preview" src={previewPdfUrl} />
+                  ) : (
+                    <div aria-label="A4 resume preview">保存后生成 PDF 预览。</div>
+                  )}
                 </div>
               </DialogContent>
             </Dialog>

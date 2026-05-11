@@ -2,6 +2,58 @@
 import { renderResumeHtml } from "../src/index";
 
 describe("renderResumeHtml", () => {
+  it("renders TipTap JSON as the canonical resume content", () => {
+    const html = renderResumeHtml({
+      id: "resume_json",
+      title: "Fallback Title",
+      target_language: "en-US",
+      template_id: "classic-a4",
+      doc_json: {
+        type: "doc",
+        content: [
+          {
+            type: "heading",
+            attrs: { level: 1 },
+            content: [{ type: "text", text: "Ada Lovelace" }],
+          },
+          {
+            type: "paragraph",
+            content: [
+              { type: "text", text: "Computing pioneer with " },
+              { type: "text", text: "analytical", marks: [{ type: "bold" }] },
+              { type: "text", text: " experience." },
+            ],
+          },
+          {
+            type: "bulletList",
+            content: [
+              {
+                type: "listItem",
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [{ type: "text", text: "Designed programmable computation notes" }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      plain_text_snapshot: "Stale snapshot that must not render",
+      source_refs: [],
+      accepted_edit_ids: [],
+      created_at: "2026-05-08T08:00:00.000Z",
+      updated_at: "2026-05-08T08:00:00.000Z"
+    });
+
+    expect(html).toContain("<h1>Ada Lovelace</h1>");
+    expect(html).toContain("<strong>analytical</strong>");
+    expect(html).toContain("<ul>");
+    expect(html).toContain("<li>Designed programmable computation notes</li>");
+    expect(html).not.toContain("Stale snapshot");
+  });
+
   it("renders first line as h1 and escapes special characters", () => {
     const html = renderResumeHtml({
       id: "resume_1",

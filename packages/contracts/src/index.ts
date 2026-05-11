@@ -10,6 +10,8 @@ export const resumeVersionSchema = z.object({
   template_id: z.string().min(1),
   doc_json: z.record(z.unknown()),
   plain_text_snapshot: z.string(),
+  preview_pdf_path: z.string().nullable().optional(),
+  preview_pdf_url: z.string().nullable().optional(),
   source_refs: z.array(z.string()).default([]),
   accepted_edit_ids: z.array(z.string()).default([]),
   created_at: z.string().datetime(),

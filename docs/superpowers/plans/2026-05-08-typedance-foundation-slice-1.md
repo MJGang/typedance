@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the initial TypeDance monorepo and deliver Slice 1: users can create or edit a resume, see an A4 preview, persist it locally through the sidecar, and export a controlled PDF artifact.
+**Goal:** Build the initial TypeDance monorepo and deliver Slice 1: users can create or edit a resume, persist the TipTap/ProseMirror JSON as the canonical resume document, generate a PDF preview when the resume is saved, preview that PDF in the workspace, and export the same PDF artifact.
 
-**Architecture:** Use the structure already proposed in `docs/engineering-plan.md`: `apps/web` owns the React workspace UI, `services/sidecar` owns local persistence and PDF rendering APIs, and `packages/contracts` defines the shared JSON Schemas that drive generated TypeScript and Python models. Tauri is represented by a scaffolded `apps/desktop` shell configuration in this slice, but full installer packaging waits until the web and sidecar are demonstrably useful.
+**Architecture:** Use the structure already proposed in `docs/engineering-plan.md`: `apps/web` owns the React workspace UI, `services/sidecar` owns local persistence and PDF rendering APIs, and `packages/contracts` defines the shared JSON Schemas that drive generated TypeScript and Python models. Resume editing stays free-form in Slice 1, but persistence and rendering are anchored on TipTap/ProseMirror JSON: `doc_json` is the canonical document, while `plain_text_snapshot` is only a search, compatibility, and diagnostics snapshot. The sidecar turns saved `doc_json` plus `template_id` into controlled HTML/CSS, then turns that HTML into a preview PDF. The workspace preview loads that PDF, and export reuses the same artifact so preview and export cannot drift. Tauri is represented by a scaffolded `apps/desktop` shell configuration in this slice, but full installer packaging waits until the web and sidecar are demonstrably useful.
 
 **Tech Stack:** pnpm workspaces, Vite, React, TypeScript, Vitest, Playwright, FastAPI, Pydantic, SQLite, pytest, WeasyPrint, JSON Schema, Tauri 2 configuration.
 
@@ -14,11 +14,11 @@
 
 - Create `package.json`: root scripts for install, lint, test, dev, and build.
 - Create `pnpm-workspace.yaml`: workspace package discovery.
-- Create `apps/web`: Vite React app with workspace shell, editor state, A4 preview, API client, and tests.
+- Create `apps/web`: Vite React app with workspace shell, TipTap editor state, PDF preview iframe, API client, and tests.
 - Create `apps/desktop/src-tauri`: Tauri 2 scaffold, sidecar binary allow-list, and desktop command boundary documentation.
-- Create `services/sidecar`: FastAPI app, SQLite repository, PDF rendering pipeline, and pytest suite.
+- Create `services/sidecar`: FastAPI app, SQLite repository, saved-preview PDF rendering pipeline, and pytest suite.
 - Create `packages/contracts`: JSON Schemas for `ResumeVersion`, `PDFExport`, and generated TypeScript/Python type entrypoints.
-- Create `packages/resume-renderer`: shared HTML/CSS resume rendering helpers used by preview and PDF export.
+- Create `packages/resume-renderer`: shared HTML/CSS resume template helpers that render from TipTap/ProseMirror JSON as the sidecar PDF input.
 - Modify `docs/README.md`: link the implementation plan and state Slice 1 scope.
 
 ## Scope Lock
@@ -26,6 +26,8 @@
 This plan implements Slice 0 and Slice 1 from `docs/engineering-plan.md`.
 
 It intentionally does not implement AI rewrite, Evidence Vault, Job Target parsing, Review Gate, provider configuration, PDF import, or full Tauri installer packaging. The data boundaries leave room for those slices without building UI or service complexity before it is needed.
+
+Slice 1 also does not try to prove that arbitrary user text is semantically a resume. That check belongs to a later AI-assisted Resume Understanding or Review Gate slice. In this slice, the editor remains flexible, but the saved and rendered artifact must be reproducible from the TipTap JSON document rather than from the transient editor DOM. HTML is an internal template artifact; the user-facing preview and exported file are both the generated PDF.
 
 ### Task 1: Root Workspace
 
@@ -185,6 +187,8 @@ Create `packages/contracts/schemas/resume-version.schema.json`:
     "template_id": { "type": "string", "minLength": 1 },
     "doc_json": { "type": "object" },
     "plain_text_snapshot": { "type": "string" },
+    "preview_pdf_path": { "type": ["string", "null"] },
+    "preview_pdf_url": { "type": ["string", "null"] },
     "source_refs": { "type": "array", "items": { "type": "string" } },
     "accepted_edit_ids": { "type": "array", "items": { "type": "string" } },
     "created_at": { "type": "string", "format": "date-time" },
@@ -193,6 +197,8 @@ Create `packages/contracts/schemas/resume-version.schema.json`:
   "additionalProperties": false
 }
 ```
+
+`doc_json` stores the TipTap/ProseMirror document and is the canonical editable content for preview and export. `plain_text_snapshot` is derived from `doc_json`; use it for search, status messages, compatibility, and diagnostics only. Do not make preview or PDF export depend on arbitrary editor DOM or on `plain_text_snapshot` as the primary rendering source.
 
 - [ ] **Step 4: Add PDFExport schema**
 
@@ -236,6 +242,8 @@ export const resumeVersionSchema = z.object({
   template_id: z.string().min(1),
   doc_json: z.record(z.unknown()),
   plain_text_snapshot: z.string(),
+  preview_pdf_path: z.string().nullable().optional(),
+  preview_pdf_url: z.string().nullable().optional(),
   source_refs: z.array(z.string()).default([]),
   accepted_edit_ids: z.array(z.string()).default([]),
   created_at: z.string().datetime(),
@@ -632,6 +640,8 @@ export function renderResumeHtml(resume: ResumeVersion): string {
 }
 ```
 
+Implementation note: the first implementation may support a small subset of TipTap nodes from `StarterKit` such as paragraph, heading, bullet list, ordered list, list item, bold, italic, and hard break. Unknown nodes should degrade to their text content instead of crashing. The renderer should generate a full HTML document with the `classic-a4` resume CSS. This HTML is the sidecar's internal PDF input, not the final user-facing preview.
+
 - [ ] **Step 4: Write renderer test**
 
 Create `packages/resume-renderer/tests/render.test.ts`:
@@ -773,7 +783,6 @@ Create `apps/web/src/App.tsx`:
 import { FileDown, HardDrive, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ResumeVersion } from "@typedance/contracts";
-import { renderResumeHtml } from "@typedance/resume-renderer";
 import { createResumeVersion } from "./api";
 import "./styles.css";
 
@@ -796,12 +805,13 @@ function makeDraftResume(snapshot: string): ResumeVersion {
 export function App() {
   const [text, setText] = useState("张三\n全栈开发者\n\n负责 TypeDance 首版简历工作台的产品与工程落地。");
   const [status, setStatus] = useState("Local draft");
+  const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
   const resume = useMemo(() => makeDraftResume(text), [text]);
-  const preview = useMemo(() => renderResumeHtml(resume), [resume]);
 
   async function handleCreateVersion() {
     const created = await createResumeVersion(resume.title);
     setStatus(`Saved ${created.id}`);
+    setPreviewPdfUrl(created.preview_pdf_url ?? null);
   }
 
   return (
@@ -828,7 +838,11 @@ export function App() {
         <p>当前 Slice 仅检查可编辑、可预览、可保存。</p>
       </aside>
       <section className="preview" aria-label="A4 resume preview">
-        <iframe title="A4 resume preview" srcDoc={preview} />
+        {previewPdfUrl ? (
+          <iframe title="A4 resume preview" src={previewPdfUrl} />
+        ) : (
+          <p>保存后生成 PDF 预览。</p>
+        )}
       </section>
     </main>
   );
@@ -912,14 +926,14 @@ git add apps/web
 git commit -m "feat: add resume workspace shell"
 ```
 
-### Task 6: PDF Export Endpoint
+### Task 6: Saved PDF Preview and Export Endpoint
 
 **Files:**
 - Modify: `services/sidecar/src/typedance_sidecar/main.py`
 - Create: `services/sidecar/src/typedance_sidecar/pdf.py`
 - Create: `services/sidecar/tests/test_pdf_export.py`
 
-- [ ] **Step 1: Add PDF renderer**
+- [ ] **Step 1: Add TipTap JSON to HTML to PDF renderer**
 
 Create `services/sidecar/src/typedance_sidecar/pdf.py`:
 
@@ -969,14 +983,16 @@ def export_resume_pdf(resume: ResumeVersion, exports_dir: Path) -> Path:
     return pdf_path
 ```
 
-- [ ] **Step 2: Add export route**
+Implementation note: PDF generation should consume the saved `ResumeVersion.doc_json`, apply the selected `template_id` as controlled HTML/CSS, and generate a PDF from that HTML. `plain_text_snapshot` is allowed as a fallback for diagnostics, but not as the normal source of PDF layout. The generated PDF is the user-facing preview artifact.
+
+- [ ] **Step 2: Generate preview PDF on save and add export route**
 
 Modify `services/sidecar/src/typedance_sidecar/main.py`:
 
 ```py
 from fastapi import Depends, FastAPI, HTTPException
 
-from .pdf import export_resume_pdf
+from .pdf import ensure_preview_pdf
 
 
 @app.post("/exports/pdf/{resume_id}", status_code=201)
@@ -985,7 +1001,7 @@ def export_pdf(resume_id: str, repo: ResumeRepository = Depends(resume_repositor
     if resume is None:
         raise HTTPException(status_code=404, detail="Resume version not found")
 
-    pdf_path = export_resume_pdf(resume, app_data_dir() / "files" / "exports")
+    pdf_path = ensure_preview_pdf(resume, app_data_dir() / "files" / "previews")
     return {
         "id": f"pdf_{resume.id}",
         "resume_version_id": resume.id,
@@ -993,10 +1009,12 @@ def export_pdf(resume_id: str, repo: ResumeRepository = Depends(resume_repositor
         "language": resume.target_language,
         "layout_status": "ready",
         "created_at": resume.updated_at
-    }
+}
 ```
 
-- [ ] **Step 3: Add PDF export test**
+The `POST /resume-versions` and `PATCH /resume-versions/{id}` paths should refresh the preview PDF after saving the Resume Version and return enough information for the web app to load it. Export should reuse the latest preview PDF, regenerating only when the file is missing.
+
+- [ ] **Step 3: Add preview and export tests**
 
 Create `services/sidecar/tests/test_pdf_export.py`:
 
@@ -1008,7 +1026,26 @@ from fastapi.testclient import TestClient
 from typedance_sidecar.main import app
 
 
-def test_export_pdf_creates_file(tmp_path, monkeypatch):
+def test_save_generates_preview_pdf(tmp_path, monkeypatch):
+    monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
+    client = TestClient(app)
+    response = client.post(
+        "/resume-versions",
+        json={
+            "title": "Backend Engineer",
+            "target_language": "en-US",
+            "plain_text_snapshot": "Built reliable PDF export."
+        },
+    )
+
+    assert response.status_code == 201
+    created = response.json()
+    preview_path = Path(created["preview_pdf_path"])
+    assert preview_path.exists()
+    assert preview_path.suffix == ".pdf"
+
+
+def test_export_pdf_reuses_preview_pdf(tmp_path, monkeypatch):
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
     client = TestClient(app)
     created = client.post(
@@ -1019,7 +1056,6 @@ def test_export_pdf_creates_file(tmp_path, monkeypatch):
             "plain_text_snapshot": "Built reliable PDF export."
         },
     ).json()
-
     response = client.post(f"/exports/pdf/{created['id']}")
 
     assert response.status_code == 201
@@ -1027,13 +1063,14 @@ def test_export_pdf_creates_file(tmp_path, monkeypatch):
     assert pdf_path.exists()
     assert pdf_path.suffix == ".pdf"
     assert pdf_path.stat().st_size > 0
+    assert str(pdf_path) == created["preview_pdf_path"]
 ```
 
-- [ ] **Step 4: Verify PDF export**
+- [ ] **Step 4: Verify saved preview and PDF export**
 
 Run: `cd services/sidecar && pytest`
 
-Expected: resume persistence and PDF export tests pass.
+Expected: resume persistence, saved preview PDF, and export reuse tests pass.
 
 - [ ] **Step 5: Commit**
 
@@ -1221,6 +1258,7 @@ test("workspace opens directly to resume editing", async ({ page }) => {
 
   await expect(page.getByText("TypeDance")).toBeVisible();
   await expect(page.getByLabel("Resume text")).toBeVisible();
+  await page.getByRole("button", { name: /Save version|保存版本/ }).click();
   await expect(page.getByLabel("A4 resume preview")).toBeVisible();
 });
 ```

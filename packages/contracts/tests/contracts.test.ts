@@ -15,6 +15,8 @@ describe("resumeVersionSchema", () => {
       template_id: "classic-a4",
       doc_json: { type: "doc", content: [] },
       plain_text_snapshot: "",
+      preview_pdf_path: null,
+      preview_pdf_url: null,
       created_at: "2026-05-08T08:00:00.000Z",
       updated_at: "2026-05-08T08:00:00.000Z"
     });

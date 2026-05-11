@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { renderResumeHtml } from "@typedance/resume-renderer"
 import { createResumeVersion, exportResumePdf } from "./api"
 import { computeReviewGate, copy, evidenceCards, initialResumeText, jobTarget, makeDraftResume } from "./features/workspace/data"
 import { makeResumeDocFromText, type ResumeEditorChange } from "./features/workspace/editor"
@@ -35,7 +34,7 @@ export function App() {
   const draftKey = useMemo(() => JSON.stringify({ text, docJson, targetLanguage }), [docJson, targetLanguage, text])
   const draftKeyRef = useRef(draftKey)
   const resume = useMemo(() => makeDraftResume(text, targetLanguage, docJson), [docJson, targetLanguage, text])
-  const preview = useMemo(() => renderResumeHtml(savedResume ?? resume), [resume, savedResume])
+  const previewPdfUrl = savedResume?.preview_pdf_url ?? null
   const reviewGate = useMemo(() => computeReviewGate(text), [text])
   const resolvedTheme = resolveTheme(themePreference, systemPrefersDark)
   const evidenceCoverage = Math.round((evidenceCards.filter((card) => card.type !== "external_background").length / 4) * 100)
@@ -150,7 +149,7 @@ export function App() {
           <ResumeCanvas
             copy={t}
             docJson={docJson}
-            preview={preview}
+            previewPdfUrl={previewPdfUrl}
             title={savedResume?.title ?? resume.title}
             targetLanguage={targetLanguage}
             reviewGate={reviewGate}

@@ -1,8 +1,9 @@
 import os
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from .db import AppSettingsRepository, ResumeRepository, TemplateSampleRepository, TemplateStyleRepository, connect
 from .models import (
@@ -51,6 +52,16 @@ def app_settings_repository() -> AppSettingsRepository:
     return AppSettingsRepository(connect(app_data_dir() / "typedance.sqlite"))
 
 
+def preview_pdf_dir() -> Path:
+    return app_data_dir() / "files" / "previews"
+
+
+def with_preview_pdf(resume: ResumeVersion, request: Request) -> ResumeVersion:
+    pdf_path = export_resume_pdf(resume, preview_pdf_dir())
+    preview_url = str(request.url_for("get_preview_pdf", resume_id=resume.id))
+    return resume.model_copy(update={"preview_pdf_path": str(pdf_path), "preview_pdf_url": preview_url})
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "version": "0.1.0"}
@@ -64,22 +75,24 @@ def list_resume_versions(repo: ResumeRepository = Depends(resume_repository)) ->
 @app.post("/resume-versions", response_model=ResumeVersion, status_code=201)
 def create_resume_version(
     payload: ResumeVersionCreate,
+    request: Request,
     repo: ResumeRepository = Depends(resume_repository),
 ) -> ResumeVersion:
     resume = ResumeVersion.new(payload)
-    return repo.save(resume)
+    return repo.save(with_preview_pdf(resume, request))
 
 
 @app.patch("/resume-versions/{resume_id}", response_model=ResumeVersion)
 def update_resume_version(
     resume_id: str,
     payload: ResumeVersionUpdate,
+    request: Request,
     repo: ResumeRepository = Depends(resume_repository),
 ) -> ResumeVersion:
     resume = repo.get(resume_id)
     if resume is None:
         raise HTTPException(status_code=404, detail="Resume version not found")
-    return repo.save(resume.apply_update(payload))
+    return repo.save(with_preview_pdf(resume.apply_update(payload), request))
 
 
 @app.get("/template-samples/{sample_id}", response_model=TemplateSampleContent)
@@ -146,13 +159,29 @@ def save_pdf_class_policy(
     return repo.save_pdf_class_policy(payload.model_copy(update={"updated_at": utc_now()}))
 
 
+@app.get("/previews/{resume_id}.pdf", name="get_preview_pdf")
+def get_preview_pdf(resume_id: str, repo: ResumeRepository = Depends(resume_repository)) -> FileResponse:
+    resume = repo.get(resume_id)
+    if resume is None or resume.preview_pdf_path is None:
+        raise HTTPException(status_code=404, detail="Preview PDF not found")
+
+    pdf_path = Path(resume.preview_pdf_path)
+    if not pdf_path.exists():
+        raise HTTPException(status_code=404, detail="Preview PDF not found")
+
+    return FileResponse(pdf_path, media_type="application/pdf", filename=f"{resume.id}.pdf")
+
+
 @app.post("/exports/pdf/{resume_id}", status_code=201)
-def export_pdf(resume_id: str, repo: ResumeRepository = Depends(resume_repository)) -> dict[str, str]:
+def export_pdf(resume_id: str, request: Request, repo: ResumeRepository = Depends(resume_repository)) -> dict[str, str]:
     resume = repo.get(resume_id)
     if resume is None:
         raise HTTPException(status_code=404, detail="Resume version not found")
 
-    pdf_path = export_resume_pdf(resume, app_data_dir() / "files" / "exports")
+    if resume.preview_pdf_path is None or not Path(resume.preview_pdf_path).exists():
+        resume = repo.save(with_preview_pdf(resume, request))
+
+    pdf_path = Path(resume.preview_pdf_path)
     return {
         "id": f"pdf_{resume.id}",
         "resume_version_id": resume.id,

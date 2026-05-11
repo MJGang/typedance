@@ -46,6 +46,8 @@ class ResumeVersion(BaseModel):
     template_id: str
     doc_json: dict[str, Any]
     plain_text_snapshot: str
+    preview_pdf_path: str | None = None
+    preview_pdf_url: str | None = None
     source_refs: list[str] = Field(default_factory=list)
     accepted_edit_ids: list[str] = Field(default_factory=list)
     created_at: str
