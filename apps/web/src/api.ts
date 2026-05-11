@@ -1,4 +1,13 @@
-import { resumeVersionSchema, type ResumeVersion } from "@typedance/contracts";
+import {
+  pdfClassPolicySchema,
+  resumeVersionSchema,
+  templateSampleContentSchema,
+  templateStyleConfigSchema,
+  type PdfClassPolicy,
+  type ResumeVersion,
+  type TemplateSampleContent,
+  type TemplateStyleConfig,
+} from "@typedance/contracts";
 
 const baseUrl = import.meta.env.VITE_SIDECAR_URL ?? "http://127.0.0.1:4317";
 
@@ -24,4 +33,81 @@ export async function exportResumePdf(resumeId: string): Promise<{ file_path: st
   }
 
   return response.json() as Promise<{ file_path: string }>;
+}
+
+async function parseTemplateResponse<T>(
+  response: Response,
+  parser: (value: unknown) => T,
+  fallbackMessage: string,
+): Promise<T> {
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const details = Array.isArray(payload?.detail)
+      ? payload.detail
+          .map((item: { class_name?: string; reason?: string }) => `${item.class_name ?? "class"}:${item.reason ?? "invalid"}`)
+          .join(", ")
+      : `${response.status}`;
+    throw new Error(`${fallbackMessage}: ${details}`);
+  }
+
+  return parser(payload);
+}
+
+export async function getTemplateSample(sampleId: string): Promise<TemplateSampleContent> {
+  const response = await fetch(`${baseUrl}/template-samples/${sampleId}`);
+  return parseTemplateResponse(
+    response,
+    templateSampleContentSchema.parse,
+    "Failed to load template sample",
+  );
+}
+
+export async function saveTemplateSample(sample: TemplateSampleContent): Promise<TemplateSampleContent> {
+  const response = await fetch(`${baseUrl}/template-samples/${sample.id}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(sample),
+  });
+  return parseTemplateResponse(
+    response,
+    templateSampleContentSchema.parse,
+    "Failed to save template sample",
+  );
+}
+
+export async function getTemplateStyle(templateId: string): Promise<TemplateStyleConfig> {
+  const response = await fetch(`${baseUrl}/template-styles/${templateId}`);
+  return parseTemplateResponse(
+    response,
+    templateStyleConfigSchema.parse,
+    "Failed to load template style",
+  );
+}
+
+export async function saveTemplateStyle(style: TemplateStyleConfig): Promise<TemplateStyleConfig> {
+  const response = await fetch(`${baseUrl}/template-styles/${style.template_id}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(style),
+  });
+  return parseTemplateResponse(
+    response,
+    templateStyleConfigSchema.parse,
+    "Failed to save template style",
+  );
+}
+
+export async function getPdfClassPolicy(): Promise<PdfClassPolicy> {
+  const response = await fetch(`${baseUrl}/pdf-class-policy`);
+  return parseTemplateResponse(response, pdfClassPolicySchema.parse, "Failed to load PDF class policy");
+}
+
+export async function savePdfClassPolicy(policy: PdfClassPolicy): Promise<PdfClassPolicy> {
+  const response = await fetch(`${baseUrl}/pdf-class-policy`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(policy),
+  });
+  return parseTemplateResponse(response, pdfClassPolicySchema.parse, "Failed to save PDF class policy");
 }
