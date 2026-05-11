@@ -21,15 +21,19 @@
 - 提供样张内容配置页面，用 TipTap 编辑预设样张内容，并保存到本地 sidecar。
 - 模板库读取本地保存的样张内容；没有本地覆盖时回退到内置默认样张。
 - 保持样张内容和模板样式分离：模板定义描述样式和能力，样张内容定义用于预览的 `doc_json`。
+- 模板底层样式使用 Tailwind CSS 4 utility class 表达，避免用户直接编写任意 CSS。
+- 提供受控样式配置能力：用户可以选择预设 class 或编辑 Tailwind class 字符串。
+- 提供 PDF class 支持策略：通过白名单和黑名单限制哪些 Tailwind class 可以进入 PDF 渲染链路。
 
 ## 非目标
 
 - 不做模板拖拽编辑器。
-- 不做用户自定义模板样式。
+- 不做任意 CSS 编辑器，不允许用户直接手写 CSS 规则。
 - 不做远程模板市场。
 - 不做模板切换保存，不修改当前 `ResumeVersion.template_id`。
 - 不把样张内容当作当前用户简历内容。
 - 不承诺样张是用户当前简历的导出结果；样张只用于模板视觉预览。
+- 不支持所有 Tailwind class；第一版只支持 PDF 渲染验证过的 class 子集。
 
 ## 信息架构
 
@@ -137,6 +141,64 @@ type ResumeTemplateDefinition = {
 }
 ```
 
+模板样式配置单独建模。用户编辑的是受控 Tailwind class，而不是 CSS 文本：
+
+```ts
+type TemplateStyleConfig = {
+  templateId: string
+  slots: Record<
+    string,
+    {
+      label: Record<UiLanguage, string>
+      className: string
+      allowedClassGroups: string[]
+    }
+  >
+  updatedAt: string
+}
+```
+
+示例 slot：
+
+```ts
+const classicA4StyleSlots = {
+  page: {
+    label: { "zh-CN": "页面", "en-US": "Page" },
+    className: "bg-white text-slate-900 font-sans",
+    allowedClassGroups: ["page-background", "text-color", "font-family"],
+  },
+  header: {
+    label: { "zh-CN": "页眉", "en-US": "Header" },
+    className: "border-b-2 border-blue-800 pb-3 mb-4",
+    allowedClassGroups: ["border", "spacing", "color"],
+  },
+}
+```
+
+PDF class 支持策略单独建模：
+
+```ts
+type PdfClassPolicy = {
+  allowlist: string[]
+  blocklist: string[]
+  groups: Record<
+    string,
+    {
+      label: Record<UiLanguage, string>
+      allowlist: string[]
+      blocklist?: string[]
+    }
+  >
+}
+```
+
+第一版策略建议：
+
+- 默认只允许文本、颜色、间距、边框、字号、字重、行高、基础 flex/grid、页面背景等 PDF 已验证 class。
+- 默认禁止交互、动画、过渡、滤镜、粘性定位、hover/focus 响应式变体、复杂 transform、任意值 class。
+- 对用户手写 class 做解析和校验，保存前给出不支持项列表。
+- 黑名单优先级高于白名单。
+
 样张内容单独管理：
 
 ```ts
@@ -203,6 +265,8 @@ apps/web/src/features/templates/
     TemplateDetail.tsx
     TemplateSampleEditor.tsx
     TemplatePreview.tsx
+    TemplateStylePanel.tsx
+    PdfClassPolicyEditor.tsx
 ```
 
 建议扩展现有模块：
@@ -212,20 +276,53 @@ apps/web/src/features/templates/
 - `App.tsx` 根据 `activeSection` 渲染 `TemplateLibrary` 或现有工作台。
 - `copy` 增加中英文模板库文案。
 - `api.ts` 增加样张内容读取和保存接口。
+- `api.ts` 增加模板样式配置和 PDF class 策略读取、保存接口。
 
 sidecar 建议新增 API：
 
 ```text
 GET /template-samples/{id}
 PUT /template-samples/{id}
+GET /template-styles/{template_id}
+PUT /template-styles/{template_id}
+GET /pdf-class-policy
+PUT /pdf-class-policy
 ```
 
-API 只管理样张内容，不管理模板样式。
+API 管理样张内容、受控 Tailwind class 样式配置和 PDF class 策略，不接受任意 CSS 文本。
+
+## Tailwind CSS 4 样式策略
+
+模板实现必须以 Tailwind CSS 4 utility class 为底层表达，不允许把用户输入作为原始 CSS 注入渲染器。
+
+基于 Tailwind CSS 4 文档，动态 class 需要显式纳入生成来源。第一版应使用 `@source inline()` 为允许的模板 class 生成 CSS；需要明确排除的 class 可使用 `@source not inline()` 或 TypeDance 自己的策略校验阻断。
+
+样式配置分三层：
+
+1. **模板默认 class**：随内置模板发布，保证开箱可渲染。
+2. **用户本地 class 覆盖**：通过模板详情中的样式配置面板编辑并保存到 sidecar。
+3. **PDF class 策略**：决定哪些 class 可以被保存和渲染。
+
+用户可以通过两种方式配置样式：
+
+- 从按 slot 分组的 class 选项中选择，例如页眉边框、标题字号、强调色。
+- 在高级输入框中编辑 Tailwind class 字符串。
+
+高级输入框必须实时校验：
+
+- 支持的 class 正常显示。
+- 不支持但未知的 class 标记为 `未验证`，默认不允许保存。
+- 命中黑名单的 class 标记为 `PDF 不支持`，禁止保存。
+- 如果 class 没有被 Tailwind 生成来源覆盖，提示需要加入 policy allowlist。
+
+保存样式配置时，sidecar 需要再次执行同样的策略校验，避免仅依赖前端。
 
 ## 渲染原则
 
 - 模板样张必须基于预设 TipTap JSON 渲染，不能手写脱离真实链路的假 HTML。
 - 样张内容和模板样式必须分离。
+- 模板样式必须通过 Tailwind CSS 4 class 配置进入渲染链路，不能通过用户手写 CSS 进入渲染链路。
+- PDF 渲染前必须校验 class policy；黑名单 class 和未允许 class 不得进入最终 HTML/CSS。
 - 模板库预览不读取当前用户简历，避免误以为模板库会修改当前简历。
 - 后续支持模板切换时，应复用同一条渲染链路：`ResumeVersion.doc_json + template_id -> renderer -> preview`。
 
@@ -237,6 +334,7 @@ API 只管理样张内容，不管理模板样式。
 - 技术字段如 `classic-a4`、包名、路径保持英文。
 - UI 文案跟随应用语言切换。
 - 样张内容编辑保存失败时，页面内显示持久错误状态，不能只用 toast。
+- 样式 class 编辑保存失败时，必须列出具体不支持的 class 和原因。
 
 ## 测试与验收
 
@@ -252,6 +350,11 @@ API 只管理样张内容，不管理模板样式。
 8. 中文/英文 UI 切换后，模板库主要文案跟随切换。
 9. 桌面宽度下卡片网格整齐；移动宽度下单列显示，无横向滚动。
 10. 规划模板如果出现，必须清楚标记 `规划中`，不可被误用。
+11. 模板样式配置使用 Tailwind CSS 4 class，不允许输入或保存任意 CSS。
+12. 用户可以选择预设 class，也可以编辑 class 字符串。
+13. class 保存前必须经过 PDF class 白名单和黑名单校验。
+14. 黑名单 class 和未允许 class 不能进入最终 PDF 渲染 HTML。
+15. PDF class policy 有独立配置入口，可维护 allowlist、blocklist 和 class group。
 
 建议测试：
 
@@ -259,13 +362,18 @@ API 只管理样张内容，不管理模板样式。
 - 单元测试：模板列表渲染 `Classic A4`。
 - 单元测试：点击模板卡片进入详情。
 - 单元测试：样张内容编辑后调用保存 API。
+- 单元测试：支持 class 通过校验，不支持 class 显示错误。
+- 单元测试：黑名单 class 优先阻断保存。
 - API 测试：sidecar 能保存并读取样张内容。
+- API 测试：sidecar 拒绝不符合 PDF class policy 的样式配置。
 - E2E 测试：从左侧菜单进入模板库，打开 `Classic A4` 详情，编辑并保存样张内容。
+- E2E 测试：编辑模板 class，保存后模板样张更新；输入 PDF 不支持 class 时保存被阻止。
 
 ## 自审记录
 
 - 无 `TBD` 或未定义占位要求。
-- 第一版范围明确排除模板样式编辑、拖拽排版、模板市场和模板切换保存。
+- 第一版范围明确排除拖拽排版、模板市场、模板切换保存和任意 CSS 编辑。
+- 第一版允许受控 Tailwind CSS 4 class 样式配置，并要求 PDF class policy 校验。
 - 模板样式与样张内容职责分离。
 - 样张编辑后的读取来源已明确为本地 sidecar，并有内置默认回退。
 - 设计与当前 `ResumeVersion.template_id`、TipTap JSON、受控 HTML/CSS 渲染管线一致。
