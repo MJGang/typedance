@@ -42,7 +42,7 @@ export const templateSampleContentSchema = z.object({
 });
 
 export const templateStyleSlotSchema = z.object({
-  label: z.string().min(1),
+  label: localizedTextSchema,
   class_name: z.string().min(1),
   allowed_class_groups: z.array(z.string().min(1)).default([])
 });

@@ -48,7 +48,10 @@ describe("templateStyleConfigSchema", () => {
       template_id: "classic-a4",
       slots: {
         page: {
-          label: "Page",
+          label: {
+            "zh-CN": "页面",
+            "en-US": "Page"
+          },
           class_name: "bg-white text-slate-900 font-sans",
           allowed_class_groups: ["background-color", "text-color", "font-family"]
         }
@@ -57,6 +60,7 @@ describe("templateStyleConfigSchema", () => {
     });
 
     expect(parsed.slots.page.class_name).toContain("bg-white");
+    expect(parsed.slots.page.label["zh-CN"]).toBe("页面");
     expect(parsed.updated_at).toBe("2026-05-08T08:00:00.000Z");
   });
 
@@ -65,7 +69,10 @@ describe("templateStyleConfigSchema", () => {
       template_id: "classic-a4",
       slots: {
         page: {
-          label: "Page",
+          label: {
+            "zh-CN": "页面",
+            "en-US": "Page"
+          },
           class_name: "bg-white text-slate-900 font-sans"
         }
       },
@@ -81,10 +88,28 @@ describe("templateStyleConfigSchema", () => {
         template_id: "classic-a4",
         slots: {
           page: {
-            label: "Page",
+            label: {
+              "zh-CN": "页面",
+              "en-US": "Page"
+            },
             class_name: "bg-white text-slate-900 font-sans"
           }
         }
+      })
+    ).toThrow();
+  });
+
+  it("requires localized slot labels", () => {
+    expect(() =>
+      templateStyleConfigSchema.parse({
+        template_id: "classic-a4",
+        slots: {
+          page: {
+            label: "Page",
+            class_name: "bg-white text-slate-900 font-sans"
+          }
+        },
+        updated_at: "2026-05-08T08:00:00.000Z"
       })
     ).toThrow();
   });
