@@ -56,8 +56,13 @@ def preview_pdf_dir() -> Path:
     return app_data_dir() / "files" / "previews"
 
 
-def with_preview_pdf(resume: ResumeVersion, request: Request) -> ResumeVersion:
-    pdf_path = export_resume_pdf(resume, preview_pdf_dir())
+def with_preview_pdf(
+    resume: ResumeVersion,
+    request: Request,
+    style_repo: TemplateStyleRepository,
+) -> ResumeVersion:
+    template_style = style_repo.get(resume.template_id)
+    pdf_path = export_resume_pdf(resume, preview_pdf_dir(), template_style=template_style)
     preview_url = str(request.url_for("get_preview_pdf", resume_id=resume.id))
     return resume.model_copy(update={"preview_pdf_path": str(pdf_path), "preview_pdf_url": preview_url})
 
@@ -77,9 +82,10 @@ def create_resume_version(
     payload: ResumeVersionCreate,
     request: Request,
     repo: ResumeRepository = Depends(resume_repository),
+    style_repo: TemplateStyleRepository = Depends(template_style_repository),
 ) -> ResumeVersion:
     resume = ResumeVersion.new(payload)
-    return repo.save(with_preview_pdf(resume, request))
+    return repo.save(with_preview_pdf(resume, request, style_repo))
 
 
 @app.patch("/resume-versions/{resume_id}", response_model=ResumeVersion)
@@ -88,11 +94,12 @@ def update_resume_version(
     payload: ResumeVersionUpdate,
     request: Request,
     repo: ResumeRepository = Depends(resume_repository),
+    style_repo: TemplateStyleRepository = Depends(template_style_repository),
 ) -> ResumeVersion:
     resume = repo.get(resume_id)
     if resume is None:
         raise HTTPException(status_code=404, detail="Resume version not found")
-    return repo.save(with_preview_pdf(resume.apply_update(payload), request))
+    return repo.save(with_preview_pdf(resume.apply_update(payload), request, style_repo))
 
 
 @app.get("/template-samples/{sample_id}", response_model=TemplateSampleContent)
@@ -169,17 +176,27 @@ def get_preview_pdf(resume_id: str, repo: ResumeRepository = Depends(resume_repo
     if not pdf_path.exists():
         raise HTTPException(status_code=404, detail="Preview PDF not found")
 
-    return FileResponse(pdf_path, media_type="application/pdf", filename=f"{resume.id}.pdf")
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=f"{resume.id}.pdf",
+        content_disposition_type="inline",
+    )
 
 
 @app.post("/exports/pdf/{resume_id}", status_code=201)
-def export_pdf(resume_id: str, request: Request, repo: ResumeRepository = Depends(resume_repository)) -> dict[str, str]:
+def export_pdf(
+    resume_id: str,
+    request: Request,
+    repo: ResumeRepository = Depends(resume_repository),
+    style_repo: TemplateStyleRepository = Depends(template_style_repository),
+) -> dict[str, str]:
     resume = repo.get(resume_id)
     if resume is None:
         raise HTTPException(status_code=404, detail="Resume version not found")
 
     if resume.preview_pdf_path is None or not Path(resume.preview_pdf_path).exists():
-        resume = repo.save(with_preview_pdf(resume, request))
+        resume = repo.save(with_preview_pdf(resume, request, style_repo))
 
     pdf_path = Path(resume.preview_pdf_path)
     return {
