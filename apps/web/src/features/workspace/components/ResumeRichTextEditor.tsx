@@ -11,6 +11,7 @@ type ResumeRichTextEditorProps = {
   ariaLabel: string
   docJson: ResumeDocJson
   onChange: (change: ResumeEditorChange) => void
+  onSelectionUpdate?: (blockType: string) => void
 }
 
 type ToolbarState = {
@@ -31,6 +32,7 @@ export function ResumeRichTextEditor({
   ariaLabel,
   docJson,
   onChange,
+  onSelectionUpdate,
 }: ResumeRichTextEditorProps) {
   const editor = useEditor({
     extensions: [StarterKit],
@@ -46,6 +48,16 @@ export function ResumeRichTextEditor({
         plainText: editor.getText({ blockSeparator: "\n\n" }),
         docJson: editor.getJSON() as ResumeDocJson,
       })
+    },
+    onSelectionUpdate: ({ editor }: { editor: { state: { selection: { $from: { parent: { type: { name: string }; attrs: { level?: number } } } } } } }) => {
+      if (!onSelectionUpdate) return
+      const { $from } = editor.state.selection
+      const node = $from.parent
+      if (node.type.name === "heading") {
+        onSelectionUpdate(`heading${node.attrs.level}`)
+      } else {
+        onSelectionUpdate(node.type.name)
+      }
     },
   })
 

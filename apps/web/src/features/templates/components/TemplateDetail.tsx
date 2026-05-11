@@ -1,40 +1,50 @@
-import { ArrowLeft, Save } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import type { UiLanguage } from "../../workspace/types"
-import { validateTemplateClasses } from "../classPolicy"
-import type {
-  PdfClassPolicy,
-  ResumeTemplateDefinition,
-  TemplateSampleContent,
-  TemplateStyleConfig,
-} from "../types"
-import { TemplatePreview } from "./TemplatePreview"
+import { useState, useCallback } from "react";
+import { ArrowLeft } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import type { UiLanguage } from "../../workspace/types";
+import type { ResumeDocJson, ResumeEditorChange } from "../../workspace/editor";
+import type { BlockType, TemplateStyleConfig } from "../types";
+import { ResumeRichTextEditor } from "../../workspace/components/ResumeRichTextEditor";
+import { StylePanel } from "./style-panel/StylePanel";
+import { generateFullCSS } from "../style-engine/css-generator";
+import type { TemplateSampleContent, ResumeTemplateDefinition } from "../types";
 
 type TemplateDetailProps = {
-  template: ResumeTemplateDefinition
-  sample: TemplateSampleContent
-  styleConfig: TemplateStyleConfig
-  policy: PdfClassPolicy
-  uiLanguage: UiLanguage
-  onBack: () => void
-  onStyleChange: (style: TemplateStyleConfig) => void
-  onSaveStyle: () => void
-  styleStatus: string
-}
+  template: ResumeTemplateDefinition;
+  sample: TemplateSampleContent;
+  styleConfig: TemplateStyleConfig;
+  uiLanguage: UiLanguage;
+  onBack: () => void;
+  onStyleChange: (style: TemplateStyleConfig) => void;
+  styleStatus: string;
+};
 
 export function TemplateDetail({
   template,
   sample,
   styleConfig,
-  policy,
   uiLanguage,
   onBack,
   onStyleChange,
-  onSaveStyle,
   styleStatus,
 }: TemplateDetailProps) {
+  const [activeBlock, setActiveBlock] = useState<BlockType>("paragraph");
+  const [sampleDoc, setSampleDoc] = useState(sample.doc_json);
+
+  const cssText = generateFullCSS(styleConfig.blocks ?? {});
+
+  const handleSelectionUpdate = useCallback((blockName: string) => {
+    const validBlocks: BlockType[] = ["heading1", "heading2", "heading3", "paragraph", "bulletList", "orderedList"];
+    if (validBlocks.includes(blockName as BlockType)) {
+      setActiveBlock(blockName as BlockType);
+    }
+  }, []);
+
+  const handleSampleChange = useCallback((change: ResumeEditorChange) => {
+    setSampleDoc(change.docJson as Record<string, unknown>);
+  }, []);
+
   return (
     <section className="td-template-detail">
       <div className="td-template-detail-header">
@@ -46,59 +56,24 @@ export function TemplateDetail({
       </div>
 
       <div className="td-template-detail-grid">
-        <TemplatePreview sample={sample} styleConfig={styleConfig} scale="detail" />
-        <aside className="td-template-detail-panel">
-          <h2>{template.localizedName[uiLanguage]}</h2>
-          <p>{template.description[uiLanguage]}</p>
-          <dl className="td-template-meta">
-            <dt>template_id</dt>
-            <dd>{template.implementation.templateId}</dd>
-            <dt>页面尺寸</dt>
-            <dd>{template.configSummary.pageSize}</dd>
-            <dt>页边距</dt>
-            <dd>{template.configSummary.margin}</dd>
-            <dt>字体</dt>
-            <dd>{template.configSummary.fontStack}</dd>
-            <dt>渲染入口</dt>
-            <dd>{template.implementation.rendererEntry}</dd>
-          </dl>
-
-          <h3>Tailwind class 配置</h3>
-          {Object.entries(styleConfig.slots).map(([slotName, slot]) => {
-            const issues = validateTemplateClasses(slot.class_name, policy)
-            return (
-              <label key={slotName} className="td-template-style-field">
-                <span>{slot.label[uiLanguage]}</span>
-                <Input
-                  value={slot.class_name}
-                  aria-invalid={issues.length > 0}
-                  onChange={(event) =>
-                    onStyleChange({
-                      ...styleConfig,
-                      slots: {
-                        ...styleConfig.slots,
-                        [slotName]: { ...slot, class_name: event.target.value },
-                      },
-                    })
-                  }
-                />
-                {issues.length ? (
-                  <small role="alert">
-                    {issues.map((issue) => `${issue.className}:${issue.reason}`).join(", ")}
-                  </small>
-                ) : (
-                  <small>PDF 支持</small>
-                )}
-              </label>
-            )
-          })}
-          <Button type="button" onClick={onSaveStyle}>
-            <Save data-icon="inline-start" />
-            保存样式
-          </Button>
-          <p aria-live="polite">{styleStatus}</p>
-        </aside>
+        <div className="td-template-editor-wrapper">
+          <style>{cssText}</style>
+          <ResumeRichTextEditor
+            ariaLabel="Template sample preview"
+            docJson={sampleDoc as ResumeDocJson}
+            onChange={handleSampleChange}
+            onSelectionUpdate={handleSelectionUpdate}
+          />
+        </div>
+        <StylePanel
+          styleConfig={styleConfig}
+          onChange={onStyleChange}
+          activeBlock={activeBlock}
+          onActiveBlockChange={setActiveBlock}
+          uiLanguage={uiLanguage}
+        />
       </div>
+      <p aria-live="polite" className="td-style-status">{styleStatus}</p>
     </section>
-  )
+  );
 }
