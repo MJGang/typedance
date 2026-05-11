@@ -74,72 +74,66 @@ def test_save_generates_preview_pdf(tmp_path, monkeypatch):
     assert preview_response.headers["content-disposition"].startswith("inline;")
 
 
-def test_rendered_html_applies_template_library_style():
-    resume = ResumeVersion.new(
-        ResumeVersionCreate(
-            title="Template Styled Resume",
-            target_language="en-US",
-            template_id="classic-a4",
-            doc_json={
-                "type": "doc",
-                "content": [
-                    {
-                        "type": "heading",
-                        "attrs": {"level": 1},
-                        "content": [{"type": "text", "text": "Ada Lovelace"}],
-                    }
-                ],
-            },
-        )
+def test_rendered_html_applies_template_block_style():
+    """RenderResumeHTML applies BlockStyle-based CSS rules"""
+    from typedance_sidecar.pdf import render_resume_html
+    from typedance_sidecar.models import ResumeVersion, TemplateStyleConfig
+
+    resume = ResumeVersion(
+        id="test-render-style",
+        title="Test",
+        template_id="classic-a4",
+        target_language="zh-CN",
+        doc_json={"type": "doc", "content": []},
+        plain_text_snapshot="Hello\nWorld",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
     )
-    style = TemplateStyleConfig.model_validate(
-        {
-            "template_id": "classic-a4",
-            "slots": {
-                "page": {
-                    "label": {"zh-CN": "页面", "en-US": "Page"},
-                    "class_name": "bg-white text-slate-900 font-sans",
-                },
-                "header": {
-                    "label": {"zh-CN": "页首", "en-US": "Header"},
-                    "class_name": "text-blue-800 border-b-2 border-blue-800 pb-3 mb-4",
-                },
-            },
-        }
+    style = TemplateStyleConfig(
+        template_id="classic-a4",
+        preset="classic",
+        blocks={
+            "heading1": {"fontSize": "28pt", "fontWeight": 700, "color": "#1a1a1a", "textAlign": "center"},
+            "paragraph": {"fontSize": "10pt", "lineHeight": 1.5, "color": "#334155"},
+        },
     )
+    html = render_resume_html(resume, template_style=style)
+    assert ".td-resume-heading1" in html
+    assert "font-size: 28pt;" in html
+    assert "color: #1a1a1a;" in html
+    assert ".td-resume-paragraph" in html
+    assert "line-height: 1.5;" in html
+    assert "color: #334155;" in html
 
-    html = render_resume_html(resume, style)
 
-    assert '<body class="td-resume-page">' in html
-    assert ".td-resume-page h1" in html
-    assert "color: #1e40af;" in html
-    assert "border-bottom-color: #1e40af;" in html
-    assert "padding-bottom: 9pt;" in html
-
-
-def test_save_preview_uses_saved_template_style(tmp_path, monkeypatch):
-    monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
-    captured: dict[str, str | None] = {}
+def test_save_preview_uses_saved_template_block_style(tmp_path, monkeypatch):
+    """PUT template-styles with blocks, then create resume should use that style"""
+    captured: dict[str, object] = {}
+    from typedance_sidecar import main as sidecar_main
 
     def fake_export_resume_pdf(resume, exports_dir, template_style=None):
         captured["template_id"] = template_style.template_id if template_style else None
-        captured["header_class"] = template_style.slots["header"].class_name if template_style else None
+        if template_style and template_style.blocks and "heading1" in template_style.blocks:
+            captured["heading1_size"] = template_style.blocks["heading1"].font_size
+        else:
+            captured["heading1_size"] = None
         exports_dir.mkdir(parents=True, exist_ok=True)
         pdf_path = exports_dir / f"{resume.id}.pdf"
         pdf_path.write_bytes(b"%PDF-1.4\n")
         return pdf_path
 
     monkeypatch.setattr(sidecar_main, "export_resume_pdf", fake_export_resume_pdf)
+    monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
     client = TestClient(app)
+
     style_response = client.put(
         "/template-styles/classic-a4",
         json={
             "template_id": "classic-a4",
-            "slots": {
-                "header": {
-                    "label": {"zh-CN": "页首", "en-US": "Header"},
-                    "class_name": "text-blue-800 border-b-2 border-blue-800 pb-3 mb-4",
-                }
+            "preset": "classic",
+            "blocks": {
+                "heading1": {"fontSize": "28pt", "fontWeight": 700, "color": "#1a1a1a"},
+                "paragraph": {"fontSize": "10pt", "lineHeight": 1.5, "color": "#334155"},
             },
         },
     )
@@ -158,57 +152,43 @@ def test_save_preview_uses_saved_template_style(tmp_path, monkeypatch):
     assert response.status_code == 201
     assert captured == {
         "template_id": "classic-a4",
-        "header_class": "text-blue-800 border-b-2 border-blue-800 pb-3 mb-4",
+        "heading1_size": "28pt",
     }
 
 
-def test_fpdf_fallback_output_changes_with_template_style(tmp_path):
-    resume = ResumeVersion.new(
-        ResumeVersionCreate(
-            title="Fallback Styled Resume",
-            target_language="en-US",
-            doc_json={
-                "type": "doc",
-                "content": [
-                    {
-                        "type": "heading",
-                        "attrs": {"level": 1},
-                        "content": [{"type": "text", "text": "Ada Lovelace"}],
-                    },
-                    {
-                        "type": "paragraph",
-                        "content": [{"type": "text", "text": "Designed computation notes"}],
-                    },
-                ],
-            },
-        )
-    )
-    plain_path = tmp_path / "plain.pdf"
-    styled_path = tmp_path / "styled.pdf"
-    style = TemplateStyleConfig.model_validate(
-        {
-            "template_id": "classic-a4",
-            "slots": {
-                "page": {
-                    "label": {"zh-CN": "页面", "en-US": "Page"},
-                    "class_name": "text-slate-700 font-sans",
-                },
-                "header": {
-                    "label": {"zh-CN": "页首", "en-US": "Header"},
-                    "class_name": "text-blue-800 border-b-2 border-blue-800 pb-3 mb-4",
-                },
-            },
-        }
+def test_fpdf_fallback_output_changes_with_block_style(tmp_path):
+    """FPDF fallback produces different output with different BlockStyle"""
+    from typedance_sidecar.pdf import _write_fpdf_fallback
+    from typedance_sidecar.models import ResumeVersion, TemplateStyleConfig
+
+    resume = ResumeVersion(
+        id="fpdf-style-test",
+        title="Style Test",
+        template_id="t",
+        target_language="zh-CN",
+        doc_json={"type": "doc", "content": []},
+        plain_text_snapshot="Name\nDetail line 1\nDetail line 2",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
     )
 
-    _write_fpdf_fallback(resume, plain_path)
-    _write_fpdf_fallback(resume, styled_path, style)
+    style_a = TemplateStyleConfig(template_id="t", preset="classic", blocks={
+        "heading1": {"fontSize": "24pt", "color": "#1a1a1a"},
+        "paragraph": {"fontSize": "10pt", "color": "#334155"},
+    })
+    style_b = TemplateStyleConfig(template_id="t", preset="classic", blocks={
+        "heading1": {"fontSize": "20pt", "color": "#ef4444"},
+        "paragraph": {"fontSize": "12pt", "color": "#0f172a"},
+    })
 
-    plain_bytes = plain_path.read_bytes()
-    styled_bytes = styled_path.read_bytes()
-    assert plain_bytes != styled_bytes
-    assert b"0.1176 0.251 0.6863 rg" in styled_bytes
-    assert b"0.1176 0.251 0.6863 RG" in styled_bytes
+    def render_bytes(style):
+        p = tmp_path / f"test_{id(style)}.pdf"
+        _write_fpdf_fallback(resume, p, template_style=style)
+        data = p.read_bytes()
+        p.unlink(missing_ok=True)
+        return data
+
+    assert render_bytes(style_a) != render_bytes(style_b)
 
 
 def test_export_pdf_reuses_preview_pdf(tmp_path, monkeypatch):

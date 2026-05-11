@@ -281,8 +281,11 @@ def _find_cjk_font() -> str | None:
 class FPDFStyleAdapter:
     """Map BlockStyle properties to FPDF API calls."""
 
-    def __init__(self, blocks: dict[str, dict]):
-        self.blocks = blocks
+    def __init__(self, blocks: dict[str, dict] | dict[str, "BlockStyle"]):
+        self.blocks = {
+            k: v.model_dump(by_alias=True, exclude_none=True) if hasattr(v, "model_dump") else v
+            for k, v in blocks.items()
+        }
 
     def page_style(self) -> dict:
         style = self.blocks.get("paragraph", {})
