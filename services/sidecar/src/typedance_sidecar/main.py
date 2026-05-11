@@ -5,9 +5,8 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from .db import AppSettingsRepository, ResumeRepository, TemplateSampleRepository, TemplateStyleRepository, connect
+from .db import ResumeRepository, TemplateSampleRepository, TemplateStyleRepository, connect
 from .models import (
-    PdfClassPolicy,
     ResumeVersion,
     ResumeVersionCreate,
     ResumeVersionUpdate,
@@ -16,7 +15,6 @@ from .models import (
     utc_now,
 )
 from .pdf import export_resume_pdf
-from .template_policy import DEFAULT_PDF_CLASS_POLICY, validate_style_config
 
 
 app = FastAPI(title="TypeDance Sidecar", version="0.1.0")
@@ -47,9 +45,6 @@ def template_sample_repository() -> TemplateSampleRepository:
 def template_style_repository() -> TemplateStyleRepository:
     return TemplateStyleRepository(connect(app_data_dir() / "typedance.sqlite"))
 
-
-def app_settings_repository() -> AppSettingsRepository:
-    return AppSettingsRepository(connect(app_data_dir() / "typedance.sqlite"))
 
 
 def preview_pdf_dir() -> Path:
@@ -140,30 +135,10 @@ def save_template_style(
     template_id: str,
     payload: TemplateStyleConfig,
     style_repo: TemplateStyleRepository = Depends(template_style_repository),
-    settings_repo: AppSettingsRepository = Depends(app_settings_repository),
 ) -> TemplateStyleConfig:
     if payload.template_id != template_id:
         raise HTTPException(status_code=400, detail="Template style id mismatch")
-
-    config = payload.model_copy(update={"updated_at": utc_now()})
-    policy = settings_repo.get_pdf_class_policy() or DEFAULT_PDF_CLASS_POLICY
-    validation_errors = validate_style_config(config, policy)
-    if validation_errors:
-        raise HTTPException(status_code=422, detail=[error.model_dump() for error in validation_errors])
-    return style_repo.save(config)
-
-
-@app.get("/pdf-class-policy", response_model=PdfClassPolicy)
-def get_pdf_class_policy(repo: AppSettingsRepository = Depends(app_settings_repository)) -> PdfClassPolicy:
-    return repo.get_pdf_class_policy() or DEFAULT_PDF_CLASS_POLICY
-
-
-@app.put("/pdf-class-policy", response_model=PdfClassPolicy)
-def save_pdf_class_policy(
-    payload: PdfClassPolicy,
-    repo: AppSettingsRepository = Depends(app_settings_repository),
-) -> PdfClassPolicy:
-    return repo.save_pdf_class_policy(payload.model_copy(update={"updated_at": utc_now()}))
+    return style_repo.save(payload.model_copy(update={"updated_at": utc_now()}))
 
 
 @app.get("/previews/{resume_id}.pdf", name="get_preview_pdf")

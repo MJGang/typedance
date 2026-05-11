@@ -2,7 +2,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from .models import PdfClassPolicy, ResumeVersion, TemplateSampleContent, TemplateStyleConfig
+from .models import ResumeVersion, TemplateSampleContent, TemplateStyleConfig
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
@@ -136,29 +136,6 @@ class TemplateStyleRepository:
 
 
 class AppSettingsRepository:
-    PDF_CLASS_POLICY_KEY = "pdf_class_policy"
-
     def __init__(self, connection: sqlite3.Connection) -> None:
         self.connection = connection
-
-    def get_pdf_class_policy(self) -> PdfClassPolicy | None:
-        row = self.connection.execute(
-            "SELECT payload FROM app_settings WHERE key = ?",
-            (self.PDF_CLASS_POLICY_KEY,),
-        ).fetchone()
-        if row is None:
-            return None
-        return PdfClassPolicy.model_validate(json.loads(row["payload"]))
-
-    def save_pdf_class_policy(self, policy: PdfClassPolicy) -> PdfClassPolicy:
-        payload = policy.model_dump_json(by_alias=True)
-        self.connection.execute(
-            """
-            INSERT INTO app_settings (key, payload, updated_at)
-            VALUES (?, ?, ?)
-            ON CONFLICT(key) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
-            """,
-            (self.PDF_CLASS_POLICY_KEY, payload, policy.updated_at),
-        )
-        self.connection.commit()
-        return policy
+    # AppSettingsRepository 保留为空，后续有需要可以扩展
