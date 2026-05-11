@@ -1,9 +1,7 @@
 import {
-  pdfClassPolicySchema,
   resumeVersionSchema,
   templateSampleContentSchema,
   templateStyleConfigSchema,
-  type PdfClassPolicy,
   type ResumeVersion,
   type TemplateSampleContent,
   type TemplateStyleConfig,
@@ -45,7 +43,7 @@ async function parseTemplateResponse<T>(
   if (!response.ok) {
     const details = Array.isArray(payload?.detail)
       ? payload.detail
-          .map((item: { class_name?: string; reason?: string }) => `${item.class_name ?? "class"}:${item.reason ?? "invalid"}`)
+          .map((item: Record<string, unknown>) => JSON.stringify(item))
           .join(", ")
       : `${response.status}`;
     throw new Error(`${fallbackMessage}: ${details}`);
@@ -98,16 +96,3 @@ export async function saveTemplateStyle(style: TemplateStyleConfig): Promise<Tem
   );
 }
 
-export async function getPdfClassPolicy(): Promise<PdfClassPolicy> {
-  const response = await fetch(`${baseUrl}/pdf-class-policy`);
-  return parseTemplateResponse(response, pdfClassPolicySchema.parse, "Failed to load PDF class policy");
-}
-
-export async function savePdfClassPolicy(policy: PdfClassPolicy): Promise<PdfClassPolicy> {
-  const response = await fetch(`${baseUrl}/pdf-class-policy`, {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(policy),
-  });
-  return parseTemplateResponse(response, pdfClassPolicySchema.parse, "Failed to save PDF class policy");
-}

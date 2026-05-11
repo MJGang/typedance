@@ -1,5 +1,4 @@
 import type {
-  PdfClassPolicy,
   ResumeTemplateDefinition,
   TemplateSampleContent,
   TemplateStyleConfig,
@@ -121,46 +120,15 @@ export const builtInSamples: Record<string, TemplateSampleContent> = {
 
 export const defaultClassicA4Style: TemplateStyleConfig = {
   template_id: "classic-a4",
-  slots: {
-    page: {
-      label: { "zh-CN": "页面", "en-US": "Page" },
-      class_name: "bg-white text-slate-900 font-sans",
-      allowed_class_groups: ["page-background", "text-color", "font-family"],
-    },
-    header: {
-      label: { "zh-CN": "页眉", "en-US": "Header" },
-      class_name: "border-b-2 border-blue-800 pb-3 mb-4",
-      allowed_class_groups: ["border", "spacing", "color"],
-    },
+  preset: "classic",
+  blocks: {
+    heading1: { fontSize: "24pt", fontWeight: 700, color: "#1a1a1a", textAlign: "center", marginBottom: "8pt" },
+    heading2: { fontSize: "14pt", fontWeight: 600, color: "#1e3a8a", marginBottom: "8pt", borderBottom: { style: "solid", width: "1.5pt", color: "#1e3a8a" } },
+    heading3: { fontSize: "11pt", fontWeight: 600, color: "#1f2937", marginBottom: "4pt" },
+    paragraph: { fontSize: "10pt", lineHeight: 1.5, color: "#334155", marginBottom: "4pt" },
+    bulletList: { fontSize: "10pt", lineHeight: 1.4, color: "#334155", listStyleType: "disc", paddingLeft: "20pt" },
+    orderedList: { fontSize: "10pt", lineHeight: 1.4, color: "#334155", listStyleType: "decimal", paddingLeft: "20pt" },
   },
   updated_at: "2026-05-11T00:00:00.000Z",
 }
 
-export const defaultPdfClassPolicy: PdfClassPolicy = {
-  allowlist: [
-    "bg-white",
-    "text-slate-900",
-    "text-slate-700",
-    "text-blue-800",
-    "font-sans",
-    "font-bold",
-    "font-semibold",
-    "border-b-2",
-    "border-blue-800",
-    "pb-3",
-    "mb-4",
-  ],
-  blocklist: [
-    "fixed",
-    "sticky",
-    "absolute",
-    "animate-spin",
-    "transition",
-    "blur",
-    "drop-shadow",
-    "hover:bg-white",
-    "focus:ring",
-  ],
-  groups: {},
-  updated_at: "2026-05-11T00:00:00.000Z",
-}

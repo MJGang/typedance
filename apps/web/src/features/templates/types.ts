@@ -1,8 +1,4 @@
-import type {
-  PdfClassPolicy,
-  TemplateSampleContent,
-  TemplateStyleConfig,
-} from "@typedance/contracts"
+import type { TemplateSampleContent, TemplateStyleConfig, BlockType, BlockStyle } from "@typedance/contracts"
 import type { TargetLanguage, UiLanguage } from "../workspace/types"
 
 export type TemplateStatus = "built-in" | "planned"
@@ -35,4 +31,5 @@ export type TemplateLibraryTab = "templates" | "samples"
 export type ClassValidationReason = "blocked" | "not_allowed"
 export type ClassValidationIssue = { className: string; reason: ClassValidationReason }
 
-export type { PdfClassPolicy, TemplateSampleContent, TemplateStyleConfig }
+
+export type { TemplateSampleContent, TemplateStyleConfig, BlockType, BlockStyle }

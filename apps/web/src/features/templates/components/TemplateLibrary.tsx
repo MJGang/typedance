@@ -1,25 +1,8 @@
 import { useEffect, useMemo, useState } from "react"
-import {
-  getPdfClassPolicy,
-  getTemplateSample,
-  getTemplateStyle,
-  saveTemplateSample,
-  saveTemplateStyle,
-} from "@/api"
+import { getTemplateSample, getTemplateStyle, saveTemplateSample, saveTemplateStyle } from "@/api"
 import type { TargetLanguage, UiLanguage, WorkspaceCopy } from "../../workspace/types"
-import {
-  builtInSamples,
-  defaultClassicA4Style,
-  defaultPdfClassPolicy,
-  templateRegistry,
-} from "../data"
-import type {
-  PdfClassPolicy,
-  ResumeTemplateDefinition,
-  TemplateLibraryTab,
-  TemplateSampleContent,
-  TemplateStyleConfig,
-} from "../types"
+import { builtInSamples, defaultClassicA4Style, templateRegistry } from "../data"
+import type { ResumeTemplateDefinition, TemplateLibraryTab, TemplateSampleContent, TemplateStyleConfig } from "../types"
 import { TemplateCard } from "./TemplateCard"
 import { TemplateDetail } from "./TemplateDetail"
 import { TemplateSampleEditor } from "./TemplateSampleEditor"
@@ -35,7 +18,6 @@ export function TemplateLibrary({ uiLanguage, targetLanguage }: TemplateLibraryP
   const [selectedTemplate, setSelectedTemplate] = useState<ResumeTemplateDefinition | null>(null)
   const [sample, setSample] = useState<TemplateSampleContent>(builtInSamples["sample-tech-zh"])
   const [styleConfig, setStyleConfig] = useState<TemplateStyleConfig>(defaultClassicA4Style)
-  const [policy, setPolicy] = useState<PdfClassPolicy>(defaultPdfClassPolicy)
   const [sampleStatus, setSampleStatus] = useState("本地默认样张")
   const [styleStatus, setStyleStatus] = useState("本地默认样式")
 
@@ -46,30 +28,14 @@ export function TemplateLibrary({ uiLanguage, targetLanguage }: TemplateLibraryP
 
   useEffect(() => {
     void getTemplateSample(sampleId)
-      .then((nextSample) => {
-        setSample(nextSample)
-        setSampleStatus("已读取本地样张")
-      })
-      .catch(() => {
-        setSample(builtInSamples[sampleId] ?? builtInSamples["sample-tech-zh"])
-        setSampleStatus("使用内置样张")
-      })
+      .then((nextSample) => { setSample(nextSample); setSampleStatus("已读取本地样张"); })
+      .catch(() => { setSample(builtInSamples[sampleId] ?? builtInSamples["sample-tech-zh"]); setSampleStatus("使用内置样张"); })
   }, [sampleId])
 
   useEffect(() => {
     void getTemplateStyle(currentTemplate.id)
-      .then((nextStyle) => {
-        setStyleConfig(nextStyle)
-        setStyleStatus("已读取本地样式")
-      })
-      .catch(() => {
-        setStyleConfig(defaultClassicA4Style)
-        setStyleStatus("使用内置样式")
-      })
-
-    void getPdfClassPolicy()
-      .then(setPolicy)
-      .catch(() => setPolicy(defaultPdfClassPolicy))
+      .then((nextStyle) => { setStyleConfig(nextStyle); setStyleStatus("已读取本地样式"); })
+      .catch(() => { setStyleConfig(defaultClassicA4Style); setStyleStatus("使用内置样式"); })
   }, [currentTemplate.id])
 
   const handleSaveSample = async () => {
@@ -78,10 +44,8 @@ export function TemplateLibrary({ uiLanguage, targetLanguage }: TemplateLibraryP
     setSampleStatus("样张已保存")
   }
 
-  const handleSaveStyle = async () => {
-    const saved = await saveTemplateStyle(styleConfig)
-    setStyleConfig(saved)
-    setStyleStatus("样式已保存")
+  const handleStyleChange = (style: TemplateStyleConfig) => {
+    setStyleConfig(style)
   }
 
   return (
@@ -90,27 +54,13 @@ export function TemplateLibrary({ uiLanguage, targetLanguage }: TemplateLibraryP
         <div>
           <p className="td-eyebrow">Template Library</p>
           <h1>模板库</h1>
-          <p>{templates.length} 个模板 · 样张内容与 Tailwind class 配置本地保存</p>
+          <p>{templates.length} 个模板 · 样张内容与块级样式配置本地保存</p>
         </div>
       </header>
 
       <div className="td-template-tabs" role="tablist" aria-label="模板库视图">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "templates"}
-          onClick={() => setActiveTab("templates")}
-        >
-          模板列表
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "samples"}
-          onClick={() => setActiveTab("samples")}
-        >
-          样张内容
-        </button>
+        <button type="button" role="tab" aria-selected={activeTab === "templates"} onClick={() => setActiveTab("templates")}>模板列表</button>
+        <button type="button" role="tab" aria-selected={activeTab === "samples"} onClick={() => setActiveTab("samples")}>样张内容</button>
       </div>
 
       {activeTab === "templates" && !selectedTemplate ? (
@@ -134,11 +84,9 @@ export function TemplateLibrary({ uiLanguage, targetLanguage }: TemplateLibraryP
           template={selectedTemplate}
           sample={visibleSample}
           styleConfig={styleConfig}
-          policy={policy}
           uiLanguage={uiLanguage}
           onBack={() => setSelectedTemplate(null)}
-          onStyleChange={setStyleConfig}
-          onSaveStyle={handleSaveStyle}
+          onStyleChange={handleStyleChange}
           styleStatus={styleStatus}
         />
       ) : null}
