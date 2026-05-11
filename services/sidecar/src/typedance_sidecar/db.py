@@ -2,7 +2,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from .models import ResumeVersion
+from .models import PdfClassPolicy, ResumeVersion, TemplateSampleContent, TemplateStyleConfig
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
@@ -13,6 +13,33 @@ def connect(db_path: Path) -> sqlite3.Connection:
         """
         CREATE TABLE IF NOT EXISTS resume_versions (
           id TEXT PRIMARY KEY,
+          payload TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS template_samples (
+          id TEXT PRIMARY KEY,
+          payload TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS template_styles (
+          template_id TEXT PRIMARY KEY,
+          payload TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS app_settings (
+          key TEXT PRIMARY KEY,
           payload TEXT NOT NULL,
           updated_at TEXT NOT NULL
         )
@@ -52,3 +79,86 @@ class ResumeRepository:
         )
         self.connection.commit()
         return resume
+
+
+class TemplateSampleRepository:
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self.connection = connection
+
+    def get(self, sample_id: str) -> TemplateSampleContent | None:
+        row = self.connection.execute(
+            "SELECT payload FROM template_samples WHERE id = ?",
+            (sample_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return TemplateSampleContent.model_validate(json.loads(row["payload"]))
+
+    def save(self, sample: TemplateSampleContent) -> TemplateSampleContent:
+        payload = sample.model_dump_json(by_alias=True)
+        self.connection.execute(
+            """
+            INSERT INTO template_samples (id, payload, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+            """,
+            (sample.id, payload, sample.updated_at),
+        )
+        self.connection.commit()
+        return sample
+
+
+class TemplateStyleRepository:
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self.connection = connection
+
+    def get(self, template_id: str) -> TemplateStyleConfig | None:
+        row = self.connection.execute(
+            "SELECT payload FROM template_styles WHERE template_id = ?",
+            (template_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return TemplateStyleConfig.model_validate(json.loads(row["payload"]))
+
+    def save(self, config: TemplateStyleConfig) -> TemplateStyleConfig:
+        payload = config.model_dump_json(by_alias=True)
+        self.connection.execute(
+            """
+            INSERT INTO template_styles (template_id, payload, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(template_id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+            """,
+            (config.template_id, payload, config.updated_at),
+        )
+        self.connection.commit()
+        return config
+
+
+class AppSettingsRepository:
+    PDF_CLASS_POLICY_KEY = "pdf_class_policy"
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self.connection = connection
+
+    def get_pdf_class_policy(self) -> PdfClassPolicy | None:
+        row = self.connection.execute(
+            "SELECT payload FROM app_settings WHERE key = ?",
+            (self.PDF_CLASS_POLICY_KEY,),
+        ).fetchone()
+        if row is None:
+            return None
+        return PdfClassPolicy.model_validate(json.loads(row["payload"]))
+
+    def save_pdf_class_policy(self, policy: PdfClassPolicy) -> PdfClassPolicy:
+        payload = policy.model_dump_json(by_alias=True)
+        self.connection.execute(
+            """
+            INSERT INTO app_settings (key, payload, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at
+            """,
+            (self.PDF_CLASS_POLICY_KEY, payload, policy.updated_at),
+        )
+        self.connection.commit()
+        return policy
