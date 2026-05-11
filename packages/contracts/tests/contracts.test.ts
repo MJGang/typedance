@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { resumeVersionSchema } from "../src/index";
+import {
+  pdfClassPolicySchema,
+  resumeVersionSchema,
+  templateSampleContentSchema,
+  templateStyleConfigSchema
+} from "../src/index";
 
 describe("resumeVersionSchema", () => {
   it("accepts a minimal valid resume version", () => {
@@ -16,5 +21,56 @@ describe("resumeVersionSchema", () => {
 
     expect(parsed.source_refs).toEqual([]);
     expect(parsed.accepted_edit_ids).toEqual([]);
+  });
+});
+
+describe("templateSampleContentSchema", () => {
+  it("validates template sample content", () => {
+    const parsed = templateSampleContentSchema.parse({
+      id: "sample-tech-zh",
+      name: {
+        "zh-CN": "技术简历样张",
+        "en-US": "Tech Resume Sample"
+      },
+      target_language: "zh-CN",
+      doc_json: { type: "doc", content: [] },
+      plain_text_snapshot: "技术简历样张",
+      updated_at: "2026-05-08T08:00:00.000Z"
+    });
+
+    expect(parsed.id).toBe("sample-tech-zh");
+  });
+});
+
+describe("templateStyleConfigSchema", () => {
+  it("validates template style config", () => {
+    const parsed = templateStyleConfigSchema.parse({
+      template_id: "classic-a4",
+      slots: {
+        page: {
+          label: "Page",
+          class_name: "bg-white text-slate-900 font-sans",
+          allowed_class_groups: ["background-color", "text-color", "font-family"]
+        }
+      }
+    });
+
+    expect(parsed.slots.page.class_name).toContain("bg-white");
+  });
+});
+
+describe("pdfClassPolicySchema", () => {
+  it("validates pdf class policy", () => {
+    const parsed = pdfClassPolicySchema.parse({
+      allowlist: ["bg-white", "text-slate-900"],
+      blocklist: ["fixed", "sticky"],
+      groups: {
+        "text-color": {
+          allowlist: ["text-slate-900", "text-slate-700"]
+        }
+      }
+    });
+
+    expect(parsed.groups["text-color"].allowlist).toContain("text-slate-900");
   });
 });

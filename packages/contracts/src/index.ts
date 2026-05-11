@@ -27,5 +27,44 @@ export const pdfExportSchema = z.object({
   created_at: z.string().datetime()
 });
 
+export const localizedTextSchema = z.object({
+  "zh-CN": z.string().min(1),
+  "en-US": z.string().min(1)
+});
+
+export const templateSampleContentSchema = z.object({
+  id: z.string().min(1),
+  name: localizedTextSchema,
+  target_language: languageSchema,
+  doc_json: z.record(z.unknown()),
+  plain_text_snapshot: z.string(),
+  updated_at: z.string().datetime()
+});
+
+export const templateStyleSlotSchema = z.object({
+  label: z.string().min(1),
+  class_name: z.string().min(1),
+  allowed_class_groups: z.array(z.string().min(1))
+});
+
+export const templateStyleConfigSchema = z.object({
+  template_id: z.string().min(1),
+  slots: z.record(templateStyleSlotSchema)
+});
+
+export const pdfClassPolicyGroupSchema = z.object({
+  allowlist: z.array(z.string().min(1)),
+  blocklist: z.array(z.string().min(1)).default([])
+});
+
+export const pdfClassPolicySchema = z.object({
+  allowlist: z.array(z.string().min(1)),
+  blocklist: z.array(z.string().min(1)).default([]),
+  groups: z.record(pdfClassPolicyGroupSchema)
+});
+
 export type ResumeVersion = z.infer<typeof resumeVersionSchema>;
 export type PDFExport = z.infer<typeof pdfExportSchema>;
+export type TemplateSampleContent = z.infer<typeof templateSampleContentSchema>;
+export type TemplateStyleConfig = z.infer<typeof templateStyleConfigSchema>;
+export type PdfClassPolicy = z.infer<typeof pdfClassPolicySchema>;
