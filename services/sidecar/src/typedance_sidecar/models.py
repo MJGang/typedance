@@ -72,32 +72,26 @@ class TemplateSampleContent(BaseModel):
     updated_at: str = Field(default_factory=utc_now)
 
 
-class TemplateStyleSlot(BaseModel):
-    label: LocalizedText
-    class_name: NonEmptyString
-    allowed_class_groups: list[NonEmptyString] = Field(default_factory=list)
+class BlockStyle(BaseModel):
+    """结构化块样式，替代 TemplateStyleSlot"""
+    font_family: str | None = Field(default=None, alias="fontFamily")
+    font_size: str | None = Field(default=None, alias="fontSize")
+    font_weight: int | None = Field(default=None, alias="fontWeight")
+    line_height: float | None = Field(default=None, alias="lineHeight")
+    letter_spacing: str | None = Field(default=None, alias="letterSpacing")
+    text_transform: str | None = Field(default=None, alias="textTransform")
+    color: str | None = None
+    background_color: str | None = Field(default=None, alias="backgroundColor")
+    text_align: str | None = Field(default=None, alias="textAlign")
+    margin_top: str | None = Field(default=None, alias="marginTop")
+    margin_bottom: str | None = Field(default=None, alias="marginBottom")
+    border_bottom: dict | None = Field(default=None, alias="borderBottom")
+    list_style_type: str | None = Field(default=None, alias="listStyleType")
+    padding_left: str | None = Field(default=None, alias="paddingLeft")
 
 
 class TemplateStyleConfig(BaseModel):
     template_id: str = Field(min_length=1)
-    slots: dict[str, TemplateStyleSlot] = Field(default_factory=dict)
+    preset: str = "classic"
+    blocks: dict[str, BlockStyle] = Field(default_factory=dict)
     updated_at: str = Field(default_factory=utc_now)
-
-
-class PdfClassPolicyGroup(BaseModel):
-    label: LocalizedText
-    allowlist: list[NonEmptyString]
-    blocklist: list[NonEmptyString] = Field(default_factory=list)
-
-
-class PdfClassPolicy(BaseModel):
-    allowlist: list[NonEmptyString]
-    blocklist: list[NonEmptyString] = Field(default_factory=list)
-    groups: dict[str, PdfClassPolicyGroup] = Field(default_factory=dict)
-    updated_at: str = Field(default_factory=utc_now)
-
-
-class PdfClassValidationError(BaseModel):
-    slot: str
-    class_name: str
-    reason: Literal["blocked", "not_allowed"]
