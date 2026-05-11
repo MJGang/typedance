@@ -3,7 +3,7 @@ import type { ResumeVersion } from "@typedance/contracts"
 export type UiLanguage = "zh-CN" | "en-US"
 export type TargetLanguage = "zh-CN" | "en-US"
 export type ThemePreference = "light" | "dark" | "system"
-export type WorkspaceSection = "workspace" | "jobs" | "evidence" | "review" | "exports"
+export type WorkspaceSection = "workspace" | "templates" | "jobs" | "evidence" | "review" | "exports"
 export type RunState = "idle" | "waiting_user_confirmation" | "running" | "completed" | "failed_retryable"
 export type ReviewGateStatus = "ready" | "needs_review" | "blocked"
 

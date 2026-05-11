@@ -10,6 +10,7 @@ import { JobTargetPanel } from "./features/workspace/components/JobTargetPanel"
 import { ResumeCanvas } from "./features/workspace/components/ResumeCanvas"
 import { InsightPanel } from "./features/workspace/components/InsightPanel"
 import { QuickActions } from "./features/workspace/components/QuickActions"
+import { TemplateLibrary } from "./features/templates/components/TemplateLibrary"
 import "./styles.css"
 import type { ResumeVersion } from "@typedance/contracts"
 
@@ -141,32 +142,36 @@ export function App() {
         onThemePreferenceChange: setThemePreference,
       }}
     >
-      <main className="td-workspace-shell" data-job-panel={isJobPanelOpen ? "open" : "closed"}>
-        <JobTargetPanel copy={t} jobTarget={jobTarget} isOpen={isJobPanelOpen} />
-        <ResumeCanvas
-          copy={t}
-          docJson={docJson}
-          preview={preview}
-          title={savedResume?.title ?? resume.title}
-          targetLanguage={targetLanguage}
-          reviewGate={reviewGate}
-          isJobPanelOpen={isJobPanelOpen}
-          onEditorChange={handleEditorChange}
-          onTargetLanguageChange={handleTargetLanguageChange}
-          onRunAction={handleRunAction}
-          onToggleJobPanel={handleToggleJobPanel}
-        />
-        <InsightPanel
-          copy={t}
-          text={text}
-          runState={runState}
-          reviewGate={reviewGate}
-          evidenceCards={evidenceCards}
-          matchScore={jobTarget.matchScore}
-          evidenceCoverage={evidenceCoverage}
-        />
-        <QuickActions />
-      </main>
+      {activeSection === "templates" ? (
+        <TemplateLibrary copy={t} uiLanguage={uiLanguage} targetLanguage={targetLanguage} />
+      ) : (
+        <main className="td-workspace-shell" data-job-panel={isJobPanelOpen ? "open" : "closed"}>
+          <JobTargetPanel copy={t} jobTarget={jobTarget} isOpen={isJobPanelOpen} />
+          <ResumeCanvas
+            copy={t}
+            docJson={docJson}
+            preview={preview}
+            title={savedResume?.title ?? resume.title}
+            targetLanguage={targetLanguage}
+            reviewGate={reviewGate}
+            isJobPanelOpen={isJobPanelOpen}
+            onEditorChange={handleEditorChange}
+            onTargetLanguageChange={handleTargetLanguageChange}
+            onRunAction={handleRunAction}
+            onToggleJobPanel={handleToggleJobPanel}
+          />
+          <InsightPanel
+            copy={t}
+            text={text}
+            runState={runState}
+            reviewGate={reviewGate}
+            evidenceCards={evidenceCards}
+            matchScore={jobTarget.matchScore}
+            evidenceCoverage={evidenceCoverage}
+          />
+          <QuickActions />
+        </main>
+      )}
     </WorkspaceLayout>
   )
 }

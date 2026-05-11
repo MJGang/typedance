@@ -4,6 +4,7 @@ import {
   FileDown,
   FileText,
   HardDrive,
+  LayoutTemplate,
   LibraryBig,
   Settings,
   ShieldCheck,
@@ -29,6 +30,7 @@ import { SettingsDialog } from "./SettingsDialog"
 
 const navItems: Array<{ id: WorkspaceSection; icon: typeof FileText; badge?: string }> = [
   { id: "workspace", icon: FileText },
+  { id: "templates", icon: LayoutTemplate },
   { id: "jobs", icon: BriefcaseBusiness, badge: "82%" },
   { id: "evidence", icon: LibraryBig, badge: "3" },
   { id: "review", icon: ShieldCheck, badge: "1" },
