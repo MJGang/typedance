@@ -13,31 +13,7 @@ from typing import Any
 from fpdf import FPDF
 
 from .models import ResumeVersion, TemplateStyleConfig
-
-
-PDF_CLASS_DECLARATIONS: dict[str, tuple[str, ...]] = {
-    "bg-white": ("background: #ffffff;",),
-    "text-slate-900": ("color: #0f172a;",),
-    "text-slate-700": ("color: #334155;",),
-    "text-blue-800": ("color: #1e40af;",),
-    "font-sans": ('font-family: "Microsoft YaHei", "Noto Sans SC", Arial, sans-serif;',),
-    "font-bold": ("font-weight: 700;",),
-    "font-semibold": ("font-weight: 600;",),
-    "border-b-2": ("border-bottom-width: 1.5pt;", "border-bottom-style: solid;"),
-    "border-blue-800": ("border-bottom-color: #1e40af;",),
-    "pb-3": ("padding-bottom: 9pt;",),
-    "mb-4": ("margin-bottom: 12pt;",),
-}
-
-PDF_TEXT_COLORS: dict[str, tuple[int, int, int]] = {
-    "text-slate-900": (15, 23, 42),
-    "text-slate-700": (51, 65, 85),
-    "text-blue-800": (30, 64, 175),
-}
-
-PDF_BORDER_COLORS: dict[str, tuple[int, int, int]] = {
-    "border-blue-800": (30, 64, 175),
-}
+from .style_renderer import generate_full_css
 
 
 def escape_html(value: str) -> str:
@@ -181,54 +157,15 @@ def _render_doc_body(resume: ResumeVersion) -> str:
     return "\n".join(f"<p>{escape_html(line)}</p>" for line in lines)
 
 
-def _classes_to_declarations(class_name: str) -> list[str]:
-    declarations: list[str] = []
-    for token in class_name.split():
-        declarations.extend(PDF_CLASS_DECLARATIONS.get(token, ()))
-    return declarations
-
-
-def _class_tokens(template_style: TemplateStyleConfig | None, slot_name: str) -> set[str]:
-    if template_style is None:
-        return set()
-
-    slot = template_style.slots.get(slot_name)
-    if slot is None:
-        return set()
-
-    return set(slot.class_name.split())
-
-
-def _first_token_color(tokens: set[str], colors: dict[str, tuple[int, int, int]]) -> tuple[int, int, int] | None:
-    for token in tokens:
-        color = colors.get(token)
-        if color is not None:
-            return color
-    return None
-
-
-def _template_style_rule(selector: str, class_name: str) -> str:
-    declarations = _classes_to_declarations(class_name)
-    if not declarations:
-        return ""
-
-    return f"{selector} {{\n        " + "\n        ".join(declarations) + "\n      }"
-
-
 def _render_template_style_css(template_style: TemplateStyleConfig | None) -> str:
     if template_style is None:
         return ""
-
-    rules = []
-    page_slot = template_style.slots.get("page")
-    if page_slot is not None:
-        rules.append(_template_style_rule(".td-resume-page", page_slot.class_name))
-
-    header_slot = template_style.slots.get("header")
-    if header_slot is not None:
-        rules.append(_template_style_rule(".td-resume-page h1", header_slot.class_name))
-
-    return "\n      ".join(rule for rule in rules if rule)
+    # Convert BlockStyle models to dicts with camelCase keys for style_renderer
+    blocks_dict = {
+        name: block.model_dump(by_alias=True, exclude_none=True)
+        for name, block in template_style.blocks.items()
+    }
+    return generate_full_css(blocks_dict)
 
 
 def render_resume_html(resume: ResumeVersion, template_style: TemplateStyleConfig | None = None) -> str:
@@ -341,6 +278,64 @@ def _find_cjk_font() -> str | None:
     return None
 
 
+class FPDFStyleAdapter:
+    """Map BlockStyle properties to FPDF API calls."""
+
+    def __init__(self, blocks: dict[str, dict]):
+        self.blocks = blocks
+
+    def page_style(self) -> dict:
+        style = self.blocks.get("paragraph", {})
+        return {
+            "text_color": self._parse_color(style.get("color"), (31, 41, 55)),
+            "font_size": self._parse_font_size(style.get("fontSize"), 10.5),
+            "line_height": style.get("lineHeight", 1.5),
+        }
+
+    def header1_style(self) -> dict:
+        style = self.blocks.get("heading1", {})
+        return {
+            "color": self._parse_color(style.get("color"), (17, 24, 39)),
+            "font_size": self._parse_font_size(style.get("fontSize"), 22),
+            "align": style.get("textAlign", "left"),
+        }
+
+    def header2_style(self) -> dict:
+        style = self.blocks.get("heading2", {})
+        return {
+            "color": self._parse_color(style.get("color"), (23, 78, 166)),
+            "font_size": self._parse_font_size(style.get("fontSize"), 12),
+            "border": self._parse_border(style.get("borderBottom")),
+        }
+
+    @staticmethod
+    def _parse_color(hex_color: str | None, default: tuple[int, int, int]) -> tuple[int, int, int]:
+        if not hex_color or not isinstance(hex_color, str) or not hex_color.startswith("#") or len(hex_color) != 7:
+            return default
+        try:
+            return (int(hex_color[1:3], 16), int(hex_color[3:5], 16), int(hex_color[5:7], 16))
+        except ValueError:
+            return default
+
+    @staticmethod
+    def _parse_font_size(value: str | None, default: float) -> float:
+        if not value:
+            return default
+        match = __import__("re").match(r"(\d+(?:\.\d+)?)", str(value))
+        return float(match.group(1)) if match else default
+
+    @staticmethod
+    def _parse_border(border: dict | None) -> dict | None:
+        if not border or not isinstance(border, dict):
+            return None
+        if border.get("style") in (None, "none"):
+            return None
+        return {
+            "width": FPDFStyleAdapter._parse_font_size(border.get("width"), 1.5) / 3,
+            "color": FPDFStyleAdapter._parse_color(border.get("color"), (23, 78, 166)),
+        }
+
+
 def _write_fpdf_fallback(
     resume: ResumeVersion,
     pdf_path: Path,
@@ -349,13 +344,11 @@ def _write_fpdf_fallback(
     lines = resume_lines_for_pdf(resume)
     title = lines[0] if lines else resume.title
     body = "\n".join(lines[1:])
-    page_tokens = _class_tokens(template_style, "page")
-    header_tokens = _class_tokens(template_style, "header")
-    page_text_color = _first_token_color(page_tokens, PDF_TEXT_COLORS) or (31, 41, 55)
-    header_text_color = _first_token_color(header_tokens, PDF_TEXT_COLORS) or (17, 24, 39)
-    header_border_color = _first_token_color(header_tokens, PDF_BORDER_COLORS) or (23, 78, 166)
-    header_margin_bottom = 4 if "mb-4" not in header_tokens else 8
-    header_padding_bottom = 0 if "pb-3" not in header_tokens else 4
+
+    adapter = FPDFStyleAdapter(template_style.blocks if template_style else {})
+    p_style = adapter.page_style()
+    h1_style = adapter.header1_style()
+    h2_style = adapter.header2_style()
 
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_auto_page_break(auto=True, margin=_MARGIN)
@@ -372,19 +365,20 @@ def _write_fpdf_fallback(
         font = pdf.font_name
         is_cjk = False
 
-    pdf.set_text_color(*header_text_color)
-    pdf.set_font(font, size=16, style="B")
+    pdf.set_text_color(*h1_style["color"])
+    pdf.set_font(font, size=h1_style["font_size"], style="B")
     pdf.cell(_BODY_W, 10, text=title, new_x="LMARGIN", new_y="NEXT")
-    if "border-b-2" in header_tokens:
-        y = pdf.get_y() + header_padding_bottom
-        pdf.set_draw_color(*header_border_color)
-        pdf.set_line_width(0.5)
-        pdf.line(_MARGIN, y, _MARGIN + _BODY_W, y)
-    pdf.ln(header_margin_bottom + header_padding_bottom)
 
-    pdf.set_text_color(*page_text_color)
-    pdf.set_font(font, size=11)
-    for line in _wrap_lines(body, _BODY_W, 11, is_cjk):
+    if h2_style.get("border"):
+        y = pdf.get_y() + 1
+        pdf.set_draw_color(*h2_style["border"]["color"])
+        pdf.set_line_width(h2_style["border"]["width"])
+        pdf.line(_MARGIN, y, _MARGIN + _BODY_W, y)
+    pdf.ln(6)
+
+    pdf.set_text_color(*p_style["text_color"])
+    pdf.set_font(font, size=p_style["font_size"])
+    for line in _wrap_lines(body, _BODY_W, p_style["font_size"], is_cjk):
         pdf.cell(_BODY_W, 6, text=line, new_x="LMARGIN", new_y="NEXT")
 
     pdf.output(str(pdf_path))
