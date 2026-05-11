@@ -9,6 +9,7 @@ const policy: PdfClassPolicy = {
     spacing: {
       label: { "zh-CN": "间距", "en-US": "Spacing" },
       allowlist: ["pb-3", "mb-4"],
+      blocklist: [],
     },
   },
   updated_at: "2026-05-11T00:00:00.000Z",

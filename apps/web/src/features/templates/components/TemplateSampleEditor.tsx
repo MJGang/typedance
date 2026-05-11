@@ -1,6 +1,6 @@
 import { Save } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { ResumeEditorChange } from "../../workspace/editor"
+import type { ResumeDocJson, ResumeEditorChange } from "../../workspace/editor"
 import { ResumeRichTextEditor } from "../../workspace/components/ResumeRichTextEditor"
 import type { UiLanguage } from "../../workspace/types"
 import type { TemplateSampleContent } from "../types"
@@ -43,7 +43,7 @@ export function TemplateSampleEditor({
       <p>{sample.name[uiLanguage]} 会用于模板库缩略图和详情预览，不会修改当前简历。</p>
       <ResumeRichTextEditor
         ariaLabel="Template sample content"
-        docJson={sample.doc_json}
+        docJson={sample.doc_json as ResumeDocJson}
         onChange={handleChange}
       />
       <p aria-live="polite">{status}</p>

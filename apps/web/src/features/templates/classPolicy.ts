@@ -23,7 +23,7 @@ export function validateTemplateClasses(
     }
   }
 
-  return splitClasses(className).flatMap((item) => {
+  return splitClasses(className).flatMap<ClassValidationIssue>((item) => {
     if (blocklist.has(item)) {
       return [{ className: item, reason: "blocked" as const }]
     }
