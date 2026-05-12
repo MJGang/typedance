@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
-import { getTemplateSample, getTemplateStyle, saveTemplateSample, saveTemplateStyle } from "@/api"
+import { createResumeVersion, getTemplateSample, getTemplateStyle, saveTemplateSample, saveTemplateStyle } from "@/api"
+import { useNavigate } from "react-router-dom"
 import type { TargetLanguage, UiLanguage } from "../../workspace/types"
 import { builtInSamples, defaultClassicA4Style, templateRegistry } from "../data"
 import type { ResumeTemplateDefinition, TemplateLibraryTab, TemplateSampleContent, TemplateStyleConfig } from "../types"
@@ -23,6 +24,21 @@ export function TemplateLibrary({ uiLanguage, targetLanguage }: TemplateLibraryP
   const currentTemplate = selectedTemplate ?? templateRegistry[0]
   const sampleId = currentTemplate.sampleContentIds[targetLanguage] ?? "sample-tech-zh"
   const visibleSample = sample.id === sampleId ? sample : builtInSamples[sampleId] ?? builtInSamples["sample-tech-zh"]
+  const navigate = useNavigate()
+
+  const handleApply = async (templateId: string) => {
+    const sampleId = currentTemplate.sampleContentIds[targetLanguage] ?? "sample-tech-zh"
+    const sample = builtInSamples[sampleId] ?? builtInSamples["sample-tech-zh"]
+    const resume = await createResumeVersion({
+      title: "未命名简历",
+      target_language: targetLanguage,
+      template_id: templateId,
+      doc_json: sample.doc_json,
+      plain_text_snapshot: sample.plain_text_snapshot,
+    })
+    navigate(`/workspace/${resume.id}`)
+  }
+
   const templates = useMemo(() => templateRegistry, [])
 
   useEffect(() => {
@@ -73,6 +89,7 @@ export function TemplateLibrary({ uiLanguage, targetLanguage }: TemplateLibraryP
               uiLanguage={uiLanguage}
               targetLanguage={targetLanguage}
               onOpen={() => setSelectedTemplate(template)}
+              onApply={() => handleApply(template.id)}
             />
           ))}
         </section>

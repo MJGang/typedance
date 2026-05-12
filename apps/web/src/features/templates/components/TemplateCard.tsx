@@ -15,6 +15,7 @@ type TemplateCardProps = {
   uiLanguage: UiLanguage
   targetLanguage: TargetLanguage
   onOpen: () => void
+  onApply?: () => void
 }
 
 export function TemplateCard({
@@ -24,6 +25,7 @@ export function TemplateCard({
   uiLanguage,
   targetLanguage,
   onOpen,
+  onApply,
 }: TemplateCardProps) {
   return (
     <Button type="button" variant="outline" className="td-template-card" onClick={onOpen}>
@@ -40,6 +42,15 @@ export function TemplateCard({
           {template.status === "built-in" ? "内置" : "规划中"}
         </Badge>
       </span>
+      {onApply && (
+        <Button
+          size="sm"
+          className="mt-2 w-full"
+          onClick={(e) => { e.stopPropagation(); onApply(); }}
+        >
+          应用
+        </Button>
+      )}
     </Button>
   )
 }
