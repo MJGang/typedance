@@ -1,7 +1,7 @@
 import { createBrowserRouter } from "react-router-dom"
 import { SiteLayout } from "./components/SiteLayout"
 import { HomePage } from "./features/home/HomePage"
-import { TemplateLibrary } from "./features/templates/TemplateLibrary"
+import { TemplateLibrary } from "./features/templates/components/TemplateLibrary"
 import { WorkspacePage } from "./features/workspace/WorkspacePage"
 
 export const router = createBrowserRouter([
