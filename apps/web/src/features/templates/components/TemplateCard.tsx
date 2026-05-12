@@ -14,7 +14,6 @@ type TemplateCardProps = {
   styleConfig: TemplateStyleConfig
   uiLanguage: UiLanguage
   targetLanguage: TargetLanguage
-  onOpen: () => void
   onApply?: () => void
 }
 
@@ -24,11 +23,10 @@ export function TemplateCard({
   styleConfig,
   uiLanguage,
   targetLanguage,
-  onOpen,
   onApply,
 }: TemplateCardProps) {
   return (
-    <Button type="button" variant="outline" className="td-template-card" onClick={onOpen}>
+    <div className="td-template-card">
       <TemplatePreview sample={sample} styleConfig={styleConfig} />
       <span className="td-template-card-title">{template.localizedName[uiLanguage]}</span>
       <span className="td-template-card-description">{template.description[uiLanguage]}</span>
@@ -46,11 +44,11 @@ export function TemplateCard({
         <Button
           size="sm"
           className="mt-2 w-full"
-          onClick={(e) => { e.stopPropagation(); onApply(); }}
+          onClick={onApply}
         >
           应用
         </Button>
       )}
-    </Button>
+    </div>
   )
 }

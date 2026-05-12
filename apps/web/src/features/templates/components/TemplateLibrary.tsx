@@ -1,27 +1,23 @@
 import { useEffect, useMemo, useState } from "react"
-import { createResumeVersion, getTemplateSample, getTemplateStyle, saveTemplateSample, saveTemplateStyle } from "@/api"
+import { createResumeVersion, getTemplateSample, saveTemplateSample } from "@/api"
 import { useNavigate } from "react-router-dom"
 import type { TargetLanguage, UiLanguage } from "../../workspace/types"
 import { builtInSamples, defaultClassicA4Style, templateRegistry } from "../data"
-import type { ResumeTemplateDefinition, TemplateLibraryTab, TemplateSampleContent, TemplateStyleConfig } from "../types"
+import type { TemplateLibraryTab, TemplateSampleContent } from "../types"
 import { TemplateCard } from "./TemplateCard"
-import { TemplateDetail } from "./TemplateDetail"
 import { TemplateSampleEditor } from "./TemplateSampleEditor"
 
 type TemplateLibraryProps = {
-  uiLanguage: UiLanguage
-  targetLanguage: TargetLanguage
+  uiLanguage?: UiLanguage
+  targetLanguage?: TargetLanguage
 }
 
-export function TemplateLibrary({ uiLanguage, targetLanguage }: TemplateLibraryProps) {
+export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN" }: TemplateLibraryProps) {
   const [activeTab, setActiveTab] = useState<TemplateLibraryTab>("templates")
-  const [selectedTemplate, setSelectedTemplate] = useState<ResumeTemplateDefinition | null>(null)
   const [sample, setSample] = useState<TemplateSampleContent>(builtInSamples["sample-tech-zh"])
-  const [styleConfig, setStyleConfig] = useState<TemplateStyleConfig>(defaultClassicA4Style)
   const [sampleStatus, setSampleStatus] = useState("本地默认样张")
-  const [styleStatus, setStyleStatus] = useState("本地默认样式")
 
-  const currentTemplate = selectedTemplate ?? templateRegistry[0]
+  const currentTemplate = templateRegistry[0]
   const sampleId = currentTemplate.sampleContentIds[targetLanguage] ?? "sample-tech-zh"
   const visibleSample = sample.id === sampleId ? sample : builtInSamples[sampleId] ?? builtInSamples["sample-tech-zh"]
   const navigate = useNavigate()
@@ -47,20 +43,10 @@ export function TemplateLibrary({ uiLanguage, targetLanguage }: TemplateLibraryP
       .catch(() => { setSample(builtInSamples[sampleId] ?? builtInSamples["sample-tech-zh"]); setSampleStatus("使用内置样张"); })
   }, [sampleId])
 
-  useEffect(() => {
-    void getTemplateStyle(currentTemplate.id)
-      .then((nextStyle) => { setStyleConfig(nextStyle); setStyleStatus("已读取本地样式"); })
-      .catch(() => { setStyleConfig(defaultClassicA4Style); setStyleStatus("使用内置样式"); })
-  }, [currentTemplate.id])
-
   const handleSaveSample = async () => {
     const saved = await saveTemplateSample(visibleSample)
     setSample(saved)
     setSampleStatus("样张已保存")
-  }
-
-  const handleStyleChange = (style: TemplateStyleConfig) => {
-    setStyleConfig(style)
   }
 
   return (
@@ -78,33 +64,20 @@ export function TemplateLibrary({ uiLanguage, targetLanguage }: TemplateLibraryP
         <button type="button" role="tab" aria-selected={activeTab === "samples"} onClick={() => setActiveTab("samples")}>样张内容</button>
       </div>
 
-      {activeTab === "templates" && !selectedTemplate ? (
+      {activeTab === "templates" ? (
         <section className="td-template-grid">
           {templates.map((template) => (
             <TemplateCard
               key={template.id}
               template={template}
               sample={visibleSample}
-              styleConfig={styleConfig}
+              styleConfig={defaultClassicA4Style}
               uiLanguage={uiLanguage}
               targetLanguage={targetLanguage}
-              onOpen={() => setSelectedTemplate(template)}
               onApply={() => handleApply(template.id)}
             />
           ))}
         </section>
-      ) : null}
-
-      {activeTab === "templates" && selectedTemplate ? (
-        <TemplateDetail
-          template={selectedTemplate}
-          sample={visibleSample}
-          styleConfig={styleConfig}
-          uiLanguage={uiLanguage}
-          onBack={() => setSelectedTemplate(null)}
-          onStyleChange={handleStyleChange}
-          styleStatus={styleStatus}
-        />
       ) : null}
 
       {activeTab === "samples" ? (
