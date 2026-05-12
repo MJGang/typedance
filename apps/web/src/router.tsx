@@ -1,0 +1,16 @@
+import { createBrowserRouter } from "react-router-dom"
+import { SiteLayout } from "./components/SiteLayout"
+import { HomePage } from "./features/home/HomePage"
+import { TemplateLibrary } from "./features/templates/TemplateLibrary"
+import { WorkspacePage } from "./features/workspace/WorkspacePage"
+
+export const router = createBrowserRouter([
+  {
+    element: <SiteLayout />,
+    children: [
+      { path: "/", element: <HomePage /> },
+      { path: "/templates", element: <TemplateLibrary /> },
+      { path: "/workspace/:id", element: <WorkspacePage /> },
+    ],
+  },
+])
