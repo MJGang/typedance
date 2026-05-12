@@ -62,7 +62,7 @@ export function StylePanel({
       setError(null);
       saveTemplateStyle(next)
         .then((saved) => { onChange({ ...saved, preset: presetName }); setSaving(false); })
-        .catch((e: Error) => { setError("保存失败，稍后重试"); setSaving(false); });
+        .catch((e: Error) => { setError("保存失败，稍后重试"); setSaving(false); console.log('???', e)});
     }, 300);
   }, [styleConfig, onChange]);
 

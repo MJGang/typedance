@@ -99,6 +99,12 @@ export function App() {
 
     setStatus("Exporting PDF...")
     const exported = await exportResumePdf(savedResume.id)
+    // Update savedResume so A4 preview points to the latest PDF
+    setSavedResume((prev) =>
+      prev
+        ? { ...prev, preview_pdf_path: exported.file_path, preview_pdf_url: exported.preview_pdf_url }
+        : prev,
+    )
     setStatus(`Exported ${exported.file_path}`)
   }, [handleCreateVersion, savedResume])
 

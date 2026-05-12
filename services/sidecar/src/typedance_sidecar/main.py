@@ -119,7 +119,7 @@ def save_template_sample(
     return repo.save(payload.model_copy(update={"updated_at": utc_now()}))
 
 
-@app.get("/template-styles/{template_id}", response_model=TemplateStyleConfig)
+@app.get("/template-styles/{template_id}", response_model=TemplateStyleConfig, response_model_exclude_none=True)
 def get_template_style(
     template_id: str,
     repo: TemplateStyleRepository = Depends(template_style_repository),
@@ -130,7 +130,7 @@ def get_template_style(
     return config
 
 
-@app.put("/template-styles/{template_id}", response_model=TemplateStyleConfig)
+@app.put("/template-styles/{template_id}", response_model=TemplateStyleConfig, response_model_exclude_none=True)
 def save_template_style(
     template_id: str,
     payload: TemplateStyleConfig,
@@ -142,10 +142,18 @@ def save_template_style(
 
 
 @app.get("/previews/{resume_id}.pdf", name="get_preview_pdf")
-def get_preview_pdf(resume_id: str, repo: ResumeRepository = Depends(resume_repository)) -> FileResponse:
+def get_preview_pdf(
+    resume_id: str,
+    request: Request,
+    repo: ResumeRepository = Depends(resume_repository),
+    style_repo: TemplateStyleRepository = Depends(template_style_repository),
+) -> FileResponse:
     resume = repo.get(resume_id)
-    if resume is None or resume.preview_pdf_path is None:
-        raise HTTPException(status_code=404, detail="Preview PDF not found")
+    if resume is None:
+        raise HTTPException(status_code=404, detail="Resume version not found")
+
+    # Regenerate preview with latest template styles on every access
+    resume = repo.save(with_preview_pdf(resume, request, style_repo))
 
     pdf_path = Path(resume.preview_pdf_path)
     if not pdf_path.exists():
@@ -170,14 +178,15 @@ def export_pdf(
     if resume is None:
         raise HTTPException(status_code=404, detail="Resume version not found")
 
-    if resume.preview_pdf_path is None or not Path(resume.preview_pdf_path).exists():
-        resume = repo.save(with_preview_pdf(resume, request, style_repo))
+    # Always regenerate PDF with latest template styles
+    resume = repo.save(with_preview_pdf(resume, request, style_repo))
 
     pdf_path = Path(resume.preview_pdf_path)
     return {
         "id": f"pdf_{resume.id}",
         "resume_version_id": resume.id,
         "file_path": str(pdf_path),
+        "preview_pdf_url": resume.preview_pdf_url or "",
         "language": resume.target_language,
         "layout_profile": "single-page-a4",
         "layout_status": "ready",

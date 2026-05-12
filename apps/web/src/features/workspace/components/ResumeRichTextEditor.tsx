@@ -12,6 +12,7 @@ type ResumeRichTextEditorProps = {
   docJson: ResumeDocJson
   onChange: (change: ResumeEditorChange) => void
   onSelectionUpdate?: (blockType: string) => void
+  editable?: boolean
 }
 
 type ToolbarState = {
@@ -33,10 +34,12 @@ export function ResumeRichTextEditor({
   docJson,
   onChange,
   onSelectionUpdate,
+  editable = true,
 }: ResumeRichTextEditorProps) {
   const editor = useEditor({
     extensions: [StarterKit],
     content: docJson as unknown as JSONContent,
+    editable,
     editorProps: {
       attributes: {
         "aria-label": ariaLabel,
@@ -83,16 +86,21 @@ export function ResumeRichTextEditor({
       return
     }
 
+    if (editor.isEditable !== editable) {
+      editor.setEditable(editable)
+    }
+
     const current = JSON.stringify(editor.getJSON())
     const next = JSON.stringify(docJson)
 
     if (current !== next) {
       editor.commands.setContent(docJson as unknown as JSONContent, { emitUpdate: false })
     }
-  }, [docJson, editor])
+  }, [docJson, editor, editable])
 
   return (
     <div className="td-rich-editor">
+      {editable && (
       <div className="td-rich-editor-toolbar" role="toolbar" aria-label="简历格式工具栏">
         <Button
           type="button"
@@ -145,6 +153,7 @@ export function ResumeRichTextEditor({
           <Pilcrow />
         </Button>
       </div>
+      )}
       <EditorContent editor={editor} className="td-rich-editor-content" />
     </div>
   )

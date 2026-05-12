@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  pdfClassPolicySchema,
   resumeVersionSchema,
   templateSampleContentSchema,
   templateStyleConfigSchema
@@ -45,71 +44,48 @@ describe("templateSampleContentSchema", () => {
 });
 
 describe("templateStyleConfigSchema", () => {
-  it("validates template style config", () => {
+  it("validates template style config with blocks", () => {
     const parsed = templateStyleConfigSchema.parse({
       template_id: "classic-a4",
-      slots: {
-        page: {
-          label: {
-            "zh-CN": "页面",
-            "en-US": "Page"
-          },
-          class_name: "bg-white text-slate-900 font-sans",
-          allowed_class_groups: ["background-color", "text-color", "font-family"]
-        }
+      blocks: {
+        heading1: { fontSize: "24pt", fontWeight: 700, color: "#1a1a1a", textAlign: "center" },
+        paragraph: { fontSize: "10pt", lineHeight: 1.5, color: "#334155" },
       },
       updated_at: "2026-05-08T08:00:00.000Z"
     });
 
-    expect(parsed.slots.page.class_name).toContain("bg-white");
-    expect(parsed.slots.page.label["zh-CN"]).toBe("页面");
+    expect(parsed.template_id).toBe("classic-a4");
+    expect(parsed.preset).toBe("classic");
+    expect(parsed.blocks.heading1.fontSize).toBe("24pt");
+    expect(parsed.blocks.heading1.fontWeight).toBe(700);
     expect(parsed.updated_at).toBe("2026-05-08T08:00:00.000Z");
   });
 
-  it("defaults allowed class groups to an empty list", () => {
+  it("defaults blocks to an empty object", () => {
     const parsed = templateStyleConfigSchema.parse({
       template_id: "classic-a4",
-      slots: {
-        page: {
-          label: {
-            "zh-CN": "页面",
-            "en-US": "Page"
-          },
-          class_name: "bg-white text-slate-900 font-sans"
-        }
-      },
+      blocks: {},
       updated_at: "2026-05-08T08:00:00.000Z"
     });
 
-    expect(parsed.slots.page.allowed_class_groups).toEqual([]);
+    expect(parsed.blocks).toEqual({});
   });
 
   it("requires an updated timestamp", () => {
     expect(() =>
       templateStyleConfigSchema.parse({
         template_id: "classic-a4",
-        slots: {
-          page: {
-            label: {
-              "zh-CN": "页面",
-              "en-US": "Page"
-            },
-            class_name: "bg-white text-slate-900 font-sans"
-          }
-        }
+        blocks: {},
       })
     ).toThrow();
   });
 
-  it("requires localized slot labels", () => {
+  it("rejects unknown block type keys", () => {
     expect(() =>
       templateStyleConfigSchema.parse({
         template_id: "classic-a4",
-        slots: {
-          page: {
-            label: "Page",
-            class_name: "bg-white text-slate-900 font-sans"
-          }
+        blocks: {
+          unknownBlock: { fontSize: "12pt" },
         },
         updated_at: "2026-05-08T08:00:00.000Z"
       })
@@ -117,72 +93,4 @@ describe("templateStyleConfigSchema", () => {
   });
 });
 
-describe("pdfClassPolicySchema", () => {
-  it("validates pdf class policy", () => {
-    const parsed = pdfClassPolicySchema.parse({
-      allowlist: ["bg-white", "text-slate-900"],
-      blocklist: ["fixed", "sticky"],
-      groups: {
-        "text-color": {
-          label: {
-            "zh-CN": "文本颜色",
-            "en-US": "Text color"
-          },
-          allowlist: ["text-slate-900", "text-slate-700"]
-        }
-      },
-      updated_at: "2026-05-08T08:00:00.000Z"
-    });
-
-    expect(parsed.groups["text-color"].allowlist).toContain("text-slate-900");
-    expect(parsed.groups["text-color"].label["en-US"]).toBe("Text color");
-    expect(parsed.updated_at).toBe("2026-05-08T08:00:00.000Z");
-  });
-
-  it("defaults group blocklists to an empty list", () => {
-    const parsed = pdfClassPolicySchema.parse({
-      allowlist: ["bg-white", "text-slate-900"],
-      groups: {
-        "text-color": {
-          label: {
-            "zh-CN": "文本颜色",
-            "en-US": "Text color"
-          },
-          allowlist: ["text-slate-900", "text-slate-700"]
-        }
-      },
-      updated_at: "2026-05-08T08:00:00.000Z"
-    });
-
-    expect(parsed.groups["text-color"].blocklist).toEqual([]);
-  });
-
-  it("requires policy group labels and an updated timestamp", () => {
-    expect(() =>
-      pdfClassPolicySchema.parse({
-        allowlist: ["bg-white", "text-slate-900"],
-        groups: {
-          "text-color": {
-            allowlist: ["text-slate-900", "text-slate-700"]
-          }
-        },
-        updated_at: "2026-05-08T08:00:00.000Z"
-      })
-    ).toThrow();
-
-    expect(() =>
-      pdfClassPolicySchema.parse({
-        allowlist: ["bg-white", "text-slate-900"],
-        groups: {
-          "text-color": {
-            label: {
-              "zh-CN": "文本颜色",
-              "en-US": "Text color"
-            },
-            allowlist: ["text-slate-900", "text-slate-700"]
-          }
-        }
-      })
-    ).toThrow();
-  });
-});
+// PdfClassPolicySchema 已随 BlockStyle 架构迁移移除

@@ -122,7 +122,7 @@ class TemplateStyleRepository:
         return TemplateStyleConfig.model_validate(json.loads(row["payload"]))
 
     def save(self, config: TemplateStyleConfig) -> TemplateStyleConfig:
-        payload = config.model_dump_json(by_alias=True)
+        payload = config.model_dump_json(by_alias=True, exclude_none=True)
         self.connection.execute(
             """
             INSERT INTO template_styles (template_id, payload, updated_at)

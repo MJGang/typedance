@@ -23,14 +23,27 @@ export async function createResumeVersion(resume: Pick<ResumeVersion, "title" | 
   return resumeVersionSchema.parse(await response.json());
 }
 
-export async function exportResumePdf(resumeId: string): Promise<{ file_path: string }> {
+export async function exportResumePdf(resumeId: string): Promise<{ file_path: string; preview_pdf_url: string }> {
   const response = await fetch(`${baseUrl}/exports/pdf/${resumeId}`, { method: "POST" });
 
   if (!response.ok) {
     throw new Error(`Failed to export PDF: ${response.status}`);
   }
 
-  return response.json() as Promise<{ file_path: string }>;
+  return response.json() as Promise<{ file_path: string; preview_pdf_url: string }>;
+}
+
+function deepStripNull(obj: unknown): unknown {
+  if (obj === null) return undefined;
+  if (Array.isArray(obj)) return obj.map(deepStripNull);
+  if (typeof obj === "object" && obj !== null) {
+    return Object.fromEntries(
+      Object.entries(obj as Record<string, unknown>)
+        .map(([k, v]) => [k, deepStripNull(v)])
+        .filter(([_, v]) => v !== undefined),
+    );
+  }
+  return obj;
 }
 
 async function parseTemplateResponse<T>(
@@ -49,7 +62,7 @@ async function parseTemplateResponse<T>(
     throw new Error(`${fallbackMessage}: ${details}`);
   }
 
-  return parser(payload);
+  return parser(deepStripNull(payload));
 }
 
 export async function getTemplateSample(sampleId: string): Promise<TemplateSampleContent> {
