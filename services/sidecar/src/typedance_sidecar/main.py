@@ -97,6 +97,17 @@ def update_resume_version(
     return repo.save(with_preview_pdf(resume.apply_update(payload), request, style_repo))
 
 
+@app.delete("/resume-versions/{resume_id}", status_code=204)
+def delete_resume_version(
+    resume_id: str,
+    repo: ResumeRepository = Depends(resume_repository),
+) -> None:
+    resume = repo.get(resume_id)
+    if resume is None:
+        raise HTTPException(status_code=404, detail="Resume version not found")
+    repo.delete(resume_id)
+
+
 @app.get("/template-samples/{sample_id}", response_model=TemplateSampleContent)
 def get_template_sample(
     sample_id: str,

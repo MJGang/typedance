@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   resumeVersionSchema,
   templateSampleContentSchema,
@@ -8,6 +9,17 @@ import {
 } from "@typedance/contracts";
 
 const baseUrl = import.meta.env.VITE_SIDECAR_URL ?? "http://127.0.0.1:4317";
+
+export async function listResumeVersions(): Promise<ResumeVersion[]> {
+  const response = await fetch(`${baseUrl}/resume-versions`);
+  if (!response.ok) throw new Error(`Failed to list resumes: ${response.status}`);
+  return z.array(resumeVersionSchema).parse(deepStripNull(await response.json()));
+}
+
+export async function deleteResumeVersion(resumeId: string): Promise<void> {
+  const response = await fetch(`${baseUrl}/resume-versions/${resumeId}`, { method: "DELETE" });
+  if (!response.ok) throw new Error(`Failed to delete resume: ${response.status}`);
+}
 
 export async function createResumeVersion(resume: Pick<ResumeVersion, "title" | "target_language" | "plain_text_snapshot" | "doc_json" | "template_id">): Promise<ResumeVersion> {
   const response = await fetch(`${baseUrl}/resume-versions`, {

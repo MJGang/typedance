@@ -80,6 +80,10 @@ class ResumeRepository:
         self.connection.commit()
         return resume
 
+    def delete(self, resume_id: str) -> None:
+        self.connection.execute("DELETE FROM resume_versions WHERE id = ?", (resume_id,))
+        self.connection.commit()
+
 
 class TemplateSampleRepository:
     def __init__(self, connection: sqlite3.Connection) -> None:
