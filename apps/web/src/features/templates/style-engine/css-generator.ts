@@ -54,7 +54,7 @@ const ELEMENT_MAP: Record<string, string[]> = {
  */
 export function generateWorkspaceCSS(
   blocks: Record<string, BlockStyle>,
-  scope = ".rm-with-pagination .ProseMirror",
+  scope = ".rm-with-pagination",
 ): string {
   const rules: string[] = [];
   for (const [blockName, style] of Object.entries(blocks)) {
