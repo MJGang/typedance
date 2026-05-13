@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react"
 import type { JSONContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
@@ -33,6 +33,7 @@ type ToolbarState = {
   isItalic: boolean
   isHeading2: boolean
   isBulletList: boolean
+  isParagraph: boolean
 }
 
 const inactiveToolbarState: ToolbarState = {
@@ -40,6 +41,7 @@ const inactiveToolbarState: ToolbarState = {
   isItalic: false,
   isHeading2: false,
   isBulletList: false,
+  isParagraph: false,
 }
 
 export function ResumeRichTextEditor({
@@ -52,6 +54,11 @@ export function ResumeRichTextEditor({
   marginConfig,
   onMarginChange,
 }: ResumeRichTextEditorProps) {
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+  const onSelectionUpdateRef = useRef(onSelectionUpdate)
+  onSelectionUpdateRef.current = onSelectionUpdate
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -85,19 +92,20 @@ export function ResumeRichTextEditor({
       },
     },
     onUpdate: ({ editor }) => {
-      onChange({
+      onChangeRef.current({
         plainText: editor.getText({ blockSeparator: "\n\n" }),
         docJson: editor.getJSON() as ResumeDocJson,
       })
     },
     onSelectionUpdate: ({ editor }) => {
-      if (!onSelectionUpdate) return
+      const onUpdate = onSelectionUpdateRef.current
+      if (!onUpdate) return
       const { $from } = editor.state.selection
       const node = $from.parent
       if (node.type.name === "heading") {
-        onSelectionUpdate(`heading${node.attrs.level}`)
+        onUpdate(`heading${node.attrs.level}`)
       } else {
-        onSelectionUpdate(node.type.name)
+        onUpdate(node.type.name)
       }
     },
   })
@@ -112,6 +120,7 @@ export function ResumeRichTextEditor({
           isItalic: editor.isActive("italic"),
           isHeading2: editor.isActive("heading", { level: 2 }),
           isBulletList: editor.isActive("bulletList"),
+          isParagraph: editor.isActive("paragraph"),
         }
       },
     }) ?? inactiveToolbarState
@@ -174,7 +183,7 @@ export function ResumeRichTextEditor({
           </Button>
           <Button
             type="button"
-            variant="outline"
+            variant={toolbarState.isParagraph ? "default" : "outline"}
             size="icon"
             aria-label="段落"
             onClick={() => editor?.chain().focus().setParagraph().run()}
