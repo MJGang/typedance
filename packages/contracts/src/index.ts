@@ -84,6 +84,7 @@ export const blockStyleSchema = z.object({
 
 export const templateStyleConfigSchema = z.object({
   template_id: z.string().min(1),
+  name: z.string().optional(),
   preset: z.string().default("classic"),
   blocks: z.record(blockTypeSchema, blockStyleSchema),
   updated_at: z.string().datetime(),

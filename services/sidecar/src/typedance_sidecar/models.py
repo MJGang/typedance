@@ -92,6 +92,7 @@ class BlockStyle(BaseModel):
 
 class TemplateStyleConfig(BaseModel):
     template_id: str = Field(min_length=1)
+    name: str | None = None
     preset: str = "classic"
     blocks: dict[str, BlockStyle] = Field(default_factory=dict)
     updated_at: str = Field(default_factory=utc_now)

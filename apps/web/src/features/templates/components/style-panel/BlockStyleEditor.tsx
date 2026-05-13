@@ -16,7 +16,7 @@ export function BlockStyleEditor({ blockType, value, onChange }: BlockStyleEdito
   const isList = blockType === "bulletList" || blockType === "orderedList";
 
   return (
-    <div className="td-block-style-editor">
+    <div className="flex flex-col">
       <TypographySection value={value} onChange={onChange} />
       <ColorSection value={value} onChange={onChange} />
       <SpacingSection value={value} onChange={onChange} />
