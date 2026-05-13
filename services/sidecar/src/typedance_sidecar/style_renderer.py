@@ -47,7 +47,7 @@ def generate_block_css(block_name: str, style: dict) -> str:
 
     if not rules:
         return ""
-    return f".td-resume-{block_name} {{\n" + "\n".join(rules) + "\n}}"
+    return f".td-resume-{block_name} {{\n" + "\n".join(rules) + "\n}"
 
 
 def generate_full_css(blocks: dict[str, dict]) -> str:
