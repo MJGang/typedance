@@ -170,7 +170,7 @@ export function WorkspacePage() {
           </Button>
         </div>
 
-        <div className="flex-1 overflow-auto bg-gray-50 p-8">
+        <div className="flex-1 overflow-auto p-8">
           <ResumeRichTextEditor
             ariaLabel="Resume editor"
             docJson={docJson}

@@ -417,6 +417,7 @@ textarea {
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--muted) 42%, var(--card));
   padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
 }
 
 .td-rich-editor-toolbar button {
@@ -429,6 +430,7 @@ textarea {
   flex-direction: column;
   align-items: center;
   flex: 1 1 auto;
+  position: relative;
 }
 
 .td-rich-editor-prosemirror {
@@ -439,6 +441,11 @@ textarea {
   color: var(--foreground);
   font-size: 0.95rem;
   line-height: 1.75;
+  background: #fff;
+}
+
+.dark .td-rich-editor-prosemirror {
+  background: var(--background);
 }
 
 .td-rich-editor-prosemirror p,
@@ -458,35 +465,24 @@ textarea {
   padding-left: 1.25rem;
 }
 
-.td-rich-editor-prosemirror:focus-visible {
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--primary) 58%, transparent);
-}
-
 /* 拖拽 handle 样式 */
 .td-drag-handle {
-  width: 16px;
-  height: 16px;
-  background: transparent;
+  width: 20px;
+  height: 24px;
   cursor: grab;
-  position: absolute;
-  left: -24px;
-  top: 50%;
-  transform: translateY(-50%);
-  opacity: 0;
-  transition: opacity 0.15s;
-  border-radius: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 4px;
+  color: var(--muted-foreground);
+  transition: background 0.15s, color 0.15s;
 }
 
-/* 鼠标悬停时显示 handle */
-.td-rich-editor-prosemirror p:hover > .td-drag-handle,
-.td-rich-editor-prosemirror h1:hover > .td-drag-handle,
-.td-rich-editor-prosemirror h2:hover > .td-drag-handle,
-.td-rich-editor-prosemirror h3:hover > .td-drag-handle {
-  opacity: 1;
+.td-drag-handle:hover {
+  background: var(--accent);
+  color: var(--foreground);
 }
+
 
 .td-action-menu {
   display: grid;
@@ -1054,6 +1050,12 @@ textarea {
   .td-compact-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* 分页包裹器确保有尺寸，避免 drag-handle 插件的 clampToContent 因 zero-dimension 返回 null */
+.rm-pages-wrapper {
+  min-width: 1px;
+  min-height: 1px;
 }
 
 /* PaginationPlus 样式微调 */

@@ -4,7 +4,7 @@ import type { JSONContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import DragHandle from "@tiptap/extension-drag-handle-react"
 import { PaginationPlus, PAGE_SIZES } from "tiptap-pagination-plus"
-import { Bold, Heading2, Italic, List, Pilcrow } from "lucide-react"
+import { Bold, GripVertical, Heading2, Italic, List, Pilcrow } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import type { ResumeDocJson, ResumeEditorChange } from "../editor"
@@ -188,7 +188,9 @@ export function ResumeRichTextEditor({
       )}
       <style>{cssText}</style>
       <DragHandle editor={editor}>
-        <div className="td-drag-handle" />
+        <div className="td-drag-handle">
+          <GripVertical className="h-4 w-4" />
+        </div>
       </DragHandle>
       <div className="td-editor-print-wrapper">
         <EditorContent editor={editor} className="td-rich-editor-content" />
