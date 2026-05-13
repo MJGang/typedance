@@ -8,7 +8,7 @@ import { RightPanel } from "./components/RightPanel"
 import { AiTab } from "./components/AiTab"
 import { StylePanel } from "../templates/components/style-panel/StylePanel"
 import { generateWorkspaceCSS } from "../templates/style-engine/css-generator"
-import { getResumeVersion, getTemplateStyle, saveTemplateStyle, updateResumeVersion } from "@/api"
+import { exportResumePdf, getResumeVersion, getTemplateStyle, saveTemplateStyle, updateResumeVersion } from "@/api"
 import { templateRegistry, defaultClassicA4Style } from "../templates/data"
 import type { ResumeDocJson, ResumeEditorChange } from "./editor"
 import type { ResumeVersion, TemplateStyleConfig, BlockType } from "@typedance/contracts"
@@ -113,6 +113,18 @@ export function WorkspacePage() {
     setIsSaving(false)
   }, [id, resume, docJson, editingTitle, isSaving, commitTitle])
 
+  const handleExportPdf = useCallback(async () => {
+    if (!id) return
+    try {
+      const result = await exportResumePdf(id)
+      if (result.preview_pdf_url) {
+        window.open(result.preview_pdf_url, "_blank")
+      }
+    } catch {
+      // PDF export failed silently
+    }
+  }, [id])
+
   useEffect(() => {
     if (editingTitle && titleInputRef.current) {
       titleInputRef.current.focus()
@@ -165,7 +177,7 @@ export function WorkspacePage() {
           <Button variant="outline" size="sm" onClick={handleSave} disabled={isSaving}>
             <Save className="mr-1 h-4 w-4" />{isSaving ? "保存中..." : "保存"}
           </Button>
-          <Button size="sm">
+          <Button size="sm" onClick={handleExportPdf}>
             <FileDown className="mr-1 h-4 w-4" />导出 PDF
           </Button>
         </div>
