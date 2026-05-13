@@ -2,7 +2,6 @@ import { useEffect, useRef } from "react"
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react"
 import type { JSONContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
-import DragHandleExtension from "@tiptap/extension-drag-handle"
 import DragHandle from "@tiptap/extension-drag-handle-react"
 import { PaginationPlus, PAGE_SIZES } from "tiptap-pagination-plus"
 import { Bold, Heading2, Italic, List, Pilcrow } from "lucide-react"
@@ -62,9 +61,6 @@ export function ResumeRichTextEditor({
   const editor = useEditor({
     extensions: [
       StarterKit,
-      DragHandleExtension.configure({
-        nested: true,
-      }),
       PaginationPlus.configure({
         enabled: true,
         pageGap: 24,
