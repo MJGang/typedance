@@ -426,20 +426,19 @@ textarea {
 
 .td-rich-editor-content {
   display: flex;
-  min-height: 0;
+  flex-direction: column;
+  align-items: center;
   flex: 1 1 auto;
 }
 
 .td-rich-editor-prosemirror {
   width: 100%;
-  min-height: 260px;
+  min-height: 400px;
   flex: 1 1 auto;
-  overflow: auto;
-  padding: 1.5rem 1.75rem;
+  outline: none;
   color: var(--foreground);
   font-size: 0.95rem;
   line-height: 1.75;
-  outline: none;
 }
 
 .td-rich-editor-prosemirror p,
@@ -461,6 +460,32 @@ textarea {
 
 .td-rich-editor-prosemirror:focus-visible {
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--primary) 58%, transparent);
+}
+
+/* 拖拽 handle 样式 */
+.td-drag-handle {
+  width: 16px;
+  height: 16px;
+  background: transparent;
+  cursor: grab;
+  position: absolute;
+  left: -24px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity 0.15s;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 鼠标悬停时显示 handle */
+.td-rich-editor-prosemirror p:hover > .td-drag-handle,
+.td-rich-editor-prosemirror h1:hover > .td-drag-handle,
+.td-rich-editor-prosemirror h2:hover > .td-drag-handle,
+.td-rich-editor-prosemirror h3:hover > .td-drag-handle {
+  opacity: 1;
 }
 
 .td-action-menu {
@@ -1029,4 +1054,15 @@ textarea {
   .td-compact-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* PaginationPlus 样式微调 */
+.rm-with-pagination .ProseMirror {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.rm-with-pagination .page {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  margin-bottom: 4px;
 }
