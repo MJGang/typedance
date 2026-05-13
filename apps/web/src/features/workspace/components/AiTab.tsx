@@ -42,7 +42,7 @@ export function AiTab() {
           </div>
         ))}
       </div>
-      <form onSubmit={handleSend} className="flex items-center gap-2 border-t pt-2">
+      <form onSubmit={handleSend} className="flex items-center gap-2 border-t border-border pt-2">
         <Input
           value={input}
           onChange={(e) => setInput(e.target.value)}

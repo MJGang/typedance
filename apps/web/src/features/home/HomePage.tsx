@@ -1,16 +1,18 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
-import { listResumeVersions, deleteResumeVersion } from "@/api"
-import type { ResumeVersion } from "@typedance/contracts"
+import { listResumeVersions, deleteResumeVersion, getTemplateStyle } from "@/api"
+import type { ResumeVersion, TemplateStyleConfig } from "@typedance/contracts"
 import { ResumeCard } from "./ResumeCard"
 import { NewResumeModal } from "./NewResumeModal"
+import { defaultClassicA4Style } from "../templates/data"
 
 export function HomePage() {
   const navigate = useNavigate()
   const [resumes, setResumes] = useState<ResumeVersion[]>([])
   const [modalOpen, setModalOpen] = useState(false)
+  const [styleMap, setStyleMap] = useState<Record<string, TemplateStyleConfig>>({})
 
   const loadResumes = useCallback(async () => {
     try {
@@ -22,6 +24,34 @@ export function HomePage() {
   }, [])
 
   useEffect(() => { loadResumes() }, [loadResumes])
+
+  // Load template styles for all unique template IDs
+  const uniqueTemplateIds = useMemo(
+    () => [...new Set(resumes.map((r) => r.template_id))],
+    [resumes],
+  )
+
+  useEffect(() => {
+    if (uniqueTemplateIds.length === 0) return
+
+    let cancelled = false
+    Promise.allSettled(
+      uniqueTemplateIds.map(async (id) => {
+        const style = await getTemplateStyle(id)
+        return { templateId: id, style }
+      }),
+    ).then((results) => {
+      if (cancelled) return
+      const map: Record<string, TemplateStyleConfig> = {}
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          map[result.value.templateId] = result.value.style
+        }
+      }
+      setStyleMap(map)
+    })
+    return () => { cancelled = true }
+  }, [uniqueTemplateIds])
 
   const handleDelete = useCallback(async (resumeId: string) => {
     await deleteResumeVersion(resumeId)
@@ -50,6 +80,7 @@ export function HomePage() {
             <ResumeCard
               key={resume.id}
               resume={resume}
+              styleConfig={styleMap[resume.template_id] ?? defaultClassicA4Style}
               onClick={() => navigate(`/workspace/${resume.id}`)}
               onDelete={() => handleDelete(resume.id)}
             />

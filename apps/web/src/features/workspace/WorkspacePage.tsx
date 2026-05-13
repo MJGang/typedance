@@ -53,7 +53,7 @@ export function WorkspacePage() {
       forkedRef.current = true
       const newId = `user_${resume!.template_id}_${Date.now()}`
       forkedTemplateIdRef.current = newId
-      saveTemplateStyle({ ...newStyle, template_id: newId }).catch(console.error)
+      saveTemplateStyle({ ...newStyle, template_id: newId, name: template.localizedName["zh-CN"], preset: "" }).catch(console.error)
     } else {
       const targetId = forkedTemplateIdRef.current ?? newStyle.template_id
       saveTemplateStyle({ ...newStyle, template_id: targetId }).catch(console.error)
@@ -78,7 +78,7 @@ export function WorkspacePage() {
     <div className="flex h-full">
       {/* Editor area */}
       <div className="flex flex-1 flex-col">
-        <div className="flex items-center gap-2 border-b px-4 py-2">
+        <div className="flex items-center gap-2 border-b border-border px-4 py-2">
           <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
             <ArrowLeft className="h-4 w-4" />
           </Button>

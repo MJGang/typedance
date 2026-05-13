@@ -1,4 +1,4 @@
-import type { ResumeVersion } from "@typedance/contracts"
+import type { ResumeVersion, TemplateStyleConfig } from "@typedance/contracts"
 import { Button } from "@/components/ui/button"
 import { MoreHorizontal, FileText } from "lucide-react"
 import {
@@ -7,40 +7,39 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { ResumePreview } from "./ResumePreview"
 
 type ResumeCardProps = {
   resume: ResumeVersion
+  styleConfig?: TemplateStyleConfig
   onClick: () => void
   onRename?: () => void
   onDuplicate?: () => void
   onDelete: () => void
 }
 
-export function ResumeCard({ resume, onClick, onRename, onDuplicate, onDelete }: ResumeCardProps) {
+export function ResumeCard({ resume, styleConfig, onClick, onRename, onDuplicate, onDelete }: ResumeCardProps) {
   const timeAgo = getRelativeTime(resume.updated_at)
+  const hasPreview = styleConfig && resume.doc_json && typeof resume.doc_json === "object"
 
   return (
     <div
-      className="group relative flex flex-col overflow-hidden rounded-lg border bg-card shadow-sm transition-colors hover:border-border-hover cursor-pointer"
+      className="group relative flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm transition-colors hover:border-border-hover cursor-pointer"
       onClick={onClick}
     >
       {/* A4 ratio thumbnail (210:297 ≈ 3:4) */}
-      <div className="aspect-[210/297] w-full bg-muted flex items-center justify-center overflow-hidden p-4">
-        {resume.preview_pdf_url ? (
-          <iframe
-            src={resume.preview_pdf_url}
-            className="pointer-events-none h-full w-full"
-            title={resume.title}
-          />
+      <div className="aspect-[210/297] w-full overflow-hidden bg-white">
+        {hasPreview ? (
+          <ResumePreview docJson={resume.doc_json} styleConfig={styleConfig} />
         ) : (
-          <div className="flex flex-col items-center gap-2 text-muted-foreground">
+          <div className="flex h-full flex-col items-center justify-center gap-2 bg-muted text-muted-foreground">
             <FileText className="h-8 w-8" />
             <span className="text-xs">{resume.template_id}</span>
           </div>
         )}
       </div>
       {/* Footer */}
-      <div className="flex items-center justify-between border-t px-3 py-2">
+      <div className="flex items-center justify-between border-t border-border px-3 py-2">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{resume.title}</p>
           <p className="text-xs text-muted-foreground">
