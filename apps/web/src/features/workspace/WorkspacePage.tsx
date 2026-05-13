@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Save, FileDown } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { ArrowLeft, Save, FileDown, Pencil } from "lucide-react"
 import { ResumeRichTextEditor } from "./components/ResumeRichTextEditor"
 import { RightPanel } from "./components/RightPanel"
 import { AiTab } from "./components/AiTab"
 import { StylePanel } from "../templates/components/style-panel/StylePanel"
-import { generateFullCSS } from "../templates/style-engine/css-generator"
-import { getTemplateStyle, saveTemplateStyle } from "@/api"
+import { generateWorkspaceCSS } from "../templates/style-engine/css-generator"
+import { getResumeVersion, getTemplateStyle, saveTemplateStyle, updateResumeVersion } from "@/api"
 import { templateRegistry, defaultClassicA4Style } from "../templates/data"
 import type { ResumeDocJson, ResumeEditorChange } from "./editor"
 import type { ResumeVersion, TemplateStyleConfig, BlockType } from "@typedance/contracts"
@@ -19,20 +20,29 @@ export function WorkspacePage() {
   const [docJson, setDocJson] = useState<ResumeDocJson>({ type: "doc", content: [] })
   const [activeBlock, setActiveBlock] = useState<BlockType>("paragraph")
   const [styleConfig, setStyleConfig] = useState<TemplateStyleConfig>(defaultClassicA4Style)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
+  const titleInputRef = useRef<HTMLInputElement>(null)
 
   // Track whether a built-in template has been forked
   const forkedRef = useRef(false)
   const forkedTemplateIdRef = useRef<string | null>(null)
 
   useEffect(() => {
-    // Load template styles for the default template
-    const defaultTemplate = templateRegistry[0]
-    getTemplateStyle(defaultTemplate.id)
+    if (!id) return
+
+    getResumeVersion(id)
+      .then(resume => {
+        setResume(resume)
+        setDocJson(resume.doc_json as ResumeDocJson)
+        return getTemplateStyle(resume.template_id)
+      })
       .then(setStyleConfig)
       .catch(() => setStyleConfig(defaultClassicA4Style))
-  }, [])
+  }, [id])
 
-  const cssText = useMemo(() => generateFullCSS(styleConfig.blocks ?? {}), [styleConfig])
+  const cssText = useMemo(() => generateWorkspaceCSS(styleConfig.blocks ?? {}), [styleConfig])
 
   const handleEditorChange = useCallback((change: ResumeEditorChange) => {
     setDocJson(change.docJson)
@@ -60,6 +70,56 @@ export function WorkspacePage() {
     }
   }, [resume])
 
+  const startEditing = useCallback(() => {
+    setTitleDraft(resume?.title ?? "")
+    setEditingTitle(true)
+  }, [resume])
+
+  const commitTitle = useCallback(() => {
+    const trimmed = titleDraft.trim()
+    if (!trimmed || trimmed === resume?.title) {
+      setEditingTitle(false)
+      return trimmed === resume?.title ? resume?.title : null
+    }
+    return trimmed
+  }, [titleDraft, resume])
+
+  const cancelEditing = useCallback(() => {
+    setEditingTitle(false)
+  }, [])
+
+  const handleSave = useCallback(async () => {
+    if (!id || !resume || isSaving) return
+
+    setIsSaving(true)
+
+    const updates: Record<string, unknown> = {
+      doc_json: docJson as Record<string, unknown>,
+    }
+
+    const title = editingTitle ? commitTitle() : null
+    if (title) {
+      updates.title = title
+    }
+
+    try {
+      const updated = await updateResumeVersion(id, updates)
+      setResume(updated)
+    } catch {
+      // Save failed — doc_json stays in local state so user can retry
+    }
+
+    setEditingTitle(false)
+    setIsSaving(false)
+  }, [id, resume, docJson, editingTitle, isSaving, commitTitle])
+
+  useEffect(() => {
+    if (editingTitle && titleInputRef.current) {
+      titleInputRef.current.focus()
+      titleInputRef.current.select()
+    }
+  }, [editingTitle])
+
   // If no resume id is available, show a message
   if (!id) {
     return (
@@ -82,22 +142,41 @@ export function WorkspacePage() {
           <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <h2 className="flex-1 text-sm font-medium">{resume?.title ?? "加载中..."}</h2>
-          <Button variant="outline" size="sm">
-            <Save className="mr-1 h-4 w-4" />保存
+          {editingTitle ? (
+            <Input
+              ref={titleInputRef}
+              className="flex-1 h-7 text-sm font-medium"
+              value={titleDraft}
+              onChange={e => setTitleDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter") handleSave()
+                if (e.key === "Escape") cancelEditing()
+              }}
+            />
+          ) : (
+            <h2
+              className="group flex flex-1 cursor-pointer items-center gap-1.5 text-sm font-medium transition-colors duration-150 hover:text-primary"
+              onClick={startEditing}
+            >
+              <span className="truncate">{resume?.title ?? "加载中..."}</span>
+              <Pencil className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
+            </h2>
+          )}
+          <Button variant="outline" size="sm" onClick={handleSave} disabled={isSaving}>
+            <Save className="mr-1 h-4 w-4" />{isSaving ? "保存中..." : "保存"}
           </Button>
           <Button size="sm">
             <FileDown className="mr-1 h-4 w-4" />导出 PDF
           </Button>
         </div>
 
-        <div className="flex-1 overflow-auto p-4">
-          <style>{cssText}</style>
+        <div className="flex-1 overflow-auto bg-gray-50 p-8">
           <ResumeRichTextEditor
             ariaLabel="Resume editor"
             docJson={docJson}
             onChange={handleEditorChange}
             onSelectionUpdate={handleSelectionUpdate}
+            cssText={cssText}
           />
         </div>
       </div>

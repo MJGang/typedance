@@ -61,10 +61,7 @@ export function ResumeRichTextEditor({
 
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({
-        heading: { draggable: true },
-        paragraph: { draggable: true },
-      }),
+      StarterKit,
       DragHandleExtension.configure({
         nested: true,
       }),
