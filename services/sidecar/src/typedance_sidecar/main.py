@@ -1,9 +1,12 @@
+import logging
 import os
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+
+logger = logging.getLogger(__name__)
 
 from .db import ResumeRepository, TemplateSampleRepository, TemplateStyleRepository, connect
 from .models import (
@@ -75,26 +78,32 @@ def list_resume_versions(repo: ResumeRepository = Depends(resume_repository)) ->
 @app.post("/resume-versions", response_model=ResumeVersion, status_code=201)
 def create_resume_version(
     payload: ResumeVersionCreate,
-    request: Request,
     repo: ResumeRepository = Depends(resume_repository),
-    style_repo: TemplateStyleRepository = Depends(template_style_repository),
 ) -> ResumeVersion:
-    resume = ResumeVersion.new(payload)
-    return repo.save(with_preview_pdf(resume, request, style_repo))
+    return repo.save(ResumeVersion.new(payload))
+
+
+@app.get("/resume-versions/{resume_id}", response_model=ResumeVersion)
+def get_resume_version(
+    resume_id: str,
+    repo: ResumeRepository = Depends(resume_repository),
+) -> ResumeVersion:
+    resume = repo.get(resume_id)
+    if resume is None:
+        raise HTTPException(status_code=404, detail="Resume version not found")
+    return resume
 
 
 @app.patch("/resume-versions/{resume_id}", response_model=ResumeVersion)
 def update_resume_version(
     resume_id: str,
     payload: ResumeVersionUpdate,
-    request: Request,
     repo: ResumeRepository = Depends(resume_repository),
-    style_repo: TemplateStyleRepository = Depends(template_style_repository),
 ) -> ResumeVersion:
     resume = repo.get(resume_id)
     if resume is None:
         raise HTTPException(status_code=404, detail="Resume version not found")
-    return repo.save(with_preview_pdf(resume.apply_update(payload), request, style_repo))
+    return repo.save(resume.apply_update(payload))
 
 
 @app.delete("/resume-versions/{resume_id}", status_code=204)
@@ -164,10 +173,13 @@ def get_preview_pdf(
         raise HTTPException(status_code=404, detail="Resume version not found")
 
     # Regenerate preview with latest template styles on every access
-    resume = repo.save(with_preview_pdf(resume, request, style_repo))
+    try:
+        resume = repo.save(with_preview_pdf(resume, request, style_repo))
+    except Exception as exc:
+        logger.warning("PDF preview regeneration failed (non-fatal): %s", exc)
 
-    pdf_path = Path(resume.preview_pdf_path)
-    if not pdf_path.exists():
+    pdf_path = Path(resume.preview_pdf_path) if resume.preview_pdf_path else None
+    if not pdf_path or not pdf_path.exists():
         raise HTTPException(status_code=404, detail="Preview PDF not found")
 
     return FileResponse(
@@ -190,9 +202,15 @@ def export_pdf(
         raise HTTPException(status_code=404, detail="Resume version not found")
 
     # Always regenerate PDF with latest template styles
-    resume = repo.save(with_preview_pdf(resume, request, style_repo))
+    try:
+        resume = repo.save(with_preview_pdf(resume, request, style_repo))
+    except Exception as exc:
+        logger.warning("PDF regeneration failed during export (non-fatal): %s", exc)
 
-    pdf_path = Path(resume.preview_pdf_path)
+    pdf_path = Path(resume.preview_pdf_path) if resume.preview_pdf_path else None
+    if not pdf_path or not pdf_path.exists():
+        raise HTTPException(status_code=500, detail="PDF generation failed")
+
     return {
         "id": f"pdf_{resume.id}",
         "resume_version_id": resume.id,

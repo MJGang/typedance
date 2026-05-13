@@ -1065,4 +1065,5 @@ textarea {
 .rm-with-pagination .page {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   margin-bottom: 4px;
+  background: #fff;
 }

@@ -16,6 +16,25 @@ export async function listResumeVersions(): Promise<ResumeVersion[]> {
   return z.array(resumeVersionSchema).parse(deepStripNull(await response.json()));
 }
 
+export async function getResumeVersion(resumeId: string): Promise<ResumeVersion> {
+  const response = await fetch(`${baseUrl}/resume-versions/${resumeId}`);
+  if (!response.ok) throw new Error(`Failed to get resume: ${response.status}`);
+  return resumeVersionSchema.parse(deepStripNull(await response.json()));
+}
+
+export async function updateResumeVersion(
+  resumeId: string,
+  data: Partial<Pick<ResumeVersion, "title" | "target_language" | "template_id" | "doc_json" | "plain_text_snapshot">>,
+): Promise<ResumeVersion> {
+  const response = await fetch(`${baseUrl}/resume-versions/${resumeId}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error(`Failed to update resume: ${response.status}`);
+  return resumeVersionSchema.parse(deepStripNull(await response.json()));
+}
+
 export async function deleteResumeVersion(resumeId: string): Promise<void> {
   const response = await fetch(`${baseUrl}/resume-versions/${resumeId}`, { method: "DELETE" });
   if (!response.ok) throw new Error(`Failed to delete resume: ${response.status}`);
