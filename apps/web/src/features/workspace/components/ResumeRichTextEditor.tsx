@@ -50,10 +50,14 @@ export function ResumeRichTextEditor({
   editable = true,
   cssText = "",
   marginConfig,
+  onMarginChange,
 }: ResumeRichTextEditorProps) {
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({
+        heading: { draggable: true },
+        paragraph: { draggable: true },
+      }),
       DragHandleExtension.configure({
         nested: true,
       }),
