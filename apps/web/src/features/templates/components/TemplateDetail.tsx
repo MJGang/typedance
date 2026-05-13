@@ -4,10 +4,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { UiLanguage } from "../../workspace/types";
 import type { ResumeDocJson, ResumeEditorChange } from "../../workspace/editor";
-import type { BlockType, BlockStyle, TemplateStyleConfig } from "../types";
+import type { BlockType, TemplateStyleConfig } from "../types";
 import { ResumeRichTextEditor } from "../../workspace/components/ResumeRichTextEditor";
 import { StylePanel } from "./style-panel/StylePanel";
-import { generateFullCSS, generateBlockCSS } from "../style-engine/css-generator";
+import { generateFullCSS, generateWorkspaceCSS } from "../style-engine/css-generator";
 import type { TemplateSampleContent, ResumeTemplateDefinition } from "../types";
 
 type TemplateDetailProps = {
@@ -19,37 +19,6 @@ type TemplateDetailProps = {
   onStyleChange: (style: TemplateStyleConfig) => void;
   styleStatus: string;
 };
-
-/**
- * Maps block style names to TipTap-generated HTML element selectors,
- * scoped within .td-template-editor-wrapper so template preview styles
- * apply to the read-only TipTap editor.
- */
-function generateElementCSS(blocks: Record<string, BlockStyle>): string {
-  const ELEMENT_MAP: Record<string, string[]> = {
-    heading1: ["h1"],
-    heading2: ["h2"],
-    heading3: ["h3"],
-    paragraph: ["p"],
-    bulletList: ["ul", "li"],
-    orderedList: ["ol", "li"],
-  };
-
-  const rules: string[] = [];
-  for (const [blockName, style] of Object.entries(blocks)) {
-    const elements = ELEMENT_MAP[blockName];
-    if (!elements) continue;
-
-    const blockCSS = generateBlockCSS(blockName, style);
-    if (!blockCSS) continue;
-
-    const selectors = elements
-      .map((el) => `.td-template-editor-wrapper ${el}`)
-      .join(", ");
-    rules.push(blockCSS.replace(`.td-resume-${blockName}`, selectors));
-  }
-  return rules.join("\n\n");
-}
 
 export function TemplateDetail({
   template,
@@ -64,7 +33,10 @@ export function TemplateDetail({
   const [sampleDoc, setSampleDoc] = useState(sample.doc_json);
 
   const cssText = generateFullCSS(styleConfig.blocks ?? {});
-  const elementCssText = generateElementCSS(styleConfig.blocks ?? {});
+  const elementCssText = generateWorkspaceCSS(
+    styleConfig.blocks ?? {},
+    ".td-template-editor-wrapper",
+  );
 
   const handleSelectionUpdate = useCallback((blockName: string) => {
     const validBlocks: BlockType[] = ["heading1", "heading2", "heading3", "paragraph", "bulletList", "orderedList"];
