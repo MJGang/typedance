@@ -8,6 +8,7 @@ PDF conversion is handled by Playwright (Chromium headless).
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -223,15 +224,18 @@ def render_resume_html(resume: ResumeVersion, template_style: TemplateStyleConfi
 
 _pw = None
 _browser = None
+_lock = threading.Lock()
 
 
 def _get_browser():
-    """全局单例，复用 Chromium 进程"""
+    """全局单例，复用 Chromium 进程（线程安全）"""
     global _pw, _browser
     if _browser is None:
-        _pw = sync_playwright().start()
-        config = _resolve_browser_config()
-        _browser = _pw.chromium.launch(**config)
+        with _lock:
+            if _browser is None:  # double-checked locking
+                _pw = sync_playwright().start()
+                config = _resolve_browser_config()
+                _browser = _pw.chromium.launch(**config)
     return _browser
 
 
@@ -245,9 +249,11 @@ def render_and_export_pdf(
     html = render_resume_html(resume, template_style)
     browser = _get_browser()
     page = browser.new_page()
-    page.set_content(html, wait_until="networkidle")
-    page.pdf(path=str(output_path), format="A4", print_background=True)
-    page.close()
+    try:
+        page.set_content(html, wait_until="load")
+        page.pdf(path=str(output_path), format="A4", print_background=True)
+    finally:
+        page.close()
     return output_path
 
 
