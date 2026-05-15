@@ -1,5 +1,6 @@
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -17,10 +18,16 @@ from .models import (
     TemplateStyleConfig,
     utc_now,
 )
-from .pdf import export_resume_pdf
+from .pdf import render_and_export_pdf, cleanup_browser
 
 
-app = FastAPI(title="TypeDance Sidecar", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    cleanup_browser()
+
+
+app = FastAPI(title="TypeDance Sidecar", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -28,6 +35,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 def app_data_dir() -> Path:
@@ -59,10 +67,14 @@ def with_preview_pdf(
     request: Request,
     style_repo: TemplateStyleRepository,
 ) -> ResumeVersion:
-    template_style = style_repo.get(resume.template_id)
-    pdf_path = export_resume_pdf(resume, preview_pdf_dir(), template_style=template_style)
-    preview_url = str(request.url_for("get_preview_pdf", resume_id=resume.id))
-    return resume.model_copy(update={"preview_pdf_path": str(pdf_path), "preview_pdf_url": preview_url})
+    try:
+        template_style = style_repo.get(resume.template_id)
+        pdf_path = render_and_export_pdf(resume, template_style, preview_pdf_dir() / f"{resume.id}.pdf")
+        preview_url = str(request.url_for("get_preview_pdf", resume_id=resume.id))
+        return resume.model_copy(update={"preview_pdf_path": str(pdf_path), "preview_pdf_url": preview_url})
+    except Exception:
+        logger.warning("PDF preview generation failed")
+        return resume
 
 
 @app.get("/health")
@@ -190,34 +202,27 @@ def get_preview_pdf(
     )
 
 
-@app.post("/exports/pdf/{resume_id}", status_code=201)
+@app.post("/exports/pdf/{resume_id}")
 def export_pdf(
     resume_id: str,
-    request: Request,
     repo: ResumeRepository = Depends(resume_repository),
     style_repo: TemplateStyleRepository = Depends(template_style_repository),
-) -> dict[str, str]:
+):
     resume = repo.get(resume_id)
     if resume is None:
-        raise HTTPException(status_code=404, detail="Resume version not found")
+        raise HTTPException(status_code=404)
 
-    # Always regenerate PDF with latest template styles
-    try:
-        resume = repo.save(with_preview_pdf(resume, request, style_repo))
-    except Exception as exc:
-        logger.warning("PDF regeneration failed during export (non-fatal): %s", exc)
+    style = style_repo.get(resume.template_id) if resume.template_id else None
+    exports_dir = app_data_dir() / "files" / "exports"
+    exports_dir.mkdir(parents=True, exist_ok=True)
+    pdf_path = exports_dir / f"{resume_id}.pdf"
 
-    pdf_path = Path(resume.preview_pdf_path) if resume.preview_pdf_path else None
-    if not pdf_path or not pdf_path.exists():
-        raise HTTPException(status_code=500, detail="PDF generation failed")
+    render_and_export_pdf(resume, style, pdf_path)
 
-    return {
-        "id": f"pdf_{resume.id}",
-        "resume_version_id": resume.id,
-        "file_path": str(pdf_path),
-        "preview_pdf_url": resume.preview_pdf_url or "",
-        "language": resume.target_language,
-        "layout_profile": "single-page-a4",
-        "layout_status": "ready",
-        "created_at": resume.updated_at
-    }
+    filename = f"resume-{resume.title or resume_id}.pdf"
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=filename,
+        content_disposition_type="attachment",
+    )
