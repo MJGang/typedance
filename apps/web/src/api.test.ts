@@ -20,7 +20,7 @@ describe("exportResumePdf", () => {
     const blobContent = "%PDF-1.4 test pdf";
     vi.stubGlobal("fetch", vi.fn(async () => new Response(
       blobContent,
-      { headers: { "content-type": "application/pdf" } },
+      { headers: { "content-type": "application/pdf", "X-Pdf-Path": "C:/Users/test/.typedance/files/exports/resume-123.pdf" } },
     )));
 
     const { exportResumePdf } = await import("./api");
@@ -38,13 +38,40 @@ describe("exportResumePdf", () => {
       revokeObjectURL: vi.fn(),
     });
 
-    await exportResumePdf("resume-123", "My Resume");
+    const result = await exportResumePdf("resume-123", "My Resume");
 
     expect(fetch).toHaveBeenCalledWith(
       "http://127.0.0.1:4317/exports/pdf/resume-123",
       { method: "POST" },
     );
     expect(clickMock).toHaveBeenCalled();
+    expect(result?.filePath).toBe("C:/Users/test/.typedance/files/exports/resume-123.pdf");
+
+    createElementMock.mockRestore();
+  });
+
+  it("decodes exported file paths from response headers", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      "%PDF-1.4 test pdf",
+      { headers: { "content-type": "application/pdf", "X-Pdf-Path": "D:/51149/Documents/%E4%B8%AD%E6%96%87%E7%AE%80%E5%8E%86.pdf" } },
+    )));
+
+    const { exportResumePdf } = await import("./api");
+
+    const clickMock = vi.fn();
+    const createElementMock = vi.spyOn(document, "createElement").mockReturnValue({
+      href: "",
+      download: "",
+      click: clickMock,
+    } as unknown as HTMLAnchorElement);
+    vi.stubGlobal("URL", {
+      createObjectURL: vi.fn().mockReturnValue("blob:test"),
+      revokeObjectURL: vi.fn(),
+    });
+
+    const result = await exportResumePdf("resume-123", "中文简历");
+
+    expect(result?.filePath).toBe("D:/51149/Documents/中文简历.pdf");
 
     createElementMock.mockRestore();
   });

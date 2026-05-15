@@ -1,4 +1,4 @@
-import type { ResumeVersion } from "@typedance/contracts";
+import type { BlockStyle, ResumeVersion } from "@typedance/contracts";
 
 type TipTapNode = {
   type: string
@@ -13,7 +13,7 @@ function escapeHtml(value: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
 }
 
 function isTipTapNode(value: unknown): value is TipTapNode {
@@ -122,5 +122,129 @@ function renderSnapshot(snapshot: string): string {
 export function renderResumeHtml(resume: ResumeVersion): string {
   const body = renderDocJson(resume.doc_json) ?? renderSnapshot(resume.plain_text_snapshot)
 
-  return `<!doctype html>\n<html lang="${resume.target_language}">\n  <head>\n    <meta charset="utf-8" />\n    <style>\n      @page { size: A4; margin: 20mm 22mm; }\n      body {\n        font-family: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;\n        color: #1f2937;\n        line-height: 1.6;\n        font-size: 11pt;\n      }\n      .resume-header {\n        border-bottom: 2px solid #174ea6;\n        margin-bottom: 16px;\n        padding-bottom: 12px;\n      }\n      h1 {\n        font-size: 22pt;\n        margin: 0 0 4px;\n        font-weight: 700;\n        color: #101827;\n      }\n      .resume-title {\n        font-size: 11pt;\n        margin: 0;\n        color: #174ea6;\n        font-weight: 600;\n      }\n      .resume-body p {\n        margin: 0 0 8px;\n        font-size: 10pt;\n        line-height: 1.55;\n        color: #374151;\n      }\n      .muted { color: #9ca3af; font-style: italic; }\n    </style>\n  </head>\n  <body>\n    ${body}\n  </body>\n</html>`
+  return `<!doctype html>\n<html lang="${escapeHtml(resume.target_language)}">\n  <head>\n    <meta charset="utf-8" />\n    <style>\n      @page { size: A4; margin: 20mm 22mm; }\n      body {\n        font-family: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;\n        color: #1f2937;\n        line-height: 1.6;\n        font-size: 11pt;\n      }\n      .resume-header {\n        border-bottom: 2px solid #174ea6;\n        margin-bottom: 16px;\n        padding-bottom: 12px;\n      }\n      h1 {\n        font-size: 22pt;\n        margin: 0 0 4px;\n        font-weight: 700;\n        color: #101827;\n      }\n      .resume-title {\n        font-size: 11pt;\n        margin: 0;\n        color: #174ea6;\n        font-weight: 600;\n      }\n      .resume-body p {\n        margin: 0 0 8px;\n        font-size: 10pt;\n        line-height: 1.55;\n        color: #374151;\n      }\n      .muted { color: #9ca3af; font-style: italic; }\n    </style>\n  </head>\n  <body>\n    ${body}\n  </body>\n</html>`
+}
+
+// ---------------------------------------------------------------------------
+// renderStyledHtml — complete HTML document with td-resume-* CSS classes
+// and inline BlockStyle CSS rules
+// ---------------------------------------------------------------------------
+
+const CSS_PROP_MAP: Record<string, string> = {
+  fontFamily: "font-family",
+  fontSize: "font-size",
+  fontWeight: "font-weight",
+  lineHeight: "line-height",
+  letterSpacing: "letter-spacing",
+  textTransform: "text-transform",
+  color: "color",
+  backgroundColor: "background-color",
+  textAlign: "text-align",
+  marginTop: "margin-top",
+  marginBottom: "margin-bottom",
+  listStyleType: "list-style-type",
+  paddingLeft: "padding-left",
+}
+
+function getBlockName(node: TipTapNode): string {
+  if (node.type === "heading") {
+    const rawLevel = node.attrs?.level
+    const level = typeof rawLevel === "number" && rawLevel >= 1 && rawLevel <= 3 ? rawLevel : 2
+    return `heading${level}`
+  }
+  return node.type
+}
+
+function generateBlockCSS(blockName: string, style: BlockStyle): string {
+  const rules: string[] = []
+  for (const [key, value] of Object.entries(style)) {
+    if (key === "borderBottom" && typeof value === "object" && value !== null) {
+      const bs = value as { style?: string; width?: string; color?: string }
+      if (bs.style && bs.style !== "none") {
+        rules.push(`  border-bottom-style: ${bs.style};`)
+        if (bs.width) rules.push(`  border-bottom-width: ${bs.width};`)
+        if (bs.color) rules.push(`  border-bottom-color: ${bs.color};`)
+      }
+      continue
+    }
+    const prop = CSS_PROP_MAP[key]
+    if (prop && value !== undefined && value !== null) {
+      rules.push(`  ${prop}: ${value};`)
+    }
+  }
+  if (rules.length === 0) return ""
+  return `.td-resume-${blockName} {\n${rules.join("\n")}\n}`
+}
+
+function generateFullCSS(blocks: Record<string, BlockStyle>): string {
+  return Object.entries(blocks)
+    .map(([name, style]) => generateBlockCSS(name, style))
+    .filter(Boolean)
+    .join("\n\n")
+}
+
+// Extract heading number (1-3) from a block name like "heading1", "heading2", "heading3"
+function headingNumber(blockName: string): number {
+  return blockName === "heading3" ? 3 : blockName === "heading2" ? 2 : 1
+}
+
+function renderStyledBlock(node: TipTapNode, parentBlockName?: string): string {
+  const blockName = getBlockName(node)
+
+  if (node.type === "heading") {
+    const content = (node.content ?? []).map(renderInlineContent).join("")
+    const level = headingNumber(blockName)
+    return `<h${level} class="td-resume-${blockName}">${content}</h${level}>`
+  }
+
+  if (node.type === "paragraph") {
+    const content = (node.content ?? []).map(renderInlineContent).join("")
+    return content ? `<p class="td-resume-paragraph">${content}</p>` : ""
+  }
+
+  if (node.type === "bulletList" || node.type === "orderedList") {
+    const tag = node.type === "orderedList" ? "ol" : "ul"
+    const items = (node.content ?? [])
+      .map((child) => renderStyledBlock(child, blockName))
+      .filter(Boolean)
+      .join("\n      ")
+    return items ? `<${tag} class="td-resume-${blockName}">\n      ${items}\n    </${tag}>` : ""
+  }
+
+  if (node.type === "listItem") {
+    const itemContent = (node.content ?? [])
+      .map((child) => {
+        if (child.type === "paragraph") {
+          return renderInlineContent(child)
+        }
+        return renderStyledBlock(child)
+      })
+      .filter(Boolean)
+      .join("")
+    const liClass = parentBlockName ? `td-resume-${parentBlockName}` : `td-resume-${blockName}`
+    return itemContent ? `<li class="${liClass}">${itemContent}</li>` : ""
+  }
+
+  // Fallback for unknown node types
+  const content = (node.content ?? []).map(renderInlineContent).join("")
+  return content ? `<p class="td-resume-paragraph">${content}</p>` : ""
+}
+
+function renderStyledDocJson(docJson: unknown): string | null {
+  if (!isTipTapNode(docJson) || !Array.isArray(docJson.content)) {
+    return null
+  }
+  const body = docJson.content.map(renderStyledBlock).filter(Boolean).join("\n    ")
+  return body || null
+}
+
+export function renderStyledHtml(
+  docJson: unknown,
+  blocks: Record<string, BlockStyle>,
+  lang: string,
+): string {
+  const body = renderStyledDocJson(docJson) ?? ""
+  const blockCSS = generateFullCSS(blocks)
+
+  return `<!doctype html>\n<html lang="${escapeHtml(lang)}">\n  <head>\n    <meta charset="utf-8" />\n    <style>\n      @page { size: A4; margin: 20mm 22mm; }\n      body {\n        font-family: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;\n        color: #1f2937;\n        line-height: 1.6;\n        font-size: 11pt;\n        margin: 0;\n        padding: 0;\n      }\n${blockCSS ? `\n${blockCSS}` : ""}\n    </style>\n  </head>\n  <body>\n    ${body}\n  </body>\n</html>`
 }

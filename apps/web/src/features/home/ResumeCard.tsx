@@ -28,7 +28,7 @@ export function ResumeCard({ resume, styleConfig, onClick, onRename, onDuplicate
       onClick={onClick}
     >
       {/* A4 ratio thumbnail (210:297 ≈ 3:4) */}
-      <div className="aspect-[210/297] w-full overflow-hidden bg-white">
+      <div className="aspect-210/297 w-full overflow-hidden bg-white">
         {hasPreview ? (
           <ResumePreview docJson={resume.doc_json} styleConfig={styleConfig} />
         ) : (

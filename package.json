@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "packageManager": "pnpm@10.11.0",
   "scripts": {
-    "dev": "corepack pnpm --parallel --filter @typedance/web --filter @typedance/sidecar dev",
+    "dev": "corepack pnpm --parallel --filter @typedance/desktop --filter @typedance/sidecar dev",
     "build": "corepack pnpm --filter @typedance/contracts build && corepack pnpm --filter @typedance/resume-renderer build && corepack pnpm --filter @typedance/web build",
     "test": "corepack pnpm --filter @typedance/contracts test && corepack pnpm --filter @typedance/resume-renderer test && corepack pnpm --filter @typedance/web test && corepack pnpm --filter @typedance/sidecar test",
     "lint": "corepack pnpm --filter @typedance/web lint"

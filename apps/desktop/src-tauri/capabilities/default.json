@@ -5,6 +5,15 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "dialog:allow-save",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        {
+          "path": "$HOME/.typedance/files/exports/**/*"
+        }
+      ]
+    },
     {
       "identifier": "shell:allow-execute",
       "allow": [

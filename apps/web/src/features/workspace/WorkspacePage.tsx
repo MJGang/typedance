@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ArrowLeft, Save, FileDown, Pencil } from "lucide-react"
@@ -10,6 +11,8 @@ import { StylePanel } from "../templates/components/style-panel/StylePanel"
 import { generateWorkspaceCSS } from "../templates/style-engine/css-generator"
 import { exportResumePdf, getResumeVersion, getTemplateStyle, saveTemplateStyle, updateResumeVersion } from "@/api"
 import { templateRegistry, defaultClassicA4Style } from "../templates/data"
+import { ExportStatusBar, type ExportStatusType } from "./components/ExportStatusBar"
+import { isTauri, openFileInTauri } from "@/tauri"
 import type { ResumeDocJson, ResumeEditorChange } from "./editor"
 import type { ResumeVersion, TemplateStyleConfig, BlockType } from "@typedance/contracts"
 
@@ -24,6 +27,8 @@ export function WorkspacePage() {
   const [titleDraft, setTitleDraft] = useState("")
   const [isSaving, setIsSaving] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
+  const [exportStatus, setExportStatus] = useState<ExportStatusType>({ type: "idle" })
+  const lastExportPathRef = useRef<string | null>(null)
 
   // Track whether a built-in template has been forked
   const forkedRef = useRef(false)
@@ -115,12 +120,36 @@ export function WorkspacePage() {
 
   const handleExportPdf = useCallback(async () => {
     if (!id || !resume) return
+    setExportStatus({ type: "exporting" })
     try {
-      await exportResumePdf(id, resume.title)
+      const result = await exportResumePdf(id, resume.title)
+      if (!result) {
+        // 用户取消了文件选择
+        setExportStatus({ type: "idle" })
+        return
+      }
+      setExportStatus({ type: "saved", fileName: result.fileName })
+      lastExportPathRef.current = result.filePath ?? null
+      toast.success("PDF 导出成功", {
+        description: `已保存为 ${result.fileName}`,
+        duration: 4000,
+      })
     } catch {
-      // PDF export failed silently
+      setExportStatus({ type: "error", message: "请检查 Sidecar 服务是否正常运行" })
+      toast.error("PDF 导出失败", {
+        description: "请检查 Sidecar 服务是否正常运行",
+        duration: 4000,
+      })
     }
   }, [id, resume])
+
+  const handleOpenPdf = useCallback(() => {
+    if (isTauri() && lastExportPathRef.current) {
+      openFileInTauri(lastExportPathRef.current)
+    } else if (id) {
+      window.open(`http://127.0.0.1:4317/previews/${id}.pdf`, "_blank")
+    }
+  }, [id])
 
   useEffect(() => {
     if (editingTitle && titleInputRef.current) {
@@ -144,65 +173,68 @@ export function WorkspacePage() {
   }
 
   return (
-    <div className="flex h-full">
-      {/* Editor area */}
-      <div className="flex flex-1 flex-col">
-        <div className="flex items-center gap-2 border-b border-border px-4 py-2">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          {editingTitle ? (
-            <Input
-              ref={titleInputRef}
-              className="flex-1 h-7 text-sm font-medium"
-              value={titleDraft}
-              onChange={e => setTitleDraft(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === "Enter") handleSave()
-                if (e.key === "Escape") cancelEditing()
-              }}
+    <div className="flex h-[calc(100svh-3rem)] min-h-0 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* Editor area */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2">
+            <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            {editingTitle ? (
+              <Input
+                ref={titleInputRef}
+                className="flex-1 h-7 text-sm font-medium"
+                value={titleDraft}
+                onChange={e => setTitleDraft(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") handleSave()
+                  if (e.key === "Escape") cancelEditing()
+                }}
+              />
+            ) : (
+              <h2
+                className="group flex flex-1 cursor-pointer items-center gap-1.5 text-sm font-medium transition-colors duration-150 hover:text-primary"
+                onClick={startEditing}
+              >
+                <span className="truncate">{resume?.title ?? "加载中..."}</span>
+                <Pencil className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
+              </h2>
+            )}
+            <Button variant="outline" size="sm" onClick={handleSave} disabled={isSaving}>
+              <Save className="mr-1 h-4 w-4" />{isSaving ? "保存中..." : "保存"}
+            </Button>
+            <Button size="sm" onClick={handleExportPdf} disabled={exportStatus.type === "exporting"}>
+              <FileDown className="mr-1 h-4 w-4" />{exportStatus.type === "exporting" ? "导出中..." : "导出 PDF"}
+            </Button>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-auto p-8">
+            <ResumeRichTextEditor
+              ariaLabel="Resume editor"
+              docJson={docJson}
+              onChange={handleEditorChange}
+              onSelectionUpdate={handleSelectionUpdate}
+              cssText={cssText}
             />
-          ) : (
-            <h2
-              className="group flex flex-1 cursor-pointer items-center gap-1.5 text-sm font-medium transition-colors duration-150 hover:text-primary"
-              onClick={startEditing}
-            >
-              <span className="truncate">{resume?.title ?? "加载中..."}</span>
-              <Pencil className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
-            </h2>
-          )}
-          <Button variant="outline" size="sm" onClick={handleSave} disabled={isSaving}>
-            <Save className="mr-1 h-4 w-4" />{isSaving ? "保存中..." : "保存"}
-          </Button>
-          <Button size="sm" onClick={handleExportPdf}>
-            <FileDown className="mr-1 h-4 w-4" />导出 PDF
-          </Button>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-auto p-8">
-          <ResumeRichTextEditor
-            ariaLabel="Resume editor"
-            docJson={docJson}
-            onChange={handleEditorChange}
-            onSelectionUpdate={handleSelectionUpdate}
-            cssText={cssText}
-          />
-        </div>
+        {/* Right panel */}
+        <RightPanel
+          styleContent={
+            <StylePanel
+              styleConfig={styleConfig}
+              onChange={handleStyleChange}
+              activeBlock={activeBlock}
+              onActiveBlockChange={setActiveBlock}
+              uiLanguage="zh-CN"
+            />
+          }
+          aiContent={<AiTab />}
+        />
       </div>
-
-      {/* Right panel */}
-      <RightPanel
-        styleContent={
-          <StylePanel
-            styleConfig={styleConfig}
-            onChange={handleStyleChange}
-            activeBlock={activeBlock}
-            onActiveBlockChange={setActiveBlock}
-            uiLanguage="zh-CN"
-          />
-        }
-        aiContent={<AiTab />}
-      />
+      <ExportStatusBar status={exportStatus} onOpenPdf={handleOpenPdf} />
     </div>
   )
 }

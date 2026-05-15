@@ -2,10 +2,13 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import quote
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Pdf-Path"],
 )
 
 
@@ -60,6 +64,14 @@ def template_style_repository() -> TemplateStyleRepository:
 
 def preview_pdf_dir() -> Path:
     return app_data_dir() / "files" / "previews"
+
+
+class PdfExportRequest(BaseModel):
+    output_path: str | None = None
+
+
+def path_header_value(path: Path) -> str:
+    return quote(str(path), safe=":/\\")
 
 
 def with_preview_pdf(
@@ -208,6 +220,7 @@ def get_preview_pdf(
 @app.post("/exports/pdf/{resume_id}")
 def export_pdf(
     resume_id: str,
+    payload: PdfExportRequest | None = None,
     repo: ResumeRepository = Depends(resume_repository),
     style_repo: TemplateStyleRepository = Depends(template_style_repository),
 ) -> FileResponse:
@@ -216,9 +229,15 @@ def export_pdf(
         raise HTTPException(status_code=404, detail="Resume version not found")
 
     style = style_repo.get(resume.template_id) if resume.template_id else None
-    exports_dir = app_data_dir() / "files" / "exports"
-    exports_dir.mkdir(parents=True, exist_ok=True)
-    pdf_path = exports_dir / f"{resume_id}.pdf"
+    if payload and payload.output_path:
+        pdf_path = Path(payload.output_path).expanduser()
+        if pdf_path.suffix.lower() != ".pdf":
+            pdf_path = pdf_path.with_suffix(".pdf")
+        pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        exports_dir = app_data_dir() / "files" / "exports"
+        exports_dir.mkdir(parents=True, exist_ok=True)
+        pdf_path = exports_dir / f"{resume_id}-{uuid4().hex}.pdf"
 
     try:
         render_and_export_pdf(resume, style, pdf_path)
@@ -226,10 +245,11 @@ def export_pdf(
         logger.error("PDF export failed for %s: %s", resume_id, exc)
         raise HTTPException(status_code=500, detail="PDF export failed")
 
-    filename = f"resume-{resume.title or resume_id}.pdf"
+    filename = pdf_path.name if payload and payload.output_path else f"resume-{resume.title or resume_id}.pdf"
     return FileResponse(
         pdf_path,
         media_type="application/pdf",
         filename=filename,
         content_disposition_type="attachment",
+        headers={"X-Pdf-Path": path_header_value(pdf_path)},
     )

@@ -1,6 +1,7 @@
 ﻿from pathlib import Path
 
 from fastapi.testclient import TestClient
+from urllib.parse import unquote
 
 from typedance_sidecar import main as sidecar_main
 from typedance_sidecar.main import app
@@ -196,7 +197,6 @@ def test_save_preview_uses_saved_template_block_style(tmp_path, monkeypatch):
 
 def test_export_pdf_returns_pdf_download(tmp_path, monkeypatch, mock_playwright):
     """POST /exports/pdf/{id} 返回 200 + PDF 附件下载"""
-    from pathlib import Path
 
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
     client = TestClient(app)
@@ -219,8 +219,118 @@ def test_export_pdf_returns_pdf_download(tmp_path, monkeypatch, mock_playwright)
     mock_page = mock_playwright
     mock_page.pdf.side_effect = fake_pdf_side_effect
 
-    response = client.post(f"/exports/pdf/{created['id']}")
+    response = client.post(
+        f"/exports/pdf/{created['id']}",
+        headers={"Origin": "http://127.0.0.1:5173"},
+    )
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
     assert "attachment" in response.headers["content-disposition"]
+    export_path = Path(unquote(response.headers["X-Pdf-Path"]))
+    assert export_path.parent.name == "exports"
+    assert export_path.name.startswith(f"{created['id']}-")
+    assert export_path.suffix == ".pdf"
+    assert response.headers["access-control-expose-headers"] == "X-Pdf-Path"
+
+
+def test_export_pdf_uses_unique_output_path_per_request(tmp_path, monkeypatch, mock_playwright):
+    """重复导出同一份简历时使用不同文件，避免 Windows 下已打开 PDF 锁住旧路径。"""
+
+    monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
+    client = TestClient(app)
+
+    created = client.post(
+        "/resume-versions",
+        json={
+            "title": "Backend Engineer",
+            "target_language": "en-US",
+            "plain_text_snapshot": "Built reliable PDF export.",
+        },
+    ).json()
+
+    def fake_pdf_side_effect(**kwargs):
+        path = kwargs.get("path")
+        if path:
+            Path(path).write_bytes(b"%PDF-1.4\n")
+
+    mock_page = mock_playwright
+    mock_page.pdf.side_effect = fake_pdf_side_effect
+
+    first = client.post(f"/exports/pdf/{created['id']}")
+    second = client.post(f"/exports/pdf/{created['id']}")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.headers["X-Pdf-Path"] != second.headers["X-Pdf-Path"]
+
+
+def test_export_pdf_writes_to_requested_output_path(tmp_path, monkeypatch, mock_playwright):
+    """桌面端传入保存路径时，导出文件和 X-Pdf-Path 都指向用户选择的位置。"""
+    monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path / "data"))
+    client = TestClient(app)
+
+    created = client.post(
+        "/resume-versions",
+        json={
+            "title": "Backend Engineer",
+            "target_language": "en-US",
+            "plain_text_snapshot": "Built reliable PDF export.",
+        },
+    ).json()
+    requested_path = tmp_path / "Documents" / "custom-resume.pdf"
+
+    def fake_pdf_side_effect(**kwargs):
+        path = kwargs.get("path")
+        if path:
+            Path(path).write_bytes(b"%PDF-1.4\n")
+
+    mock_page = mock_playwright
+    mock_page.pdf.side_effect = fake_pdf_side_effect
+
+    response = client.post(
+        f"/exports/pdf/{created['id']}",
+        json={"output_path": str(requested_path)},
+        headers={"Origin": "http://127.0.0.1:5173"},
+    )
+
+    assert response.status_code == 200
+    assert requested_path.exists()
+    assert Path(unquote(response.headers["X-Pdf-Path"])) == requested_path
+    assert 'filename="custom-resume.pdf"' in response.headers["content-disposition"]
+
+
+def test_export_pdf_header_supports_unicode_output_path(tmp_path, monkeypatch, mock_playwright):
+    """X-Pdf-Path 使用 URL 编码，避免中文路径触发 latin-1 header 编码错误。"""
+    from pathlib import Path
+
+    monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path / "data"))
+    client = TestClient(app)
+
+    created = client.post(
+        "/resume-versions",
+        json={
+            "title": "中文简历",
+            "target_language": "zh-CN",
+            "plain_text_snapshot": "导出中文路径。",
+        },
+    ).json()
+    requested_path = tmp_path / "文档" / "中文简历.pdf"
+
+    def fake_pdf_side_effect(**kwargs):
+        path = kwargs.get("path")
+        if path:
+            Path(path).write_bytes(b"%PDF-1.4\n")
+
+    mock_page = mock_playwright
+    mock_page.pdf.side_effect = fake_pdf_side_effect
+
+    response = client.post(
+        f"/exports/pdf/{created['id']}",
+        json={"output_path": str(requested_path)},
+        headers={"Origin": "http://127.0.0.1:5173"},
+    )
+
+    assert response.status_code == 200
+    assert "%E4%B8%AD%E6%96%87" in response.headers["X-Pdf-Path"]
+    assert Path(unquote(response.headers["X-Pdf-Path"])) == requested_path

@@ -22,8 +22,6 @@
     "targets": "all",
     "externalBin": [],
     "icon": [],
-    "resources": {
-      "resources/ms-playwright/**": "ms-playwright/"
-    }
+    "resources": []
   }
 }
