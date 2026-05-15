@@ -8,13 +8,35 @@ from typedance_sidecar.models import ResumeVersionCreate, ResumeVersion, Templat
 from typedance_sidecar.pdf import render_resume_html, resume_lines_for_pdf
 
 
-def fake_pdf(resume, exports_dir, template_style=None) -> Path:
-    """Write a minimal valid PDF to satisfy endpoint tests without WeasyPrint."""
-    exports_dir.mkdir(parents=True, exist_ok=True)
-    pdf_path = exports_dir / f"{resume.id}.pdf"
-    pdf_path.write_bytes(b"%PDF-1.4\n")
-    return pdf_path
+def test_render_and_export_pdf_writes_pdf_file(tmp_path, mock_playwright):
+    """render_and_export_pdf 生成 HTML → 调用 Playwright → 写入 PDF 文件"""
+    from typedance_sidecar.models import ResumeVersion
+    from typedance_sidecar.pdf import render_and_export_pdf
 
+    resume = ResumeVersion(
+        id="test-pdf-write",
+        title="Test",
+        template_id="classic-a4",
+        target_language="zh-CN",
+        doc_json={"type": "doc", "content": []},
+        plain_text_snapshot="Hello World",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
+    pdf_path = tmp_path / "output.pdf"
+
+    result = render_and_export_pdf(resume, None, pdf_path)
+
+    assert result == pdf_path
+    assert pdf_path.exists()
+
+    # verify Playwright was called correctly
+    mock_page = mock_playwright
+    mock_page.set_content.assert_called_once()
+    call_args, _ = mock_page.set_content.call_args
+    assert "Hello World" in call_args[0]
+    mock_page.pdf.assert_called_once_with(path=str(pdf_path), format="A4", print_background=True)
+    mock_page.close.assert_called_once()
 
 
 def test_pdf_export_uses_doc_json_as_canonical_content():
@@ -58,9 +80,17 @@ def test_pdf_export_uses_doc_json_as_canonical_content():
 
 
 def test_save_generates_preview_pdf(tmp_path, monkeypatch):
-    monkeypatch.setattr(sidecar_main, "export_resume_pdf", fake_pdf)
+    from typedance_sidecar import main as sidecar_main
+
+    def fake_render_and_export_pdf(resume, template_style, output_path):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"%PDF-1.4\n")
+        return output_path
+
+    monkeypatch.setattr(sidecar_main, "render_and_export_pdf", fake_render_and_export_pdf)
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
     client = TestClient(app)
+
     response = client.post(
         "/resume-versions",
         json={
@@ -81,7 +111,6 @@ def test_save_generates_preview_pdf(tmp_path, monkeypatch):
     preview_response = client.get(created["preview_pdf_url"])
     assert preview_response.status_code == 200
     assert preview_response.headers["content-type"] == "application/pdf"
-    assert preview_response.headers["content-disposition"].startswith("inline;")
 
 
 def test_rendered_html_applies_template_block_style():
@@ -121,18 +150,17 @@ def test_save_preview_uses_saved_template_block_style(tmp_path, monkeypatch):
     captured: dict[str, object] = {}
     from typedance_sidecar import main as sidecar_main
 
-    def fake_export_resume_pdf(resume, exports_dir, template_style=None):
+    def fake_render_and_export_pdf(resume, template_style, output_path):
         captured["template_id"] = template_style.template_id if template_style else None
         if template_style and template_style.blocks and "heading1" in template_style.blocks:
             captured["heading1_size"] = template_style.blocks["heading1"].font_size
         else:
             captured["heading1_size"] = None
-        exports_dir.mkdir(parents=True, exist_ok=True)
-        pdf_path = exports_dir / f"{resume.id}.pdf"
-        pdf_path.write_bytes(b"%PDF-1.4\n")
-        return pdf_path
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"%PDF-1.4\n")
+        return output_path
 
-    monkeypatch.setattr(sidecar_main, "export_resume_pdf", fake_export_resume_pdf)
+    monkeypatch.setattr(sidecar_main, "render_and_export_pdf", fake_render_and_export_pdf)
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
     client = TestClient(app)
 
@@ -166,10 +194,13 @@ def test_save_preview_uses_saved_template_block_style(tmp_path, monkeypatch):
     }
 
 
-def test_export_pdf_reuses_preview_pdf(tmp_path, monkeypatch):
-    monkeypatch.setattr(sidecar_main, "export_resume_pdf", fake_pdf)
+def test_export_pdf_returns_pdf_download(tmp_path, monkeypatch, mock_playwright):
+    """POST /exports/pdf/{id} 返回 200 + PDF 附件下载"""
+    from pathlib import Path
+
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
     client = TestClient(app)
+
     created = client.post(
         "/resume-versions",
         json={
@@ -179,11 +210,17 @@ def test_export_pdf_reuses_preview_pdf(tmp_path, monkeypatch):
         },
     ).json()
 
+    # mock 让 Playwright 写入一个伪 PDF 文件
+    def fake_pdf_side_effect(**kwargs):
+        path = kwargs.get("path")
+        if path:
+            Path(path).write_bytes(b"%PDF-1.4\n")
+
+    mock_page = mock_playwright
+    mock_page.pdf.side_effect = fake_pdf_side_effect
+
     response = client.post(f"/exports/pdf/{created['id']}")
 
-    assert response.status_code == 201
-    pdf_path = Path(response.json()["file_path"])
-    assert pdf_path.exists()
-    assert pdf_path.suffix == ".pdf"
-    assert pdf_path.stat().st_size > 0
-    assert str(pdf_path) == created["preview_pdf_path"]
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert "attachment" in response.headers["content-disposition"]

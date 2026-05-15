@@ -6,15 +6,15 @@ from typedance_sidecar import main as sidecar_main
 from typedance_sidecar.main import app
 
 
-def _fake_pdf(resume, exports_dir, template_style=None) -> Path:
-    exports_dir.mkdir(parents=True, exist_ok=True)
-    pdf_path = exports_dir / f"{resume.id}.pdf"
-    pdf_path.write_bytes(b"%PDF-1.4\n")
-    return pdf_path
-
-
 def test_create_update_and_list_resume_versions(tmp_path, monkeypatch):
-    monkeypatch.setattr(sidecar_main, "export_resume_pdf", _fake_pdf)
+    from typedance_sidecar import main as sidecar_main
+
+    def _fake_render_and_export_pdf(resume, template_style, output_path):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"%PDF-1.4\n")
+        return output_path
+
+    monkeypatch.setattr(sidecar_main, "render_and_export_pdf", _fake_render_and_export_pdf)
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
     client = TestClient(app)
 

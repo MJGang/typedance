@@ -90,9 +90,12 @@ def list_resume_versions(repo: ResumeRepository = Depends(resume_repository)) ->
 @app.post("/resume-versions", response_model=ResumeVersion, status_code=201)
 def create_resume_version(
     payload: ResumeVersionCreate,
+    request: Request,
     repo: ResumeRepository = Depends(resume_repository),
+    style_repo: TemplateStyleRepository = Depends(template_style_repository),
 ) -> ResumeVersion:
-    return repo.save(ResumeVersion.new(payload))
+    resume = ResumeVersion.new(payload)
+    return repo.save(with_preview_pdf(resume, request, style_repo))
 
 
 @app.get("/resume-versions/{resume_id}", response_model=ResumeVersion)
