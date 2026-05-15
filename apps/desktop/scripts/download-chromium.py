@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 RESOURCES_DIR = (
-    Path(__file__).resolve().parents[1] / "src-tauri" / "resources"
+    Path(__file__).resolve().parents[1] / "src-tauri" / "resources" / "ms-playwright"
 )
 
 
