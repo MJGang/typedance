@@ -207,17 +207,21 @@ def export_pdf(
     resume_id: str,
     repo: ResumeRepository = Depends(resume_repository),
     style_repo: TemplateStyleRepository = Depends(template_style_repository),
-):
+) -> FileResponse:
     resume = repo.get(resume_id)
     if resume is None:
-        raise HTTPException(status_code=404)
+        raise HTTPException(status_code=404, detail="Resume version not found")
 
     style = style_repo.get(resume.template_id) if resume.template_id else None
     exports_dir = app_data_dir() / "files" / "exports"
     exports_dir.mkdir(parents=True, exist_ok=True)
     pdf_path = exports_dir / f"{resume_id}.pdf"
 
-    render_and_export_pdf(resume, style, pdf_path)
+    try:
+        render_and_export_pdf(resume, style, pdf_path)
+    except Exception as exc:
+        logger.error("PDF export failed for %s: %s", resume_id, exc)
+        raise HTTPException(status_code=500, detail="PDF export failed")
 
     filename = f"resume-{resume.title or resume_id}.pdf"
     return FileResponse(
