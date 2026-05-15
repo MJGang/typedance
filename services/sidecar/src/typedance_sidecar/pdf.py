@@ -1,17 +1,33 @@
 """
-Generate resume preview/export PDFs from saved TipTap JSON.
+Render resume HTML with template styles and export to PDF via Playwright.
 
-The sidecar owns the final PDF artifact. HTML is only an internal template
-format used to get CSS-based A4 layout before writing the PDF.
+HTML rendering functions generate styled HTML from TipTap JSON content;
+PDF conversion is handled by Playwright (Chromium headless).
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
+from playwright.sync_api import sync_playwright
+
 from .models import ResumeVersion, TemplateStyleConfig
 from .style_renderer import generate_full_css
+
+
+def _resolve_browser_config() -> dict:
+    """返回传给 playwright.chromium.launch() 的参数
+
+    优先级：
+    1. TYPEDANCE_CHROMIUM_PATH 环境变量（打包模式，由 Tauri 设置）
+    2. 回退到系统浏览器（开发模式，使用已安装的 Edge/Chrome）
+    """
+    env_path = os.environ.get("TYPEDANCE_CHROMIUM_PATH")
+    if env_path:
+        return {"executable_path": env_path}
+    return {"channel": "msedge"}
 
 
 def escape_html(value: str) -> str:
@@ -205,17 +221,41 @@ def render_resume_html(resume: ResumeVersion, template_style: TemplateStyleConfi
 </html>"""
 
 
-def export_resume_pdf(
+_pw = None
+_browser = None
+
+
+def _get_browser():
+    """全局单例，复用 Chromium 进程"""
+    global _pw, _browser
+    if _browser is None:
+        _pw = sync_playwright().start()
+        config = _resolve_browser_config()
+        _browser = _pw.chromium.launch(**config)
+    return _browser
+
+
+def render_and_export_pdf(
     resume: ResumeVersion,
-    exports_dir: Path,
-    template_style: TemplateStyleConfig | None = None,
+    template_style: TemplateStyleConfig | None,
+    output_path: Path,
 ) -> Path:
-    from weasyprint import HTML
-
-    exports_dir.mkdir(parents=True, exist_ok=True)
-    pdf_path = exports_dir / f"{resume.id}.pdf"
+    """生成 styled HTML → Playwright 渲染 → PDF 文件"""
     html = render_resume_html(resume, template_style)
+    browser = _get_browser()
+    page = browser.new_page()
+    page.set_content(html, wait_until="networkidle")
+    page.pdf(path=str(output_path), format="A4", print_background=True)
+    page.close()
+    return output_path
 
-    HTML(string=html, base_url=str(exports_dir)).write_pdf(pdf_path)
 
-    return pdf_path
+def cleanup_browser():
+    """应用关闭时清理 Chromium 进程"""
+    global _browser, _pw
+    if _browser:
+        _browser.close()
+        _browser = None
+    if _pw:
+        _pw.stop()
+        _pw = None
