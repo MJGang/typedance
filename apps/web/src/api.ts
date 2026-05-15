@@ -7,7 +7,6 @@ import {
   type TemplateSampleContent,
   type TemplateStyleConfig,
 } from "@typedance/contracts";
-
 const baseUrl = import.meta.env.VITE_SIDECAR_URL ?? "http://127.0.0.1:4317";
 
 export async function listResumeVersions(): Promise<ResumeVersion[]> {
@@ -54,14 +53,25 @@ export async function createResumeVersion(resume: Pick<ResumeVersion, "title" | 
   return resumeVersionSchema.parse(await response.json());
 }
 
-export async function exportResumePdf(resumeId: string): Promise<{ file_path: string; preview_pdf_url: string }> {
-  const response = await fetch(`${baseUrl}/exports/pdf/${resumeId}`, { method: "POST" });
+export async function exportResumePdf(
+  resumeId: string,
+  title: string,
+): Promise<void> {
+  const response = await fetch(`${baseUrl}/exports/pdf/${resumeId}`, {
+    method: "POST",
+  });
 
   if (!response.ok) {
     throw new Error(`Failed to export PDF: ${response.status}`);
   }
 
-  return response.json() as Promise<{ file_path: string; preview_pdf_url: string }>;
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `resume-${title}.pdf`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function deepStripNull(obj: unknown): unknown {

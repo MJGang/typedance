@@ -114,16 +114,13 @@ export function WorkspacePage() {
   }, [id, resume, docJson, editingTitle, isSaving, commitTitle])
 
   const handleExportPdf = useCallback(async () => {
-    if (!id) return
+    if (!id || !resume) return
     try {
-      const result = await exportResumePdf(id)
-      if (result.preview_pdf_url) {
-        window.open(result.preview_pdf_url, "_blank")
-      }
+      await exportResumePdf(id, resume.title)
     } catch {
       // PDF export failed silently
     }
-  }, [id])
+  }, [id, resume])
 
   useEffect(() => {
     if (editingTitle && titleInputRef.current) {
