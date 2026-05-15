@@ -241,6 +241,7 @@ def render_and_export_pdf(
     output_path: Path,
 ) -> Path:
     """生成 styled HTML → Playwright 渲染 → PDF 文件"""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     html = render_resume_html(resume, template_style)
     browser = _get_browser()
     page = browser.new_page()
