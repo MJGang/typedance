@@ -20,6 +20,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["binaries/typedance-sidecar"]
+    "externalBin": [],
+    "icon": [],
+    "resources": {
+      "resources/ms-playwright/**": "ms-playwright/"
+    }
   }
 }
