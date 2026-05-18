@@ -30,7 +30,7 @@ export function ListSection({ value, onChange }: Props) {
         </div>
         <div className="flex flex-col gap-1.5">
           <label className="text-xs text-muted-foreground">缩进</label>
-          <Input value={value.paddingLeft ?? ""} placeholder="如 20pt" onChange={(e) => onChange({ ...value, paddingLeft: e.target.value })} />
+          <Input value={value.paddingLeft ?? ""} placeholder="如 20px" onChange={(e) => onChange({ ...value, paddingLeft: e.target.value })} />
         </div>
       </CollapsibleContent>
     </Collapsible>

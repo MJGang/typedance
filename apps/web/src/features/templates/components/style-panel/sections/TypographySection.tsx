@@ -31,7 +31,7 @@ export function TypographySection({ value, onChange }: Props) {
         <div className="flex gap-2">
           <div className="flex flex-1 flex-col gap-1.5">
             <label className="text-xs text-muted-foreground">字号</label>
-            <Input value={value.fontSize ?? ""} placeholder="如 14pt" onChange={(e) => onChange({ ...value, fontSize: e.target.value })} />
+            <Input value={value.fontSize ?? ""} placeholder="如 14px" onChange={(e) => onChange({ ...value, fontSize: e.target.value })} />
           </div>
           <div className="flex flex-1 flex-col gap-1.5">
             <label className="text-xs text-muted-foreground">字重</label>
@@ -53,7 +53,7 @@ export function TypographySection({ value, onChange }: Props) {
           </div>
           <div className="flex flex-1 flex-col gap-1.5">
             <label className="text-xs text-muted-foreground">字间距</label>
-            <Input value={value.letterSpacing ?? ""} placeholder="如 0.5pt" onChange={(e) => onChange({ ...value, letterSpacing: e.target.value })} />
+            <Input value={value.letterSpacing ?? ""} placeholder="如 0.5px" onChange={(e) => onChange({ ...value, letterSpacing: e.target.value })} />
           </div>
         </div>
         <div className="flex flex-col gap-1.5">

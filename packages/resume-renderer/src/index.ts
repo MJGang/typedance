@@ -1,4 +1,4 @@
-import type { BlockStyle, ResumeVersion } from "@typedance/contracts";
+﻿import type { BlockStyle, ResumeVersion } from "@typedance/contracts";
 
 type TipTapNode = {
   type: string
@@ -6,6 +6,11 @@ type TipTapNode = {
   content?: TipTapNode[]
   attrs?: Record<string, unknown>
   marks?: Array<{ type?: string }>
+}
+
+type ColumnsAttrs = {
+  count: 1 | 2 | 3
+  gap: "default" | "compact" | "wide"
 }
 
 function escapeHtml(value: string): string {
@@ -23,6 +28,14 @@ function isTipTapNode(value: unknown): value is TipTapNode {
       "type" in value &&
       typeof (value as { type?: unknown }).type === "string",
   )
+}
+
+function getColumnsAttrs(node: TipTapNode): ColumnsAttrs {
+  const rawCount = node.attrs?.count
+  const rawGap = node.attrs?.gap
+  const count = rawCount === 1 || rawCount === 3 ? rawCount : 2
+  const gap = rawGap === "compact" || rawGap === "wide" ? rawGap : "default"
+  return { count, gap }
 }
 
 function renderInlineContent(node: TipTapNode): string {
@@ -51,6 +64,17 @@ function renderInlineContent(node: TipTapNode): string {
 
 function renderBlock(node: TipTapNode): string {
   const content = (node.content ?? []).map(renderInlineContent).join("")
+
+  if (node.type === "columns") {
+    const { count, gap } = getColumnsAttrs(node)
+    const columns = (node.content ?? []).map(renderBlock).filter(Boolean).join("\n      ")
+    return columns ? `<div class="td-columns" data-count="${count}" data-gap="${escapeHtml(gap)}">\n      ${columns}\n    </div>` : ""
+  }
+
+  if (node.type === "column") {
+    const columnContent = (node.content ?? []).map(renderBlock).filter(Boolean).join("\n      ")
+    return `<div class="td-column">\n      ${columnContent}\n    </div>`
+  }
 
   if (node.type === "heading") {
     const rawLevel = node.attrs?.level
@@ -121,12 +145,13 @@ function renderSnapshot(snapshot: string): string {
 
 export function renderResumeHtml(resume: ResumeVersion): string {
   const body = renderDocJson(resume.doc_json) ?? renderSnapshot(resume.plain_text_snapshot)
+  const layoutStyles = layoutCSS
 
-  return `<!doctype html>\n<html lang="${escapeHtml(resume.target_language)}">\n  <head>\n    <meta charset="utf-8" />\n    <style>\n      @page { size: A4; margin: 20mm 22mm; }\n      body {\n        font-family: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;\n        color: #1f2937;\n        line-height: 1.6;\n        font-size: 11pt;\n      }\n      .resume-header {\n        border-bottom: 2px solid #174ea6;\n        margin-bottom: 16px;\n        padding-bottom: 12px;\n      }\n      h1 {\n        font-size: 22pt;\n        margin: 0 0 4px;\n        font-weight: 700;\n        color: #101827;\n      }\n      .resume-title {\n        font-size: 11pt;\n        margin: 0;\n        color: #174ea6;\n        font-weight: 600;\n      }\n      .resume-body p {\n        margin: 0 0 8px;\n        font-size: 10pt;\n        line-height: 1.55;\n        color: #374151;\n      }\n      .muted { color: #9ca3af; font-style: italic; }\n    </style>\n  </head>\n  <body>\n    ${body}\n  </body>\n</html>`
+  return `<!doctype html>\n<html lang="${escapeHtml(resume.target_language)}">\n  <head>\n    <meta charset="utf-8" />\n    <style>\n      @page { size: A4; margin: 20mm 22mm; }\n      body {\n        font-family: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;\n        color: #1f2937;\n        line-height: 1.6;\n        font-size: 11px;\n      }\n      .resume-header {\n        border-bottom: 2px solid #174ea6;\n        margin-bottom: 16px;\n        padding-bottom: 12px;\n      }\n      h1 {\n        font-size: 22px;\n        margin: 0 0 4px;\n        font-weight: 700;\n        color: #101827;\n      }\n      .resume-title {\n        font-size: 11px;\n        margin: 0;\n        color: #174ea6;\n        font-weight: 600;\n      }\n      .resume-body p {\n        margin: 0 0 8px;\n        font-size: 10px;\n        line-height: 1.55;\n        color: #374151;\n      }\n      .muted { color: #9ca3af; font-style: italic; }\n${layoutStyles}\n    </style>\n  </head>\n  <body>\n    ${body}\n  </body>\n</html>`
 }
 
 // ---------------------------------------------------------------------------
-// renderStyledHtml — complete HTML document with td-resume-* CSS classes
+// renderStyledHtml 鈥?complete HTML document with td-resume-* CSS classes
 // and inline BlockStyle CSS rules
 // ---------------------------------------------------------------------------
 
@@ -145,6 +170,20 @@ const CSS_PROP_MAP: Record<string, string> = {
   listStyleType: "list-style-type",
   paddingLeft: "padding-left",
 }
+
+const LIST_BLOCKS = new Set(["bulletList", "orderedList"])
+const TEXT_STYLE_KEYS = new Set([
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "lineHeight",
+  "letterSpacing",
+  "textTransform",
+  "color",
+  "backgroundColor",
+  "textAlign",
+])
+const LIST_STRUCTURE_KEYS = new Set(["marginTop", "marginBottom", "listStyleType", "paddingLeft"])
 
 function getBlockName(node: TipTapNode): string {
   if (node.type === "heading") {
@@ -176,12 +215,60 @@ function generateBlockCSS(blockName: string, style: BlockStyle): string {
   return `.td-resume-${blockName} {\n${rules.join("\n")}\n}`
 }
 
+function pickStyle(style: BlockStyle, keys: Set<string>): BlockStyle {
+  return Object.fromEntries(
+    Object.entries(style).filter(([key, value]) => keys.has(key) && value !== undefined),
+  ) as BlockStyle
+}
+
+function generateListStructureCSS(blockName: string, style: BlockStyle): string {
+  return generateBlockCSS(blockName, pickStyle(style, LIST_STRUCTURE_KEYS))
+}
+
+function generateListTextCSS(blockName: string, style: BlockStyle): string {
+  return generateBlockCSS(`${blockName}Text`, pickStyle(style, TEXT_STYLE_KEYS))
+}
+
 function generateFullCSS(blocks: Record<string, BlockStyle>): string {
   return Object.entries(blocks)
-    .map(([name, style]) => generateBlockCSS(name, style))
+    .flatMap(([name, style]) => (
+      LIST_BLOCKS.has(name)
+        ? [generateListStructureCSS(name, style), generateListTextCSS(name, style)]
+        : [generateBlockCSS(name, style)]
+    ))
     .filter(Boolean)
     .join("\n\n")
 }
+
+const layoutCSS = `.td-columns {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 8px;
+}
+:where(.td-resume-page h1, .td-resume-page h2, .td-resume-page h3, .td-resume-page p, .td-resume-page ul, .td-resume-page ol) {
+  margin: 0;
+}
+:where(.td-resume-page ul, .td-resume-page ol) {
+  padding-left: 0;
+}
+.td-columns[data-count="1"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.td-columns[data-count="2"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.td-columns[data-count="3"] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.td-columns[data-gap="compact"] {
+  gap: 6px;
+}
+.td-columns[data-gap="wide"] {
+  gap: 16px;
+}
+.td-column {
+  min-width: 0;
+}`
 
 // Extract heading number (1-3) from a block name like "heading1", "heading2", "heading3"
 function headingNumber(blockName: string): number {
@@ -190,6 +277,17 @@ function headingNumber(blockName: string): number {
 
 function renderStyledBlock(node: TipTapNode, parentBlockName?: string): string {
   const blockName = getBlockName(node)
+
+  if (node.type === "columns") {
+    const { count, gap } = getColumnsAttrs(node)
+    const columns = (node.content ?? []).map((child) => renderStyledBlock(child)).filter(Boolean).join("\n      ")
+    return columns ? `<div class="td-columns" data-count="${count}" data-gap="${escapeHtml(gap)}">\n      ${columns}\n    </div>` : ""
+  }
+
+  if (node.type === "column") {
+    const columnContent = (node.content ?? []).map((child) => renderStyledBlock(child)).filter(Boolean).join("\n      ")
+    return `<div class="td-column">\n      ${columnContent}\n    </div>`
+  }
 
   if (node.type === "heading") {
     const content = (node.content ?? []).map(renderInlineContent).join("")
@@ -215,14 +313,15 @@ function renderStyledBlock(node: TipTapNode, parentBlockName?: string): string {
     const itemContent = (node.content ?? [])
       .map((child) => {
         if (child.type === "paragraph") {
-          return renderInlineContent(child)
+          const content = renderInlineContent(child)
+          const textClass = parentBlockName ? ` td-resume-${parentBlockName}Text` : ""
+          return content ? `<p class="td-resume-paragraph${textClass}">${content}</p>` : ""
         }
         return renderStyledBlock(child)
       })
       .filter(Boolean)
-      .join("")
-    const liClass = parentBlockName ? `td-resume-${parentBlockName}` : `td-resume-${blockName}`
-    return itemContent ? `<li class="${liClass}">${itemContent}</li>` : ""
+      .join("\n        ")
+    return itemContent ? `<li>\n        ${itemContent}\n      </li>` : ""
   }
 
   // Fallback for unknown node types
@@ -230,12 +329,12 @@ function renderStyledBlock(node: TipTapNode, parentBlockName?: string): string {
   return content ? `<p class="td-resume-paragraph">${content}</p>` : ""
 }
 
-function renderStyledDocJson(docJson: unknown): string | null {
+export function renderStyledContentHtml(docJson: unknown): string {
   if (!isTipTapNode(docJson) || !Array.isArray(docJson.content)) {
-    return null
+    return ""
   }
-  const body = docJson.content.map(renderStyledBlock).filter(Boolean).join("\n    ")
-  return body || null
+  const body = docJson.content.map((node) => renderStyledBlock(node)).filter(Boolean).join("\n    ")
+  return body || ""
 }
 
 export function renderStyledHtml(
@@ -243,8 +342,9 @@ export function renderStyledHtml(
   blocks: Record<string, BlockStyle>,
   lang: string,
 ): string {
-  const body = renderStyledDocJson(docJson) ?? ""
+  const body = renderStyledContentHtml(docJson)
   const blockCSS = generateFullCSS(blocks)
+  const layoutStyles = layoutCSS
 
-  return `<!doctype html>\n<html lang="${escapeHtml(lang)}">\n  <head>\n    <meta charset="utf-8" />\n    <style>\n      @page { size: A4; margin: 20mm 22mm; }\n      body {\n        font-family: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;\n        color: #1f2937;\n        line-height: 1.6;\n        font-size: 11pt;\n        margin: 0;\n        padding: 0;\n      }\n${blockCSS ? `\n${blockCSS}` : ""}\n    </style>\n  </head>\n  <body>\n    ${body}\n  </body>\n</html>`
+  return `<!doctype html>\n<html lang="${escapeHtml(lang)}">\n  <head>\n    <meta charset="utf-8" />\n    <style>\n      @page { size: A4; margin: 20mm 22mm; }\n      body {\n        font-family: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;\n        color: #1f2937;\n        line-height: 1.6;\n        font-size: 11px;\n        margin: 0;\n        padding: 0;\n      }\n${blockCSS ? `\n${blockCSS}` : ""}\n${layoutStyles}\n    </style>\n  </head>\n  <body>\n    ${body}\n  </body>\n</html>`
 }

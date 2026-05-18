@@ -36,8 +36,57 @@ def test_render_and_export_pdf_writes_pdf_file(tmp_path, mock_playwright):
     mock_page.set_content.assert_called_once()
     call_args, _ = mock_page.set_content.call_args
     assert "Hello World" in call_args[0]
-    mock_page.pdf.assert_called_once_with(path=str(pdf_path), format="A4", print_background=True)
+    mock_page.pdf.assert_called_once_with(
+        path=str(pdf_path),
+        format="A4",
+        print_background=True,
+        margin={"top": "86px", "bottom": "86px", "left": "50px", "right": "50px"},
+    )
     mock_page.close.assert_called_once()
+
+
+def test_rendered_html_resets_browser_default_body_margin():
+    resume = ResumeVersion(
+        id="test-pdf-margin",
+        title="Test",
+        template_id="classic-a4",
+        target_language="zh-CN",
+        doc_json={"type": "doc", "content": []},
+        plain_text_snapshot="Hello World",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
+
+    html = render_resume_html(resume)
+
+    assert "body.td-resume-page" in html
+    assert "margin: 0;" in html
+
+
+def test_rendered_html_resets_browser_default_block_spacing():
+    resume = ResumeVersion(
+        id="test-block-reset",
+        title="Reset",
+        target_language="en-US",
+        template_id="classic-a4",
+        doc_json={
+            "type": "doc",
+            "content": [
+                {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "Name"}]},
+                {"type": "paragraph", "content": [{"type": "text", "text": "Intro"}]},
+            ],
+        },
+        plain_text_snapshot="",
+        created_at="2026-05-18T00:00:00.000Z",
+        updated_at="2026-05-18T00:00:00.000Z",
+    )
+
+    html = render_resume_html(resume)
+
+    assert ":where(.td-resume-page h1" in html
+    assert ".td-resume-page p" in html
+    assert ".td-resume-page ul" in html
+    assert "padding-left: 0;" in html
 
 
 def test_pdf_export_uses_doc_json_as_canonical_content():
@@ -78,6 +127,134 @@ def test_pdf_export_uses_doc_json_as_canonical_content():
     assert "Ada Lovelace" in lines
     assert "Designed computation notes" in lines
     assert "Stale snapshot that must not render" not in lines
+
+
+def test_rendered_ordered_list_items_keep_ordered_list_class():
+    resume = ResumeVersion(
+        id="test-ordered-list",
+        title="Test",
+        template_id="classic-a4",
+        target_language="zh-CN",
+        doc_json={
+            "type": "doc",
+            "content": [
+                {
+                    "type": "orderedList",
+                    "content": [
+                        {
+                            "type": "listItem",
+                            "content": [
+                                {
+                                    "type": "paragraph",
+                                    "content": [{"type": "text", "text": "负责简历工作台闭环体验"}],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        },
+        plain_text_snapshot="",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
+
+    html = render_resume_html(resume)
+
+    assert '<ol class="td-resume-orderedList">' in html
+    assert '<li><p class="td-resume-paragraph td-resume-orderedListText">负责简历工作台闭环体验</p></li>' in html
+
+
+def test_list_style_css_splits_structure_and_text_overrides():
+    style = TemplateStyleConfig(
+        template_id="classic-a4",
+        blocks={
+            "paragraph": {"fontSize": "10px", "lineHeight": 1.5},
+            "bulletList": {
+                "fontSize": "12px",
+                "backgroundColor": "#eeeeee",
+                "listStyleType": "disc",
+                "paddingLeft": "20px",
+            },
+        },
+        updated_at="2026-01-01T00:00:00Z",
+    )
+    resume = ResumeVersion(
+        id="test-list-style-css",
+        title="Test",
+        template_id="classic-a4",
+        target_language="zh-CN",
+        doc_json={"type": "doc", "content": []},
+        plain_text_snapshot="",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
+
+    html = render_resume_html(resume, style)
+
+    assert ".td-resume-bulletList {\n  list-style-type: disc;\n  padding-left: 20px;\n}" in html
+    assert ".td-resume-bulletListText {\n  font-size: 12px;\n  background-color: #eeeeee;\n}" in html
+
+
+def test_unknown_doc_nodes_fallback_to_styled_paragraph():
+    resume = ResumeVersion(
+        id="test-unknown-node",
+        title="Test",
+        template_id="classic-a4",
+        target_language="zh-CN",
+        doc_json={
+            "type": "doc",
+            "content": [
+                {
+                    "type": "callout",
+                    "content": [{"type": "text", "text": "未知块内容"}],
+                }
+            ],
+        },
+        plain_text_snapshot="",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
+
+    html = render_resume_html(resume)
+
+    assert '<p class="td-resume-paragraph">未知块内容</p>' in html
+
+
+def test_rendered_columns_sanitize_attrs_like_frontend_renderer():
+    resume = ResumeVersion(
+        id="test-columns-sanitize",
+        title="Test",
+        template_id="classic-a4",
+        target_language="zh-CN",
+        doc_json={
+            "type": "doc",
+            "content": [
+                {
+                    "type": "columns",
+                    "attrs": {"count": 9, "gap": "unexpected"},
+                    "content": [
+                        {
+                            "type": "column",
+                            "content": [
+                                {
+                                    "type": "paragraph",
+                                    "content": [{"type": "text", "text": "列内容"}],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        },
+        plain_text_snapshot="",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
+
+    html = render_resume_html(resume)
+
+    assert '<div class="td-columns" data-count="2" data-gap="default">' in html
 
 
 def test_save_generates_preview_pdf(tmp_path, monkeypatch):
@@ -133,13 +310,13 @@ def test_rendered_html_applies_template_block_style():
         template_id="classic-a4",
         preset="classic",
         blocks={
-            "heading1": {"fontSize": "28pt", "fontWeight": 700, "color": "#1a1a1a", "textAlign": "center"},
-            "paragraph": {"fontSize": "10pt", "lineHeight": 1.5, "color": "#334155"},
+            "heading1": {"fontSize": "28px", "fontWeight": 700, "color": "#1a1a1a", "textAlign": "center"},
+            "paragraph": {"fontSize": "10px", "lineHeight": 1.5, "color": "#334155"},
         },
     )
     html = render_resume_html(resume, template_style=style)
     assert ".td-resume-heading1" in html
-    assert "font-size: 28pt;" in html
+    assert "font-size: 28px;" in html
     assert "color: #1a1a1a;" in html
     assert ".td-resume-paragraph" in html
     assert "line-height: 1.5;" in html
@@ -171,8 +348,8 @@ def test_save_preview_uses_saved_template_block_style(tmp_path, monkeypatch):
             "template_id": "classic-a4",
             "preset": "classic",
             "blocks": {
-                "heading1": {"fontSize": "28pt", "fontWeight": 700, "color": "#1a1a1a"},
-                "paragraph": {"fontSize": "10pt", "lineHeight": 1.5, "color": "#334155"},
+                "heading1": {"fontSize": "28px", "fontWeight": 700, "color": "#1a1a1a"},
+                "paragraph": {"fontSize": "10px", "lineHeight": 1.5, "color": "#334155"},
             },
         },
     )
@@ -191,7 +368,7 @@ def test_save_preview_uses_saved_template_block_style(tmp_path, monkeypatch):
     assert response.status_code == 201
     assert captured == {
         "template_id": "classic-a4",
-        "heading1_size": "28pt",
+        "heading1_size": "28px",
     }
 
 
@@ -231,7 +408,8 @@ def test_export_pdf_returns_pdf_download(tmp_path, monkeypatch, mock_playwright)
     assert export_path.parent.name == "exports"
     assert export_path.name.startswith(f"{created['id']}-")
     assert export_path.suffix == ".pdf"
-    assert response.headers["access-control-expose-headers"] == "X-Pdf-Path"
+    assert "X-Pdf-Path" in response.headers["access-control-expose-headers"]
+    assert "X-Html-Path" in response.headers["access-control-expose-headers"]
 
 
 def test_export_pdf_uses_unique_output_path_per_request(tmp_path, monkeypatch, mock_playwright):
@@ -298,6 +476,60 @@ def test_export_pdf_writes_to_requested_output_path(tmp_path, monkeypatch, mock_
     assert requested_path.exists()
     assert Path(unquote(response.headers["X-Pdf-Path"])) == requested_path
     assert 'filename="custom-resume.pdf"' in response.headers["content-disposition"]
+
+
+def test_export_html_returns_rendered_html_download(tmp_path, monkeypatch):
+    monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
+    client = TestClient(app)
+
+    created = client.post(
+        "/resume-versions",
+        json={
+            "title": "Backend Engineer",
+            "target_language": "en-US",
+            "plain_text_snapshot": "Built reliable HTML export.",
+        },
+    ).json()
+
+    response = client.post(
+        f"/exports/html/{created['id']}",
+        headers={"Origin": "http://127.0.0.1:5173"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "attachment" in response.headers["content-disposition"]
+    export_path = Path(unquote(response.headers["X-Html-Path"]))
+    assert export_path.parent.name == "exports"
+    assert export_path.suffix == ".html"
+    assert "Built reliable HTML export." in response.text
+
+
+def test_export_html_writes_to_requested_output_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path / "data"))
+    client = TestClient(app)
+
+    created = client.post(
+        "/resume-versions",
+        json={
+            "title": "Backend Engineer",
+            "target_language": "en-US",
+            "plain_text_snapshot": "Built reliable HTML export.",
+        },
+    ).json()
+    requested_path = tmp_path / "Documents" / "custom-resume.html"
+
+    response = client.post(
+        f"/exports/html/{created['id']}",
+        json={"output_path": str(requested_path)},
+        headers={"Origin": "http://127.0.0.1:5173"},
+    )
+
+    assert response.status_code == 200
+    assert requested_path.exists()
+    assert Path(unquote(response.headers["X-Html-Path"])) == requested_path
+    assert "Built reliable HTML export." in requested_path.read_text(encoding="utf-8")
+    assert 'filename="custom-resume.html"' in response.headers["content-disposition"]
 
 
 def test_export_pdf_header_supports_unicode_output_path(tmp_path, monkeypatch, mock_playwright):

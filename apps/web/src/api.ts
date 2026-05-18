@@ -7,7 +7,7 @@ import {
   type TemplateSampleContent,
   type TemplateStyleConfig,
 } from "@typedance/contracts";
-import { choosePdfSavePathInTauri, isTauri } from "./tauri";
+import { chooseHtmlSavePathInTauri, choosePdfSavePathInTauri, isTauri } from "./tauri";
 const baseUrl = import.meta.env.VITE_SIDECAR_URL ?? "http://127.0.0.1:4317";
 
 function decodeHeaderPath(value: string | null): string | undefined {
@@ -140,6 +140,78 @@ export async function exportResumePdf(
   }
 
   return { fileName, previewUrl, filePath }
+}
+
+export async function exportResumeHtml(
+  resumeId: string,
+  title: string,
+): Promise<{ fileName: string; filePath?: string } | null> {
+  let fileHandle: FileSystemFileHandle | null = null
+  let fileName = `resume-${title.replace(/[/\\?%*:|"<>]/g, "_")}.html`
+  let outputPath: string | null = null
+
+  if (isTauri()) {
+    outputPath = await chooseHtmlSavePathInTauri(fileName)
+    if (!outputPath) return null
+    fileName = outputPath.split(/[/\\]/).pop() ?? fileName
+  }
+
+  const showPicker = (window as any).showSaveFilePicker as ((opts: Record<string, unknown>) => Promise<FileSystemFileHandle>) | undefined
+  if (!outputPath && showPicker) {
+    try {
+      fileHandle = await showPicker({
+        suggestedName: fileName,
+        types: [
+          { description: "HTML", accept: { "text/html": [".html", ".htm"] } },
+        ],
+      })
+      fileName = fileHandle.name
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return null
+      }
+    }
+  }
+
+  const requestInit: RequestInit = outputPath
+    ? {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ output_path: outputPath }),
+      }
+    : { method: "POST" }
+
+  const response = await fetch(`${baseUrl}/exports/html/${resumeId}`, requestInit)
+
+  if (!response.ok) {
+    throw new Error(`Failed to export HTML: ${response.status}`)
+  }
+
+  const filePath = decodeHeaderPath(response.headers.get("X-Html-Path"))
+
+  if (outputPath) {
+    await response.blob()
+    const savedPath = filePath ?? outputPath
+    const savedName = savedPath.split(/[/\\]/).pop() ?? fileName
+    return { fileName: savedName, filePath: savedPath }
+  }
+
+  const blob = await response.blob()
+
+  if (fileHandle) {
+    const writable = await fileHandle.createWritable()
+    await writable.write(blob)
+    await writable.close()
+  } else {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = fileName
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  return { fileName, filePath }
 }
 
 function deepStripNull(obj: unknown): unknown {

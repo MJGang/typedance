@@ -3,6 +3,21 @@
 from .models import TemplateStyleConfig
 
 
+LIST_BLOCKS = {"bulletList", "orderedList"}
+TEXT_STYLE_KEYS = {
+    "fontFamily",
+    "fontSize",
+    "fontWeight",
+    "lineHeight",
+    "letterSpacing",
+    "textTransform",
+    "color",
+    "backgroundColor",
+    "textAlign",
+}
+LIST_STRUCTURE_KEYS = {"marginTop", "marginBottom", "listStyleType", "paddingLeft"}
+
+
 def _css_value(key: str, value: object) -> str | None:
     if value is None:
         return None
@@ -50,10 +65,28 @@ def generate_block_css(block_name: str, style: dict) -> str:
     return f".td-resume-{block_name} {{\n" + "\n".join(rules) + "\n}"
 
 
+def _pick_style(style: dict, keys: set[str]) -> dict:
+    return {key: value for key, value in style.items() if key in keys and value is not None}
+
+
+def generate_list_structure_css(block_name: str, style: dict) -> str:
+    return generate_block_css(block_name, _pick_style(style, LIST_STRUCTURE_KEYS))
+
+
+def generate_list_text_css(block_name: str, style: dict) -> str:
+    return generate_block_css(f"{block_name}Text", _pick_style(style, TEXT_STYLE_KEYS))
+
+
 def generate_full_css(blocks: dict[str, dict]) -> str:
     """Iterate all blocks and compose full CSS string."""
     rules = []
     for name, style in blocks.items():
+        if name in LIST_BLOCKS:
+            for rule in (generate_list_structure_css(name, style), generate_list_text_css(name, style)):
+                if rule:
+                    rules.append(rule)
+            continue
+
         rule = generate_block_css(name, style)
         if rule:
             rules.append(rule)

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Render resume HTML with template styles and export to PDF via Playwright.
 
 HTML rendering functions generate styled HTML from TipTap JSON content;
@@ -18,12 +18,16 @@ from .models import ResumeVersion, TemplateStyleConfig
 from .style_renderer import generate_full_css
 
 
-def _resolve_browser_config() -> dict:
-    """返回传给 playwright.chromium.launch() 的参数
+# Keep Playwright's printable area aligned with tiptap-pagination-plus in the editor.
+PDF_PAGE_MARGIN = {"top": "86px", "bottom": "86px", "left": "50px", "right": "50px"}
 
-    优先级：
-    1. TYPEDANCE_CHROMIUM_PATH 环境变量（打包模式，由 Tauri 设置）
-    2. 回退到系统浏览器（开发模式，使用已安装的 Edge/Chrome）
+
+def _resolve_browser_config() -> dict:
+    """杩斿洖浼犵粰 playwright.chromium.launch() 鐨勫弬鏁?
+
+    浼樺厛绾э細
+    1. TYPEDANCE_CHROMIUM_PATH 鐜鍙橀噺锛堟墦鍖呮ā寮忥紝鐢?Tauri 璁剧疆锛?
+    2. 鍥為€€鍒扮郴缁熸祻瑙堝櫒锛堝紑鍙戞ā寮忥紝浣跨敤宸插畨瑁呯殑 Edge/Chrome锛?
     """
     env_path = os.environ.get("TYPEDANCE_CHROMIUM_PATH")
     if env_path:
@@ -143,13 +147,27 @@ def _render_inline(node: object) -> str:
     return "".join(_render_inline(child) for child in content)
 
 
-def _render_block(node: object) -> str:
+def _render_block(node: object, parent_list_class: str | None = None) -> str:
     if not _is_tiptap_node(node):
         return ""
 
     content = node.get("content")
     children = content if isinstance(content, list) else []
     node_type = node.get("type")
+
+    if node_type == "columns":
+        attrs = node.get("attrs")
+        count = attrs.get("count") if isinstance(attrs, dict) else 2
+        gap = attrs.get("gap") if isinstance(attrs, dict) else "default"
+        safe_count = count if count in {1, 2, 3} else 2
+        safe_gap = gap if gap in {"default", "compact", "wide"} else "default"
+        safe_gap = escape_html(safe_gap)
+        columns = "\n".join(_render_block(child) for child in children)
+        return f"<div class=\"td-columns\" data-count=\"{safe_count}\" data-gap=\"{safe_gap}\">{columns}</div>" if columns else ""
+
+    if node_type == "column":
+        body = "\n".join(_render_block(child) for child in children)
+        return f"<div class=\"td-column\">{body}</div>"
 
     if node_type == "heading":
         attrs = node.get("attrs")
@@ -166,19 +184,23 @@ def _render_block(node: object) -> str:
     if node_type in {"bulletList", "orderedList"}:
         cls = _block_class(node)
         tag = "ol" if node_type == "orderedList" else "ul"
-        items = "\n".join(_render_block(child) for child in children)
+        items = "\n".join(_render_block(child, cls) for child in children)
         return f"<{tag} class=\"{cls}\">{items}</{tag}>" if items else ""
 
     if node_type == "listItem":
-        cls = _block_class(node)
+        cls = parent_list_class or _block_class(node)
         body = "".join(
-            _render_inline(child) if _is_tiptap_node(child) and child.get("type") == "paragraph" else _render_block(child)
+            (
+                f"<p class=\"td-resume-paragraph {cls}Text\">{_render_inline(child)}</p>"
+                if _is_tiptap_node(child) and child.get("type") == "paragraph"
+                else _render_block(child)
+            )
             for child in children
         )
-        return f"<li class=\"{cls}\">{body}</li>" if body else ""
+        return f"<li>{body}</li>" if body else ""
 
     body = "".join(_render_inline(child) for child in children)
-    return f"<p>{body}</p>" if body else ""
+    return f"<p class=\"td-resume-paragraph\">{body}</p>" if body else ""
 
 
 def _render_doc_body(resume: ResumeVersion) -> str:
@@ -206,6 +228,42 @@ def _render_template_style_css(template_style: TemplateStyleConfig | None) -> st
     return generate_full_css(blocks_dict)
 
 
+LAYOUT_CSS = """
+body.td-resume-page {
+  margin: 0;
+}
+:where(.td-resume-page h1, .td-resume-page h2, .td-resume-page h3, .td-resume-page p, .td-resume-page ul, .td-resume-page ol) {
+  margin: 0;
+}
+:where(.td-resume-page ul, .td-resume-page ol) {
+  padding-left: 0;
+}
+.td-columns {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 8px;
+}
+.td-columns[data-count="1"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.td-columns[data-count="2"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.td-columns[data-count="3"] {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.td-columns[data-gap="compact"] {
+  gap: 6px;
+}
+.td-columns[data-gap="wide"] {
+  gap: 16px;
+}
+.td-column {
+  min-width: 0;
+}
+"""
+
+
 def render_resume_html(resume: ResumeVersion, template_style: TemplateStyleConfig | None = None) -> str:
     template_style_css = _render_template_style_css(template_style)
     return f"""<!doctype html>
@@ -214,6 +272,7 @@ def render_resume_html(resume: ResumeVersion, template_style: TemplateStyleConfi
     <meta charset="utf-8">
     <style>
       {template_style_css}
+      {LAYOUT_CSS}
     </style>
   </head>
   <body class="td-resume-page">
@@ -228,7 +287,7 @@ _lock = threading.Lock()
 
 
 def _get_browser():
-    """全局单例，复用 Chromium 进程（线程安全）"""
+    """鍏ㄥ眬鍗曚緥锛屽鐢?Chromium 杩涚▼锛堢嚎绋嬪畨鍏級"""
     global _pw, _browser
     if _browser is None:
         with _lock:
@@ -244,21 +303,21 @@ def render_and_export_pdf(
     template_style: TemplateStyleConfig | None,
     output_path: Path,
 ) -> Path:
-    """生成 styled HTML → Playwright 渲染 → PDF 文件"""
+    """鐢熸垚 styled HTML 鈫?Playwright 娓叉煋 鈫?PDF 鏂囦欢"""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     html = render_resume_html(resume, template_style)
     browser = _get_browser()
     page = browser.new_page()
     try:
         page.set_content(html, wait_until="load")
-        page.pdf(path=str(output_path), format="A4", print_background=True)
+        page.pdf(path=str(output_path), format="A4", print_background=True, margin=PDF_PAGE_MARGIN)
     finally:
         page.close()
     return output_path
 
 
 def cleanup_browser():
-    """应用关闭时清理 Chromium 进程"""
+    """搴旂敤鍏抽棴鏃舵竻鐞?Chromium 杩涚▼"""
     global _browser, _pw
     if _browser:
         _browser.close()

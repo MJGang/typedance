@@ -32,6 +32,14 @@ export async function choosePdfSavePathInTauri(suggestedName: string): Promise<s
   });
 }
 
+export async function chooseHtmlSavePathInTauri(suggestedName: string): Promise<string | null> {
+  if (!isTauri()) return null;
+  return save({
+    defaultPath: suggestedName,
+    filters: [{ name: "HTML", extensions: ["html", "htm"] }],
+  });
+}
+
 /** 在 Tauri 桌面端用系统默认程序打开文件（使用 Opener 插件） */
 export async function openFileInTauri(filePath: string): Promise<void> {
   if (!isTauri()) return;

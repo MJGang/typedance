@@ -21,7 +21,7 @@ from .models import (
     TemplateStyleConfig,
     utc_now,
 )
-from .pdf import render_and_export_pdf, cleanup_browser
+from .pdf import render_and_export_pdf, render_resume_html, cleanup_browser
 
 
 @asynccontextmanager
@@ -37,7 +37,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Pdf-Path"],
+    expose_headers=["X-Pdf-Path", "X-Html-Path"],
 )
 
 
@@ -252,4 +252,42 @@ def export_pdf(
         filename=filename,
         content_disposition_type="attachment",
         headers={"X-Pdf-Path": path_header_value(pdf_path)},
+    )
+
+
+@app.post("/exports/html/{resume_id}")
+def export_html(
+    resume_id: str,
+    payload: PdfExportRequest | None = None,
+    repo: ResumeRepository = Depends(resume_repository),
+    style_repo: TemplateStyleRepository = Depends(template_style_repository),
+) -> FileResponse:
+    resume = repo.get(resume_id)
+    if resume is None:
+        raise HTTPException(status_code=404, detail="Resume version not found")
+
+    style = style_repo.get(resume.template_id) if resume.template_id else None
+    if payload and payload.output_path:
+        html_path = Path(payload.output_path).expanduser()
+        if html_path.suffix.lower() not in {".html", ".htm"}:
+            html_path = html_path.with_suffix(".html")
+        html_path.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        exports_dir = app_data_dir() / "files" / "exports"
+        exports_dir.mkdir(parents=True, exist_ok=True)
+        html_path = exports_dir / f"{resume_id}-{uuid4().hex}.html"
+
+    try:
+        html_path.write_text(render_resume_html(resume, style), encoding="utf-8")
+    except Exception as exc:
+        logger.error("HTML export failed for %s: %s", resume_id, exc)
+        raise HTTPException(status_code=500, detail="HTML export failed")
+
+    filename = html_path.name if payload and payload.output_path else f"resume-{resume.title or resume_id}.html"
+    return FileResponse(
+        html_path,
+        media_type="text/html; charset=utf-8",
+        filename=filename,
+        content_disposition_type="attachment",
+        headers={"X-Html-Path": path_header_value(html_path)},
     )

@@ -17,11 +17,11 @@ export function SpacingSection({ value, onChange }: Props) {
         <div className="flex gap-2">
           <div className="flex flex-1 flex-col gap-1.5">
             <label className="text-xs text-muted-foreground">上边距</label>
-            <Input value={value.marginTop ?? ""} placeholder="如 8pt" onChange={(e) => onChange({ ...value, marginTop: e.target.value })} />
+            <Input value={value.marginTop ?? ""} placeholder="如 8px" onChange={(e) => onChange({ ...value, marginTop: e.target.value })} />
           </div>
           <div className="flex flex-1 flex-col gap-1.5">
             <label className="text-xs text-muted-foreground">下边距</label>
-            <Input value={value.marginBottom ?? ""} placeholder="如 8pt" onChange={(e) => onChange({ ...value, marginBottom: e.target.value })} />
+            <Input value={value.marginBottom ?? ""} placeholder="如 8px" onChange={(e) => onChange({ ...value, marginBottom: e.target.value })} />
           </div>
         </div>
       </CollapsibleContent>

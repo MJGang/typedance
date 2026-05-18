@@ -1,5 +1,19 @@
 import type { BlockStyle } from "./types";
 
+const LIST_BLOCKS = new Set(["bulletList", "orderedList"]);
+const TEXT_STYLE_KEYS = new Set([
+  "fontFamily",
+  "fontSize",
+  "fontWeight",
+  "lineHeight",
+  "letterSpacing",
+  "textTransform",
+  "color",
+  "backgroundColor",
+  "textAlign",
+]);
+const LIST_STRUCTURE_KEYS = new Set(["marginTop", "marginBottom", "listStyleType", "paddingLeft"]);
+
 export function generateBlockCSS(blockName: string, style: BlockStyle): string {
   const rules: string[] = [];
   const push = (prop: string, value: string | undefined) => {
@@ -30,9 +44,28 @@ export function generateBlockCSS(blockName: string, style: BlockStyle): string {
   return `.td-resume-${blockName} {\n${rules.join("\n")}\n}`;
 }
 
+function pickStyle(style: BlockStyle, keys: Set<string>): BlockStyle {
+  return Object.fromEntries(
+    Object.entries(style).filter(([key, value]) => keys.has(key) && value !== undefined),
+  ) as BlockStyle;
+}
+
+function generateListTextCSS(blockName: string, style: BlockStyle): string {
+  const blockCSS = generateBlockCSS(`${blockName}Text`, pickStyle(style, TEXT_STYLE_KEYS));
+  return blockCSS;
+}
+
+function generateListStructureCSS(blockName: string, style: BlockStyle): string {
+  return generateBlockCSS(blockName, pickStyle(style, LIST_STRUCTURE_KEYS));
+}
+
 export function generateFullCSS(blocks: Record<string, BlockStyle>): string {
   return Object.entries(blocks)
-    .map(([name, style]) => generateBlockCSS(name, style))
+    .flatMap(([name, style]) => (
+      LIST_BLOCKS.has(name)
+        ? [generateListStructureCSS(name, style), generateListTextCSS(name, style)]
+        : [generateBlockCSS(name, style)]
+    ))
     .filter(Boolean)
     .join("\n\n");
 }
@@ -43,8 +76,13 @@ const ELEMENT_MAP: Record<string, string[]> = {
   heading2: ["h2"],
   heading3: ["h3"],
   paragraph: ["p"],
-  bulletList: ["ul", "li"],
-  orderedList: ["ol", "li"],
+  bulletList: ["ul"],
+  orderedList: ["ol"],
+};
+
+const LIST_TEXT_ELEMENT_MAP: Record<string, string[]> = {
+  bulletList: ["ul li p"],
+  orderedList: ["ol li p"],
 };
 
 /**
@@ -61,11 +99,20 @@ export function generateWorkspaceCSS(
     const elements = ELEMENT_MAP[blockName];
     if (!elements) continue;
 
-    const blockCSS = generateBlockCSS(blockName, style);
-    if (!blockCSS) continue;
+    const structureCSS = LIST_BLOCKS.has(blockName) ? generateListStructureCSS(blockName, style) : generateBlockCSS(blockName, style);
+    if (structureCSS) {
+      const selectors = elements.map((el) => `${scope} ${el}`).join(", ");
+      rules.push(structureCSS.replace(`.td-resume-${blockName}`, selectors));
+    }
 
-    const selectors = elements.map((el) => `${scope} ${el}`).join(", ");
-    rules.push(blockCSS.replace(`.td-resume-${blockName}`, selectors));
+    if (LIST_BLOCKS.has(blockName)) {
+      const textCSS = generateListTextCSS(blockName, style);
+      const textElements = LIST_TEXT_ELEMENT_MAP[blockName] ?? [];
+      if (textCSS && textElements.length > 0) {
+        const selectors = textElements.map((el) => `${scope} ${el}`).join(", ");
+        rules.push(textCSS.replace(`.td-resume-${blockName}Text`, selectors));
+      }
+    }
   }
   return rules.join("\n\n");
 }

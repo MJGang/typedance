@@ -33,7 +33,7 @@ export const templateRegistry: ResumeTemplateDefinition[] = [
       templateId: "classic-a4",
     },
     futureConfig: {
-      "zh-CN": ["字体", "主色", "页边距", "标题样式", "段落间距"],
+      "zh-CN": ["字体", "主色", "分栏布局", "页边距", "标题样式", "段落间距"],
       "en-US": ["Font", "Accent color", "Margins", "Heading style", "Paragraph spacing"],
     },
   },
@@ -122,12 +122,12 @@ export const defaultClassicA4Style: TemplateStyleConfig = {
   template_id: "classic-a4",
   preset: "classic",
   blocks: {
-    heading1: { fontSize: "24pt", fontWeight: 700, color: "#1a1a1a", textAlign: "center", marginBottom: "8pt" },
-    heading2: { fontSize: "14pt", fontWeight: 600, color: "#1e3a8a", marginBottom: "8pt", borderBottom: { style: "solid", width: "1.5pt", color: "#1e3a8a" } },
-    heading3: { fontSize: "11pt", fontWeight: 600, color: "#1f2937", marginBottom: "4pt" },
-    paragraph: { fontSize: "10pt", lineHeight: 1.5, color: "#334155", marginBottom: "4pt" },
-    bulletList: { fontSize: "10pt", lineHeight: 1.4, color: "#334155", listStyleType: "disc", paddingLeft: "20pt" },
-    orderedList: { fontSize: "10pt", lineHeight: 1.4, color: "#334155", listStyleType: "decimal", paddingLeft: "20pt" },
+    heading1: { fontSize: "24px", fontWeight: 700, color: "#1a1a1a", textAlign: "center", marginBottom: "8px" },
+    heading2: { fontSize: "14px", fontWeight: 600, color: "#1e3a8a", marginBottom: "8px", borderBottom: { style: "solid", width: "1.5px", color: "#1e3a8a" } },
+    heading3: { fontSize: "11px", fontWeight: 600, color: "#1f2937", marginBottom: "4px" },
+    paragraph: { fontSize: "10px", lineHeight: 1.5, color: "#334155", marginBottom: "4px" },
+    bulletList: { listStyleType: "disc", paddingLeft: "20px" },
+    orderedList: { listStyleType: "decimal", paddingLeft: "20px" },
   },
   updated_at: "2026-05-11T00:00:00.000Z",
 }

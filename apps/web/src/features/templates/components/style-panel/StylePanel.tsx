@@ -7,6 +7,8 @@ import { PresetSelector } from "./PresetSelector";
 import { StyleStatusBar } from "./StyleStatusBar";
 import { getPreset } from "../../style-engine/presets";
 import { saveTemplateStyle } from "@/api";
+import { ColumnsSection } from "./sections/ColumnsSection";
+import type { ColumnsCount, ColumnsGap } from "@typedance/tiptap-layout";
 
 const PRESET_LABELS: Record<string, string> = {
   classic: "经典",
@@ -19,6 +21,11 @@ type StylePanelProps = {
   onChange: (config: TemplateStyleConfig) => void;
   activeBlock: BlockType;
   onActiveBlockChange: (block: BlockType) => void;
+  activeColumnsCount?: ColumnsCount | null;
+  activeColumnsGap?: ColumnsGap | null;
+  onActiveColumnsCountChange?: (count: ColumnsCount) => void;
+  onActiveColumnsGapChange?: (gap: ColumnsGap) => void;
+  onUnsetColumns?: () => void;
   uiLanguage: "zh-CN" | "en-US";
 };
 
@@ -27,6 +34,11 @@ export function StylePanel({
   onChange,
   activeBlock,
   onActiveBlockChange,
+  activeColumnsCount,
+  activeColumnsGap,
+  onActiveColumnsCountChange,
+  onActiveColumnsGapChange,
+  onUnsetColumns,
   uiLanguage,
 }: StylePanelProps) {
   const [saving, setSaving] = useState(false);
@@ -118,6 +130,15 @@ export function StylePanel({
 
       {/* Scrollable style sections */}
       <div className="flex-1 overflow-y-auto px-1 py-1">
+        {activeColumnsCount && activeColumnsGap && onActiveColumnsCountChange && onActiveColumnsGapChange && onUnsetColumns && (
+          <ColumnsSection
+            count={activeColumnsCount}
+            gap={activeColumnsGap}
+            onCountChange={onActiveColumnsCountChange}
+            onGapChange={onActiveColumnsGapChange}
+            onUnsetColumns={onUnsetColumns}
+          />
+        )}
         <BlockStyleEditor
           blockType={activeBlock}
           value={currentBlockStyle}

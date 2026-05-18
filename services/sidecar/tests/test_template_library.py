@@ -1,4 +1,4 @@
-import pytest
+﻿import pytest
 from fastapi.testclient import TestClient
 
 from typedance_sidecar.main import app
@@ -10,7 +10,7 @@ def test_template_sample_round_trip_without_updated_at(tmp_path, monkeypatch):
 
     payload = {
         "id": "test-sample",
-        "name": {"zh-CN": "测试样张", "en-US": "Test sample"},
+        "name": {"zh-CN": "娴嬭瘯鏍峰紶", "en-US": "Test sample"},
         "target_language": "zh-CN",
         "doc_json": {"type": "doc", "content": []},
         "plain_text_snapshot": "",
@@ -32,8 +32,8 @@ def test_style_config_round_trip(client):
         "template_id": "classic-a4",
         "preset": "classic",
         "blocks": {
-            "heading1": {"fontSize": "24pt", "fontWeight": 700, "color": "#1a1a1a"},
-            "paragraph": {"fontSize": "10pt", "lineHeight": 1.5, "color": "#334155"},
+            "heading1": {"fontSize": "24px", "fontWeight": 700, "color": "#1a1a1a"},
+            "paragraph": {"fontSize": "10px", "lineHeight": 1.5, "color": "#334155"},
         },
     }
     resp = client.put("/template-styles/classic-a4", json=payload)
@@ -44,7 +44,7 @@ def test_style_config_round_trip(client):
     data = resp.json()
     assert data["template_id"] == "classic-a4"
     assert "heading1" in data["blocks"]
-    assert data["blocks"]["heading1"]["fontSize"] == "24pt"
+    assert data["blocks"]["heading1"]["fontSize"] == "24px"
 
 
 def test_style_config_rejects_empty_template_id(client):

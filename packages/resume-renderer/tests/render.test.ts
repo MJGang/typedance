@@ -1,5 +1,5 @@
 ﻿import { describe, expect, it } from "vitest";
-import { renderResumeHtml, renderStyledHtml } from "../src/index";
+import { renderResumeHtml, renderStyledContentHtml, renderStyledHtml } from "../src/index";
 
 const sampleDocJson = {
   type: "doc",
@@ -32,12 +32,12 @@ const sampleDocJson = {
 
 const sampleBlocks = {
   heading1: {
-    fontSize: "18pt",
+    fontSize: "18px",
     color: "#1f2937",
     fontWeight: 700 as const,
   },
   paragraph: {
-    fontSize: "10pt",
+    fontSize: "10px",
     lineHeight: 1.55,
   },
   bulletList: {
@@ -156,7 +156,7 @@ describe("renderStyledHtml", () => {
     expect(html).toContain('<h1 class="td-resume-heading1">');
     expect(html).toContain('<p class="td-resume-paragraph">');
     expect(html).toContain('<ul class="td-resume-bulletList">');
-    expect(html).toContain('<li class="td-resume-bulletList">');
+    expect(html).toContain('<p class="td-resume-paragraph td-resume-bulletListText">');
   });
 
   it("embeds BlockStyle CSS in the style tag", () => {
@@ -170,12 +170,31 @@ describe("renderStyledHtml", () => {
   it("renders specific CSS properties from BlockStyle config", () => {
     const html = renderStyledHtml(sampleDocJson, sampleBlocks, "en-US");
 
-    expect(html).toContain("font-size: 18pt;");
+    expect(html).toContain("font-size: 18px;");
     expect(html).toContain("color: #1f2937;");
     expect(html).toContain("font-weight: 700;");
     expect(html).toContain("line-height: 1.55;");
     expect(html).toContain("list-style-type: disc;");
     expect(html).toContain("padding-left: 20px;");
+  });
+
+  it("splits list structure styles from list text override styles", () => {
+    const html = renderStyledHtml(
+      sampleDocJson,
+      {
+        ...sampleBlocks,
+        bulletList: {
+          fontSize: "12px",
+          backgroundColor: "#eeeeee",
+          listStyleType: "disc",
+          paddingLeft: "20px",
+        },
+      },
+      "en-US",
+    );
+
+    expect(html).toContain(".td-resume-bulletList {\n  list-style-type: disc;\n  padding-left: 20px;\n}");
+    expect(html).toContain(".td-resume-bulletListText {\n  font-size: 12px;\n  background-color: #eeeeee;\n}");
   });
 
   it("handles orderedList with td-resume-orderedList class", () => {
@@ -202,6 +221,59 @@ describe("renderStyledHtml", () => {
     const html = renderStyledHtml(orderedDoc, {}, "en-US");
 
     expect(html).toContain('<ol class="td-resume-orderedList">');
-    expect(html).toContain('<li class="td-resume-orderedList">');
+    expect(html).toContain('<p class="td-resume-paragraph td-resume-orderedListText">First item</p>');
+  });
+
+  it("renders styled content fragments for previews and sanitizes column attrs", () => {
+    const html = renderStyledContentHtml({
+      type: "doc",
+      content: [
+        {
+          type: "heading",
+          attrs: { level: 1 },
+          content: [{ type: "text", text: "Alex" }],
+        },
+        {
+          type: "columns",
+          attrs: { count: 9, gap: "invalid" },
+          content: [
+            {
+              type: "column",
+              content: [
+                {
+                  type: "orderedList",
+                  content: [
+                    {
+                      type: "listItem",
+                      content: [
+                        {
+                          type: "paragraph",
+                          content: [
+                            { type: "text", text: "Built " },
+                            { type: "text", text: "PDF", marks: [{ type: "bold" }] },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(html).toContain('<h1 class="td-resume-heading1">Alex</h1>');
+    expect(html).toContain('<div class="td-columns" data-count="2" data-gap="default">');
+    expect(html).toContain('<ol class="td-resume-orderedList">');
+    expect(html).toContain('<p class="td-resume-paragraph td-resume-orderedListText">Built <strong>PDF</strong></p>');
+  });
+  it("resets browser default block spacing in styled HTML", () => {
+    const html = renderStyledHtml(sampleDocJson, sampleBlocks, "en-US");
+
+    expect(html).toContain(":where(.td-resume-page h1");
+    expect(html).toContain(".td-resume-page p");
+    expect(html).toContain("padding-left: 0;");
   });
 });

@@ -3,18 +3,19 @@ import { useParams, useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { ArrowLeft, Save, FileDown, Pencil } from "lucide-react"
-import { ResumeRichTextEditor } from "./components/ResumeRichTextEditor"
+import { ArrowLeft, Save, FileDown, FileCode, Pencil } from "lucide-react"
+import { ResumeRichTextEditor, type ResumeRichTextEditorHandle, type ResumeSelectionContext } from "./components/ResumeRichTextEditor"
 import { RightPanel } from "./components/RightPanel"
 import { AiTab } from "./components/AiTab"
 import { StylePanel } from "../templates/components/style-panel/StylePanel"
 import { generateWorkspaceCSS } from "../templates/style-engine/css-generator"
-import { exportResumePdf, getResumeVersion, getTemplateStyle, saveTemplateStyle, updateResumeVersion } from "@/api"
+import { exportResumeHtml, exportResumePdf, getResumeVersion, getTemplateStyle, saveTemplateStyle, updateResumeVersion } from "@/api"
 import { templateRegistry, defaultClassicA4Style } from "../templates/data"
 import { ExportStatusBar, type ExportStatusType } from "./components/ExportStatusBar"
 import { isTauri, openFileInTauri } from "@/tauri"
 import type { ResumeDocJson, ResumeEditorChange } from "./editor"
 import type { ResumeVersion, TemplateStyleConfig, BlockType } from "@typedance/contracts"
+import type { ColumnsCount, ColumnsGap } from "@typedance/tiptap-layout"
 
 export function WorkspacePage() {
   const { id } = useParams<{ id: string }>()
@@ -27,8 +28,11 @@ export function WorkspacePage() {
   const [titleDraft, setTitleDraft] = useState("")
   const [isSaving, setIsSaving] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
+  const editorRef = useRef<ResumeRichTextEditorHandle>(null)
   const [exportStatus, setExportStatus] = useState<ExportStatusType>({ type: "idle" })
   const lastExportPathRef = useRef<string | null>(null)
+  const [activeColumnsCount, setActiveColumnsCount] = useState<ColumnsCount | null>(null)
+  const [activeColumnsGap, setActiveColumnsGap] = useState<ColumnsGap | null>(null)
 
   // Track whether a built-in template has been forked
   const forkedRef = useRef(false)
@@ -53,11 +57,30 @@ export function WorkspacePage() {
     setDocJson(change.docJson)
   }, [])
 
-  const handleSelectionUpdate = useCallback((blockName: string) => {
+  const handleSelectionUpdate = useCallback((blockName: string, context?: ResumeSelectionContext) => {
+    setActiveColumnsCount(context?.columns?.count ?? null)
+    setActiveColumnsGap(context?.columns?.gap ?? null)
+
     const validBlocks: BlockType[] = ["heading1", "heading2", "heading3", "paragraph", "bulletList", "orderedList"]
     if (validBlocks.includes(blockName as BlockType)) {
       setActiveBlock(blockName as BlockType)
     }
+  }, [])
+
+  const handleColumnsCountChange = useCallback((count: ColumnsCount) => {
+    editorRef.current?.setColumnsCount(count)
+    setActiveColumnsCount(count)
+  }, [])
+
+  const handleColumnsGapChange = useCallback((gap: ColumnsGap) => {
+    editorRef.current?.setColumnsGap(gap)
+    setActiveColumnsGap(gap)
+  }, [])
+
+  const handleUnsetColumns = useCallback(() => {
+    editorRef.current?.unsetColumns()
+    setActiveColumnsCount(null)
+    setActiveColumnsGap(null)
   }, [])
 
   const handleStyleChange = useCallback((newStyle: TemplateStyleConfig) => {
@@ -143,6 +166,23 @@ export function WorkspacePage() {
     }
   }, [id, resume])
 
+  const handleExportHtml = useCallback(async () => {
+    if (!id || !resume) return
+    try {
+      const result = await exportResumeHtml(id, resume.title)
+      if (!result) return
+      toast.success("HTML export succeeded", {
+        description: `Saved as ${result.fileName}`,
+        duration: 4000,
+      })
+    } catch {
+      toast.error("HTML export failed", {
+        description: "Check whether the Sidecar service is running.",
+        duration: 4000,
+      })
+    }
+  }, [id, resume])
+
   const handleOpenPdf = useCallback(() => {
     if (isTauri() && lastExportPathRef.current) {
       openFileInTauri(lastExportPathRef.current)
@@ -204,13 +244,17 @@ export function WorkspacePage() {
             <Button variant="outline" size="sm" onClick={handleSave} disabled={isSaving}>
               <Save className="mr-1 h-4 w-4" />{isSaving ? "保存中..." : "保存"}
             </Button>
+            <Button variant="outline" size="sm" onClick={handleExportHtml}>
+              <FileCode className="mr-1 h-4 w-4" />导出 HTML
+            </Button>
             <Button size="sm" onClick={handleExportPdf} disabled={exportStatus.type === "exporting"}>
               <FileDown className="mr-1 h-4 w-4" />{exportStatus.type === "exporting" ? "导出中..." : "导出 PDF"}
             </Button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-auto p-8">
+          <div className="min-h-0 flex-1 overflow-hidden p-8">
             <ResumeRichTextEditor
+              ref={editorRef}
               ariaLabel="Resume editor"
               docJson={docJson}
               onChange={handleEditorChange}
@@ -222,12 +266,17 @@ export function WorkspacePage() {
 
         {/* Right panel */}
         <RightPanel
-          styleContent={
+          designContent={
             <StylePanel
               styleConfig={styleConfig}
               onChange={handleStyleChange}
               activeBlock={activeBlock}
               onActiveBlockChange={setActiveBlock}
+              activeColumnsCount={activeColumnsCount}
+              activeColumnsGap={activeColumnsGap}
+              onActiveColumnsCountChange={handleColumnsCountChange}
+              onActiveColumnsGapChange={handleColumnsGapChange}
+              onUnsetColumns={handleUnsetColumns}
               uiLanguage="zh-CN"
             />
           }

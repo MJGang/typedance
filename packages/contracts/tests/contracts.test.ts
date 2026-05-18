@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import {
   resumeVersionSchema,
   templateSampleContentSchema,
@@ -30,12 +30,12 @@ describe("templateSampleContentSchema", () => {
     const parsed = templateSampleContentSchema.parse({
       id: "sample-tech-zh",
       name: {
-        "zh-CN": "技术简历样张",
+        "zh-CN": "Tech resume sample",
         "en-US": "Tech Resume Sample"
       },
       target_language: "zh-CN",
       doc_json: { type: "doc", content: [] },
-      plain_text_snapshot: "技术简历样张",
+      plain_text_snapshot: "Tech resume sample",
       updated_at: "2026-05-08T08:00:00.000Z"
     });
 
@@ -48,15 +48,15 @@ describe("templateStyleConfigSchema", () => {
     const parsed = templateStyleConfigSchema.parse({
       template_id: "classic-a4",
       blocks: {
-        heading1: { fontSize: "24pt", fontWeight: 700, color: "#1a1a1a", textAlign: "center" },
-        paragraph: { fontSize: "10pt", lineHeight: 1.5, color: "#334155" },
+        heading1: { fontSize: "24px", fontWeight: 700, color: "#1a1a1a", textAlign: "center" },
+        paragraph: { fontSize: "10px", lineHeight: 1.5, color: "#334155" },
       },
       updated_at: "2026-05-08T08:00:00.000Z"
     });
 
     expect(parsed.template_id).toBe("classic-a4");
     expect(parsed.preset).toBe("classic");
-    expect(parsed.blocks.heading1.fontSize).toBe("24pt");
+    expect(parsed.blocks.heading1.fontSize).toBe("24px");
     expect(parsed.blocks.heading1.fontWeight).toBe(700);
     expect(parsed.updated_at).toBe("2026-05-08T08:00:00.000Z");
   });
@@ -85,7 +85,7 @@ describe("templateStyleConfigSchema", () => {
       templateStyleConfigSchema.parse({
         template_id: "classic-a4",
         blocks: {
-          unknownBlock: { fontSize: "12pt" },
+          unknownBlock: { fontSize: "12px" },
         },
         updated_at: "2026-05-08T08:00:00.000Z"
       })
@@ -93,4 +93,4 @@ describe("templateStyleConfigSchema", () => {
   });
 });
 
-// PdfClassPolicySchema 已随 BlockStyle 架构迁移移除
+// PdfClassPolicySchema 宸查殢 BlockStyle 鏋舵瀯杩佺Щ绉婚櫎
