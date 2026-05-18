@@ -16,6 +16,28 @@ export type ResumeEditorChange = {
   docJson: ResumeDocJson
 }
 
+export function looksLikeMarkdown(text: string): boolean {
+  const normalized = text.replace(/\r\n?/g, "\n").trim()
+
+  if (!normalized) {
+    return false
+  }
+
+  const markdownSignals = [
+    /^#{1,6}\s+\S/m,
+    /^[-*+]\s+\S/m,
+    /^\d+\.\s+\S/m,
+    /\*\*[^*\n][\s\S]*?[^*\n]\*\*/,
+    /_[^_\n][\s\S]*?[^_\n]_/,
+    /\[[^\]\n]+\]\([^)]+\)/,
+    /^>\s+\S/m,
+    /^```/m,
+    /^\|.+\|$/m,
+  ]
+
+  return markdownSignals.some((pattern) => pattern.test(normalized))
+}
+
 export function makeResumeDocFromText(text: string): ResumeDocJson {
   const lines = text
     .split(/\n+/)

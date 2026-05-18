@@ -1,5 +1,8 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react"
 import type { ReactNode } from "react"
+import { Extension } from "@tiptap/core"
+import { Markdown } from "@tiptap/markdown"
+import { Plugin } from "@tiptap/pm/state"
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react"
 import type { JSONContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
@@ -11,6 +14,7 @@ import { Column, Columns, type ColumnsCount, type ColumnsGap } from "@typedance/
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { looksLikeMarkdown } from "../editor"
 import type { ResumeDocJson, ResumeEditorChange } from "../editor"
 
 type MarginConfig = {
@@ -67,6 +71,31 @@ const inactiveToolbarState: ToolbarState = {
   isParagraph: false,
   isColumns: false,
 }
+
+const PasteMarkdown = Extension.create({
+  name: "pasteMarkdown",
+
+  addProseMirrorPlugins() {
+    const { editor } = this
+
+    return [
+      new Plugin({
+        props: {
+          handlePaste(_view, event) {
+            const text = event.clipboardData?.getData("text/plain")
+
+            if (!text || !looksLikeMarkdown(text)) {
+              return false
+            }
+
+            editor.commands.insertContent(text, { contentType: "markdown" })
+            return true
+          },
+        },
+      }),
+    ]
+  },
+})
 
 type ToolbarButtonProps = {
   label: string
@@ -133,6 +162,8 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
     const editor = useEditor({
       extensions: [
         StarterKit,
+        Markdown,
+        PasteMarkdown,
         Columns,
         Column,
         PaginationPlus.configure({
