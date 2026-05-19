@@ -1,6 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react"
-import type { ReactNode } from "react"
-import { Extension } from "@tiptap/core"
+import { Extension, Mark } from "@tiptap/core"
 import { Markdown } from "@tiptap/markdown"
 import { Plugin } from "@tiptap/pm/state"
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react"
@@ -8,10 +7,27 @@ import type { JSONContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import DragHandle from "@tiptap/extension-drag-handle-react"
 import { PaginationPlus, PAGE_SIZES } from "tiptap-pagination-plus"
-import { Bold, Columns3, GripVertical, Heading1, Heading2, Heading3, Italic, List, ListOrdered, Pilcrow } from "lucide-react"
+import { Bold, Columns3, Eraser, GripVertical, Heading1, Heading2, Heading3, Italic, Pilcrow, Underline } from "lucide-react"
 import { Column, Columns, type ColumnsCount, type ColumnsGap } from "@typedance/tiptap-layout"
 
 import { Button } from "@/components/ui/button"
+import { ColorPickerPopover, DEFAULT_TEXT_COLOR } from "@/components/color-picker-popover"
+import {
+  AlignmentToolbarButton,
+  BulletListToolbarButton,
+  DividerToolbarButton,
+  IndentToolbarButton,
+  LineHeightToolbarButton,
+  OrderedListToolbarButton,
+  ToolbarGroup,
+  ToolbarIconButton,
+  ToolbarVerticalSeparator,
+  type ToolbarAlignment,
+  type ToolbarBulletListStyle,
+  type ToolbarLineHeight,
+  type ToolbarOrderedListStyle,
+} from "@/components/editor-toolbar"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { looksLikeMarkdown } from "../editor"
@@ -51,6 +67,7 @@ export type ResumeRichTextEditorHandle = {
 type ToolbarState = {
   isBold: boolean
   isItalic: boolean
+  isUnderline: boolean
   isHeading1: boolean
   isHeading2: boolean
   isHeading3: boolean
@@ -58,11 +75,23 @@ type ToolbarState = {
   isOrderedList: boolean
   isParagraph: boolean
   isColumns: boolean
+  inlineColor: string
+  inlineBackgroundColor: string | null
+  inlineFontSize: string
+  textAlign: ToolbarAlignment
+  lineHeight: ToolbarLineHeight
+  orderedListStyle: ToolbarOrderedListStyle
+  bulletListStyle: ToolbarBulletListStyle
+  indent: number
+  activeBlock: ToolbarBlock
 }
+
+type ToolbarBlock = "paragraph" | "heading1" | "heading2" | "heading3" | "bulletList" | "orderedList" | "columns"
 
 const inactiveToolbarState: ToolbarState = {
   isBold: false,
   isItalic: false,
+  isUnderline: false,
   isHeading1: false,
   isHeading2: false,
   isHeading3: false,
@@ -70,7 +99,149 @@ const inactiveToolbarState: ToolbarState = {
   isOrderedList: false,
   isParagraph: false,
   isColumns: false,
+  inlineColor: DEFAULT_TEXT_COLOR,
+  inlineBackgroundColor: null,
+  inlineFontSize: "",
+  textAlign: "left",
+  lineHeight: "default",
+  orderedListStyle: "decimal",
+  bulletListStyle: "disc",
+  indent: 0,
+  activeBlock: "paragraph",
 }
+
+const INLINE_FONT_SIZES = ["12px", "13px", "14px", "15px", "16px", "19px", "22px", "24px", "29px", "32px", "40px", "48px"]
+
+const BLOCK_OPTIONS: Array<{ value: ToolbarBlock; label: string; icon: typeof Pilcrow }> = [
+  { value: "paragraph", label: "正文", icon: Pilcrow },
+  { value: "heading1", label: "标题1", icon: Heading1 },
+  { value: "heading2", label: "标题2", icon: Heading2 },
+  { value: "heading3", label: "标题3", icon: Heading3 },
+]
+
+const BLOCK_STYLE_NODE_TYPES = ["paragraph", "heading", "listItem"] as const
+const DEFAULT_LINE_HEIGHT: ToolbarLineHeight = "default"
+const MAX_INDENT = 8
+
+function inlineStyleToCss(attrs: Record<string, unknown>): string {
+  const rules: string[] = []
+  if (typeof attrs.fontSize === "string" && attrs.fontSize.endsWith("px")) {
+    rules.push(`font-size: ${attrs.fontSize}`)
+  }
+  if (typeof attrs.color === "string" && /^#[0-9a-fA-F]{6}$/.test(attrs.color)) {
+    rules.push(`color: ${attrs.color}`)
+  }
+  if (typeof attrs.backgroundColor === "string" && /^#[0-9a-fA-F]{6}$/.test(attrs.backgroundColor)) {
+    rules.push(`background-color: ${attrs.backgroundColor}`)
+  }
+  return rules.join("; ")
+}
+
+function blockStyleToCss(attrs: Record<string, unknown>): string {
+  const rules: string[] = []
+  if (attrs.textAlign === "left" || attrs.textAlign === "center" || attrs.textAlign === "right" || attrs.textAlign === "justify") {
+    rules.push(`text-align: ${attrs.textAlign}`)
+  }
+  if (typeof attrs.lineHeight === "string" && attrs.lineHeight !== DEFAULT_LINE_HEIGHT) {
+    rules.push(`line-height: ${attrs.lineHeight}`)
+  }
+  if (typeof attrs.indent === "number" && attrs.indent > 0) {
+    rules.push(`margin-left: ${attrs.indent * 1.5}em`)
+  }
+  return rules.join("; ")
+}
+
+function listStyleToCss(attrs: Record<string, unknown>): string {
+  if (attrs.listStyleType === "dash") {
+    return "list-style-type: '-  '"
+  }
+  if (attrs.listStyleType === "circle") {
+    return "list-style-type: circle"
+  }
+  if (attrs.listStyleType === "lower-alpha") {
+    return "list-style-type: lower-alpha"
+  }
+  if (attrs.listStyleType === "decimal-nested") {
+    return "list-style-type: decimal"
+  }
+  return ""
+}
+
+const InlineStyle = Mark.create({
+  name: "inlineStyle",
+
+  addAttributes() {
+    return {
+      fontSize: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.style.fontSize || null,
+      },
+      color: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.style.color || null,
+      },
+      backgroundColor: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.style.backgroundColor || null,
+      },
+    }
+  },
+
+  parseHTML() {
+    return [{ tag: "span[data-td-inline-style]" }]
+  },
+
+  renderHTML({ mark }) {
+    const style = inlineStyleToCss(mark.attrs)
+    return ["span", style ? { "data-td-inline-style": "", style } : { "data-td-inline-style": "" }, 0]
+  },
+})
+
+const BlockStyle = Extension.create({
+  name: "blockStyle",
+
+  addGlobalAttributes() {
+    return [
+      {
+        types: [...BLOCK_STYLE_NODE_TYPES],
+        attributes: {
+          textAlign: {
+            default: null,
+            parseHTML: (element: HTMLElement) => element.style.textAlign || null,
+            renderHTML: (attributes) => {
+              const style = blockStyleToCss(attributes)
+              return style ? { style } : {}
+            },
+          },
+          lineHeight: {
+            default: null,
+            parseHTML: (element: HTMLElement) => element.style.lineHeight || null,
+          },
+          indent: {
+            default: 0,
+            parseHTML: (element: HTMLElement) => {
+              const marginLeft = Number.parseFloat(element.style.marginLeft)
+              return Number.isFinite(marginLeft) ? Math.max(0, Math.round(marginLeft / 24)) : 0
+            },
+          },
+        },
+      },
+      {
+        types: ["bulletList", "orderedList"],
+        attributes: {
+          listStyleType: {
+            default: null,
+            parseHTML: (element: HTMLElement) => element.style.listStyleType || null,
+            renderHTML: (attributes) => {
+              const style = listStyleToCss(attributes)
+              return style ? { style } : {}
+            },
+          },
+        },
+      },
+    ]
+  },
+})
 
 const PasteMarkdown = Extension.create({
   name: "pasteMarkdown",
@@ -97,32 +268,97 @@ const PasteMarkdown = Extension.create({
   },
 })
 
-type ToolbarButtonProps = {
-  label: string
-  isActive?: boolean
+type ToolbarSelectProps<T extends string> = {
+  ariaLabel: string
+  tooltipLabel?: string
+  value: T
+  options: Array<{ value: T; label: string; icon?: typeof Pilcrow }>
   disabled?: boolean
-  onClick: () => void
-  children: ReactNode
+  className?: string
+  onChange: (value: T) => void
 }
 
-function ToolbarButton({ label, isActive = false, disabled = false, onClick, children }: ToolbarButtonProps) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant={isActive ? "default" : "outline"}
-          size="icon"
-          aria-label={label}
-          onClick={onClick}
-          disabled={disabled}
-        >
-          {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
+function ToolbarSelect<T extends string>({ ariaLabel, tooltipLabel, value, options, disabled = false, className = "", onChange }: ToolbarSelectProps<T>) {
+  const selected = options.find((option) => option.value === value) ?? options[0]
+  const SelectedIcon = selected.icon
+  const button = (
+    <DropdownMenuTrigger asChild>
+      <Button
+        type="button"
+        variant="ghost"
+        aria-label={ariaLabel}
+        title={tooltipLabel}
+        disabled={disabled}
+        className={`td-toolbar-select-trigger ${className}`}
+      >
+        {SelectedIcon ? <SelectedIcon /> : null}
+        <span>{selected.label}</span>
+      </Button>
+    </DropdownMenuTrigger>
   )
+
+  return (
+    <DropdownMenu>
+      {tooltipLabel ? (
+        <Tooltip>
+          <TooltipTrigger asChild>{button}</TooltipTrigger>
+          <TooltipContent>{tooltipLabel}</TooltipContent>
+        </Tooltip>
+      ) : button}
+      <DropdownMenuContent align="start" className="td-toolbar-select-content min-w-0">
+        {options.map((option) => (
+          <DropdownMenuItem
+            key={option.value}
+            className="td-toolbar-select-item"
+            onSelect={() => onChange(option.value)}
+          >
+            <span className="td-toolbar-select-check">
+              {option.value === value ? "✓" : null}
+            </span>
+            <span>{option.label}</span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function getSelectionAncestorAttrs(editor: NonNullable<ReturnType<typeof useEditor>>, nodeTypes: readonly string[]) {
+  const { $from } = editor.state.selection
+  for (let depth = $from.depth; depth >= 0; depth -= 1) {
+    const node = $from.node(depth)
+    if (nodeTypes.includes(node.type.name)) {
+      return node.attrs as Record<string, unknown>
+    }
+  }
+  return {}
+}
+
+function getEditableBlockType(editor: NonNullable<ReturnType<typeof useEditor>>): "paragraph" | "heading" | "listItem" {
+  if (editor.isActive("listItem")) return "listItem"
+  if (editor.isActive("heading")) return "heading"
+  return "paragraph"
+}
+
+function getActiveTextAlign(editor: NonNullable<ReturnType<typeof useEditor>>): ToolbarAlignment {
+  const attrs = getSelectionAncestorAttrs(editor, BLOCK_STYLE_NODE_TYPES)
+  return attrs.textAlign === "center" || attrs.textAlign === "right" || attrs.textAlign === "justify" ? attrs.textAlign : "left"
+}
+
+function getActiveLineHeight(editor: NonNullable<ReturnType<typeof useEditor>>): ToolbarLineHeight {
+  const attrs = getSelectionAncestorAttrs(editor, BLOCK_STYLE_NODE_TYPES)
+  const value = attrs.lineHeight
+  return value === "1" || value === "1.15" || value === "1.5" || value === "2" || value === "2.5" || value === "3" ? value : DEFAULT_LINE_HEIGHT
+}
+
+function getActiveIndent(editor: NonNullable<ReturnType<typeof useEditor>>): number {
+  const attrs = getSelectionAncestorAttrs(editor, BLOCK_STYLE_NODE_TYPES)
+  return typeof attrs.indent === "number" ? attrs.indent : 0
+}
+
+function getActiveListStyle(editor: NonNullable<ReturnType<typeof useEditor>>, type: "bulletList" | "orderedList") {
+  const attrs = getSelectionAncestorAttrs(editor, [type])
+  return typeof attrs.listStyleType === "string" ? attrs.listStyleType : null
 }
 
 function getSelectedColumnsContext(editor: NonNullable<ReturnType<typeof useEditor>>): ResumeSelectionContext["columns"] | null {
@@ -139,6 +375,16 @@ function getSelectedColumnsContext(editor: NonNullable<ReturnType<typeof useEdit
   }
 
   return null
+}
+
+function getActiveToolbarBlock(editor: NonNullable<ReturnType<typeof useEditor>>): ToolbarBlock {
+  if (editor.isActive("columns")) return "columns"
+  if (editor.isActive("heading", { level: 1 })) return "heading1"
+  if (editor.isActive("heading", { level: 2 })) return "heading2"
+  if (editor.isActive("heading", { level: 3 })) return "heading3"
+  if (editor.isActive("bulletList")) return "bulletList"
+  if (editor.isActive("orderedList")) return "orderedList"
+  return "paragraph"
 }
 
 export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, ResumeRichTextEditorProps>(
@@ -164,6 +410,8 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         StarterKit,
         Markdown,
         PasteMarkdown,
+        InlineStyle,
+        BlockStyle,
         Columns,
         Column,
         PaginationPlus.configure({
@@ -190,7 +438,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       editorProps: {
         attributes: {
           "aria-label": ariaLabel,
-          // class: "td-rich-editor-prosemirror",
+          class: "td-rich-editor-prosemirror",
         },
       },
       onUpdate: ({ editor }) => {
@@ -227,6 +475,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
           return {
             isBold: editor.isActive("bold"),
             isItalic: editor.isActive("italic"),
+            isUnderline: editor.isActive("underline"),
             isHeading1: editor.isActive("heading", { level: 1 }),
             isHeading2: editor.isActive("heading", { level: 2 }),
             isHeading3: editor.isActive("heading", { level: 3 }),
@@ -234,6 +483,29 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
             isOrderedList: editor.isActive("orderedList"),
             isParagraph: editor.isActive("paragraph"),
             isColumns: editor.isActive("columns"),
+            inlineColor: typeof editor.getAttributes("inlineStyle").color === "string"
+              ? editor.getAttributes("inlineStyle").color
+              : DEFAULT_TEXT_COLOR,
+            inlineBackgroundColor: typeof editor.getAttributes("inlineStyle").backgroundColor === "string"
+              ? editor.getAttributes("inlineStyle").backgroundColor
+              : null,
+            inlineFontSize: typeof editor.getAttributes("inlineStyle").fontSize === "string"
+              ? editor.getAttributes("inlineStyle").fontSize
+              : "",
+            textAlign: getActiveTextAlign(editor),
+            lineHeight: getActiveLineHeight(editor),
+            orderedListStyle: getActiveListStyle(editor, "orderedList") === "lower-alpha"
+              ? "lower-alpha"
+              : getActiveListStyle(editor, "orderedList") === "decimal-nested"
+                ? "decimal-nested"
+                : "decimal",
+            bulletListStyle: getActiveListStyle(editor, "bulletList") === "circle"
+              ? "circle"
+              : getActiveListStyle(editor, "bulletList") === "dash"
+                ? "dash"
+                : "disc",
+            indent: getActiveIndent(editor),
+            activeBlock: getActiveToolbarBlock(editor),
           }
         },
       }) ?? inactiveToolbarState
@@ -262,108 +534,166 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       }
     }, [docJson, editor, editable])
 
+    const canEditParagraphStyle = toolbarState.activeBlock === "paragraph"
+    const canEditBlockStyle = Boolean(editor) && toolbarState.activeBlock !== "columns"
+    const updateCurrentBlockStyle = (attrs: Record<string, unknown>) => {
+      if (!editor) return
+      editor.chain().focus().updateAttributes(getEditableBlockType(editor), attrs).run()
+    }
+    const increaseIndent = () => updateCurrentBlockStyle({ indent: Math.min(MAX_INDENT, toolbarState.indent + 1) })
+    const decreaseIndent = () => updateCurrentBlockStyle({ indent: Math.max(0, toolbarState.indent - 1) })
+
     return (
       <div className="td-rich-editor">
         {editable && (
           <div className="td-rich-editor-toolbar" role="toolbar" aria-label="简历格式工具栏">
-            <ToolbarButton
-              label="加粗"
-              isActive={toolbarState.isBold}
-              disabled={!editor}
-              onClick={() => editor?.chain().focus().toggleBold().run()}
-            >
-              <Bold />
-            </ToolbarButton>
-            <ToolbarButton
-              label="斜体"
-              isActive={toolbarState.isItalic}
-              disabled={!editor}
-              onClick={() => editor?.chain().focus().toggleItalic().run()}
-            >
-              <Italic />
-            </ToolbarButton>
-            <ToolbarButton
-              label="一级标题"
-              isActive={toolbarState.isHeading1}
-              disabled={!editor}
-              onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
-            >
-              <Heading1 />
-            </ToolbarButton>
-            <ToolbarButton
-              label="二级标题"
-              isActive={toolbarState.isHeading2}
-              disabled={!editor}
-              onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
-            >
-              <Heading2 />
-            </ToolbarButton>
-            <ToolbarButton
-              label="三级标题"
-              isActive={toolbarState.isHeading3}
-              disabled={!editor}
-              onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}
-            >
-              <Heading3 />
-            </ToolbarButton>
-            <ToolbarButton
-              label="正文"
-              isActive={toolbarState.isParagraph}
-              disabled={!editor}
-              onClick={() => editor?.chain().focus().setParagraph().run()}
-            >
-              <Pilcrow />
-            </ToolbarButton>
-            <ToolbarButton
-              label="无序列表"
-              isActive={toolbarState.isBulletList}
-              disabled={!editor}
-              onClick={() => editor?.chain().focus().toggleBulletList().run()}
-            >
-              <List />
-            </ToolbarButton>
-            <ToolbarButton
-              label="有序列表"
-              isActive={toolbarState.isOrderedList}
-              disabled={!editor}
-              onClick={() => editor?.chain().focus().toggleOrderedList().run()}
-            >
-              <ListOrdered />
-            </ToolbarButton>
-            <Popover>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <PopoverTrigger asChild>
-                    <Button
-                      type="button"
-                      variant={toolbarState.isColumns ? "default" : "outline"}
-                      size="icon"
-                      aria-label="分栏"
-                      disabled={!editor}
-                    >
-                      <Columns3 />
-                    </Button>
-                  </PopoverTrigger>
-                </TooltipTrigger>
-                <TooltipContent>分栏</TooltipContent>
-              </Tooltip>
-              <PopoverContent align="start" className="w-40 p-2">
-                <div className="flex flex-col gap-1">
-                  {([1, 2, 3] as ColumnsCount[]).map((count) => (
-                    <Button
-                      key={count}
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="justify-start"
-                      onClick={() => editor?.chain().focus().insertColumns({ count }).run()}
-                    >
-                      {count} 栏
-                    </Button>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
+            <ToolbarGroup>
+              <ToolbarSelect
+                ariaLabel="正文与标题"
+                tooltipLabel="正文与标题"
+                value={toolbarState.activeBlock}
+                options={BLOCK_OPTIONS}
+                disabled={!editor}
+                className="td-toolbar-block-trigger"
+                onChange={(block) => {
+                  if (block === "paragraph") editor?.chain().focus().setParagraph().run()
+                  if (block === "heading1") editor?.chain().focus().toggleHeading({ level: 1 }).run()
+                  if (block === "heading2") editor?.chain().focus().toggleHeading({ level: 2 }).run()
+                  if (block === "heading3") editor?.chain().focus().toggleHeading({ level: 3 }).run()
+                }}
+              />
+              <ToolbarSelect
+                ariaLabel="字号"
+                value={toolbarState.inlineFontSize || "15px"}
+                options={INLINE_FONT_SIZES.map((size) => ({ value: size, label: size }))}
+                disabled={!editor || !canEditParagraphStyle}
+                className="td-toolbar-font-size-trigger"
+                onChange={(fontSize) => editor?.chain().focus().setMark("inlineStyle", { fontSize }).run()}
+              />
+              <ToolbarIconButton
+                label="加粗"
+                icon={Bold}
+                isActive={toolbarState.isBold}
+                disabled={!editor || !canEditParagraphStyle}
+                onClick={() => editor?.chain().focus().toggleBold().run()}
+              />
+              <ToolbarIconButton
+                label="斜体"
+                icon={Italic}
+                isActive={toolbarState.isItalic}
+                disabled={!editor}
+                onClick={() => editor?.chain().focus().toggleItalic().run()}
+              />
+            </ToolbarGroup>
+            <ToolbarVerticalSeparator />
+            <ToolbarGroup className="td-toolbar-color-group">
+              <ColorPickerPopover
+                kind="text"
+                value={toolbarState.inlineColor}
+                disabled={!editor}
+                onChange={(color) => {
+                  if (color) {
+                    editor?.chain().focus().setMark("inlineStyle", { color }).run()
+                  }
+                }}
+              />
+              <ColorPickerPopover
+                kind="background"
+                value={toolbarState.inlineBackgroundColor}
+                disabled={!editor}
+                onChange={(backgroundColor) => {
+                  editor?.chain().focus().setMark("inlineStyle", { backgroundColor }).run()
+                }}
+              />
+            </ToolbarGroup>
+            <ToolbarVerticalSeparator />
+            <ToolbarGroup>
+              <ToolbarIconButton
+                label="清除局部样式"
+                icon={Eraser}
+                disabled={!editor}
+                onClick={() => editor?.chain().focus().unsetMark("inlineStyle").run()}
+              />
+              <AlignmentToolbarButton
+                value={toolbarState.textAlign}
+                disabled={!canEditBlockStyle}
+                onChange={(textAlign) => updateCurrentBlockStyle({ textAlign })}
+              />
+              <BulletListToolbarButton
+                value={toolbarState.bulletListStyle}
+                isActive={toolbarState.isBulletList}
+                disabled={!editor}
+                onChange={(listStyleType) => {
+                  if (!toolbarState.isBulletList) editor?.chain().focus().toggleBulletList().run()
+                  editor?.chain().focus().updateAttributes("bulletList", { listStyleType }).run()
+                }}
+              />
+              <OrderedListToolbarButton
+                value={toolbarState.orderedListStyle}
+                isActive={toolbarState.isOrderedList}
+                disabled={!editor}
+                onChange={(listStyleType) => {
+                  if (!toolbarState.isOrderedList) editor?.chain().focus().toggleOrderedList().run()
+                  editor?.chain().focus().updateAttributes("orderedList", { listStyleType }).run()
+                }}
+              />
+              <IndentToolbarButton disabled={!canEditBlockStyle} onIncrease={increaseIndent} onDecrease={decreaseIndent} />
+              <LineHeightToolbarButton
+                value={toolbarState.lineHeight}
+                disabled={!canEditBlockStyle}
+                onChange={(lineHeight) => updateCurrentBlockStyle({ lineHeight: lineHeight === DEFAULT_LINE_HEIGHT ? null : lineHeight })}
+              />
+            </ToolbarGroup>
+            <ToolbarVerticalSeparator />
+            <ToolbarGroup>
+              <ToolbarIconButton
+                label="下划线"
+                icon={Underline}
+                isActive={toolbarState.isUnderline}
+                disabled={!editor}
+                onClick={() => editor?.chain().focus().toggleMark("underline").run()}
+              />
+            </ToolbarGroup>
+            <ToolbarVerticalSeparator />
+            <ToolbarGroup>
+              <DividerToolbarButton disabled={!editor} onClick={() => editor?.chain().focus().setHorizontalRule().run()} />
+              <Popover>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="分栏"
+                        disabled={!editor}
+                        data-active={toolbarState.isColumns || undefined}
+                        className="td-editor-toolbar-button"
+                      >
+                        <Columns3 />
+                      </Button>
+                    </PopoverTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>分栏</TooltipContent>
+                </Tooltip>
+                <PopoverContent align="start" className="w-40 p-2">
+                  <div className="flex flex-col gap-1">
+                    {([1, 2, 3] as ColumnsCount[]).map((count) => (
+                      <Button
+                        key={count}
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="justify-start"
+                        onClick={() => editor?.chain().focus().insertColumns({ count }).run()}
+                      >
+                        {count} 栏
+                      </Button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </ToolbarGroup>
           </div>
         )}
         <style>{cssText}</style>

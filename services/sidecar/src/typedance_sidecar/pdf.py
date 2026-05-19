@@ -107,7 +107,79 @@ def _render_marks(text: str, marks: list[dict[str, Any]] | None) -> str:
             rendered = f"<strong>{rendered}</strong>"
         elif mark.get("type") == "italic":
             rendered = f"<em>{rendered}</em>"
+        elif mark.get("type") == "underline":
+            rendered = f"<u>{rendered}</u>"
+        elif mark.get("type") == "inlineStyle":
+            style = _inline_style_css(mark.get("attrs"))
+            if style:
+                rendered = f'<span data-td-inline-style style="{escape_html(style)}">{rendered}</span>'
     return rendered
+
+
+def _inline_style_css(attrs: object) -> str:
+    if not isinstance(attrs, dict):
+        return ""
+
+    rules: list[str] = []
+    font_size = attrs.get("fontSize")
+    if isinstance(font_size, str) and font_size.endswith("px"):
+        rules.append(f"font-size: {font_size}")
+
+    color = attrs.get("color")
+    if isinstance(color, str) and _is_hex_color(color):
+        rules.append(f"color: {color}")
+
+    background_color = attrs.get("backgroundColor")
+    if isinstance(background_color, str) and _is_hex_color(background_color):
+        rules.append(f"background-color: {background_color}")
+
+    return "; ".join(rules)
+
+
+def _block_style_css(attrs: object) -> str:
+    if not isinstance(attrs, dict):
+        return ""
+
+    rules: list[str] = []
+    text_align = attrs.get("textAlign")
+    if text_align in {"left", "center", "right", "justify"}:
+        rules.append(f"text-align: {text_align}")
+
+    line_height = attrs.get("lineHeight")
+    if isinstance(line_height, str) and line_height != "default":
+        rules.append(f"line-height: {line_height}")
+
+    indent = attrs.get("indent")
+    if isinstance(indent, int | float) and indent > 0:
+        rules.append(f"margin-left: {indent * 1.5:g}em")
+
+    return "; ".join(rules)
+
+
+def _list_style_css(attrs: object) -> str:
+    if not isinstance(attrs, dict):
+        return ""
+
+    list_style_type = attrs.get("listStyleType")
+    if list_style_type == "dash":
+        return "list-style-type: '-  '"
+    if list_style_type == "circle":
+        return "list-style-type: circle"
+    if list_style_type == "lower-alpha":
+        return "list-style-type: lower-alpha"
+    if list_style_type == "decimal-nested":
+        return "list-style-type: decimal"
+    return ""
+
+
+def _style_attr(style: str) -> str:
+    return f' style="{escape_html(style)};"' if style else ""
+
+
+def _is_hex_color(value: str) -> bool:
+    if len(value) != 7 or not value.startswith("#"):
+        return False
+    return all(char in "0123456789abcdefABCDEF" for char in value[1:])
 
 
 def _block_class(node: Any) -> str:
@@ -169,29 +241,35 @@ def _render_block(node: object, parent_list_class: str | None = None) -> str:
         body = "\n".join(_render_block(child) for child in children)
         return f"<div class=\"td-column\">{body}</div>"
 
+    if node_type == "horizontalRule":
+        return '<hr class="td-resume-divider">'
+
     if node_type == "heading":
         attrs = node.get("attrs")
         raw_level = attrs.get("level") if isinstance(attrs, dict) else 2
         level = raw_level if isinstance(raw_level, int) and 1 <= raw_level <= 3 else 2
         cls = _block_class(node)
-        return f"<h{level} class=\"{cls}\">{''.join(_render_inline(child) for child in children)}</h{level}>"
+        style = _block_style_css(attrs)
+        return f"<h{level} class=\"{cls}\"{_style_attr(style)}>{''.join(_render_inline(child) for child in children)}</h{level}>"
 
     if node_type == "paragraph":
         cls = _block_class(node)
         body = "".join(_render_inline(child) for child in children)
-        return f"<p class=\"{cls}\">{body}</p>" if body else ""
+        style = _block_style_css(node.get("attrs"))
+        return f"<p class=\"{cls}\"{_style_attr(style)}>{body}</p>" if body else ""
 
     if node_type in {"bulletList", "orderedList"}:
         cls = _block_class(node)
         tag = "ol" if node_type == "orderedList" else "ul"
+        style = _list_style_css(node.get("attrs"))
         items = "\n".join(_render_block(child, cls) for child in children)
-        return f"<{tag} class=\"{cls}\">{items}</{tag}>" if items else ""
+        return f"<{tag} class=\"{cls}\"{_style_attr(style)}>{items}</{tag}>" if items else ""
 
     if node_type == "listItem":
         cls = parent_list_class or _block_class(node)
         body = "".join(
             (
-                f"<p class=\"td-resume-paragraph {cls}Text\">{_render_inline(child)}</p>"
+                f"<p class=\"td-resume-paragraph {cls}Text\"{_style_attr(_block_style_css(child.get('attrs')))}>{_render_inline(child)}</p>"
                 if _is_tiptap_node(child) and child.get("type") == "paragraph"
                 else _render_block(child)
             )
@@ -260,6 +338,11 @@ body.td-resume-page {
 }
 .td-column {
   min-width: 0;
+}
+.td-resume-divider {
+  border: 0;
+  border-top: 1px solid #d1d5db;
+  margin: 8px 0;
 }
 """
 

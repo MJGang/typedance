@@ -165,6 +165,111 @@ def test_rendered_ordered_list_items_keep_ordered_list_class():
     assert '<li><p class="td-resume-paragraph td-resume-orderedListText">负责简历工作台闭环体验</p></li>' in html
 
 
+def test_rendered_inline_style_marks_are_preserved():
+    resume = ResumeVersion(
+        id="test-inline-style-mark",
+        title="Test",
+        template_id="classic-a4",
+        target_language="zh-CN",
+        doc_json={
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "普通文本 "},
+                        {
+                            "type": "text",
+                            "text": "重点",
+                            "marks": [
+                                {
+                                    "type": "inlineStyle",
+                                    "attrs": {"fontSize": "12px", "color": "#174ea6"},
+                                }
+                            ],
+                        },
+                    ],
+                }
+            ],
+        },
+        plain_text_snapshot="",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
+
+    html = render_resume_html(resume)
+
+    assert '<span data-td-inline-style style="font-size: 12px; color: #174ea6">重点</span>' in html
+
+
+def test_rendered_doc_node_styles_match_editor_toolbar_attrs():
+    resume = ResumeVersion(
+        id="test-editor-toolbar-attrs",
+        title="Test",
+        template_id="classic-a4",
+        target_language="zh-CN",
+        doc_json={
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "attrs": {"textAlign": "center", "lineHeight": "1.5", "indent": 2},
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "带下划线文本",
+                            "marks": [{"type": "underline"}],
+                        }
+                    ],
+                },
+                {"type": "horizontalRule"},
+                {
+                    "type": "bulletList",
+                    "attrs": {"listStyleType": "circle"},
+                    "content": [
+                        {
+                            "type": "listItem",
+                            "content": [
+                                {
+                                    "type": "paragraph",
+                                    "attrs": {"textAlign": "right"},
+                                    "content": [{"type": "text", "text": "无序列表"}],
+                                }
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "type": "orderedList",
+                    "attrs": {"listStyleType": "lower-alpha"},
+                    "content": [
+                        {
+                            "type": "listItem",
+                            "content": [
+                                {
+                                    "type": "paragraph",
+                                    "content": [{"type": "text", "text": "有序列表"}],
+                                }
+                            ],
+                        }
+                    ],
+                },
+            ],
+        },
+        plain_text_snapshot="",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
+
+    html = render_resume_html(resume)
+
+    assert '<p class="td-resume-paragraph" style="text-align: center; line-height: 1.5; margin-left: 3em;"><u>带下划线文本</u></p>' in html
+    assert '<hr class="td-resume-divider">' in html
+    assert '<ul class="td-resume-bulletList" style="list-style-type: circle;">' in html
+    assert '<p class="td-resume-paragraph td-resume-bulletListText" style="text-align: right;">无序列表</p>' in html
+    assert '<ol class="td-resume-orderedList" style="list-style-type: lower-alpha;">' in html
+
+
 def test_list_style_css_splits_structure_and_text_overrides():
     style = TemplateStyleConfig(
         template_id="classic-a4",

@@ -5,7 +5,7 @@ type TipTapNode = {
   text?: string
   content?: TipTapNode[]
   attrs?: Record<string, unknown>
-  marks?: Array<{ type?: string }>
+  marks?: Array<{ type?: string; attrs?: Record<string, unknown> }>
 }
 
 type ColumnsAttrs = {
@@ -30,6 +30,46 @@ function isTipTapNode(value: unknown): value is TipTapNode {
   )
 }
 
+function inlineStyleToCss(attrs: Record<string, unknown> | undefined): string {
+  const rules: string[] = []
+  if (typeof attrs?.fontSize === "string" && attrs.fontSize.endsWith("px")) {
+    rules.push(`font-size: ${attrs.fontSize}`)
+  }
+  if (typeof attrs?.color === "string" && /^#[0-9a-fA-F]{6}$/.test(attrs.color)) {
+    rules.push(`color: ${attrs.color}`)
+  }
+  if (typeof attrs?.backgroundColor === "string" && /^#[0-9a-fA-F]{6}$/.test(attrs.backgroundColor)) {
+    rules.push(`background-color: ${attrs.backgroundColor}`)
+  }
+  return rules.join("; ")
+}
+
+function blockAttrsToCss(attrs: Record<string, unknown> | undefined): string {
+  const rules: string[] = []
+  if (attrs?.textAlign === "left" || attrs?.textAlign === "center" || attrs?.textAlign === "right" || attrs?.textAlign === "justify") {
+    rules.push(`text-align: ${attrs.textAlign}`)
+  }
+  if (typeof attrs?.lineHeight === "string" && attrs.lineHeight !== "default") {
+    rules.push(`line-height: ${attrs.lineHeight}`)
+  }
+  if (typeof attrs?.indent === "number" && attrs.indent > 0) {
+    rules.push(`margin-left: ${attrs.indent * 1.5}em`)
+  }
+  return rules.join("; ")
+}
+
+function listAttrsToCss(attrs: Record<string, unknown> | undefined): string {
+  if (attrs?.listStyleType === "dash") return "list-style-type: '-  '"
+  if (attrs?.listStyleType === "circle") return "list-style-type: circle"
+  if (attrs?.listStyleType === "lower-alpha") return "list-style-type: lower-alpha"
+  if (attrs?.listStyleType === "decimal-nested") return "list-style-type: decimal"
+  return ""
+}
+
+function styleAttribute(style: string): string {
+  return style ? ` style="${escapeHtml(style)}"` : ""
+}
+
 function getColumnsAttrs(node: TipTapNode): ColumnsAttrs {
   const rawCount = node.attrs?.count
   const rawGap = node.attrs?.gap
@@ -49,6 +89,17 @@ function renderInlineContent(node: TipTapNode): string {
 
       if (mark.type === "italic") {
         text = `<em>${text}</em>`
+      }
+
+      if (mark.type === "underline") {
+        text = `<u>${text}</u>`
+      }
+
+      if (mark.type === "inlineStyle") {
+        const style = inlineStyleToCss(mark.attrs)
+        if (style) {
+          text = `<span data-td-inline-style style="${escapeHtml(style)}">${text}</span>`
+        }
       }
     }
 
@@ -74,6 +125,10 @@ function renderBlock(node: TipTapNode): string {
   if (node.type === "column") {
     const columnContent = (node.content ?? []).map(renderBlock).filter(Boolean).join("\n      ")
     return `<div class="td-column">\n      ${columnContent}\n    </div>`
+  }
+
+  if (node.type === "horizontalRule") {
+    return '<hr class="td-resume-divider">'
   }
 
   if (node.type === "heading") {
@@ -268,6 +323,11 @@ const layoutCSS = `.td-columns {
 }
 .td-column {
   min-width: 0;
+}
+.td-resume-divider {
+  border: 0;
+  border-top: 1px solid #d1d5db;
+  margin: 8px 0;
 }`
 
 // Extract heading number (1-3) from a block name like "heading1", "heading2", "heading3"
@@ -289,24 +349,31 @@ function renderStyledBlock(node: TipTapNode, parentBlockName?: string): string {
     return `<div class="td-column">\n      ${columnContent}\n    </div>`
   }
 
+  if (node.type === "horizontalRule") {
+    return '<hr class="td-resume-divider">'
+  }
+
   if (node.type === "heading") {
     const content = (node.content ?? []).map(renderInlineContent).join("")
     const level = headingNumber(blockName)
-    return `<h${level} class="td-resume-${blockName}">${content}</h${level}>`
+    const style = blockAttrsToCss(node.attrs)
+    return `<h${level} class="td-resume-${blockName}"${styleAttribute(style)}>${content}</h${level}>`
   }
 
   if (node.type === "paragraph") {
     const content = (node.content ?? []).map(renderInlineContent).join("")
-    return content ? `<p class="td-resume-paragraph">${content}</p>` : ""
+    const style = blockAttrsToCss(node.attrs)
+    return content ? `<p class="td-resume-paragraph"${styleAttribute(style)}>${content}</p>` : ""
   }
 
   if (node.type === "bulletList" || node.type === "orderedList") {
     const tag = node.type === "orderedList" ? "ol" : "ul"
+    const style = listAttrsToCss(node.attrs)
     const items = (node.content ?? [])
       .map((child) => renderStyledBlock(child, blockName))
       .filter(Boolean)
       .join("\n      ")
-    return items ? `<${tag} class="td-resume-${blockName}">\n      ${items}\n    </${tag}>` : ""
+    return items ? `<${tag} class="td-resume-${blockName}"${styleAttribute(style)}>\n      ${items}\n    </${tag}>` : ""
   }
 
   if (node.type === "listItem") {
@@ -315,7 +382,8 @@ function renderStyledBlock(node: TipTapNode, parentBlockName?: string): string {
         if (child.type === "paragraph") {
           const content = renderInlineContent(child)
           const textClass = parentBlockName ? ` td-resume-${parentBlockName}Text` : ""
-          return content ? `<p class="td-resume-paragraph${textClass}">${content}</p>` : ""
+          const style = blockAttrsToCss(child.attrs)
+          return content ? `<p class="td-resume-paragraph${textClass}"${styleAttribute(style)}>${content}</p>` : ""
         }
         return renderStyledBlock(child)
       })

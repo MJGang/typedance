@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from "react"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Paintbrush, Bot } from "lucide-react"
+import { Bot, Palette } from "lucide-react"
 
 type RightPanelProps = {
   designContent: ReactNode
@@ -9,15 +9,15 @@ type RightPanelProps = {
 }
 
 export function RightPanel({ designContent, aiContent, aiUnread }: RightPanelProps) {
-  const [activeTab, setActiveTab] = useState("design")
+  const [activeTab, setActiveTab] = useState("ai")
 
   return (
     <aside className="flex h-full w-80 flex-col border-l border-border bg-background">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex h-full flex-col">
         <TabsList className="mx-3 mt-2 grid grid-cols-2">
           <TabsTrigger value="design" className="gap-1.5">
-            <Paintbrush className="h-4 w-4" />
-            <span>设计</span>
+            <Palette className="h-4 w-4" />
+            <span>主题</span>
           </TabsTrigger>
           <TabsTrigger value="ai" className="gap-1.5">
             <Bot className="h-4 w-4" />

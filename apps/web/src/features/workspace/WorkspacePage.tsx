@@ -252,7 +252,7 @@ export function WorkspacePage() {
             </Button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-hidden p-8">
+          <div className="min-h-0 flex-1 overflow-hidden px-8">
             <ResumeRichTextEditor
               ref={editorRef}
               ariaLabel="Resume editor"

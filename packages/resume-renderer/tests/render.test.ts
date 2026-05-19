@@ -224,6 +224,91 @@ describe("renderStyledHtml", () => {
     expect(html).toContain('<p class="td-resume-paragraph td-resume-orderedListText">First item</p>');
   });
 
+  it("renders inlineStyle marks for selected text overrides", () => {
+    const html = renderStyledContentHtml({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "Normal " },
+            {
+              type: "text",
+              text: "highlight",
+              marks: [
+                {
+                  type: "inlineStyle",
+                  attrs: { fontSize: "12px", color: "#174ea6" },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(html).toContain(
+      '<span data-td-inline-style style="font-size: 12px; color: #174ea6">highlight</span>',
+    );
+  });
+
+  it("renders editor toolbar node attrs and underline marks in styled content", () => {
+    const html = renderStyledContentHtml({
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { textAlign: "center", lineHeight: "1.5", indent: 2 },
+          content: [{ type: "text", text: "Underlined", marks: [{ type: "underline" }] }],
+        },
+        {
+          type: "horizontalRule",
+        },
+        {
+          type: "bulletList",
+          attrs: { listStyleType: "circle" },
+          content: [
+            {
+              type: "listItem",
+              content: [
+                {
+                  type: "paragraph",
+                  attrs: { textAlign: "right" },
+                  content: [{ type: "text", text: "Bullet item" }],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          type: "orderedList",
+          attrs: { listStyleType: "lower-alpha" },
+          content: [
+            {
+              type: "listItem",
+              content: [
+                {
+                  type: "paragraph",
+                  content: [{ type: "text", text: "Ordered item" }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(html).toContain(
+      '<p class="td-resume-paragraph" style="text-align: center; line-height: 1.5; margin-left: 3em"><u>Underlined</u></p>',
+    );
+    expect(html).toContain('<hr class="td-resume-divider">');
+    expect(html).toContain('<ul class="td-resume-bulletList" style="list-style-type: circle">');
+    expect(html).toContain(
+      '<p class="td-resume-paragraph td-resume-bulletListText" style="text-align: right">Bullet item</p>',
+    );
+    expect(html).toContain('<ol class="td-resume-orderedList" style="list-style-type: lower-alpha">');
+  });
+
   it("renders styled content fragments for previews and sanitizes column attrs", () => {
     const html = renderStyledContentHtml({
       type: "doc",
