@@ -47,6 +47,43 @@ def test_style_config_round_trip(client):
     assert data["blocks"]["heading1"]["fontSize"] == "24px"
 
 
+def test_style_config_list_returns_saved_styles(client):
+    payload = {
+        "template_id": "user_classic-a4_1",
+        "name": "我的主题",
+        "preset": "",
+        "blocks": {
+            "paragraph": {"fontSize": "10px", "lineHeight": 1.5, "color": "#334155"},
+        },
+    }
+    resp = client.put("/template-styles/user_classic-a4_1", json=payload)
+    assert resp.status_code == 200, resp.text
+
+    resp = client.get("/template-styles")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert any(item["template_id"] == "user_classic-a4_1" for item in data)
+
+
+def test_style_config_delete_removes_saved_style(client):
+    payload = {
+        "template_id": "user_theme_to_delete",
+        "name": "我的主题",
+        "preset": "",
+        "blocks": {
+            "paragraph": {"fontSize": "10px", "lineHeight": 1.5, "color": "#334155"},
+        },
+    }
+    resp = client.put("/template-styles/user_theme_to_delete", json=payload)
+    assert resp.status_code == 200, resp.text
+
+    resp = client.delete("/template-styles/user_theme_to_delete")
+    assert resp.status_code == 204
+
+    resp = client.get("/template-styles/user_theme_to_delete")
+    assert resp.status_code == 404
+
+
 def test_style_config_rejects_empty_template_id(client):
     resp = client.put("/template-styles/classic-a4", json={
         "template_id": "",

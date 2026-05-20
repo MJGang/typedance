@@ -34,6 +34,12 @@
 
 - 在新增或调整 `shadcn/ui` 组件时，必须使用 `build-web-apps:shadcn` skill。
 - 优先遵循项目现有组件风格与用法，避免脱离设计系统的自定义实现。
+- 本项目的 `shadcn/ui` 风格固定为 Maia：`apps/web/components.json` 中的 `style` 必须保持为 `radix-maia`。
+- 新增或更新 `shadcn/ui` 官方组件时，必须通过官方 CLI 执行，例如 `pnpm dlx shadcn@latest add button input select tabs`；不得凭记忆手写或复制非官方来源的 `src/components/ui/*` 组件源码。
+- 更新已有官方组件前，必须先预览影响范围：使用 `pnpm dlx shadcn@latest add <components> --dry-run`，必要时再用 `pnpm dlx shadcn@latest add <component> --diff <path>` 检查差异；确认后才可使用 `--overwrite --yes` 覆盖。
+- 业务界面中的通用按钮、输入框、下拉框、Tab、开关、复选框、单选框、弹窗、菜单、提示等控件，默认必须组合使用 `@/components/ui/*` 中的官方组件；只有色板、画布、拖拽 handle、富文本编辑器内部特殊控件等确有交互需求的场景，才允许使用原生元素或局部自定义样式。
+- `apps/web/src/components/ui/*` 目录视为 shadcn 官方组件源码区。除 CLI 生成/覆盖、官方组件必要兼容修补外，不得随意改动；若必须本地修补，需在交付说明中明确说明原因和影响。
+- 每次涉及 `shadcn/ui` 组件新增、更新或风格切换后，必须运行 `pnpm dlx shadcn@latest info --json` 确认 `style` 与组件清单，并至少运行 `pnpm --filter @typedance/web build`；涉及交互或测试环境兼容时，还必须运行 `pnpm --filter @typedance/web test`。
 
 ## 框架与 API 文档规范（Context7）
 

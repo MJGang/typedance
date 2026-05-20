@@ -697,11 +697,13 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
           </div>
         )}
         <style>{cssText}</style>
-        <DragHandle editor={editor}>
-          <div className="td-drag-handle">
-            <GripVertical className="h-4 w-4" />
-          </div>
-        </DragHandle>
+        {editable && (
+          <DragHandle editor={editor}>
+            <div className="td-drag-handle">
+              <GripVertical className="h-4 w-4" />
+            </div>
+          </DragHandle>
+        )}
         <div className="td-editor-print-wrapper">
           <EditorContent editor={editor} className="td-rich-editor-content" />
         </div>

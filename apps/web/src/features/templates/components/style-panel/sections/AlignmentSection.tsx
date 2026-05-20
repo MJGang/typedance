@@ -1,6 +1,7 @@
 import { ChevronDown } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import type { BlockStyle } from "../../../style-engine/types";
 
@@ -20,9 +21,24 @@ export function AlignmentSection({ value, onChange }: Props) {
           value={value.textAlign ?? "left"}
           onValueChange={(v) => v && onChange({ ...value, textAlign: v as BlockStyle["textAlign"] })}
         >
-          <ToggleGroupItem value="left" aria-label="左对齐"><AlignLeft /></ToggleGroupItem>
-          <ToggleGroupItem value="center" aria-label="居中"><AlignCenter /></ToggleGroupItem>
-          <ToggleGroupItem value="right" aria-label="右对齐"><AlignRight /></ToggleGroupItem>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <ToggleGroupItem value="left" aria-label="左对齐"><AlignLeft /></ToggleGroupItem>
+            </TooltipTrigger>
+            <TooltipContent>左对齐</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <ToggleGroupItem value="center" aria-label="居中对齐"><AlignCenter /></ToggleGroupItem>
+            </TooltipTrigger>
+            <TooltipContent>居中对齐</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <ToggleGroupItem value="right" aria-label="右对齐"><AlignRight /></ToggleGroupItem>
+            </TooltipTrigger>
+            <TooltipContent>右对齐</TooltipContent>
+          </Tooltip>
         </ToggleGroup>
       </CollapsibleContent>
     </Collapsible>

@@ -75,7 +75,7 @@ export function HomePage() {
           <Button onClick={() => setModalOpen(true)}>创建第一份简历</Button>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-x-6 gap-y-8">
           {resumes.map((resume) => (
             <ResumeCard
               key={resume.id}

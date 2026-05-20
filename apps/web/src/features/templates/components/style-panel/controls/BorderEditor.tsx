@@ -13,7 +13,7 @@ export function BorderEditor({ value, onChange }: BorderEditorProps) {
   return (
     <div className="flex flex-col gap-2">
       <Select value={style} onValueChange={(v: "none" | "solid" | "double") => onChange({ ...value, style: v })}>
-        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+        <SelectTrigger size="sm" className="text-xs"><SelectValue /></SelectTrigger>
         <SelectContent>
           <SelectItem value="none" className="text-xs">无</SelectItem>
           <SelectItem value="solid" className="text-xs">实线</SelectItem>

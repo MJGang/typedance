@@ -1,5 +1,6 @@
 import type { ResumeVersion, TemplateStyleConfig } from "@typedance/contracts"
 import { Button } from "@/components/ui/button"
+import { PreviewShowcaseCard } from "@/components/preview-showcase-card"
 import { MoreHorizontal, FileText } from "lucide-react"
 import {
   DropdownMenu,
@@ -23,43 +24,50 @@ export function ResumeCard({ resume, styleConfig, onClick, onRename, onDuplicate
   const hasPreview = styleConfig && resume.doc_json && typeof resume.doc_json === "object"
 
   return (
-    <div
-      className="group relative flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm transition-colors hover:border-border-hover cursor-pointer"
+    <PreviewShowcaseCard
+      title={resume.title}
+      subtitle={`${resume.target_language} · ${timeAgo}`}
       onClick={onClick}
-    >
-      {/* A4 ratio thumbnail (210:297 ≈ 3:4) */}
-      <div className="aspect-210/297 w-full overflow-hidden bg-white">
-        {hasPreview ? (
-          <ResumePreview docJson={resume.doc_json} styleConfig={styleConfig} />
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-2 bg-muted text-muted-foreground">
-            <FileText className="h-8 w-8" />
-            <span className="text-xs">{resume.template_id}</span>
-          </div>
-        )}
-      </div>
-      {/* Footer */}
-      <div className="flex items-center justify-between border-t border-border px-3 py-2">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{resume.title}</p>
-          <p className="text-xs text-muted-foreground">
-            {resume.target_language} · {timeAgo}
-          </p>
+      preview={
+        <div className="aspect-[210/297] w-full overflow-hidden bg-white">
+          {hasPreview ? (
+            <ResumePreview docJson={resume.doc_json} styleConfig={styleConfig} />
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center gap-2 bg-muted text-muted-foreground">
+              <FileText className="h-8 w-8" />
+              <span className="text-xs">{resume.template_id}</span>
+            </div>
+          )}
         </div>
+      }
+      menu={
         <DropdownMenu>
-          <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-            <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100">
+          <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
+            <Button variant="secondary" size="icon" className="h-8 w-8 bg-card/90 shadow-sm backdrop-blur-sm">
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {onRename && <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onRename(); }}>重命名</DropdownMenuItem>}
-            {onDuplicate && <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onDuplicate(); }}>复制</DropdownMenuItem>}
-            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onDelete(); }} className="text-destructive">删除</DropdownMenuItem>
+            {onRename && (
+              <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onRename() }}>
+                重命名
+              </DropdownMenuItem>
+            )}
+            {onDuplicate && (
+              <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onDuplicate() }}>
+                复制
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem
+              onClick={(event) => { event.stopPropagation(); onDelete() }}
+              className="text-destructive"
+            >
+              删除
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-      </div>
-    </div>
+      }
+    />
   )
 }
 

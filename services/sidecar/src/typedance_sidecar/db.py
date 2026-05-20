@@ -7,7 +7,7 @@ from .models import ResumeVersion, TemplateSampleContent, TemplateStyleConfig
 
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(db_path)
+    connection = sqlite3.connect(db_path, check_same_thread=False)
     connection.row_factory = sqlite3.Row
     connection.execute(
         """
@@ -116,6 +116,12 @@ class TemplateStyleRepository:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self.connection = connection
 
+    def list(self) -> list[TemplateStyleConfig]:
+        rows = self.connection.execute(
+            "SELECT payload FROM template_styles ORDER BY updated_at DESC"
+        ).fetchall()
+        return [TemplateStyleConfig.model_validate(json.loads(row["payload"])) for row in rows]
+
     def get(self, template_id: str) -> TemplateStyleConfig | None:
         row = self.connection.execute(
             "SELECT payload FROM template_styles WHERE template_id = ?",
@@ -137,6 +143,14 @@ class TemplateStyleRepository:
         )
         self.connection.commit()
         return config
+
+    def delete(self, template_id: str) -> bool:
+        cursor = self.connection.execute(
+            "DELETE FROM template_styles WHERE template_id = ?",
+            (template_id,),
+        )
+        self.connection.commit()
+        return cursor.rowcount > 0
 
 
 class AppSettingsRepository:

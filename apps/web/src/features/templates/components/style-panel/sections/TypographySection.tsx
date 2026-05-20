@@ -3,10 +3,15 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { BlockStyle } from "../../../style-engine/types";
 import { COMMON_FONTS } from "../../../style-engine/fonts";
 
 type Props = { value: BlockStyle; onChange: (v: BlockStyle) => void };
+
+const DEFAULT_VALUE = "__default";
+const FONT_SIZE_OPTIONS = ["10px", "11px", "12px", "13px", "14px", "15px", "16px", "18px", "20px", "24px", "28px", "32px"];
+const LINE_HEIGHT_OPTIONS = ["1", "1.15", "1.3", "1.5", "1.75", "2", "2.5"];
 
 export function TypographySection({ value, onChange }: Props) {
   return (
@@ -31,7 +36,23 @@ export function TypographySection({ value, onChange }: Props) {
         <div className="flex gap-2">
           <div className="flex flex-1 flex-col gap-1.5">
             <label className="text-xs text-muted-foreground">字号</label>
-            <Input value={value.fontSize ?? ""} placeholder="如 14px" onChange={(e) => onChange({ ...value, fontSize: e.target.value })} />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Select
+                  value={value.fontSize ?? DEFAULT_VALUE}
+                  onValueChange={(v) => onChange({ ...value, fontSize: v === DEFAULT_VALUE ? undefined : v })}
+                >
+                  <SelectTrigger size="sm"><SelectValue placeholder="默认" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={DEFAULT_VALUE}>默认</SelectItem>
+                    {FONT_SIZE_OPTIONS.map((size) => (
+                      <SelectItem key={size} value={size}>{size}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </TooltipTrigger>
+              <TooltipContent>字号</TooltipContent>
+            </Tooltip>
           </div>
           <div className="flex flex-1 flex-col gap-1.5">
             <label className="text-xs text-muted-foreground">字重</label>
@@ -49,7 +70,23 @@ export function TypographySection({ value, onChange }: Props) {
         <div className="flex gap-2">
           <div className="flex flex-1 flex-col gap-1.5">
             <label className="text-xs text-muted-foreground">行高</label>
-            <Input value={value.lineHeight ?? ""} placeholder="如 1.5" onChange={(e) => onChange({ ...value, lineHeight: e.target.value ? Number(e.target.value) : undefined })} />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Select
+                  value={value.lineHeight ? String(value.lineHeight) : DEFAULT_VALUE}
+                  onValueChange={(v) => onChange({ ...value, lineHeight: v === DEFAULT_VALUE ? undefined : Number(v) })}
+                >
+                  <SelectTrigger size="sm"><SelectValue placeholder="默认" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={DEFAULT_VALUE}>默认</SelectItem>
+                    {LINE_HEIGHT_OPTIONS.map((lineHeight) => (
+                      <SelectItem key={lineHeight} value={lineHeight}>{lineHeight}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </TooltipTrigger>
+              <TooltipContent>行高</TooltipContent>
+            </Tooltip>
           </div>
           <div className="flex flex-1 flex-col gap-1.5">
             <label className="text-xs text-muted-foreground">字间距</label>

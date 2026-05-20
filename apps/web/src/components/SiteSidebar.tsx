@@ -1,5 +1,5 @@
 import { ClipboardCheck, FileText, LayoutTemplate, Settings } from "lucide-react"
-import { useLocation, useNavigate } from "react-router-dom"
+import { Link, useLocation } from "react-router-dom"
 import {
   Sidebar,
   SidebarContent,
@@ -14,13 +14,22 @@ import {
 } from "@/components/ui/sidebar"
 
 const navItems = [
-  { path: "/", label: "首页", icon: FileText },
-  { path: "/templates", label: "模板库", icon: LayoutTemplate },
+  {
+    path: "/",
+    label: "首页",
+    icon: FileText,
+    isActive: (pathname: string) => pathname === "/" || pathname.startsWith("/workspace/"),
+  },
+  {
+    path: "/templates",
+    label: "主题库",
+    icon: LayoutTemplate,
+    isActive: (pathname: string) => pathname === "/templates" || pathname.startsWith("/templates/"),
+  },
 ] as const
 
 export function SiteSidebar() {
   const location = useLocation()
-  const navigate = useNavigate()
 
   return (
     <Sidebar collapsible="icon" variant="sidebar">
@@ -44,16 +53,18 @@ export function SiteSidebar() {
             <SidebarMenu>
               {navItems.map((item) => {
                 const Icon = item.icon
-                const isActive = location.pathname === item.path
+                const isActive = item.isActive(location.pathname)
                 return (
                   <SidebarMenuItem key={item.path}>
                     <SidebarMenuButton
+                      asChild
                       isActive={isActive}
                       tooltip={item.label}
-                      onClick={() => navigate(item.path)}
                     >
-                      <Icon />
-                      <span>{item.label}</span>
+                      <Link to={item.path} aria-current={isActive ? "page" : undefined}>
+                        <Icon />
+                        <span>{item.label}</span>
+                      </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 )

@@ -18,7 +18,7 @@ export function PresetSelector({ value, onChange }: PresetSelectorProps) {
     <div className="flex items-center gap-2">
       <Paintbrush className="size-3.5 text-muted-foreground shrink-0" />
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="选择预设" /></SelectTrigger>
+        <SelectTrigger size="sm" className="text-xs"><SelectValue placeholder="选择预设" /></SelectTrigger>
         <SelectContent>
           {getPresetNames().map((name) => (
             <SelectItem key={name} value={name} className="text-xs">{PRESET_LABELS[name] ?? name}</SelectItem>

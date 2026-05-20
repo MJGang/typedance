@@ -103,12 +103,14 @@ export function StylePanel({
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Preset + Block selector header */}
-      <div className="flex flex-col gap-2 border-b border-border px-3 py-2.5">
+    <div className="td-style-panel flex h-full flex-col">
+      <div className="flex flex-col gap-3 border-b border-border px-3 py-3">
+        <div>
+          <h3 className="m-0 text-sm font-semibold">主题样式</h3>
+          <p className="m-0 mt-1 text-xs leading-5 text-muted-foreground">选择段落后调整全局样式，按钮样式与编辑器工具栏保持一致。</p>
+        </div>
         <PresetSelector value={isCustom ? "custom" : styleConfig.preset} onChange={handlePresetChange} />
 
-        {/* Template name (custom mode: editable, preset mode: read-only label) */}
         {isCustom ? (
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground shrink-0 w-12">名称</span>
@@ -128,7 +130,6 @@ export function StylePanel({
         <BlockSelector active={activeBlock} onChange={onActiveBlockChange} uiLanguage={uiLanguage} />
       </div>
 
-      {/* Scrollable style sections */}
       <div className="flex-1 overflow-y-auto px-1 py-1">
         {activeColumnsCount && activeColumnsGap && onActiveColumnsCountChange && onActiveColumnsGapChange && onUnsetColumns && (
           <ColumnsSection
@@ -146,7 +147,6 @@ export function StylePanel({
         />
       </div>
 
-      {/* Status bar footer */}
       <div className="border-t border-border">
         <StyleStatusBar updatedAt={styleConfig.updated_at} saving={saving} error={error} />
       </div>

@@ -277,6 +277,15 @@ export async function getTemplateStyle(templateId: string): Promise<TemplateStyl
   );
 }
 
+export async function listTemplateStyles(): Promise<TemplateStyleConfig[]> {
+  const response = await fetch(`${baseUrl}/template-styles`);
+  return parseTemplateResponse(
+    response,
+    (value) => z.array(templateStyleConfigSchema).parse(value),
+    "Failed to list template styles",
+  );
+}
+
 export async function saveTemplateStyle(style: TemplateStyleConfig): Promise<TemplateStyleConfig> {
   const response = await fetch(`${baseUrl}/template-styles/${style.template_id}`, {
     method: "PUT",
@@ -288,5 +297,10 @@ export async function saveTemplateStyle(style: TemplateStyleConfig): Promise<Tem
     templateStyleConfigSchema.parse,
     "Failed to save template style",
   );
+}
+
+export async function deleteTemplateStyle(templateId: string): Promise<void> {
+  const response = await fetch(`${baseUrl}/template-styles/${templateId}`, { method: "DELETE" });
+  if (!response.ok) throw new Error(`Failed to delete template style: ${response.status}`);
 }
 

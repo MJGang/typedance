@@ -15,7 +15,7 @@ export function ResumePreview({ docJson, styleConfig }: ResumePreviewProps) {
   return (
     <>
       <style>{cssText}</style>
-      <div className="td-resume-preview-inner">
+      <div className="td-resume-preview-inner h-full">
         {html ? (
           <div dangerouslySetInnerHTML={{ __html: html }} />
         ) : (

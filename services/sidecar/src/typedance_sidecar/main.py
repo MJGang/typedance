@@ -177,6 +177,13 @@ def get_template_style(
     return config
 
 
+@app.get("/template-styles", response_model=list[TemplateStyleConfig], response_model_exclude_none=True)
+def list_template_styles(
+    repo: TemplateStyleRepository = Depends(template_style_repository),
+) -> list[TemplateStyleConfig]:
+    return repo.list()
+
+
 @app.put("/template-styles/{template_id}", response_model=TemplateStyleConfig, response_model_exclude_none=True)
 def save_template_style(
     template_id: str,
@@ -186,6 +193,16 @@ def save_template_style(
     if payload.template_id != template_id:
         raise HTTPException(status_code=400, detail="Template style id mismatch")
     return style_repo.save(payload.model_copy(update={"updated_at": utc_now()}))
+
+
+@app.delete("/template-styles/{template_id}", status_code=204)
+def delete_template_style(
+    template_id: str,
+    style_repo: TemplateStyleRepository = Depends(template_style_repository),
+) -> None:
+    deleted = style_repo.delete(template_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Template style not found")
 
 
 @app.get("/previews/{resume_id}.pdf", name="get_preview_pdf")
