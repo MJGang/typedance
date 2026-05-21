@@ -399,6 +399,18 @@ def render_and_export_pdf(
     return output_path
 
 
+def render_html_to_pdf(html: str, output_path: Path) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    browser = _get_browser()
+    page = browser.new_page()
+    try:
+        page.set_content(html, wait_until="load")
+        page.pdf(path=str(output_path), format="A4", print_background=True, margin=PDF_PAGE_MARGIN)
+    finally:
+        page.close()
+    return output_path
+
+
 def cleanup_browser():
     """搴旂敤鍏抽棴鏃舵竻鐞?Chromium 杩涚▼"""
     global _browser, _pw

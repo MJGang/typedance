@@ -175,6 +175,11 @@
   - 目标是在基础简历之上生成岗位校准版本，让 JD 成为版本化场景而不是写简历的唯一起点。
   - 这是基础简历和岗位版本并存的开始。
 
+- `superpowers/plans/2026-05-21-wp15-export-gate.md`
+  - WP15 Export Gate 工程实施计划。
+  - 目标是在导出前检查当前 Draft、打开的问题卡和渲染投影，成功导出时写入可追溯 `ExportArtifact`。
+  - 这是从“下载按钮”走向“可投递前确认”的门禁能力。
+
 - `superpowers/plans/2026-05-08-typedance-foundation-slice-1.md`
   - Slice 0 + Slice 1 工程落地计划。
   - 目标是先完成可运行的本地优先简历编辑、A4 预览、sidecar 持久化和 PDF 导出闭环。

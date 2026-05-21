@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { AlertCircle, ArrowLeft, BriefcaseBusiness, Check, FileText, Loader2, RefreshCcw, ShieldCheck, X } from "lucide-react"
+import { AlertCircle, ArrowLeft, BriefcaseBusiness, Check, Download, FileText, Loader2, RefreshCcw, ShieldCheck, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   acceptRevisionProposal,
@@ -10,6 +10,7 @@ import {
   renderRevisionDraft,
   runRevisionQualityReview,
 } from "@/api"
+import { ExportGateModal } from "./ExportGateModal"
 import { OpportunityCalibrationModal } from "./OpportunityCalibrationModal"
 import type { ContextualAction, DocumentModule, RevisionIssue, RevisionProposal, WorkspaceView } from "@typedance/contracts"
 
@@ -127,6 +128,7 @@ export function RevisionWorkspacePage() {
   const [state, setState] = useState<LoadState>({ status: "loading" })
   const [actingActionId, setActingActionId] = useState<string | null>(null)
   const [opportunityOpen, setOpportunityOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
 
   const loadWorkspace = useCallback(async () => {
     if (!documentId) return
@@ -268,6 +270,14 @@ export function RevisionWorkspacePage() {
           <BriefcaseBusiness className="mr-2 h-4 w-4" />
           岗位校准
         </Button>
+        <Button
+          size="sm"
+          onClick={() => setExportOpen(true)}
+          disabled={!workspace.current_draft}
+        >
+          <Download className="mr-2 h-4 w-4" />
+          导出
+        </Button>
         <span className={`rounded-md border px-2 py-1 text-xs ${qualityClass(workspace.quality_gate?.status)}`}>
           {qualityLabel(workspace.quality_gate?.status)}
         </span>
@@ -351,6 +361,12 @@ export function RevisionWorkspacePage() {
           onCompleted={loadWorkspace}
         />
       )}
+      <ExportGateModal
+        workspace={workspace}
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        onCompleted={loadWorkspace}
+      />
     </div>
   )
 }

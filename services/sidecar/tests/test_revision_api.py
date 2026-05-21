@@ -1,4 +1,5 @@
 import pytest
+from pathlib import Path
 from fastapi.testclient import TestClient
 
 from typedance_sidecar.db import connect
@@ -370,6 +371,41 @@ def test_revision_api_runs_opportunity_calibration(revision_client):
     assert workspace["current_draft"]["variant_type"] == "opportunity"
     assert any(issue["type"] == "missing_opportunity_requirement" for issue in workspace["issues"])
     assert workspace["proposals"]
+
+
+def test_revision_api_exports_draft_pdf_with_gate(revision_client, monkeypatch):
+    client, tmp_path = revision_client
+    seed_workspace(tmp_path)
+
+    def fake_render_html_to_pdf(html: str, output_path: Path) -> Path:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(b"%PDF-1.4\n")
+        assert "订单系统重构" in html
+        return output_path
+
+    monkeypatch.setattr(
+        "typedance_sidecar.revision_export_gate.render_html_to_pdf",
+        fake_render_html_to_pdf,
+    )
+
+    blocked_response = client.post("/drafts/draft_1/export/pdf")
+
+    assert blocked_response.status_code == 409
+    assert blocked_response.json()["detail"]["warning_issue_ids"] == ["issue_1"]
+
+    response = client.post(
+        "/drafts/draft_1/export/pdf",
+        json={"force_with_risk": True},
+        headers={"Origin": "http://127.0.0.1:5173"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["X-Export-Review-Status"] == "forced_with_risk"
+    assert response.headers["X-Export-Artifact-Id"].startswith("export_")
+    export_path = Path(response.headers["X-Pdf-Path"])
+    assert export_path.parent.name == "exports"
+    assert "X-Export-Artifact-Id" in response.headers["access-control-expose-headers"]
 
 
 def test_revision_api_handles_issues_proposals_and_confirmations(revision_client):

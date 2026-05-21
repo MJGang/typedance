@@ -533,4 +533,48 @@ describe("revision api", () => {
     )
     expect(workspace.current_draft?.variant_type).toBe("opportunity")
   })
+
+  it("exports a revision draft PDF through the export gate", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      "%PDF-1.4 revision pdf",
+      {
+        headers: {
+          "content-type": "application/pdf",
+          "X-Pdf-Path": "D:/exports/%E5%BC%A0%E4%B8%89.pdf",
+          "X-Export-Artifact-Id": "export_1",
+          "X-Export-Review-Status": "forced_with_risk",
+        },
+      },
+    )))
+    const clickMock = vi.fn()
+    const createElementMock = vi.spyOn(document, "createElement").mockReturnValue({
+      href: "",
+      download: "",
+      click: clickMock,
+    } as unknown as HTMLAnchorElement)
+    vi.stubGlobal("URL", {
+      createObjectURL: vi.fn().mockReturnValue("blob:revision"),
+      revokeObjectURL: vi.fn(),
+    })
+
+    const { exportRevisionDraftPdf } = await import("./api")
+    const result = await exportRevisionDraftPdf("draft_1", "张三", { forceWithRisk: true })
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:4317/drafts/draft_1/export/pdf",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ force_with_risk: true }),
+      },
+    )
+    expect(clickMock).toHaveBeenCalled()
+    expect(result).toMatchObject({
+      artifactId: "export_1",
+      reviewStatus: "forced_with_risk",
+      filePath: "D:/exports/张三.pdf",
+    })
+
+    createElementMock.mockRestore()
+  })
 })

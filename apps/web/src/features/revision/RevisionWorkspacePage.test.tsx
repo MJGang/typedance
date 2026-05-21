@@ -13,6 +13,7 @@ const apiMocks = vi.hoisted(() => ({
   dismissRevisionIssue: vi.fn(),
   runRevisionQualityReview: vi.fn(),
   calibrateRevisionOpportunity: vi.fn(),
+  exportRevisionDraftPdf: vi.fn(),
 }))
 
 vi.mock("@/api", () => ({
@@ -23,6 +24,7 @@ vi.mock("@/api", () => ({
   dismissRevisionIssue: (...args: unknown[]) => apiMocks.dismissRevisionIssue(...args),
   runRevisionQualityReview: (...args: unknown[]) => apiMocks.runRevisionQualityReview(...args),
   calibrateRevisionOpportunity: (...args: unknown[]) => apiMocks.calibrateRevisionOpportunity(...args),
+  exportRevisionDraftPdf: (...args: unknown[]) => apiMocks.exportRevisionDraftPdf(...args),
 }))
 
 const workspace: WorkspaceView = {
@@ -157,10 +159,12 @@ describe("RevisionWorkspacePage", () => {
     apiMocks.dismissRevisionIssue.mockReset()
     apiMocks.runRevisionQualityReview.mockReset()
     apiMocks.calibrateRevisionOpportunity.mockReset()
+    apiMocks.exportRevisionDraftPdf.mockReset()
     apiMocks.getRevisionWorkspaceView.mockResolvedValue(workspace)
     apiMocks.acceptRevisionProposal.mockResolvedValue({ id: "prop_1", status: "applied" })
     apiMocks.runRevisionQualityReview.mockResolvedValue({ id: "run_review", status: "completed" })
     apiMocks.calibrateRevisionOpportunity.mockResolvedValue({ document: { id: "doc_1" } })
+    apiMocks.exportRevisionDraftPdf.mockResolvedValue({ fileName: "resume.pdf", reviewStatus: "forced_with_risk" })
   })
 
   it("loads and renders the workspace view", async () => {
@@ -199,5 +203,14 @@ describe("RevisionWorkspacePage", () => {
 
     expect(await screen.findByRole("heading", { name: "岗位校准" })).toBeInTheDocument()
     expect(screen.getByLabelText("岗位信息")).toBeInTheDocument()
+  })
+
+  it("opens export gate from the workspace", async () => {
+    renderPage()
+
+    fireEvent.click(await screen.findByRole("button", { name: "导出" }))
+
+    expect(await screen.findByRole("heading", { name: "导出门禁" })).toBeInTheDocument()
+    expect(screen.getAllByText("缺少结果").length).toBeGreaterThan(0)
   })
 })

@@ -1,8 +1,11 @@
 from collections.abc import Callable
+from pathlib import Path
 from typing import Literal
+from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .models import Language, utc_now
@@ -20,6 +23,7 @@ from .revision_models import (
     WorkspaceView,
 )
 from .revision_blank_guided_flow import RevisionBlankGuidedFlowService
+from .revision_export_gate import RevisionExportBlockedError, RevisionExportGateService
 from .revision_import_flow import RevisionImportFlowService
 from .revision_opportunity_calibration import RevisionOpportunityCalibrationService
 from .revision_quality_review import RevisionQualityReviewService
@@ -38,6 +42,7 @@ from .revision_services import (
 
 
 RepositoryDependency = Callable[[], RevisionRepository]
+ExportDirDependency = Callable[[], Path]
 
 
 class CreateDocumentRequest(BaseModel):
@@ -92,6 +97,11 @@ class RenderDraftRequest(BaseModel):
     render_profile: str | None = None
 
 
+class ExportDraftPdfRequest(BaseModel):
+    output_path: str | None = None
+    force_with_risk: bool = False
+
+
 class ConfirmClaimRequest(BaseModel):
     document_id: str = Field(min_length=1)
     confirmation_type: Literal["truth_confirmed", "risk_accepted", "source_verified"] = "truth_confirmed"
@@ -102,6 +112,7 @@ class ConfirmClaimRequest(BaseModel):
 
 def create_revision_router(
     repository_dependency: RepositoryDependency,
+    export_dir_dependency: ExportDirDependency | None = None,
 ) -> APIRouter:
     router = APIRouter(tags=["revision"])
 
@@ -131,6 +142,14 @@ def create_revision_router(
         if run is None:
             raise HTTPException(status_code=404, detail="Revision run not found")
         return run
+
+    def export_dir() -> Path:
+        if export_dir_dependency is not None:
+            return export_dir_dependency()
+        return Path.home() / ".typedance" / "files" / "exports"
+
+    def path_header_value(path: Path) -> str:
+        return quote(str(path), safe=":/\\")
 
     @router.post("/documents", response_model=Document, status_code=201)
     def create_document(
@@ -290,6 +309,55 @@ def create_revision_router(
             return DraftService(repo).accept_draft(draft_id)
         except RevisionServiceError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/drafts/{draft_id}/export/pdf")
+    def export_revision_draft_pdf(
+        draft_id: str,
+        payload: ExportDraftPdfRequest | None = None,
+        repo: RevisionRepository = Depends(repository),
+    ) -> FileResponse:
+        request = payload or ExportDraftPdfRequest()
+        output_path = Path(request.output_path) if request.output_path else None
+        try:
+            artifact = RevisionExportGateService(repo, output_dir=export_dir()).export_pdf(
+                draft_id,
+                output_path=output_path,
+                force_with_risk=request.force_with_risk,
+            )
+        except RevisionExportBlockedError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": str(exc),
+                    "artifact_id": exc.artifact.id,
+                    "review_status": exc.artifact.review_status,
+                    "blocking_issue_ids": exc.blocking_issue_ids,
+                    "warning_issue_ids": exc.warning_issue_ids,
+                },
+            ) from exc
+        except RevisionServiceError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail="Revision PDF export failed") from exc
+
+        if artifact.file_path is None:
+            raise HTTPException(status_code=500, detail="Revision PDF export did not produce a file")
+
+        pdf_path = Path(artifact.file_path)
+        draft = require_draft(repo, draft_id)
+        document = require_document(repo, draft.document_id)
+        filename = pdf_path.name if request.output_path else f"resume-{document.title or draft.id}.pdf"
+        return FileResponse(
+            pdf_path,
+            media_type="application/pdf",
+            filename=filename,
+            content_disposition_type="attachment",
+            headers={
+                "X-Pdf-Path": path_header_value(pdf_path),
+                "X-Export-Artifact-Id": artifact.id,
+                "X-Export-Review-Status": artifact.review_status,
+            },
+        )
 
     @router.get("/drafts/{draft_id}/issues", response_model=list[RevisionIssue])
     def list_issues(

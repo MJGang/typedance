@@ -39,7 +39,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Pdf-Path", "X-Html-Path"],
+    expose_headers=["X-Pdf-Path", "X-Html-Path", "X-Export-Artifact-Id", "X-Export-Review-Status"],
 )
 
 
@@ -67,7 +67,7 @@ def revision_repository() -> RevisionRepository:
     return RevisionRepository(connect(app_data_dir() / "typedance.sqlite"))
 
 
-app.include_router(create_revision_router(revision_repository))
+app.include_router(create_revision_router(revision_repository, lambda: app_data_dir() / "files" / "exports"))
 
 
 

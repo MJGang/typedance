@@ -3,6 +3,7 @@ import {
   documentSchema,
   draftVersionSchema,
   evidenceLinkSchema,
+  exportArtifactSchema,
   renderProjectionSchema,
   resumeVersionSchema,
   revisionIssueSchema,
@@ -16,6 +17,7 @@ import {
   type Document as RevisionDocument,
   type DraftVersion,
   type EvidenceLink,
+  type ExportArtifact,
   type RenderProjection,
   type ResumeVersion,
   type RevisionIssue,
@@ -351,6 +353,88 @@ export async function confirmEvidenceLink(evidenceLinkId: string): Promise<Evide
     (value) => evidenceLinkSchema.parse(value),
     "Failed to confirm evidence link",
   )
+}
+
+export async function exportRevisionDraftPdf(
+  draftId: string,
+  title: string,
+  options: { forceWithRisk?: boolean } = {},
+): Promise<{ fileName: string; filePath?: string; artifactId?: string; reviewStatus?: ExportArtifact["review_status"] } | null> {
+  let fileHandle: FileSystemFileHandle | null = null
+  let fileName = `resume-${title.replace(/[/\\?%*:|"<>]/g, "_")}.pdf`
+  let outputPath: string | null = null
+
+  if (isTauri()) {
+    outputPath = await choosePdfSavePathInTauri(fileName)
+    if (!outputPath) return null
+    fileName = outputPath.split(/[/\\]/).pop() ?? fileName
+  }
+
+  const showPicker = (window as any).showSaveFilePicker as ((opts: Record<string, unknown>) => Promise<FileSystemFileHandle>) | undefined
+  if (!outputPath && showPicker) {
+    try {
+      fileHandle = await showPicker({
+        suggestedName: fileName,
+        types: [
+          { description: "PDF", accept: { "application/pdf": [".pdf"] } },
+        ],
+      })
+      fileName = fileHandle.name
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return null
+      }
+    }
+  }
+
+  const body: { output_path?: string; force_with_risk?: boolean } = {
+    force_with_risk: options.forceWithRisk ?? false,
+  }
+  if (outputPath) body.output_path = outputPath
+
+  const response = await fetch(`${baseUrl}/drafts/${draftId}/export/pdf`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null)
+    const message = typeof payload?.detail === "object" && payload.detail && "message" in payload.detail
+      ? String(payload.detail.message)
+      : `${response.status}`
+    throw new Error(`Failed to export revision PDF: ${message}`)
+  }
+
+  const filePath = decodeHeaderPath(response.headers.get("X-Pdf-Path"))
+  const artifactId = response.headers.get("X-Export-Artifact-Id") ?? undefined
+  const rawReviewStatus = response.headers.get("X-Export-Review-Status")
+  const reviewStatus = rawReviewStatus
+    ? exportArtifactSchema.shape.review_status.parse(rawReviewStatus)
+    : undefined
+
+  if (outputPath) {
+    await response.blob()
+    const savedPath = filePath ?? outputPath
+    const savedName = savedPath.split(/[/\\]/).pop() ?? fileName
+    return { fileName: savedName, filePath: savedPath, artifactId, reviewStatus }
+  }
+
+  const blob = await response.blob()
+  if (fileHandle) {
+    const writable = await fileHandle.createWritable()
+    await writable.write(blob)
+    await writable.close()
+  } else {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = fileName
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  return { fileName, filePath, artifactId, reviewStatus }
 }
 
 export async function exportResumePdf(

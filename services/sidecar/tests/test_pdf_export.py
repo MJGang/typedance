@@ -45,6 +45,21 @@ def test_render_and_export_pdf_writes_pdf_file(tmp_path, mock_playwright):
     mock_page.close.assert_called_once()
 
 
+def test_render_html_to_pdf_writes_projection_html(tmp_path, mock_playwright):
+    from typedance_sidecar.pdf import render_html_to_pdf
+
+    pdf_path = tmp_path / "revision-output.pdf"
+
+    result = render_html_to_pdf("<article>结构化草稿</article>", pdf_path)
+
+    assert result == pdf_path
+    assert pdf_path.exists()
+    mock_page = mock_playwright
+    mock_page.set_content.assert_called_once_with("<article>结构化草稿</article>", wait_until="load")
+    mock_page.pdf.assert_called_once()
+    mock_page.close.assert_called_once()
+
+
 def test_rendered_html_resets_browser_default_body_margin():
     resume = ResumeVersion(
         id="test-pdf-margin",
