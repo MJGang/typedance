@@ -5,6 +5,8 @@
 > 项目状态: 需求收敛阶段
 > 历史来源: `docs/archive/requirements-v3.1-vision-draft-2026-05-07.md`
 
+> 2026-05-21 状态提示：本文是旧 V1 范围基线，保留用于理解当前系统来源；它不再代表 AI-native Resume Pack 的终局产品方向。新的产品事实源请优先阅读 `docs/product/ai-native-revision-system.md`、`docs/product/resume-pack-prd.md`、`docs/product/current-to-target-gap-map.md`、`docs/product/revision-workspace-design.md` 和 `docs/product/revision-engine-architecture.md`。
+
 ---
 
 ## 1. 产品定位
