@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { AlertCircle, ArrowLeft, Check, FileText, Loader2, RefreshCcw, X } from "lucide-react"
+import { AlertCircle, ArrowLeft, Check, FileText, Loader2, RefreshCcw, ShieldCheck, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   acceptRevisionProposal,
@@ -8,6 +8,7 @@ import {
   getRevisionWorkspaceView,
   rejectRevisionProposal,
   renderRevisionDraft,
+  runRevisionQualityReview,
 } from "@/api"
 import type { ContextualAction, DocumentModule, RevisionIssue, RevisionProposal, WorkspaceView } from "@typedance/contracts"
 
@@ -188,6 +189,17 @@ export function RevisionWorkspacePage() {
     }
   }, [loadWorkspace, workspace])
 
+  const handleQualityReview = useCallback(async () => {
+    if (!workspace?.current_draft) return
+    setActingActionId("quality_review")
+    try {
+      await runRevisionQualityReview(workspace.document.id, workspace.current_draft.id)
+      await loadWorkspace()
+    } finally {
+      setActingActionId(null)
+    }
+  }, [loadWorkspace, workspace])
+
   if (!documentId) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -232,6 +244,19 @@ export function RevisionWorkspacePage() {
           <h1 className="truncate text-sm font-semibold">{workspace.document.title}</h1>
           <p className="truncate text-xs text-muted-foreground">{workspace.run_status?.status ?? "未运行"}</p>
         </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleQualityReview}
+          disabled={!workspace.current_draft || actingActionId === "quality_review"}
+        >
+          {actingActionId === "quality_review" ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <ShieldCheck className="mr-2 h-4 w-4" />
+          )}
+          质量检查
+        </Button>
         <span className={`rounded-md border px-2 py-1 text-xs ${qualityClass(workspace.quality_gate?.status)}`}>
           {qualityLabel(workspace.quality_gate?.status)}
         </span>

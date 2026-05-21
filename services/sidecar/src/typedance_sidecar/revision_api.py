@@ -21,6 +21,7 @@ from .revision_models import (
 )
 from .revision_blank_guided_flow import RevisionBlankGuidedFlowService
 from .revision_import_flow import RevisionImportFlowService
+from .revision_quality_review import RevisionQualityReviewService
 from .revision_render_projection import RenderProjectionError
 from .revision_repository import RevisionRepository
 from .revision_services import (
@@ -223,6 +224,8 @@ def create_revision_router(
                 return RevisionImportFlowService(repo).run_import_reconstruct(document_id, saved_run.id)
             if saved_run.run_type == "blank_guided_generate":
                 return RevisionBlankGuidedFlowService(repo).run_blank_guided_generate(document_id, saved_run.id)
+            if saved_run.run_type == "quality_review":
+                return RevisionQualityReviewService(repo).run_quality_review(document_id, saved_run.id)
             return saved_run
         except RevisionServiceError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

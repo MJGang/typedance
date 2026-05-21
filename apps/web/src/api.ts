@@ -234,6 +234,17 @@ export async function startBlankGuidedResume(input: StartBlankGuidedResumeInput)
   return getRevisionWorkspaceView(document.id)
 }
 
+export async function runRevisionQualityReview(
+  documentId: string,
+  baseDraftId?: string,
+): Promise<RevisionRun> {
+  return createRevisionRun(documentId, {
+    run_type: "quality_review",
+    base_draft_id: baseDraftId,
+    user_intent: "运行基础质量检查",
+  })
+}
+
 export async function renderRevisionDraft(
   draftId: string,
   renderProfile?: string,

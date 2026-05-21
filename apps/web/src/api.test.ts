@@ -413,4 +413,36 @@ describe("revision api", () => {
     )
     expect(workspace.document.current_draft_id).toBe("draft_guided")
   })
+
+  it("runs a revision quality review", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      id: "run_review",
+      document_id: "doc_1",
+      pack_id: "resume",
+      run_type: "quality_review",
+      status: "completed",
+      source_document_ids: [],
+      base_draft_id: "draft_1",
+      target_draft_id: "draft_1",
+      created_at: "2026-05-21T08:00:00.000Z",
+      updated_at: "2026-05-21T08:00:00.000Z",
+    }))))
+
+    const { runRevisionQualityReview } = await import("./api")
+    const run = await runRevisionQualityReview("doc_1", "draft_1")
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:4317/documents/doc_1/revision-runs",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          run_type: "quality_review",
+          base_draft_id: "draft_1",
+          user_intent: "运行基础质量检查",
+        }),
+      },
+    )
+    expect(run.status).toBe("completed")
+  })
 })

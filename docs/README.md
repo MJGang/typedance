@@ -165,6 +165,11 @@
   - 目标是让用户从空白开始时通过身份、目标、技能和经历线索生成可审阅初稿。
   - 这是避免用户面对空白 A4 的基础引导入口。
 
+- `superpowers/plans/2026-05-21-wp13-quality-review.md`
+  - WP13 Quality Review 工程实施计划。
+  - 目标是在没有 JD 的情况下对当前 Draft 运行基础质量检查，生成问题卡、建议和导出阻塞信号。
+  - 这是从一次性生成走向持续改稿能力的基础。
+
 - `superpowers/plans/2026-05-08-typedance-foundation-slice-1.md`
   - Slice 0 + Slice 1 工程落地计划。
   - 目标是先完成可运行的本地优先简历编辑、A4 预览、sidecar 持久化和 PDF 导出闭环。

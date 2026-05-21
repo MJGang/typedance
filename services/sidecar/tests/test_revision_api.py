@@ -310,6 +310,31 @@ def test_revision_api_runs_blank_guided_generation(revision_client):
     assert workspace["render_projection"]["draft_id"] == run["target_draft_id"]
 
 
+def test_revision_api_runs_quality_review(revision_client):
+    client, tmp_path = revision_client
+    seed_workspace(tmp_path)
+
+    created_run = client.post(
+        "/documents/doc_1/revision-runs",
+        json={
+            "run_type": "quality_review",
+            "base_draft_id": "draft_1",
+            "user_intent": "运行基础质量检查",
+        },
+    )
+
+    assert created_run.status_code == 201
+    run = created_run.json()
+    assert run["status"] == "completed"
+    assert run["target_draft_id"] == "draft_1"
+
+    workspace = client.get("/documents/doc_1/workspace-view").json()
+    issue_types = {issue["type"] for issue in workspace["issues"]}
+    assert {"missing_basic_info", "missing_skills", "missing_result"} <= issue_types
+    assert len(workspace["proposals"]) >= 2
+    assert workspace["quality_gate"]["status"] == "blocked"
+
+
 def test_revision_api_handles_issues_proposals_and_confirmations(revision_client):
     client, tmp_path = revision_client
     seed_workspace(tmp_path)

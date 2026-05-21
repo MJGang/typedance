@@ -11,6 +11,7 @@ const apiMocks = vi.hoisted(() => ({
   acceptRevisionProposal: vi.fn(),
   rejectRevisionProposal: vi.fn(),
   dismissRevisionIssue: vi.fn(),
+  runRevisionQualityReview: vi.fn(),
 }))
 
 vi.mock("@/api", () => ({
@@ -19,6 +20,7 @@ vi.mock("@/api", () => ({
   acceptRevisionProposal: (...args: unknown[]) => apiMocks.acceptRevisionProposal(...args),
   rejectRevisionProposal: (...args: unknown[]) => apiMocks.rejectRevisionProposal(...args),
   dismissRevisionIssue: (...args: unknown[]) => apiMocks.dismissRevisionIssue(...args),
+  runRevisionQualityReview: (...args: unknown[]) => apiMocks.runRevisionQualityReview(...args),
 }))
 
 const workspace: WorkspaceView = {
@@ -151,8 +153,10 @@ describe("RevisionWorkspacePage", () => {
     apiMocks.acceptRevisionProposal.mockReset()
     apiMocks.rejectRevisionProposal.mockReset()
     apiMocks.dismissRevisionIssue.mockReset()
+    apiMocks.runRevisionQualityReview.mockReset()
     apiMocks.getRevisionWorkspaceView.mockResolvedValue(workspace)
     apiMocks.acceptRevisionProposal.mockResolvedValue({ id: "prop_1", status: "applied" })
+    apiMocks.runRevisionQualityReview.mockResolvedValue({ id: "run_review", status: "completed" })
   })
 
   it("loads and renders the workspace view", async () => {
@@ -172,6 +176,15 @@ describe("RevisionWorkspacePage", () => {
     fireEvent.click(await screen.findByRole("button", { name: /接受修改/ }))
 
     await waitFor(() => expect(apiMocks.acceptRevisionProposal).toHaveBeenCalledWith("prop_1"))
+    await waitFor(() => expect(apiMocks.getRevisionWorkspaceView).toHaveBeenCalledTimes(2))
+  })
+
+  it("runs quality review and refreshes the workspace", async () => {
+    renderPage()
+
+    fireEvent.click(await screen.findByRole("button", { name: "质量检查" }))
+
+    await waitFor(() => expect(apiMocks.runRevisionQualityReview).toHaveBeenCalledWith("doc_1", "draft_1"))
     await waitFor(() => expect(apiMocks.getRevisionWorkspaceView).toHaveBeenCalledTimes(2))
   })
 })
