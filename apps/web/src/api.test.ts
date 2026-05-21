@@ -577,4 +577,50 @@ describe("revision api", () => {
 
     createElementMock.mockRestore()
   })
+
+  it("projects a legacy resume into a revision workspace", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      document: {
+        id: "doc_legacy_resume_1",
+        pack_id: "resume",
+        title: "旧简历",
+        status: "active",
+        target_language: "zh-CN",
+        current_draft_id: "draft_legacy_resume_1",
+        accepted_draft_id: "draft_legacy_resume_1",
+        created_at: "2026-05-21T08:00:00.000Z",
+        updated_at: "2026-05-21T08:00:00.000Z",
+      },
+      current_draft: {
+        id: "draft_legacy_resume_1",
+        document_id: "doc_legacy_resume_1",
+        run_id: "run_legacy_resume_1",
+        pack_id: "resume",
+        status: "accepted",
+        summary: "旧简历兼容投影",
+        applied_proposal_ids: [],
+        unresolved_issue_ids: [],
+        variant_type: "base",
+        created_at: "2026-05-21T08:00:00.000Z",
+        updated_at: "2026-05-21T08:00:00.000Z",
+      },
+      modules: [],
+      claims: [],
+      issues: [],
+      proposals: [],
+      evidence: [],
+      source_summaries: [],
+      quality_gate: { status: "ready", blocking_issue_ids: [], warning_issue_ids: [] },
+      available_actions: [],
+    }))))
+
+    const { projectLegacyResumeToRevisionWorkspace } = await import("./api")
+    const workspace = await projectLegacyResumeToRevisionWorkspace("resume_1")
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:4317/legacy/resume-versions/resume_1/revision-document",
+      { method: "POST" },
+    )
+    expect(workspace.document.id).toBe("doc_legacy_resume_1")
+  })
 })

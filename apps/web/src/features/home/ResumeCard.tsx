@@ -1,7 +1,7 @@
 import type { ResumeVersion, TemplateStyleConfig } from "@typedance/contracts"
 import { Button } from "@/components/ui/button"
 import { PreviewShowcaseCard } from "@/components/preview-showcase-card"
-import { MoreHorizontal, FileText } from "lucide-react"
+import { MoreHorizontal, FileText, Sparkles } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,10 +16,11 @@ type ResumeCardProps = {
   onClick: () => void
   onRename?: () => void
   onDuplicate?: () => void
+  onOpenRevision?: () => void
   onDelete: () => void
 }
 
-export function ResumeCard({ resume, styleConfig, onClick, onRename, onDuplicate, onDelete }: ResumeCardProps) {
+export function ResumeCard({ resume, styleConfig, onClick, onRename, onDuplicate, onOpenRevision, onDelete }: ResumeCardProps) {
   const timeAgo = getRelativeTime(resume.updated_at)
   const hasPreview = styleConfig && resume.doc_json && typeof resume.doc_json === "object"
 
@@ -43,7 +44,12 @@ export function ResumeCard({ resume, styleConfig, onClick, onRename, onDuplicate
       menu={
         <DropdownMenu>
           <DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
-            <Button variant="secondary" size="icon" className="h-8 w-8 bg-card/90 shadow-sm backdrop-blur-sm">
+            <Button
+              variant="secondary"
+              size="icon"
+              className="h-8 w-8 bg-card/90 shadow-sm backdrop-blur-sm"
+              aria-label="打开简历菜单"
+            >
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
@@ -56,6 +62,12 @@ export function ResumeCard({ resume, styleConfig, onClick, onRename, onDuplicate
             {onDuplicate && (
               <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onDuplicate() }}>
                 复制
+              </DropdownMenuItem>
+            )}
+            {onOpenRevision && (
+              <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onOpenRevision() }}>
+                <Sparkles className="mr-2 h-4 w-4" />
+                用新工作台打开
               </DropdownMenuItem>
             )}
             <DropdownMenuItem

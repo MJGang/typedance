@@ -40,3 +40,12 @@ def test_create_update_and_list_resume_versions(tmp_path, monkeypatch):
 
     assert list_response.status_code == 200
     assert [item["id"] for item in list_response.json()] == [created["id"]]
+
+    projection_response = client.post(f"/legacy/resume-versions/{created['id']}/revision-document")
+
+    assert projection_response.status_code == 200
+    workspace = projection_response.json()
+    assert workspace["document"]["id"] == f"doc_legacy_{created['id']}"
+    assert workspace["current_draft"]["id"].startswith(f"draft_legacy_{created['id']}")
+    assert workspace["render_projection"]["render_profile"] == "legacy-classic-a4"
+    assert "Built local-first resume tooling." in workspace["render_projection"]["html"]

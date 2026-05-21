@@ -23,7 +23,10 @@ from .models import (
 )
 from .pdf import render_and_export_pdf, render_resume_html, cleanup_browser
 from .revision_api import create_revision_router
+from .revision_legacy_adapter import LegacyResumeAdapterService
+from .revision_models import WorkspaceView
 from .revision_repository import RevisionRepository
+from .revision_services import RevisionServiceError, WorkspaceService
 
 
 @asynccontextmanager
@@ -41,7 +44,6 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Pdf-Path", "X-Html-Path", "X-Export-Artifact-Id", "X-Export-Review-Status"],
 )
-
 
 
 def app_data_dir() -> Path:
@@ -69,6 +71,23 @@ def revision_repository() -> RevisionRepository:
 
 app.include_router(create_revision_router(revision_repository, lambda: app_data_dir() / "files" / "exports"))
 
+
+@app.post("/legacy/resume-versions/{resume_id}/revision-document", response_model=WorkspaceView)
+def project_legacy_resume_version(
+    resume_id: str,
+    resume_repo: ResumeRepository = Depends(resume_repository),
+    style_repo: TemplateStyleRepository = Depends(template_style_repository),
+    revision_repo: RevisionRepository = Depends(revision_repository),
+) -> WorkspaceView:
+    try:
+        document = LegacyResumeAdapterService(
+            revision_repo,
+            resume_repo,
+            style_repo,
+        ).project_resume_version(resume_id)
+        return WorkspaceService(revision_repo).get_workspace_view(document.id)
+    except RevisionServiceError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 def preview_pdf_dir() -> Path:

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { FileUp, Plus } from "lucide-react"
-import { listResumeVersions, deleteResumeVersion, getTemplateStyle } from "@/api"
+import { listResumeVersions, deleteResumeVersion, getTemplateStyle, projectLegacyResumeToRevisionWorkspace } from "@/api"
 import type { ResumeVersion, TemplateStyleConfig } from "@typedance/contracts"
 import { ResumeCard } from "./ResumeCard"
 import { NewResumeModal } from "./NewResumeModal"
@@ -62,6 +62,11 @@ export function HomePage() {
     setResumes((prev) => prev.filter((r) => r.id !== resumeId))
   }, [])
 
+  const handleOpenRevisionWorkspace = useCallback(async (resumeId: string) => {
+    const workspace = await projectLegacyResumeToRevisionWorkspace(resumeId)
+    navigate(`/revision/${workspace.document.id}`)
+  }, [navigate])
+
   return (
     <div className="mx-auto max-w-6xl p-6">
       <div className="mb-6 flex items-center justify-between gap-4">
@@ -99,6 +104,7 @@ export function HomePage() {
               resume={resume}
               styleConfig={styleMap[resume.template_id] ?? defaultClassicA4Style}
               onClick={() => navigate(`/workspace/${resume.id}`)}
+              onOpenRevision={() => handleOpenRevisionWorkspace(resume.id)}
               onDelete={() => handleDelete(resume.id)}
             />
           ))}

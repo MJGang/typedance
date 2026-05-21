@@ -180,6 +180,11 @@
   - 目标是在导出前检查当前 Draft、打开的问题卡和渲染投影，成功导出时写入可追溯 `ExportArtifact`。
   - 这是从“下载按钮”走向“可投递前确认”的门禁能力。
 
+- `superpowers/plans/2026-05-21-wp16-legacy-compatibility.md`
+  - WP16 Legacy Compatibility 工程实施计划。
+  - 目标是让旧 `ResumeVersion` 可投影到 Revision Workspace，但不再作为新系统事实源。
+  - 这是旧编辑器资产向 AI-native 工作台迁移的兼容桥。
+
 - `superpowers/plans/2026-05-08-typedance-foundation-slice-1.md`
   - Slice 0 + Slice 1 工程落地计划。
   - 目标是先完成可运行的本地优先简历编辑、A4 预览、sidecar 持久化和 PDF 导出闭环。

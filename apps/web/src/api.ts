@@ -116,6 +116,17 @@ export async function getRevisionWorkspaceView(documentId: string): Promise<Work
   )
 }
 
+export async function projectLegacyResumeToRevisionWorkspace(resumeId: string): Promise<WorkspaceView> {
+  const response = await fetch(`${baseUrl}/legacy/resume-versions/${resumeId}/revision-document`, {
+    method: "POST",
+  })
+  return parseTemplateResponse(
+    response,
+    (value) => workspaceViewSchema.parse(value),
+    "Failed to project legacy resume",
+  )
+}
+
 export async function createRevisionSource(
   documentId: string,
   source: {
