@@ -1,0 +1,395 @@
+import json
+import sqlite3
+from typing import TypeVar
+
+from pydantic import BaseModel
+
+from .revision_models import (
+    AgentStep,
+    Document,
+    DocumentClaim,
+    DocumentModule,
+    DraftVersion,
+    EvidenceLink,
+    ExportArtifact,
+    ParsedBlock,
+    RenderProjection,
+    RevisionAction,
+    RevisionIssue,
+    RevisionProposal,
+    RevisionRun,
+    SourceDocument,
+    UserConfirmation,
+)
+
+SCHEMA_VERSION = "0.1.0"
+
+REVISION_TABLE_DEFINITIONS = [
+    """
+    CREATE TABLE IF NOT EXISTS documents (
+      id TEXT PRIMARY KEY,
+      payload TEXT NOT NULL,
+      schema_version TEXT NOT NULL DEFAULT '0.1.0',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS source_documents (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      schema_version TEXT NOT NULL DEFAULT '0.1.0',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS parsed_blocks (
+      id TEXT PRIMARY KEY,
+      source_document_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      schema_version TEXT NOT NULL DEFAULT '0.1.0',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS draft_versions (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      schema_version TEXT NOT NULL DEFAULT '0.1.0',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS document_modules (
+      id TEXT PRIMARY KEY,
+      draft_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      schema_version TEXT NOT NULL DEFAULT '0.1.0',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS document_claims (
+      id TEXT PRIMARY KEY,
+      draft_id TEXT NOT NULL,
+      module_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      schema_version TEXT NOT NULL DEFAULT '0.1.0',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS evidence_links (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      claim_id TEXT,
+      payload TEXT NOT NULL,
+      schema_version TEXT NOT NULL DEFAULT '0.1.0',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS revision_runs (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      schema_version TEXT NOT NULL DEFAULT '0.1.0',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS agent_steps (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      schema_version TEXT NOT NULL DEFAULT '0.1.0',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS revision_issues (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      draft_id TEXT,
+      payload TEXT NOT NULL,
+      schema_version TEXT NOT NULL DEFAULT '0.1.0',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS revision_proposals (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      draft_id TEXT,
+      payload TEXT NOT NULL,
+      schema_version TEXT NOT NULL DEFAULT '0.1.0',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS revision_actions (
+      id TEXT PRIMARY KEY,
+      issue_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      schema_version TEXT NOT NULL DEFAULT '0.1.0',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS user_confirmations (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      schema_version TEXT NOT NULL DEFAULT '0.1.0',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS render_projections (
+      id TEXT PRIMARY KEY,
+      draft_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      schema_version TEXT NOT NULL DEFAULT '0.1.0',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS export_artifacts (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      draft_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      schema_version TEXT NOT NULL DEFAULT '0.1.0',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+]
+
+ModelT = TypeVar("ModelT", bound=BaseModel)
+
+
+def _payload(model: BaseModel) -> str:
+    return model.model_dump_json()
+
+
+def _created_at(model: BaseModel) -> str:
+    value = getattr(model, "created_at", None)
+    if isinstance(value, str):
+        return value
+    value = getattr(model, "started_at", None)
+    if isinstance(value, str):
+        return value
+    return ""
+
+
+def _updated_at(model: BaseModel) -> str:
+    value = getattr(model, "updated_at", None)
+    if isinstance(value, str):
+        return value
+    value = getattr(model, "finished_at", None)
+    if isinstance(value, str):
+        return value
+    value = getattr(model, "created_at", None)
+    if isinstance(value, str):
+        return value
+    value = getattr(model, "started_at", None)
+    if isinstance(value, str):
+        return value
+    return ""
+
+
+class RevisionRepository:
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self.connection = connection
+
+    def _save(self, table: str, model: BaseModel, extra_columns: dict[str, str | None]) -> None:
+        columns = ["id", *extra_columns.keys(), "payload", "schema_version", "created_at", "updated_at"]
+        values = [
+            getattr(model, "id"),
+            *extra_columns.values(),
+            _payload(model),
+            SCHEMA_VERSION,
+            _created_at(model),
+            _updated_at(model),
+        ]
+        placeholders = ", ".join("?" for _ in columns)
+        assignments = ", ".join(
+            f"{column} = excluded.{column}"
+            for column in columns
+            if column != "id"
+        )
+        self.connection.execute(
+            f"""
+            INSERT INTO {table} ({", ".join(columns)})
+            VALUES ({placeholders})
+            ON CONFLICT(id) DO UPDATE SET {assignments}
+            """,
+            values,
+        )
+        self.connection.commit()
+
+    def _get(self, table: str, model_type: type[ModelT], entity_id: str) -> ModelT | None:
+        row = self.connection.execute(
+            f"SELECT payload FROM {table} WHERE id = ?",
+            (entity_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return model_type.model_validate(json.loads(row["payload"]))
+
+    def _list(
+        self,
+        table: str,
+        model_type: type[ModelT],
+        where_column: str,
+        where_value: str,
+        order_by: str = "created_at ASC",
+    ) -> list[ModelT]:
+        rows = self.connection.execute(
+            f"SELECT payload FROM {table} WHERE {where_column} = ? ORDER BY {order_by}",
+            (where_value,),
+        ).fetchall()
+        return [model_type.model_validate(json.loads(row["payload"])) for row in rows]
+
+    def save_document(self, document: Document) -> Document:
+        self._save("documents", document, {})
+        return document
+
+    def get_document(self, document_id: str) -> Document | None:
+        return self._get("documents", Document, document_id)
+
+    def list_documents(self) -> list[Document]:
+        rows = self.connection.execute(
+            "SELECT payload FROM documents ORDER BY updated_at DESC"
+        ).fetchall()
+        return [Document.model_validate(json.loads(row["payload"])) for row in rows]
+
+    def save_source_document(self, source: SourceDocument) -> SourceDocument:
+        self._save("source_documents", source, {"document_id": source.document_id})
+        return source
+
+    def list_source_documents(self, document_id: str) -> list[SourceDocument]:
+        return self._list("source_documents", SourceDocument, "document_id", document_id)
+
+    def save_parsed_block(self, block: ParsedBlock) -> ParsedBlock:
+        self._save("parsed_blocks", block, {"source_document_id": block.source_document_id})
+        return block
+
+    def list_parsed_blocks(self, source_document_id: str) -> list[ParsedBlock]:
+        return self._list("parsed_blocks", ParsedBlock, "source_document_id", source_document_id)
+
+    def save_draft_version(self, draft: DraftVersion) -> DraftVersion:
+        self._save("draft_versions", draft, {"document_id": draft.document_id})
+        return draft
+
+    def list_draft_versions(self, document_id: str) -> list[DraftVersion]:
+        return self._list("draft_versions", DraftVersion, "document_id", document_id)
+
+    def save_document_module(self, module: DocumentModule) -> DocumentModule:
+        self._save("document_modules", module, {"draft_id": module.draft_id})
+        return module
+
+    def list_document_modules(self, draft_id: str) -> list[DocumentModule]:
+        return self._list("document_modules", DocumentModule, "draft_id", draft_id)
+
+    def save_document_claim(self, claim: DocumentClaim) -> DocumentClaim:
+        self._save("document_claims", claim, {"draft_id": claim.draft_id, "module_id": claim.module_id})
+        return claim
+
+    def list_document_claims(self, draft_id: str) -> list[DocumentClaim]:
+        return self._list("document_claims", DocumentClaim, "draft_id", draft_id)
+
+    def save_evidence_link(self, evidence: EvidenceLink) -> EvidenceLink:
+        self._save(
+            "evidence_links",
+            evidence,
+            {"document_id": evidence.document_id, "claim_id": evidence.claim_id},
+        )
+        return evidence
+
+    def list_evidence_links(self, document_id: str) -> list[EvidenceLink]:
+        return self._list("evidence_links", EvidenceLink, "document_id", document_id)
+
+    def save_revision_run(self, run: RevisionRun) -> RevisionRun:
+        self._save("revision_runs", run, {"document_id": run.document_id})
+        return run
+
+    def get_revision_run(self, run_id: str) -> RevisionRun | None:
+        return self._get("revision_runs", RevisionRun, run_id)
+
+    def save_agent_step(self, step: AgentStep) -> AgentStep:
+        self._save("agent_steps", step, {"run_id": step.run_id})
+        return step
+
+    def list_agent_steps(self, run_id: str) -> list[AgentStep]:
+        return self._list("agent_steps", AgentStep, "run_id", run_id)
+
+    def save_revision_issue(self, issue: RevisionIssue) -> RevisionIssue:
+        self._save(
+            "revision_issues",
+            issue,
+            {"document_id": issue.document_id, "draft_id": issue.draft_id},
+        )
+        return issue
+
+    def list_revision_issues(self, draft_id: str) -> list[RevisionIssue]:
+        return self._list("revision_issues", RevisionIssue, "draft_id", draft_id)
+
+    def save_revision_proposal(self, proposal: RevisionProposal) -> RevisionProposal:
+        self._save(
+            "revision_proposals",
+            proposal,
+            {"document_id": proposal.document_id, "draft_id": proposal.draft_id},
+        )
+        return proposal
+
+    def list_revision_proposals(self, draft_id: str) -> list[RevisionProposal]:
+        return self._list("revision_proposals", RevisionProposal, "draft_id", draft_id)
+
+    def save_revision_action(self, action: RevisionAction) -> RevisionAction:
+        self._save("revision_actions", action, {"issue_id": action.issue_id})
+        return action
+
+    def list_revision_actions(self, issue_id: str) -> list[RevisionAction]:
+        return self._list("revision_actions", RevisionAction, "issue_id", issue_id)
+
+    def save_user_confirmation(self, confirmation: UserConfirmation) -> UserConfirmation:
+        self._save("user_confirmations", confirmation, {"document_id": confirmation.document_id})
+        return confirmation
+
+    def list_user_confirmations(self, document_id: str) -> list[UserConfirmation]:
+        return self._list("user_confirmations", UserConfirmation, "document_id", document_id)
+
+    def save_render_projection(self, projection: RenderProjection) -> RenderProjection:
+        self._save("render_projections", projection, {"draft_id": projection.draft_id})
+        return projection
+
+    def get_render_projection(self, projection_id: str) -> RenderProjection | None:
+        return self._get("render_projections", RenderProjection, projection_id)
+
+    def save_export_artifact(self, artifact: ExportArtifact) -> ExportArtifact:
+        self._save(
+            "export_artifacts",
+            artifact,
+            {"document_id": artifact.document_id, "draft_id": artifact.draft_id},
+        )
+        return artifact
+
+    def list_export_artifacts(self, document_id: str) -> list[ExportArtifact]:
+        return self._list("export_artifacts", ExportArtifact, "document_id", document_id)

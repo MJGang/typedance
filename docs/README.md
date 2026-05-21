@@ -110,6 +110,11 @@
   - 目标是把 Revision Engine 的核心对象先落到 `packages/contracts`，包括 Document、Source、Draft、Module、Claim、Evidence、Issue、Proposal、Run、Render、WorkspaceView 和 ResumePack。
   - 已在 `codex/wp1-contracts` 分支完成代码落地与验证。
 
+- `superpowers/plans/2026-05-21-wp2-storage.md`
+  - WP2 Storage 工程实施计划。
+  - 目标是让 sidecar 保存 Revision Engine 的核心领域对象，包括分表、Pydantic 模型和 repository roundtrip。
+  - 已在 `codex/wp2-storage` 分支完成首批存储层落地与验证。
+
 - `superpowers/plans/2026-05-08-typedance-foundation-slice-1.md`
   - Slice 0 + Slice 1 工程落地计划。
   - 目标是先完成可运行的本地优先简历编辑、A4 预览、sidecar 持久化和 PDF 导出闭环。

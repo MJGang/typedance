@@ -3,6 +3,7 @@ import sqlite3
 from pathlib import Path
 
 from .models import ResumeVersion, TemplateSampleContent, TemplateStyleConfig
+from .revision_repository import REVISION_TABLE_DEFINITIONS
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
@@ -45,6 +46,8 @@ def connect(db_path: Path) -> sqlite3.Connection:
         )
         """
     )
+    for definition in REVISION_TABLE_DEFINITIONS:
+        connection.execute(definition)
     return connection
 
 
