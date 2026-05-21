@@ -51,6 +51,7 @@ describe("App", () => {
 
     expect(screen.getAllByText("TypeDance").length).toBeGreaterThan(0)
     expect(await screen.findByRole("heading", { name: "我的简历" })).toBeInTheDocument()
+    expect(screen.getAllByRole("button", { name: /导入旧简历/ }).length).toBeGreaterThan(0)
     expect(screen.getByRole("link", { name: "首页" })).toHaveAttribute("data-active", "true")
     expect(screen.getByRole("link", { name: "主题库" })).not.toHaveAttribute("data-active")
   })

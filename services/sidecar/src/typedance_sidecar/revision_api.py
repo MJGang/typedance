@@ -19,6 +19,7 @@ from .revision_models import (
     UserConfirmation,
     WorkspaceView,
 )
+from .revision_import_flow import RevisionImportFlowService
 from .revision_render_projection import RenderProjectionError
 from .revision_repository import RevisionRepository
 from .revision_services import (
@@ -215,7 +216,14 @@ def create_revision_router(
             created_at=now,
             updated_at=now,
         )
-        return repo.save_revision_run(run)
+        saved_run = repo.save_revision_run(run)
+        if saved_run.run_type != "import_reconstruct":
+            return saved_run
+
+        try:
+            return RevisionImportFlowService(repo).run_import_reconstruct(document_id, saved_run.id)
+        except RevisionServiceError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @router.get("/revision-runs/{run_id}", response_model=RevisionRun)
     def get_revision_run(

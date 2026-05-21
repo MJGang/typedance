@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
-import { Plus } from "lucide-react"
+import { FileUp, Plus } from "lucide-react"
 import { listResumeVersions, deleteResumeVersion, getTemplateStyle } from "@/api"
 import type { ResumeVersion, TemplateStyleConfig } from "@typedance/contracts"
 import { ResumeCard } from "./ResumeCard"
 import { NewResumeModal } from "./NewResumeModal"
+import { ImportOldResumeModal } from "./ImportOldResumeModal"
 import { defaultClassicA4Style } from "../templates/data"
 
 export function HomePage() {
   const navigate = useNavigate()
   const [resumes, setResumes] = useState<ResumeVersion[]>([])
   const [modalOpen, setModalOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [styleMap, setStyleMap] = useState<Record<string, TemplateStyleConfig>>({})
 
   const loadResumes = useCallback(async () => {
@@ -60,19 +62,31 @@ export function HomePage() {
 
   return (
     <div className="mx-auto max-w-6xl p-6">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold">我的简历</h1>
-        <Button onClick={() => setModalOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          新建简历
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setImportOpen(true)}>
+            <FileUp className="mr-2 h-4 w-4" />
+            导入旧简历
+          </Button>
+          <Button onClick={() => setModalOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            新建简历
+          </Button>
+        </div>
       </div>
 
       {resumes.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-center">
           <p className="mb-2 text-lg text-muted-foreground">还没有简历</p>
-          <p className="mb-6 text-sm text-muted-foreground">创建你的第一份简历，从选择模板开始</p>
-          <Button onClick={() => setModalOpen(true)}>创建第一份简历</Button>
+          <p className="mb-6 text-sm text-muted-foreground">从旧简历重构，或创建一份新的简历。</p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button onClick={() => setImportOpen(true)}>
+              <FileUp className="mr-2 h-4 w-4" />
+              导入旧简历
+            </Button>
+            <Button variant="outline" onClick={() => setModalOpen(true)}>创建第一份简历</Button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-x-6 gap-y-8">
@@ -88,6 +102,7 @@ export function HomePage() {
         </div>
       )}
 
+      <ImportOldResumeModal open={importOpen} onOpenChange={setImportOpen} />
       <NewResumeModal open={modalOpen} onOpenChange={setModalOpen} />
     </div>
   )

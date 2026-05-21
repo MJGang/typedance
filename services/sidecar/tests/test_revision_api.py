@@ -213,7 +213,17 @@ def test_revision_api_creates_document_source_and_run(revision_client):
     assert created_run.status_code == 201
     run = created_run.json()
     assert run["pack_id"] == "resume"
+    assert run["status"] == "completed"
+    assert run["target_draft_id"].startswith("draft_")
     assert client.get(f"/revision-runs/{run['id']}").json()["id"] == run["id"]
+
+    workspace = client.get(f"/documents/{document['id']}/workspace-view").json()
+    assert workspace["current_draft"]["id"] == run["target_draft_id"]
+    assert len(workspace["modules"]) >= 2
+    assert workspace["issues"]
+    assert workspace["proposals"]
+    assert workspace["evidence"]
+    assert workspace["render_projection"]["draft_id"] == run["target_draft_id"]
 
 
 def test_revision_api_returns_workspace_and_renders_draft(revision_client):

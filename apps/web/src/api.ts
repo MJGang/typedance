@@ -161,6 +161,33 @@ export async function createRevisionRun(
   )
 }
 
+export type ImportOldResumeInput = {
+  title: string
+  raw_text: string
+  target_language?: "zh-CN" | "en-US"
+}
+
+export async function importOldResume(input: ImportOldResumeInput): Promise<WorkspaceView> {
+  const document = await createRevisionDocument({
+    title: input.title,
+    pack_id: "resume",
+    target_language: input.target_language ?? "zh-CN",
+    initial_mode: "import_old_resume",
+  })
+  const source = await createRevisionSource(document.id, {
+    source_type: "old_resume",
+    title: "旧简历",
+    raw_text: input.raw_text,
+    mime_type: "text/plain",
+  })
+  await createRevisionRun(document.id, {
+    run_type: "import_reconstruct",
+    source_document_ids: [source.id],
+    user_intent: "导入旧简历并生成可审阅草稿",
+  })
+  return getRevisionWorkspaceView(document.id)
+}
+
 export async function renderRevisionDraft(
   draftId: string,
   renderProfile?: string,

@@ -155,6 +155,11 @@
   - 目标是在 Web 前端新增消费 `WorkspaceView` 的 AI-native 工作台入口。
   - 页面围绕草稿、问题、建议、证据和动作组织，而不是额外搭一个聊天框。
 
+- `superpowers/plans/2026-05-21-wp11-import-flow.md`
+  - WP11 Import Flow 工程实施计划。
+  - 目标是让用户粘贴或导入旧简历后自动形成 Document、Source、RevisionRun、Draft、Issue、Proposal、Evidence 和 RenderProjection。
+  - 这是旧简历重构场景从“进入空白编辑器”转向“进入 AI-native 改稿工作台”的闭环入口。
+
 - `superpowers/plans/2026-05-08-typedance-foundation-slice-1.md`
   - Slice 0 + Slice 1 工程落地计划。
   - 目标是先完成可运行的本地优先简历编辑、A4 预览、sidecar 持久化和 PDF 导出闭环。

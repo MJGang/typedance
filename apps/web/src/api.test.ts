@@ -196,4 +196,119 @@ describe("revision api", () => {
     )
     expect(proposal.status).toBe("applied")
   })
+
+  it("imports an old resume through document source run and workspace view", async () => {
+    const responses = [
+      {
+        id: "doc_import",
+        pack_id: "resume",
+        title: "旧简历重构",
+        status: "active",
+        target_language: "zh-CN",
+        current_draft_id: null,
+        accepted_draft_id: null,
+        created_at: "2026-05-21T08:00:00.000Z",
+        updated_at: "2026-05-21T08:00:00.000Z",
+      },
+      {
+        id: "src_import",
+        document_id: "doc_import",
+        source_type: "old_resume",
+        title: "旧简历",
+        mime_type: "text/plain",
+        raw_text: "项目经历\n负责订单系统重构",
+        parse_status: "parsed",
+        created_at: "2026-05-21T08:00:00.000Z",
+      },
+      {
+        id: "run_import",
+        document_id: "doc_import",
+        pack_id: "resume",
+        run_type: "import_reconstruct",
+        status: "completed",
+        source_document_ids: ["src_import"],
+        target_draft_id: "draft_import",
+        created_at: "2026-05-21T08:00:00.000Z",
+        updated_at: "2026-05-21T08:00:00.000Z",
+      },
+      {
+        document: {
+          id: "doc_import",
+          pack_id: "resume",
+          title: "旧简历重构",
+          status: "active",
+          target_language: "zh-CN",
+          current_draft_id: "draft_import",
+          created_at: "2026-05-21T08:00:00.000Z",
+          updated_at: "2026-05-21T08:00:00.000Z",
+        },
+        current_draft: {
+          id: "draft_import",
+          document_id: "doc_import",
+          run_id: "run_import",
+          pack_id: "resume",
+          status: "in_review",
+          summary: "基于旧简历生成的结构化草稿",
+          applied_proposal_ids: [],
+          unresolved_issue_ids: [],
+          created_at: "2026-05-21T08:00:00.000Z",
+          updated_at: "2026-05-21T08:00:00.000Z",
+        },
+        modules: [],
+        claims: [],
+        issues: [],
+        proposals: [],
+        evidence: [],
+        source_summaries: [],
+        quality_gate: { status: "ready", blocking_issue_ids: [], warning_issue_ids: [] },
+        available_actions: [],
+      },
+    ]
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(responses.shift())))
+    vi.stubGlobal("fetch", fetchMock)
+    const requestBody = (callIndex: number) => {
+      const init = (fetchMock.mock.calls[callIndex] as unknown as [string, RequestInit?])[1]
+      if (typeof init?.body !== "string") throw new Error("Expected JSON request body")
+      return JSON.parse(init.body)
+    }
+
+    const { importOldResume } = await import("./api")
+    const workspace = await importOldResume({
+      title: "旧简历重构",
+      raw_text: "项目经历\n负责订单系统重构",
+    })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://127.0.0.1:4317/documents",
+      expect.objectContaining({ method: "POST" }),
+    )
+    expect(requestBody(0)).toMatchObject({
+      title: "旧简历重构",
+      initial_mode: "import_old_resume",
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://127.0.0.1:4317/documents/doc_import/sources",
+      expect.objectContaining({ method: "POST" }),
+    )
+    expect(requestBody(1)).toMatchObject({
+      source_type: "old_resume",
+      raw_text: "项目经历\n负责订单系统重构",
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://127.0.0.1:4317/documents/doc_import/revision-runs",
+      expect.objectContaining({ method: "POST" }),
+    )
+    expect(requestBody(2)).toMatchObject({
+      run_type: "import_reconstruct",
+      source_document_ids: ["src_import"],
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "http://127.0.0.1:4317/documents/doc_import/workspace-view",
+    )
+    expect(workspace.document.current_draft_id).toBe("draft_import")
+  })
 })
