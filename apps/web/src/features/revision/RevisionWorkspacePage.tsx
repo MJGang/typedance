@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { AlertCircle, ArrowLeft, Check, FileText, Loader2, RefreshCcw, ShieldCheck, X } from "lucide-react"
+import { AlertCircle, ArrowLeft, BriefcaseBusiness, Check, FileText, Loader2, RefreshCcw, ShieldCheck, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   acceptRevisionProposal,
@@ -10,6 +10,7 @@ import {
   renderRevisionDraft,
   runRevisionQualityReview,
 } from "@/api"
+import { OpportunityCalibrationModal } from "./OpportunityCalibrationModal"
 import type { ContextualAction, DocumentModule, RevisionIssue, RevisionProposal, WorkspaceView } from "@typedance/contracts"
 
 type LoadState =
@@ -125,6 +126,7 @@ export function RevisionWorkspacePage() {
   const navigate = useNavigate()
   const [state, setState] = useState<LoadState>({ status: "loading" })
   const [actingActionId, setActingActionId] = useState<string | null>(null)
+  const [opportunityOpen, setOpportunityOpen] = useState(false)
 
   const loadWorkspace = useCallback(async () => {
     if (!documentId) return
@@ -257,6 +259,15 @@ export function RevisionWorkspacePage() {
           )}
           质量检查
         </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setOpportunityOpen(true)}
+          disabled={!workspace.current_draft}
+        >
+          <BriefcaseBusiness className="mr-2 h-4 w-4" />
+          岗位校准
+        </Button>
         <span className={`rounded-md border px-2 py-1 text-xs ${qualityClass(workspace.quality_gate?.status)}`}>
           {qualityLabel(workspace.quality_gate?.status)}
         </span>
@@ -331,6 +342,15 @@ export function RevisionWorkspacePage() {
           </section>
         </aside>
       </main>
+      {workspace.current_draft && (
+        <OpportunityCalibrationModal
+          documentId={workspace.document.id}
+          baseDraftId={workspace.current_draft.id}
+          open={opportunityOpen}
+          onOpenChange={setOpportunityOpen}
+          onCompleted={loadWorkspace}
+        />
+      )}
     </div>
   )
 }

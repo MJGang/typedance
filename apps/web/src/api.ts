@@ -245,6 +245,31 @@ export async function runRevisionQualityReview(
   })
 }
 
+export type CalibrateRevisionOpportunityInput = {
+  title: string
+  raw_text: string
+}
+
+export async function calibrateRevisionOpportunity(
+  documentId: string,
+  baseDraftId: string,
+  input: CalibrateRevisionOpportunityInput,
+): Promise<WorkspaceView> {
+  const source = await createRevisionSource(documentId, {
+    source_type: "external_context",
+    title: input.title,
+    raw_text: input.raw_text,
+    mime_type: "text/plain",
+  })
+  await createRevisionRun(documentId, {
+    run_type: "opportunity_calibrate",
+    source_document_ids: [source.id],
+    base_draft_id: baseDraftId,
+    user_intent: "生成岗位校准版本",
+  })
+  return getRevisionWorkspaceView(documentId)
+}
+
 export async function renderRevisionDraft(
   draftId: string,
   renderProfile?: string,

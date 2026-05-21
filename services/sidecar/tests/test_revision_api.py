@@ -335,6 +335,43 @@ def test_revision_api_runs_quality_review(revision_client):
     assert workspace["quality_gate"]["status"] == "blocked"
 
 
+def test_revision_api_runs_opportunity_calibration(revision_client):
+    client, tmp_path = revision_client
+    repo = seed_workspace(tmp_path)
+    repo.save_source_document(
+        SourceDocument(
+            id="src_opp",
+            document_id="doc_1",
+            source_type="external_context",
+            title="前端岗位",
+            raw_text="要求：React、TypeScript、Node.js",
+            parse_status="pending",
+            created_at=utc_now(),
+        )
+    )
+
+    created_run = client.post(
+        "/documents/doc_1/revision-runs",
+        json={
+            "run_type": "opportunity_calibrate",
+            "source_document_ids": ["src_opp"],
+            "base_draft_id": "draft_1",
+            "user_intent": "生成岗位版本",
+        },
+    )
+
+    assert created_run.status_code == 201
+    run = created_run.json()
+    assert run["status"] == "completed"
+    assert run["target_draft_id"] != "draft_1"
+
+    workspace = client.get("/documents/doc_1/workspace-view").json()
+    assert workspace["current_draft"]["id"] == run["target_draft_id"]
+    assert workspace["current_draft"]["variant_type"] == "opportunity"
+    assert any(issue["type"] == "missing_opportunity_requirement" for issue in workspace["issues"])
+    assert workspace["proposals"]
+
+
 def test_revision_api_handles_issues_proposals_and_confirmations(revision_client):
     client, tmp_path = revision_client
     seed_workspace(tmp_path)

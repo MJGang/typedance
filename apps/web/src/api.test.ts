@@ -445,4 +445,92 @@ describe("revision api", () => {
     )
     expect(run.status).toBe("completed")
   })
+
+  it("calibrates an opportunity from external context", async () => {
+    const responses = [
+      {
+        id: "src_opp",
+        document_id: "doc_1",
+        source_type: "external_context",
+        title: "前端岗位",
+        mime_type: "text/plain",
+        raw_text: "要求：React、TypeScript",
+        parse_status: "parsed",
+        created_at: "2026-05-21T08:00:00.000Z",
+      },
+      {
+        id: "run_opp",
+        document_id: "doc_1",
+        pack_id: "resume",
+        run_type: "opportunity_calibrate",
+        status: "completed",
+        source_document_ids: ["src_opp"],
+        base_draft_id: "draft_1",
+        target_draft_id: "draft_opp",
+        created_at: "2026-05-21T08:00:00.000Z",
+        updated_at: "2026-05-21T08:00:00.000Z",
+      },
+      {
+        document: {
+          id: "doc_1",
+          pack_id: "resume",
+          title: "基础简历",
+          status: "active",
+          target_language: "zh-CN",
+          current_draft_id: "draft_opp",
+          created_at: "2026-05-21T08:00:00.000Z",
+          updated_at: "2026-05-21T08:00:00.000Z",
+        },
+        current_draft: {
+          id: "draft_opp",
+          document_id: "doc_1",
+          run_id: "run_opp",
+          pack_id: "resume",
+          status: "in_review",
+          summary: "前端岗位岗位版本",
+          applied_proposal_ids: [],
+          unresolved_issue_ids: [],
+          variant_type: "opportunity",
+          created_at: "2026-05-21T08:00:00.000Z",
+          updated_at: "2026-05-21T08:00:00.000Z",
+        },
+        modules: [],
+        claims: [],
+        issues: [],
+        proposals: [],
+        evidence: [],
+        source_summaries: [],
+        quality_gate: { status: "needs_review", blocking_issue_ids: [], warning_issue_ids: [] },
+        available_actions: [],
+      },
+    ]
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(responses.shift())))
+    vi.stubGlobal("fetch", fetchMock)
+    const requestBody = (callIndex: number) => {
+      const init = (fetchMock.mock.calls[callIndex] as unknown as [string, RequestInit?])[1]
+      if (typeof init?.body !== "string") throw new Error("Expected JSON request body")
+      return JSON.parse(init.body)
+    }
+
+    const { calibrateRevisionOpportunity } = await import("./api")
+    const workspace = await calibrateRevisionOpportunity("doc_1", "draft_1", {
+      title: "前端岗位",
+      raw_text: "要求：React、TypeScript",
+    })
+
+    expect(requestBody(0)).toMatchObject({
+      source_type: "external_context",
+      title: "前端岗位",
+    })
+    expect(requestBody(1)).toMatchObject({
+      run_type: "opportunity_calibrate",
+      base_draft_id: "draft_1",
+      source_document_ids: ["src_opp"],
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://127.0.0.1:4317/documents/doc_1/workspace-view",
+    )
+    expect(workspace.current_draft?.variant_type).toBe("opportunity")
+  })
 })
