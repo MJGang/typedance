@@ -1,0 +1,75 @@
+# WP5 Agent Runtime 实施计划
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** 建立不依赖具体大模型供应商的 Agent Runtime 骨架，让每次 Agent 调用都可追踪、可校验、可失败恢复。
+
+**Architecture:** 新增通用 `AgentInvocationContext`、`AgentOutputEnvelope`、`AgentSchemaRegistry` 和 `AgentRuntime`。Runtime 不直接调用 OpenAI/Claude，也不直接写 Draft/Issue/Proposal；它只负责执行 runner、校验输出信封和 payload schema、记录 `AgentStep`，并在失败时更新 `RevisionRun` 状态。
+
+**Tech Stack:** Python 3.14 runtime, Pydantic v2, SQLite repository, pytest.
+
+---
+
+## File Structure
+
+新增：
+
+- `services/sidecar/src/typedance_sidecar/revision_agent_runtime.py`
+  - Agent 调用上下文、输出信封、schema registry、runtime 执行器、错误分类。
+- `services/sidecar/tests/test_revision_agent_runtime.py`
+  - Agent Runtime 成功、schema 失败、policy 失败、model 失败测试。
+
+修改：
+
+- `docs/README.md`
+  - 登记 WP5 计划。
+
+## Task 1: Agent Runtime Models
+
+- [ ] 定义 `AgentInputRef`，把领域对象引用统一成 `ObjectType:object_id`。
+- [ ] 定义 `AgentWarning`。
+- [ ] 定义 `AgentInvocationContext`。
+- [ ] 定义 `AgentOutputEnvelope`。
+- [ ] 定义 `AgentInvocationResult`。
+- [ ] 定义 `AgentRuntimeError`，包含 `step_status`、`code`、`message`、`retryable`、`details`。
+
+## Task 2: Schema Registry
+
+- [ ] 实现 `AgentSchemaRegistry.register(output_type, model_type)`。
+- [ ] 实现 `AgentSchemaRegistry.validate(envelope)`。
+- [ ] 未注册 output type 抛出 `failed_schema` 错误。
+- [ ] payload 校验失败抛出 `failed_schema` 错误。
+
+## Task 3: Runtime Execution
+
+- [ ] `AgentRuntime.invoke(context, runner)` 创建 running `AgentStep`。
+- [ ] runner 返回 dict 时转换为 `AgentOutputEnvelope`。
+- [ ] 校验信封必须匹配 context 的 invocation/run/document/pack/agent。
+- [ ] 成功时保存 completed `AgentStep`。
+- [ ] schema 失败时保存 failed_schema `AgentStep`，并将 run 更新为 `failed_retryable`。
+- [ ] policy 失败时保存 failed_policy `AgentStep`，并将 run 更新为 `failed_final`。
+- [ ] runner 抛异常时保存 failed_model `AgentStep`，并将 run 更新为 `failed_retryable`。
+
+## Task 4: Tests
+
+- [ ] 测试成功调用完成 AgentStep。
+- [ ] 测试 payload schema 失败不会 completed。
+- [ ] 测试信封和 context 不一致进入 failed_policy。
+- [ ] 测试 runner 异常进入 failed_model。
+- [ ] 测试未知 output type 进入 failed_schema。
+- [ ] 运行：
+
+```bash
+corepack pnpm --filter @typedance/sidecar test -- tests/test_revision_agent_runtime.py
+corepack pnpm --filter @typedance/sidecar test
+corepack pnpm test
+```
+
+## Completion
+
+提交：
+
+```bash
+git add docs/README.md docs/superpowers/plans/2026-05-21-wp5-agent-runtime.md services/sidecar/src/typedance_sidecar/revision_agent_runtime.py services/sidecar/tests/test_revision_agent_runtime.py
+git commit -m "feat(sidecar): 新增 Agent Runtime 骨架"
+```

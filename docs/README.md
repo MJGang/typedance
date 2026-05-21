@@ -125,6 +125,11 @@
   - 目标是将 Resume Pack 变成 sidecar 可加载、可校验、可查询的运行时规则包。
   - 这是后续 Agent Runtime、Revision API 和 Workspace UI 消费模块、问题、动作、质量规则的基础。
 
+- `superpowers/plans/2026-05-21-wp5-agent-runtime.md`
+  - WP5 Agent Runtime 工程实施计划。
+  - 目标是建立不依赖具体模型供应商的 Agent 调用骨架，让每次调用都有上下文、输出信封、schema 校验和 AgentStep 记录。
+  - 这是后续 Resume Agents 接真实模型前的可追踪运行底座。
+
 - `superpowers/plans/2026-05-08-typedance-foundation-slice-1.md`
   - Slice 0 + Slice 1 工程落地计划。
   - 目标是先完成可运行的本地优先简历编辑、A4 预览、sidecar 持久化和 PDF 导出闭环。
