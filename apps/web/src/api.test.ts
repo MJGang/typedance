@@ -76,3 +76,124 @@ describe("exportResumePdf", () => {
     createElementMock.mockRestore();
   });
 })
+
+describe("revision api", () => {
+  it("loads a revision workspace view", async () => {
+    const payload = {
+      document: {
+        id: "doc_1",
+        pack_id: "resume",
+        title: "张三的简历",
+        status: "active",
+        target_language: "zh-CN",
+        current_draft_id: "draft_1",
+        created_at: "2026-05-21T08:00:00.000Z",
+        updated_at: "2026-05-21T08:00:00.000Z",
+      },
+      current_draft: {
+        id: "draft_1",
+        document_id: "doc_1",
+        run_id: "run_1",
+        pack_id: "resume",
+        status: "in_review",
+        summary: "结构化草稿",
+        applied_proposal_ids: [],
+        unresolved_issue_ids: ["issue_1"],
+        created_at: "2026-05-21T08:00:00.000Z",
+        updated_at: "2026-05-21T08:00:00.000Z",
+      },
+      modules: [],
+      claims: [],
+      issues: [],
+      proposals: [],
+      evidence: [],
+      source_summaries: [],
+      quality_gate: {
+        status: "needs_review",
+        blocking_issue_ids: [],
+        warning_issue_ids: ["issue_1"],
+      },
+      run_status: {
+        run_id: "run_1",
+        status: "completed",
+      },
+      coach_summary: {
+        summary: "还有 1 个问题建议处理后再导出。",
+        next_action_ids: ["act_1"],
+      },
+      available_actions: [
+        {
+          id: "act_1",
+          label: "接受修改",
+          action_type: "accept_proposal",
+          target: { claim_id: "claim_1" },
+        },
+      ],
+    }
+
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(payload))))
+
+    const { getRevisionWorkspaceView } = await import("./api")
+    const view = await getRevisionWorkspaceView("doc_1")
+
+    expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:4317/documents/doc_1/workspace-view")
+    expect(view.document.id).toBe("doc_1")
+    expect(view.available_actions[0].action_type).toBe("accept_proposal")
+  })
+
+  it("renders a revision draft with a profile", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      id: "render_1",
+      draft_id: "draft_1",
+      render_profile: "default-a4",
+      html: "<article></article>",
+      doc_json: { type: "doc", content: [] },
+      layout_warnings: [],
+      created_at: "2026-05-21T08:00:00.000Z",
+    }))))
+
+    const { renderRevisionDraft } = await import("./api")
+    const projection = await renderRevisionDraft("draft_1", "default-a4")
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:4317/drafts/draft_1/render",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ render_profile: "default-a4" }),
+      },
+    )
+    expect(projection.id).toBe("render_1")
+  })
+
+  it("accepts a revision proposal", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      id: "prop_1",
+      run_id: "run_1",
+      document_id: "doc_1",
+      draft_id: "draft_1",
+      target: { claim_id: "claim_1" },
+      operation: "replace_claim",
+      proposed_snapshot: { text: "更好的表达" },
+      summary: "改成结果导向表达",
+      rationale: "原文只有动作。",
+      related_issue_ids: ["issue_1"],
+      evidence_link_ids: [],
+      confidence: 0.8,
+      risk_level: "medium",
+      requires_user_confirmation: true,
+      status: "applied",
+      created_by_agent: "ResumeRewriter",
+      created_at: "2026-05-21T08:00:00.000Z",
+    }))))
+
+    const { acceptRevisionProposal } = await import("./api")
+    const proposal = await acceptRevisionProposal("prop_1")
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:4317/proposals/prop_1/accept",
+      { method: "POST" },
+    )
+    expect(proposal.status).toBe("applied")
+  })
+})

@@ -1,11 +1,31 @@
 import { z } from "zod";
 import {
+  documentSchema,
+  draftVersionSchema,
+  evidenceLinkSchema,
+  renderProjectionSchema,
   resumeVersionSchema,
+  revisionIssueSchema,
+  revisionProposalSchema,
+  revisionRunSchema,
+  sourceDocumentSchema,
   templateSampleContentSchema,
   templateStyleConfigSchema,
+  userConfirmationSchema,
+  workspaceViewSchema,
+  type Document as RevisionDocument,
+  type DraftVersion,
+  type EvidenceLink,
+  type RenderProjection,
   type ResumeVersion,
+  type RevisionIssue,
+  type RevisionProposal,
+  type RevisionRun,
+  type SourceDocument,
   type TemplateSampleContent,
   type TemplateStyleConfig,
+  type UserConfirmation,
+  type WorkspaceView,
 } from "@typedance/contracts";
 import { chooseHtmlSavePathInTauri, choosePdfSavePathInTauri, isTauri } from "./tauri";
 const baseUrl = import.meta.env.VITE_SIDECAR_URL ?? "http://127.0.0.1:4317";
@@ -61,6 +81,167 @@ export async function createResumeVersion(resume: Pick<ResumeVersion, "title" | 
   }
 
   return resumeVersionSchema.parse(await response.json());
+}
+
+export type CreateRevisionDocumentInput = {
+  title: string
+  pack_id?: string
+  target_language?: "zh-CN" | "en-US"
+  initial_mode?: "import_old_resume" | "blank_guided" | "base_resume" | "opportunity_variant"
+}
+
+export async function createRevisionDocument(
+  document: CreateRevisionDocumentInput,
+): Promise<RevisionDocument> {
+  const response = await fetch(`${baseUrl}/documents`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(document),
+  })
+  return parseTemplateResponse(
+    response,
+    (value) => documentSchema.parse(value),
+    "Failed to create revision document",
+  )
+}
+
+export async function getRevisionWorkspaceView(documentId: string): Promise<WorkspaceView> {
+  const response = await fetch(`${baseUrl}/documents/${documentId}/workspace-view`)
+  return parseTemplateResponse(
+    response,
+    (value) => workspaceViewSchema.parse(value),
+    "Failed to load revision workspace",
+  )
+}
+
+export async function createRevisionSource(
+  documentId: string,
+  source: {
+    source_type: SourceDocument["source_type"]
+    title: string
+    raw_text?: string
+    file_path?: string
+    original_uri?: string
+    mime_type?: string
+  },
+): Promise<SourceDocument> {
+  const response = await fetch(`${baseUrl}/documents/${documentId}/sources`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(source),
+  })
+  return parseTemplateResponse(
+    response,
+    (value) => sourceDocumentSchema.parse(value),
+    "Failed to create revision source",
+  )
+}
+
+export async function createRevisionRun(
+  documentId: string,
+  run: {
+    run_type: RevisionRun["run_type"]
+    source_document_ids?: string[]
+    base_draft_id?: string
+    user_intent?: string
+    selected_module_id?: string
+    selected_issue_id?: string
+    selected_action_id?: string
+  },
+): Promise<RevisionRun> {
+  const response = await fetch(`${baseUrl}/documents/${documentId}/revision-runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(run),
+  })
+  return parseTemplateResponse(
+    response,
+    (value) => revisionRunSchema.parse(value),
+    "Failed to create revision run",
+  )
+}
+
+export async function renderRevisionDraft(
+  draftId: string,
+  renderProfile?: string,
+): Promise<RenderProjection> {
+  const response = await fetch(`${baseUrl}/drafts/${draftId}/render`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ render_profile: renderProfile }),
+  })
+  return parseTemplateResponse(
+    response,
+    (value) => renderProjectionSchema.parse(value),
+    "Failed to render revision draft",
+  )
+}
+
+export async function acceptRevisionDraft(draftId: string): Promise<DraftVersion> {
+  const response = await fetch(`${baseUrl}/drafts/${draftId}/accept`, { method: "POST" })
+  return parseTemplateResponse(
+    response,
+    (value) => draftVersionSchema.parse(value),
+    "Failed to accept revision draft",
+  )
+}
+
+export async function dismissRevisionIssue(issueId: string): Promise<RevisionIssue> {
+  const response = await fetch(`${baseUrl}/issues/${issueId}/dismiss`, { method: "POST" })
+  return parseTemplateResponse(
+    response,
+    (value) => revisionIssueSchema.parse(value),
+    "Failed to dismiss revision issue",
+  )
+}
+
+export async function acceptRevisionProposal(proposalId: string): Promise<RevisionProposal> {
+  const response = await fetch(`${baseUrl}/proposals/${proposalId}/accept`, { method: "POST" })
+  return parseTemplateResponse(
+    response,
+    (value) => revisionProposalSchema.parse(value),
+    "Failed to accept revision proposal",
+  )
+}
+
+export async function rejectRevisionProposal(proposalId: string): Promise<RevisionProposal> {
+  const response = await fetch(`${baseUrl}/proposals/${proposalId}/reject`, { method: "POST" })
+  return parseTemplateResponse(
+    response,
+    (value) => revisionProposalSchema.parse(value),
+    "Failed to reject revision proposal",
+  )
+}
+
+export async function confirmRevisionClaim(
+  claimId: string,
+  confirmation: {
+    document_id: string
+    confirmation_type?: "truth_confirmed" | "risk_accepted" | "source_verified"
+    evidence_link_id?: string
+    issue_id?: string
+    note?: string
+  },
+): Promise<UserConfirmation> {
+  const response = await fetch(`${baseUrl}/claims/${claimId}/confirm`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(confirmation),
+  })
+  return parseTemplateResponse(
+    response,
+    (value) => userConfirmationSchema.parse(value),
+    "Failed to confirm revision claim",
+  )
+}
+
+export async function confirmEvidenceLink(evidenceLinkId: string): Promise<EvidenceLink> {
+  const response = await fetch(`${baseUrl}/evidence-links/${evidenceLinkId}/confirm`, { method: "POST" })
+  return parseTemplateResponse(
+    response,
+    (value) => evidenceLinkSchema.parse(value),
+    "Failed to confirm evidence link",
+  )
 }
 
 export async function exportResumePdf(
