@@ -208,9 +208,11 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
       <main className="min-h-[calc(100svh-3rem)] bg-background p-4 md:p-6">
         <TemplateDetail
           theme={selectedTheme}
+          themes={themes}
           sample={visibleSample}
           uiLanguage={uiLanguage}
           onBack={() => setSelectedThemeId(null)}
+          onThemeChange={setSelectedThemeId}
           onStyleChange={handleStyleChange}
           onSampleChange={handleSampleChange}
           onSaveSample={handleSaveSample}

@@ -1253,6 +1253,21 @@ textarea {
   font-weight: 500;
 }
 
+.td-style-panel [data-slot="input"],
+.td-style-panel [data-slot="select-trigger"],
+.td-style-panel .td-color-picker-trigger {
+  background: transparent;
+}
+
+.td-style-panel [data-slot="input"]:hover,
+.td-style-panel [data-slot="input"]:focus-visible,
+.td-style-panel [data-slot="select-trigger"]:hover,
+.td-style-panel [data-slot="select-trigger"][aria-expanded="true"],
+.td-style-panel .td-color-picker-trigger:hover,
+.td-style-panel .td-color-picker-trigger[aria-expanded="true"] {
+  background: transparent;
+}
+
 .td-template-paper h1 {
   margin: 0 0 0.5rem;
   font-size: 1.5rem;

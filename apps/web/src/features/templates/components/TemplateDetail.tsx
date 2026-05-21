@@ -27,9 +27,11 @@ export type ThemeDetailItem = {
 
 type TemplateDetailProps = {
   theme: ThemeDetailItem
+  themes: ThemeDetailItem[]
   sample: TemplateSampleContent
   uiLanguage: UiLanguage
   onBack: () => void
+  onThemeChange: (themeId: string) => void
   onStyleChange: (style: TemplateStyleConfig) => void
   onSampleChange: (sample: TemplateSampleContent) => void
   onSaveSample: () => void
@@ -47,9 +49,11 @@ const VALID_BLOCKS: BlockType[] = [
 
 export function TemplateDetail({
   theme,
+  themes,
   sample,
   uiLanguage,
   onBack,
+  onThemeChange,
   onStyleChange,
   sampleStatus,
 }: TemplateDetailProps) {
@@ -129,7 +133,10 @@ export function TemplateDetail({
         <aside className="min-h-0 overflow-hidden rounded-lg border border-border bg-card shadow-sm">
           <StylePanel
             styleConfig={theme.styleConfig}
+            selectedThemeId={theme.id}
+            themeOptions={themes}
             onChange={onStyleChange}
+            onThemeChange={onThemeChange}
             activeBlock={activeBlock}
             onActiveBlockChange={setActiveBlock}
             uiLanguage={uiLanguage}

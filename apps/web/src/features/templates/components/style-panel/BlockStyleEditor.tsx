@@ -7,6 +7,7 @@ import { SpacingSection } from "./sections/SpacingSection";
 import { AlignmentSection } from "./sections/AlignmentSection";
 import { BorderSection } from "./sections/BorderSection";
 import { ListSection } from "./sections/ListSection";
+import { InspectorAccordion } from "./InspectorControls";
 
 type BlockStyleEditorProps = {
   blockType: BlockType;
@@ -51,10 +52,10 @@ export function BlockStyleEditor({ blockType, value, onChange }: BlockStyleEdito
             <List className="size-3.5 text-muted-foreground" />
             <span className="text-sm font-medium">列表结构</span>
           </div>
-          <div className="flex flex-col">
+          <InspectorAccordion key={`${blockType}-structure`} type="single" collapsible defaultValue="list">
             <ListSection value={value} onChange={onChange} />
             <SpacingSection value={value} onChange={onChange} />
-          </div>
+          </InspectorAccordion>
         </section>
 
         <section className="rounded-md border border-border bg-card">
@@ -78,23 +79,23 @@ export function BlockStyleEditor({ blockType, value, onChange }: BlockStyleEdito
               清空
             </Button>
           </div>
-          <div className="flex flex-col">
+          <InspectorAccordion key={`${blockType}-text`} type="single" collapsible defaultValue="typography">
             <TypographySection value={value} onChange={onChange} />
             <ColorSection value={value} onChange={onChange} />
             <AlignmentSection value={value} onChange={onChange} />
-          </div>
+          </InspectorAccordion>
         </section>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col">
+    <InspectorAccordion key={blockType} type="single" collapsible defaultValue="typography">
       <TypographySection value={value} onChange={onChange} />
       <ColorSection value={value} onChange={onChange} />
       <SpacingSection value={value} onChange={onChange} />
       <AlignmentSection value={value} onChange={onChange} />
       <BorderSection value={value} onChange={onChange} />
-    </div>
+    </InspectorAccordion>
   );
 }

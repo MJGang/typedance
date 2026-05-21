@@ -1,24 +1,18 @@
-import { useState, useCallback, useRef, useEffect } from "react";
-import { Input } from "@/components/ui/input";
+import { useCallback, useRef, useEffect } from "react";
 import type { BlockType, TemplateStyleConfig } from "../../style-engine/types";
 import { BlockSelector } from "./BlockSelector";
 import { BlockStyleEditor } from "./BlockStyleEditor";
-import { PresetSelector } from "./PresetSelector";
-import { StyleStatusBar } from "./StyleStatusBar";
-import { getPreset } from "../../style-engine/presets";
+import { ThemeSelector, type ThemeSelectorOption } from "./ThemeSelector";
 import { saveTemplateStyle } from "@/api";
 import { ColumnsSection } from "./sections/ColumnsSection";
 import type { ColumnsCount, ColumnsGap } from "@typedance/tiptap-layout";
 
-const PRESET_LABELS: Record<string, string> = {
-  classic: "经典",
-  modern: "现代",
-  clean: "简洁",
-};
-
 type StylePanelProps = {
   styleConfig: TemplateStyleConfig;
+  selectedThemeId: string;
+  themeOptions: ThemeSelectorOption[];
   onChange: (config: TemplateStyleConfig) => void;
+  onThemeChange: (themeId: string) => void;
   activeBlock: BlockType;
   onActiveBlockChange: (block: BlockType) => void;
   activeColumnsCount?: ColumnsCount | null;
@@ -31,7 +25,10 @@ type StylePanelProps = {
 
 export function StylePanel({
   styleConfig,
+  selectedThemeId,
+  themeOptions,
   onChange,
+  onThemeChange,
   activeBlock,
   onActiveBlockChange,
   activeColumnsCount,
@@ -41,11 +38,8 @@ export function StylePanel({
   onUnsetColumns,
   uiLanguage,
 }: StylePanelProps) {
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isCustom = !styleConfig.preset || styleConfig.preset === "custom";
   const currentBlockStyle = styleConfig.blocks[activeBlock] ?? {};
 
   const handleBlockStyleChange = useCallback((newStyle: typeof currentBlockStyle) => {
@@ -58,47 +52,11 @@ export function StylePanel({
 
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
-      setSaving(true);
-      setError(null);
       saveTemplateStyle(next)
-        .then((saved) => { onChange({ ...saved, preset: next.preset }); setSaving(false); })
-        .catch(() => { setError("保存失败，稍后重试"); setSaving(false); });
+        .then((saved) => { onChange({ ...saved, preset: next.preset }); })
+        .catch(() => undefined);
     }, 300);
   }, [styleConfig, activeBlock, onChange]);
-
-  const handlePresetChange = useCallback((presetName: string) => {
-    const preset = getPreset(presetName);
-    if (!preset) return;
-    const next: TemplateStyleConfig = {
-      ...styleConfig,
-      preset: presetName,
-      blocks: { ...preset },
-    };
-    onChange(next);
-
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      setSaving(true);
-      setError(null);
-      saveTemplateStyle(next)
-        .then((saved) => { onChange({ ...saved, preset: presetName }); setSaving(false); })
-        .catch(() => { setError("保存失败，稍后重试"); setSaving(false); });
-    }, 300);
-  }, [styleConfig, onChange]);
-
-  const handleNameChange = useCallback((name: string) => {
-    const next = { ...styleConfig, name };
-    onChange(next);
-
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      setSaving(true);
-      setError(null);
-      saveTemplateStyle(next)
-        .then((saved) => { onChange({ ...saved, preset: styleConfig.preset }); setSaving(false); })
-        .catch(() => { setError("保存失败，稍后重试"); setSaving(false); });
-    }, 300);
-  }, [styleConfig, onChange]);
 
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
@@ -109,23 +67,7 @@ export function StylePanel({
           <h3 className="m-0 text-sm font-semibold">主题样式</h3>
           <p className="m-0 mt-1 text-xs leading-5 text-muted-foreground">选择段落后调整全局样式，按钮样式与编辑器工具栏保持一致。</p>
         </div>
-        <PresetSelector value={isCustom ? "custom" : styleConfig.preset} onChange={handlePresetChange} />
-
-        {isCustom ? (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground shrink-0 w-12">名称</span>
-            <Input
-              value={styleConfig.name ?? ""}
-              placeholder="自定义模板"
-              className="h-7 text-xs"
-              onChange={(e) => handleNameChange(e.target.value)}
-            />
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 px-1">
-            <span className="text-xs text-muted-foreground">{PRESET_LABELS[styleConfig.preset] ?? styleConfig.preset} 预设</span>
-          </div>
-        )}
+        <ThemeSelector value={selectedThemeId} options={themeOptions} onChange={onThemeChange} />
 
         <BlockSelector active={activeBlock} onChange={onActiveBlockChange} uiLanguage={uiLanguage} />
       </div>
@@ -147,9 +89,6 @@ export function StylePanel({
         />
       </div>
 
-      <div className="border-t border-border">
-        <StyleStatusBar updatedAt={styleConfig.updated_at} saving={saving} error={error} />
-      </div>
     </div>
   );
 }

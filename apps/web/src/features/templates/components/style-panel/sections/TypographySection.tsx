@@ -1,9 +1,8 @@
-import { ChevronDown, Type } from "lucide-react";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Type } from "lucide-react";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { InspectorSection } from "../InspectorControls";
 import type { BlockStyle } from "../../../style-engine/types";
 import { COMMON_FONTS } from "../../../style-engine/fonts";
 
@@ -12,100 +11,108 @@ type Props = { value: BlockStyle; onChange: (v: BlockStyle) => void };
 const DEFAULT_VALUE = "__default";
 const FONT_SIZE_OPTIONS = ["10px", "11px", "12px", "13px", "14px", "15px", "16px", "18px", "20px", "24px", "28px", "32px"];
 const LINE_HEIGHT_OPTIONS = ["1", "1.15", "1.3", "1.5", "1.75", "2", "2.5"];
+const FONT_WEIGHT_OPTIONS: Array<{ value: "400" | "500" | "600" | "700"; label: string }> = [
+  { value: "400", label: "常规" },
+  { value: "500", label: "中粗" },
+  { value: "600", label: "半粗" },
+  { value: "700", label: "粗体" },
+];
 
 export function TypographySection({ value, onChange }: Props) {
   return (
-    <Collapsible defaultOpen>
-      <CollapsibleTrigger className="group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium hover:bg-muted [&[data-state=open]>svg:first-child]:rotate-0">
-        <ChevronDown className="size-3.5 -rotate-90 text-muted-foreground transition-transform duration-200" />
-        <Type className="size-3.5 text-muted-foreground" />
-        <span className="flex-1 text-left">排版</span>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="space-y-2 p-2">
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs text-muted-foreground">字体</label>
-          <Select value={value.fontFamily} onValueChange={(v) => onChange({ ...value, fontFamily: v })}>
-            <SelectTrigger><SelectValue placeholder="默认" /></SelectTrigger>
+    <InspectorSection value="typography" icon={Type} title="排版" summary={value.fontSize ?? "默认"}>
+      <FieldGroup className="gap-3">
+        <Field className="gap-1.5">
+          <FieldLabel className="text-xs text-muted-foreground">字体</FieldLabel>
+          <Select
+            value={value.fontFamily ?? DEFAULT_VALUE}
+            onValueChange={(v) => onChange({ ...value, fontFamily: v === DEFAULT_VALUE ? undefined : v })}
+          >
+            <SelectTrigger className="w-full justify-between">
+              <SelectValue placeholder="默认" />
+            </SelectTrigger>
             <SelectContent>
-              {COMMON_FONTS.map((f) => (
-                <SelectItem key={f.value} value={f.value}>{f.label["zh-CN"]}</SelectItem>
-              ))}
+              <SelectGroup>
+                <SelectItem value={DEFAULT_VALUE}>默认</SelectItem>
+                {COMMON_FONTS.map((font) => (
+                  <SelectItem key={font.value} value={font.value}>{font.label["zh-CN"]}</SelectItem>
+                ))}
+              </SelectGroup>
             </SelectContent>
           </Select>
-        </div>
-        <div className="flex gap-2">
-          <div className="flex flex-1 flex-col gap-1.5">
-            <label className="text-xs text-muted-foreground">字号</label>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Select
-                  value={value.fontSize ?? DEFAULT_VALUE}
-                  onValueChange={(v) => onChange({ ...value, fontSize: v === DEFAULT_VALUE ? undefined : v })}
-                >
-                  <SelectTrigger size="sm"><SelectValue placeholder="默认" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={DEFAULT_VALUE}>默认</SelectItem>
-                    {FONT_SIZE_OPTIONS.map((size) => (
-                      <SelectItem key={size} value={size}>{size}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </TooltipTrigger>
-              <TooltipContent>字号</TooltipContent>
-            </Tooltip>
-          </div>
-          <div className="flex flex-1 flex-col gap-1.5">
-            <label className="text-xs text-muted-foreground">字重</label>
-            <Select value={String(value.fontWeight ?? "")} onValueChange={(v) => onChange({ ...value, fontWeight: v ? Number(v) as 400|500|600|700 : undefined })}>
-              <SelectTrigger><SelectValue placeholder="默认" /></SelectTrigger>
+        </Field>
+
+        <FieldGroup className="grid grid-cols-2 gap-3">
+          <Field className="gap-1.5">
+            <FieldLabel className="text-xs text-muted-foreground">字号</FieldLabel>
+            <Select
+              value={value.fontSize ?? DEFAULT_VALUE}
+              onValueChange={(v) => onChange({ ...value, fontSize: v === DEFAULT_VALUE ? undefined : v })}
+            >
+              <SelectTrigger size="sm" className="w-full justify-between">
+                <SelectValue placeholder="默认" />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="400">常规</SelectItem>
-                <SelectItem value="500">中粗</SelectItem>
-                <SelectItem value="600">半粗</SelectItem>
-                <SelectItem value="700">粗体</SelectItem>
+                <SelectGroup>
+                  <SelectItem value={DEFAULT_VALUE}>默认</SelectItem>
+                  {FONT_SIZE_OPTIONS.map((size) => (
+                    <SelectItem key={size} value={size}>{size}</SelectItem>
+                  ))}
+                </SelectGroup>
               </SelectContent>
             </Select>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <div className="flex flex-1 flex-col gap-1.5">
-            <label className="text-xs text-muted-foreground">行高</label>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Select
-                  value={value.lineHeight ? String(value.lineHeight) : DEFAULT_VALUE}
-                  onValueChange={(v) => onChange({ ...value, lineHeight: v === DEFAULT_VALUE ? undefined : Number(v) })}
-                >
-                  <SelectTrigger size="sm"><SelectValue placeholder="默认" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={DEFAULT_VALUE}>默认</SelectItem>
-                    {LINE_HEIGHT_OPTIONS.map((lineHeight) => (
-                      <SelectItem key={lineHeight} value={lineHeight}>{lineHeight}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </TooltipTrigger>
-              <TooltipContent>行高</TooltipContent>
-            </Tooltip>
-          </div>
-          <div className="flex flex-1 flex-col gap-1.5">
-            <label className="text-xs text-muted-foreground">字间距</label>
-            <Input value={value.letterSpacing ?? ""} placeholder="如 0.5px" onChange={(e) => onChange({ ...value, letterSpacing: e.target.value })} />
-          </div>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs text-muted-foreground">大小写</label>
-          <ToggleGroup
-            type="single"
-            value={value.textTransform ?? "none"}
-            onValueChange={(v) => onChange({ ...value, textTransform: v as BlockStyle["textTransform"] })}
-          >
-            <ToggleGroupItem value="none">无</ToggleGroupItem>
-            <ToggleGroupItem value="uppercase">大写</ToggleGroupItem>
-            <ToggleGroupItem value="capitalize">首字母大写</ToggleGroupItem>
-          </ToggleGroup>
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+          </Field>
+
+          <Field className="gap-1.5">
+            <FieldLabel className="text-xs text-muted-foreground">字重</FieldLabel>
+            <Select
+              value={value.fontWeight ? String(value.fontWeight) : DEFAULT_VALUE}
+              onValueChange={(v) => onChange({ ...value, fontWeight: v === DEFAULT_VALUE ? undefined : Number(v) as 400 | 500 | 600 | 700 })}
+            >
+              <SelectTrigger size="sm" className="w-full justify-between">
+                <SelectValue placeholder="默认" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value={DEFAULT_VALUE}>默认</SelectItem>
+                  {FONT_WEIGHT_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field className="gap-1.5">
+            <FieldLabel className="text-xs text-muted-foreground">行高</FieldLabel>
+            <Select
+              value={value.lineHeight ? String(value.lineHeight) : DEFAULT_VALUE}
+              onValueChange={(v) => onChange({ ...value, lineHeight: v === DEFAULT_VALUE ? undefined : Number(v) })}
+            >
+              <SelectTrigger size="sm" className="w-full justify-between">
+                <SelectValue placeholder="默认" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value={DEFAULT_VALUE}>默认</SelectItem>
+                  {LINE_HEIGHT_OPTIONS.map((lineHeight) => (
+                    <SelectItem key={lineHeight} value={lineHeight}>{lineHeight}</SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field className="gap-1.5">
+            <FieldLabel className="text-xs text-muted-foreground">字间距</FieldLabel>
+            <Input
+              value={value.letterSpacing ?? ""}
+              placeholder="如 0.5px"
+              onChange={(e) => onChange({ ...value, letterSpacing: e.target.value || undefined })}
+            />
+          </Field>
+        </FieldGroup>
+      </FieldGroup>
+    </InspectorSection>
   );
 }

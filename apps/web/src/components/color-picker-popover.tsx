@@ -129,9 +129,9 @@ export function ColorPickerPopover({
         </button>
 
         <div className="td-color-picker-grid" aria-label="常用颜色">
-          {SOLID_COLOR_ROWS.flat().map((color) => (
+          {SOLID_COLOR_ROWS.flat().map((color, index) => (
             <button
-              key={color}
+              key={`${color}-${index}`}
               type="button"
               className="td-color-picker-swatch"
               aria-label={color}

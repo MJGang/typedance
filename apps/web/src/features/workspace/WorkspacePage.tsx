@@ -9,7 +9,7 @@ import { RightPanel } from "./components/RightPanel"
 import { AiTab } from "./components/AiTab"
 import { StylePanel } from "../templates/components/style-panel/StylePanel"
 import { generateWorkspaceCSS } from "../templates/style-engine/css-generator"
-import { exportResumeHtml, exportResumePdf, getResumeVersion, getTemplateStyle, saveTemplateStyle, updateResumeVersion } from "@/api"
+import { exportResumeHtml, exportResumePdf, getResumeVersion, getTemplateStyle, listTemplateStyles, saveTemplateStyle, updateResumeVersion } from "@/api"
 import { templateRegistry, defaultClassicA4Style } from "../templates/data"
 import { ExportStatusBar, type ExportStatusType } from "./components/ExportStatusBar"
 import { isTauri, openFileInTauri } from "@/tauri"
@@ -24,6 +24,8 @@ export function WorkspacePage() {
   const [docJson, setDocJson] = useState<ResumeDocJson>({ type: "doc", content: [] })
   const [activeBlock, setActiveBlock] = useState<BlockType>("paragraph")
   const [styleConfig, setStyleConfig] = useState<TemplateStyleConfig>(defaultClassicA4Style)
+  const [savedStyles, setSavedStyles] = useState<TemplateStyleConfig[]>([])
+  const [selectedThemeId, setSelectedThemeId] = useState(defaultClassicA4Style.template_id)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState("")
   const [isSaving, setIsSaving] = useState(false)
@@ -45,11 +47,62 @@ export function WorkspacePage() {
       .then(resume => {
         setResume(resume)
         setDocJson(resume.doc_json as ResumeDocJson)
+        setSelectedThemeId(resume.template_id)
         return getTemplateStyle(resume.template_id)
       })
       .then(setStyleConfig)
       .catch(() => setStyleConfig(defaultClassicA4Style))
   }, [id])
+
+  useEffect(() => {
+    void listTemplateStyles()
+      .then(setSavedStyles)
+      .catch(() => setSavedStyles([]))
+  }, [])
+
+  const styleMap = useMemo(() => {
+    return new Map(savedStyles.map((style) => [style.template_id, style]))
+  }, [savedStyles])
+
+  const themeOptions = useMemo(() => {
+    const defaultThemes = templateRegistry.map((template) => {
+      const style = styleMap.get(template.id) ?? (
+        template.id === defaultClassicA4Style.template_id ? defaultClassicA4Style : {
+          ...defaultClassicA4Style,
+          template_id: template.id,
+          name: template.localizedName["zh-CN"],
+        }
+      )
+
+      return {
+        id: template.id,
+        title: style.name?.trim() || template.localizedName["zh-CN"],
+        source: "default" as const,
+        styleConfig: style,
+      }
+    })
+
+    const customThemes = savedStyles
+      .filter((style) => !templateRegistry.some((template) => template.id === style.template_id))
+      .map((style, index) => ({
+        id: style.template_id,
+        title: style.name?.trim() || `自定义主题 ${index + 1}`,
+        source: "custom" as const,
+        styleConfig: style,
+      }))
+
+    const themes = [...customThemes, ...defaultThemes]
+    if (styleConfig.template_id && !themes.some((theme) => theme.id === styleConfig.template_id)) {
+      themes.unshift({
+        id: styleConfig.template_id,
+        title: styleConfig.name?.trim() || "当前主题",
+        source: "custom" as const,
+        styleConfig,
+      })
+    }
+
+    return themes
+  }, [savedStyles, styleConfig, styleMap])
 
   const cssText = useMemo(() => generateWorkspaceCSS(styleConfig.blocks ?? {}), [styleConfig])
 
@@ -97,6 +150,28 @@ export function WorkspacePage() {
       saveTemplateStyle({ ...newStyle, template_id: targetId }).catch(console.error)
     }
   }, [resume])
+
+  const handleThemeChange = useCallback((themeId: string) => {
+    const theme = themeOptions.find((item) => item.id === themeId)
+    if (!theme) return
+
+    setSelectedThemeId(theme.id)
+    setStyleConfig(theme.styleConfig)
+
+    if (!id || !resume || resume.template_id === theme.id) return
+
+    const previousResume = resume
+    setResume({ ...resume, template_id: theme.id })
+    updateResumeVersion(id, { template_id: theme.id })
+      .then(setResume)
+      .catch(() => {
+        setResume(previousResume)
+        toast.error("主题切换保存失败", {
+          description: "当前简历仍保留原主题，请稍后重试。",
+          duration: 4000,
+        })
+      })
+  }, [id, resume, themeOptions])
 
   const startEditing = useCallback(() => {
     setTitleDraft(resume?.title ?? "")
@@ -269,7 +344,10 @@ export function WorkspacePage() {
           designContent={
             <StylePanel
               styleConfig={styleConfig}
+              selectedThemeId={selectedThemeId}
+              themeOptions={themeOptions}
               onChange={handleStyleChange}
+              onThemeChange={handleThemeChange}
               activeBlock={activeBlock}
               onActiveBlockChange={setActiveBlock}
               activeColumnsCount={activeColumnsCount}
