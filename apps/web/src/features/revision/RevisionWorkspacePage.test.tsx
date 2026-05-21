@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { WorkspaceView } from "@typedance/contracts"
@@ -212,5 +212,20 @@ describe("RevisionWorkspacePage", () => {
 
     expect(await screen.findByRole("heading", { name: "导出门禁" })).toBeInTheDocument()
     expect(screen.getAllByText("缺少结果").length).toBeGreaterThan(0)
+  })
+
+  it("opens contextual issue detail with related proposal actions", async () => {
+    renderPage()
+
+    fireEvent.click(await screen.findByRole("button", { name: /缺少结果/ }))
+
+    const detail = await screen.findByRole("region", { name: "问题处理详情" })
+    expect(within(detail).getByRole("heading", { name: "缺少结果" })).toBeInTheDocument()
+    expect(within(detail).getByText("影响模块：项目经历")).toBeInTheDocument()
+    expect(within(detail).getByText("需要补充影响范围。")).toBeInTheDocument()
+    expect(within(detail).getByText("改成结果导向表达")).toBeInTheDocument()
+
+    fireEvent.click(within(detail).getByRole("button", { name: /接受修改/ }))
+    await waitFor(() => expect(apiMocks.acceptRevisionProposal).toHaveBeenCalledWith("prop_1"))
   })
 })

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { AlertCircle, ArrowLeft, BriefcaseBusiness, Check, Download, FileText, Loader2, RefreshCcw, ShieldCheck, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import {
   acceptRevisionProposal,
   dismissRevisionIssue,
@@ -82,7 +83,32 @@ function ModuleList({ modules }: { modules: DocumentModule[] }) {
   )
 }
 
-function IssueList({ issues }: { issues: RevisionIssue[] }) {
+function targetMatches(action: ContextualAction, proposal: RevisionProposal) {
+  const target = action.target
+  if (!target) return false
+  if (target.proposal_id && target.proposal_id === proposal.id) return true
+  if (target.claim_id && target.claim_id === proposal.target.claim_id) return true
+  if (target.module_id && target.module_id === proposal.target.module_id) return true
+  return action.id.endsWith(proposal.id)
+}
+
+function issueActions(issue: RevisionIssue, proposals: RevisionProposal[], actions: ContextualAction[]) {
+  const relatedProposalIds = new Set(proposals.filter((proposal) => proposal.related_issue_ids.includes(issue.id)).map((proposal) => proposal.id))
+  return actions.filter((action) => {
+    if (action.target?.issue_id === issue.id) return true
+    return proposals.some((proposal) => relatedProposalIds.has(proposal.id) && targetMatches(action, proposal))
+  })
+}
+
+function IssueList({
+  issues,
+  selectedIssueId,
+  onSelectIssue,
+}: {
+  issues: RevisionIssue[]
+  selectedIssueId?: string
+  onSelectIssue: (issueId: string) => void
+}) {
   if (issues.length === 0) {
     return <p className="text-sm text-muted-foreground">暂时没有需要处理的问题。</p>
   }
@@ -90,7 +116,16 @@ function IssueList({ issues }: { issues: RevisionIssue[] }) {
   return (
     <div className="space-y-2">
       {issues.map((issue) => (
-        <div key={issue.id} className="rounded-md border border-border p-3">
+        <button
+          key={issue.id}
+          type="button"
+          aria-pressed={selectedIssueId === issue.id}
+          className={cn(
+            "w-full rounded-md border border-border p-3 text-left transition-colors hover:border-primary/50 hover:bg-muted/40",
+            selectedIssueId === issue.id && "border-primary bg-primary/5",
+          )}
+          onClick={() => onSelectIssue(issue.id)}
+        >
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-sm font-medium">{issue.title}</p>
@@ -98,7 +133,7 @@ function IssueList({ issues }: { issues: RevisionIssue[] }) {
             </div>
             <span className="shrink-0 text-xs text-muted-foreground">{issue.severity}</span>
           </div>
-        </div>
+        </button>
       ))}
     </div>
   )
@@ -122,6 +157,83 @@ function ProposalList({ proposals }: { proposals: RevisionProposal[] }) {
   )
 }
 
+function IssueDetail({
+  issue,
+  module,
+  proposals,
+  actions,
+  actingActionId,
+  onAction,
+}: {
+  issue: RevisionIssue | null
+  module?: DocumentModule
+  proposals: RevisionProposal[]
+  actions: ContextualAction[]
+  actingActionId: string | null
+  onAction: (action: ContextualAction) => void
+}) {
+  if (!issue) {
+    return (
+      <section aria-label="问题处理详情" className="rounded-md border border-dashed border-border p-3" role="region">
+        <p className="text-sm text-muted-foreground">选择一个问题后，这里会显示局部改稿说明、相关建议和可执行动作。</p>
+      </section>
+    )
+  }
+
+  const relatedProposals = proposals.filter((proposal) => proposal.related_issue_ids.includes(issue.id))
+  const availableActions = issueActions(issue, proposals, actions)
+
+  return (
+    <section aria-label="问题处理详情" className="rounded-md border border-border p-3" role="region">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium text-muted-foreground">当前问题</p>
+          <h3 className="mt-1 text-sm font-semibold">{issue.title}</h3>
+        </div>
+        <span className={`rounded-md border px-2 py-1 text-xs ${qualityClass(issue.severity === "blocking" ? "blocked" : "needs_review")}`}>
+          {issue.severity}
+        </span>
+      </div>
+
+      <div className="mt-3 space-y-2 text-sm leading-6">
+        <p>{issue.message}</p>
+        <p className="text-muted-foreground">影响模块：{module?.title ?? "未定位模块"}</p>
+        <p className="text-muted-foreground">{issue.reason}</p>
+      </div>
+
+      <div className="mt-4 space-y-2">
+        <p className="text-xs font-medium text-muted-foreground">相关修改建议</p>
+        {relatedProposals.length === 0 ? (
+          <p className="text-sm text-muted-foreground">当前问题还没有可直接接受的建议。</p>
+        ) : relatedProposals.map((proposal) => (
+          <div key={proposal.id} className="rounded-md bg-muted/45 p-3">
+            <p className="text-sm font-medium">{proposal.summary}</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{proposal.rationale}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {availableActions.length === 0 ? (
+          <span className="text-sm text-muted-foreground">暂无可执行动作。</span>
+        ) : availableActions.map((action) => (
+          <Button
+            key={action.id}
+            size="sm"
+            variant={action.action_type === "accept_proposal" ? "default" : "outline"}
+            onClick={() => onAction(action)}
+            disabled={actingActionId === action.id}
+          >
+            {action.action_type === "accept_proposal" ? <Check className="mr-2 h-4 w-4" /> : null}
+            {action.action_type === "reject_proposal" ? <X className="mr-2 h-4 w-4" /> : null}
+            {action.label}
+          </Button>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export function RevisionWorkspacePage() {
   const { documentId } = useParams<{ documentId: string }>()
   const navigate = useNavigate()
@@ -129,6 +241,7 @@ export function RevisionWorkspacePage() {
   const [actingActionId, setActingActionId] = useState<string | null>(null)
   const [opportunityOpen, setOpportunityOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
+  const [selectedIssueId, setSelectedIssueId] = useState<string | undefined>()
 
   const loadWorkspace = useCallback(async () => {
     if (!documentId) return
@@ -161,6 +274,14 @@ export function RevisionWorkspacePage() {
   const visibleIssues = useMemo(
     () => workspace?.issues.filter((issue) => issue.status === "open" || issue.status === "needs_user_input") ?? [],
     [workspace],
+  )
+  const selectedIssue = useMemo(
+    () => visibleIssues.find((issue) => issue.id === selectedIssueId) ?? null,
+    [selectedIssueId, visibleIssues],
+  )
+  const selectedIssueModule = useMemo(
+    () => workspace?.modules.find((module) => module.id === selectedIssue?.module_id),
+    [selectedIssue, workspace],
   )
 
   const handleAction = useCallback(async (action: ContextualAction) => {
@@ -343,8 +464,17 @@ export function RevisionWorkspacePage() {
 
           <section>
             <p className="mb-2 text-xs font-medium text-muted-foreground">问题</p>
-            <IssueList issues={visibleIssues} />
+            <IssueList issues={visibleIssues} selectedIssueId={selectedIssue?.id} onSelectIssue={setSelectedIssueId} />
           </section>
+
+          <IssueDetail
+            issue={selectedIssue}
+            module={selectedIssueModule}
+            proposals={workspace.proposals}
+            actions={workspace.available_actions}
+            actingActionId={actingActionId}
+            onAction={handleAction}
+          />
 
           <section>
             <p className="mb-2 text-xs font-medium text-muted-foreground">修改建议</p>
