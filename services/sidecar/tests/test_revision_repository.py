@@ -278,6 +278,7 @@ def test_revision_repository_roundtrips_core_objects(tmp_path):
     assert repo.list_source_documents(document.id) == [source]
     assert repo.list_parsed_blocks(source.id) == [block]
     assert repo.get_revision_run(run.id) == run
+    assert repo.list_revision_runs(document.id) == [run]
     assert repo.list_agent_steps(run.id) == [step]
     assert repo.list_draft_versions(document.id) == [draft]
     assert repo.list_document_modules(draft.id) == [module]

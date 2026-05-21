@@ -145,6 +145,11 @@
   - 目标是将 Document、Source、RevisionRun、WorkspaceView、Draft、Issue、Proposal、Evidence 等 Revision Engine 能力暴露为 FastAPI API。
   - 这是前端从旧 `resume-versions` 数据源迁移到 AI-native 工作台数据源的入口。
 
+- `superpowers/plans/2026-05-21-wp9-workspace-view.md`
+  - WP9 Workspace View 工程实施计划。
+  - 目标是补齐后端 `WorkspaceView` 的 run status、coach summary 和 available actions，让前端主页面只消费一个聚合视图。
+  - 这是新 Revision Workspace UI 的数据基础。
+
 - `superpowers/plans/2026-05-08-typedance-foundation-slice-1.md`
   - Slice 0 + Slice 1 工程落地计划。
   - 目标是先完成可运行的本地优先简历编辑、A4 预览、sidecar 持久化和 PDF 导出闭环。

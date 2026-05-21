@@ -3,6 +3,8 @@ from uuid import uuid4
 
 from .models import utc_now
 from .revision_models import (
+    CoachSummary,
+    ContextualAction,
     Document,
     DraftVersion,
     EvidenceLink,
@@ -12,6 +14,7 @@ from .revision_models import (
     RenderProjection,
     RevisionIssue,
     RevisionProposal,
+    RevisionRunStatusSummary,
     SourceDocument,
     UserConfirmation,
     WorkspaceView,
@@ -210,6 +213,8 @@ class WorkspaceService:
             if current_draft.render_projection_id is not None:
                 render_projection = self.repository.get_render_projection(current_draft.render_projection_id)
 
+        quality_gate = self._quality_gate(current_draft, issues)
+        available_actions = self._available_actions(issues, proposals)
         return WorkspaceView(
             document=document,
             current_draft=current_draft,
@@ -220,7 +225,10 @@ class WorkspaceService:
             evidence=self.repository.list_evidence_links(document.id),
             source_summaries=self.repository.list_source_documents(document.id),
             render_projection=render_projection,
-            quality_gate=self._quality_gate(current_draft, issues),
+            quality_gate=quality_gate,
+            run_status=self._run_status(document.id),
+            coach_summary=self._coach_summary(quality_gate, current_draft, available_actions),
+            available_actions=available_actions,
         )
 
     def _current_draft(self, document: Document) -> DraftVersion | None:
@@ -264,6 +272,108 @@ class WorkspaceService:
             blocking_issue_ids=blocking_issue_ids,
             warning_issue_ids=warning_issue_ids,
         )
+
+    def _run_status(self, document_id: str) -> RevisionRunStatusSummary | None:
+        runs = self.repository.list_revision_runs(document_id)
+        if not runs:
+            return None
+
+        latest_run = runs[-1]
+        steps = self.repository.list_agent_steps(latest_run.id)
+        current_step = None
+        for step in steps:
+            if step.status in {"pending", "running"}:
+                current_step = step.agent_name
+                break
+        if current_step is None and steps:
+            current_step = steps[-1].agent_name
+
+        return RevisionRunStatusSummary(
+            run_id=latest_run.id,
+            status=latest_run.status,
+            current_step=current_step,
+        )
+
+    def _available_actions(
+        self,
+        issues: list[RevisionIssue],
+        proposals: list[RevisionProposal],
+    ) -> list[ContextualAction]:
+        actions: list[ContextualAction] = []
+        for issue in issues:
+            if issue.status not in OPEN_ISSUE_STATUSES:
+                continue
+
+            issue_actions = self.repository.list_revision_actions(issue.id)
+            if issue_actions:
+                actions.extend(
+                    ContextualAction(
+                        id=action.id,
+                        label=action.label,
+                        action_type=action.action_type,
+                        target=action.target or self._issue_target(issue),
+                    )
+                    for action in issue_actions
+                )
+            else:
+                actions.append(
+                    ContextualAction(
+                        id=f"act_dismiss_{issue.id}",
+                        label="暂时忽略",
+                        action_type="dismiss_issue",
+                        target=self._issue_target(issue),
+                    )
+                )
+
+        for proposal in proposals:
+            if proposal.status != "pending":
+                continue
+            actions.append(
+                ContextualAction(
+                    id=f"act_accept_{proposal.id}",
+                    label="接受修改",
+                    action_type="accept_proposal",
+                    target=proposal.target,
+                )
+            )
+            actions.append(
+                ContextualAction(
+                    id=f"act_reject_{proposal.id}",
+                    label="保留原文",
+                    action_type="reject_proposal",
+                    target=proposal.target,
+                )
+            )
+
+        return actions
+
+    def _issue_target(self, issue: RevisionIssue) -> dict[str, str]:
+        target = {}
+        if issue.module_id:
+            target["module_id"] = issue.module_id
+        if issue.item_id:
+            target["item_id"] = issue.item_id
+        if issue.claim_id:
+            target["claim_id"] = issue.claim_id
+        return target
+
+    def _coach_summary(
+        self,
+        quality_gate: QualityGateResult,
+        current_draft: DraftVersion | None,
+        available_actions: list[ContextualAction],
+    ) -> CoachSummary:
+        next_action_ids = [action.id for action in available_actions[:3]]
+        if current_draft is None:
+            summary = "还没有生成可审阅的草稿。"
+        elif quality_gate.status == "blocked":
+            summary = f"还有 {len(quality_gate.blocking_issue_ids)} 个阻塞问题需要先处理。"
+        elif quality_gate.status == "needs_review":
+            summary = f"还有 {len(quality_gate.warning_issue_ids)} 个问题建议处理后再导出。"
+        else:
+            summary = "当前草稿已准备好进入导出前检查。"
+
+        return CoachSummary(summary=summary, next_action_ids=next_action_ids)
 
 
 class RenderService:

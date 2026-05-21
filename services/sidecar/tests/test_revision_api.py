@@ -226,6 +226,14 @@ def test_revision_api_returns_workspace_and_renders_draft(revision_client):
     assert workspace["document"]["id"] == "doc_1"
     assert workspace["current_draft"]["id"] == "draft_1"
     assert workspace["modules"][0]["id"] == "mod_1"
+    assert workspace["run_status"]["run_id"] == "run_1"
+    assert workspace["run_status"]["status"] == "completed"
+    assert workspace["coach_summary"]["summary"] == "还有 1 个问题建议处理后再导出。"
+    assert [action["action_type"] for action in workspace["available_actions"]] == [
+        "dismiss_issue",
+        "accept_proposal",
+        "reject_proposal",
+    ]
 
     render_response = client.post("/drafts/draft_1/render", json={"render_profile": "default-a4"})
     assert render_response.status_code == 201

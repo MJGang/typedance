@@ -339,6 +339,9 @@ class RevisionRepository:
     def get_revision_run(self, run_id: str) -> RevisionRun | None:
         return self._get("revision_runs", RevisionRun, run_id)
 
+    def list_revision_runs(self, document_id: str) -> list[RevisionRun]:
+        return self._list("revision_runs", RevisionRun, "document_id", document_id)
+
     def save_agent_step(self, step: AgentStep) -> AgentStep:
         self._save("agent_steps", step, {"run_id": step.run_id})
         return step

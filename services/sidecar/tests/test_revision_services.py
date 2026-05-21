@@ -309,6 +309,21 @@ def test_workspace_service_aggregates_current_revision_view(tmp_path):
     assert view.quality_gate is not None
     assert view.quality_gate.status == "blocked"
     assert view.quality_gate.blocking_issue_ids == ["issue_1"]
+    assert view.run_status is not None
+    assert view.run_status.run_id == "run_1"
+    assert view.run_status.current_step is None
+    assert view.coach_summary is not None
+    assert view.coach_summary.summary == "还有 1 个阻塞问题需要先处理。"
+    assert view.coach_summary.next_action_ids == [
+        "act_dismiss_issue_1",
+        "act_accept_prop_1",
+        "act_reject_prop_1",
+    ]
+    assert [action.action_type for action in view.available_actions] == [
+        "dismiss_issue",
+        "accept_proposal",
+        "reject_proposal",
+    ]
 
 
 def test_render_and_export_services_wrap_repository_operations(tmp_path):

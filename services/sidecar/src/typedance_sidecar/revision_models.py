@@ -276,6 +276,24 @@ class QualityGateResult(BaseModel):
     warning_issue_ids: list[str] = Field(default_factory=list)
 
 
+class RevisionRunStatusSummary(BaseModel):
+    run_id: str
+    status: RevisionRunStatus
+    current_step: str | None = None
+
+
+class CoachSummary(BaseModel):
+    summary: str
+    next_action_ids: list[str] = Field(default_factory=list)
+
+
+class ContextualAction(BaseModel):
+    id: str
+    label: str
+    action_type: str
+    target: dict[str, Any] | None = None
+
+
 class WorkspaceView(BaseModel):
     document: Document
     current_draft: DraftVersion | None = None
@@ -287,3 +305,6 @@ class WorkspaceView(BaseModel):
     source_summaries: list[SourceDocument] = Field(default_factory=list)
     render_projection: RenderProjection | None = None
     quality_gate: QualityGateResult | None = None
+    run_status: RevisionRunStatusSummary | None = None
+    coach_summary: CoachSummary | None = None
+    available_actions: list[ContextualAction] = Field(default_factory=list)
