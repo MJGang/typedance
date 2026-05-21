@@ -185,6 +185,11 @@
   - 目标是让旧 `ResumeVersion` 可投影到 Revision Workspace，但不再作为新系统事实源。
   - 这是旧编辑器资产向 AI-native 工作台迁移的兼容桥。
 
+- `superpowers/plans/2026-05-21-wp17-test-system.md`
+  - WP17 Test System 工程实施计划。
+  - 目标是用测试保护 Agent 输出、Proposal 应用、Draft 接受和 WorkspaceView 不退化。
+  - 这是把 AI-native 结构从“实现过”变成“不会轻易倒退”的质量护栏。
+
 - `superpowers/plans/2026-05-08-typedance-foundation-slice-1.md`
   - Slice 0 + Slice 1 工程落地计划。
   - 目标是先完成可运行的本地优先简历编辑、A4 预览、sidecar 持久化和 PDF 导出闭环。

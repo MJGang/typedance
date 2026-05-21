@@ -6,6 +6,7 @@ from .revision_models import (
     CoachSummary,
     ContextualAction,
     Document,
+    DocumentClaim,
     DraftVersion,
     EvidenceLink,
     ExportArtifact,
@@ -24,6 +25,8 @@ from .revision_repository import RevisionRepository
 
 
 OPEN_ISSUE_STATUSES = {"open", "needs_user_input"}
+STRONG_CLAIM_TYPES = {"achievement", "summary"}
+CONFIRMING_USER_CONFIRMATION_TYPES = {"truth_confirmed", "source_verified"}
 
 
 class RevisionServiceError(Exception):
@@ -63,6 +66,12 @@ class DraftService:
         if document is None:
             raise RevisionServiceError(f"Document not found: {draft.document_id}")
 
+        blocking_claim_ids = self._unconfirmed_strong_claim_ids(draft)
+        if blocking_claim_ids:
+            raise RevisionServiceError(
+                f"Draft has unconfirmed strong claims: {', '.join(blocking_claim_ids)}"
+            )
+
         now = utc_now()
         accepted_draft = draft.model_copy(update={"status": "accepted", "updated_at": now})
         accepted_document = document.model_copy(
@@ -75,6 +84,33 @@ class DraftService:
         self.repository.save_draft_version(accepted_draft)
         self.repository.save_document(accepted_document)
         return accepted_draft
+
+    def _unconfirmed_strong_claim_ids(self, draft: DraftVersion) -> list[str]:
+        claims = self.repository.list_document_claims(draft.id)
+        evidence_links = self.repository.list_evidence_links(draft.document_id)
+        confirmations = self.repository.list_user_confirmations(draft.document_id)
+        blocking_claim_ids = []
+
+        for claim in claims:
+            if claim.claim_type not in STRONG_CLAIM_TYPES:
+                continue
+            if claim.confidence == "user_confirmed":
+                continue
+            if any(
+                confirmation.claim_id == claim.id
+                and confirmation.confirmation_type in CONFIRMING_USER_CONFIRMATION_TYPES
+                for confirmation in confirmations
+            ):
+                continue
+            if any(
+                evidence.claim_id == claim.id
+                and (evidence.user_confirmed or evidence.support_level == "direct")
+                for evidence in evidence_links
+            ):
+                continue
+            blocking_claim_ids.append(claim.id)
+
+        return blocking_claim_ids
 
 
 class IssueService:
@@ -108,6 +144,7 @@ class ProposalService:
         if proposal is None:
             raise RevisionServiceError(f"Proposal not found: {proposal_id}")
 
+        proposal = self._apply_proposal_operation(proposal)
         applied = proposal.model_copy(update={"status": "applied"})
         self.repository.save_revision_proposal(applied)
 
@@ -151,6 +188,45 @@ class ProposalService:
             }
         )
         return self.repository.save_draft_version(updated_draft)
+
+    def _apply_proposal_operation(self, proposal: RevisionProposal) -> RevisionProposal:
+        if proposal.operation == "replace_claim":
+            return self._apply_replace_claim(proposal)
+        return proposal
+
+    def _apply_replace_claim(self, proposal: RevisionProposal) -> RevisionProposal:
+        if proposal.draft_id is None:
+            raise RevisionServiceError(f"Proposal has no draft target: {proposal.id}")
+
+        claim_id = proposal.target.get("claim_id")
+        if not isinstance(claim_id, str) or not claim_id:
+            raise RevisionServiceError(f"replace_claim proposal has no claim target: {proposal.id}")
+
+        proposed_text = self._proposal_text(proposal)
+        claim = self._find_claim(proposal.draft_id, claim_id)
+        now = utc_now()
+        self.repository.save_document_claim(
+            claim.model_copy(update={"text": proposed_text, "updated_at": now})
+        )
+        if proposal.original_snapshot is None:
+            return proposal.model_copy(update={"original_snapshot": {"text": claim.text}})
+        return proposal
+
+    def _proposal_text(self, proposal: RevisionProposal) -> str:
+        snapshot = proposal.proposed_snapshot
+        proposed_text = snapshot.get("text") if isinstance(snapshot, dict) else None
+        if not isinstance(proposed_text, str) or not proposed_text.strip():
+            raise RevisionServiceError(f"replace_claim proposal has no proposed text: {proposal.id}")
+        return proposed_text
+
+    def _find_claim(self, draft_id: str, claim_id: str) -> DocumentClaim:
+        claim = next(
+            (claim for claim in self.repository.list_document_claims(draft_id) if claim.id == claim_id),
+            None,
+        )
+        if claim is None:
+            raise RevisionServiceError(f"Claim not found: {claim_id}")
+        return claim
 
 
 class EvidenceService:
