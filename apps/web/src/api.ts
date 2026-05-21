@@ -188,6 +188,52 @@ export async function importOldResume(input: ImportOldResumeInput): Promise<Work
   return getRevisionWorkspaceView(document.id)
 }
 
+export type StartBlankGuidedResumeInput = {
+  title: string
+  identity_status?: string
+  name?: string
+  phone?: string
+  email?: string
+  target_role?: string
+  skills?: string
+  work_experience?: string
+  project_experience?: string
+}
+
+export async function startBlankGuidedResume(input: StartBlankGuidedResumeInput): Promise<WorkspaceView> {
+  const document = await createRevisionDocument({
+    title: input.title,
+    pack_id: "resume",
+    target_language: "zh-CN",
+    initial_mode: "blank_guided",
+  })
+  const rawText = [
+    ["身份状态", input.identity_status],
+    ["姓名", input.name],
+    ["电话", input.phone],
+    ["邮箱", input.email],
+    ["目标方向", input.target_role],
+    ["技能", input.skills],
+    ["工作经历", input.work_experience],
+    ["项目经历", input.project_experience],
+  ]
+    .filter(([, value]) => typeof value === "string" && value.trim())
+    .map(([label, value]) => `${label}: ${value}`)
+    .join("\n")
+  const source = await createRevisionSource(document.id, {
+    source_type: "manual_user_input",
+    title: "空白引导信息",
+    raw_text: rawText,
+    mime_type: "text/plain",
+  })
+  await createRevisionRun(document.id, {
+    run_type: "blank_guided_generate",
+    source_document_ids: [source.id],
+    user_intent: "从空白引导生成基础简历",
+  })
+  return getRevisionWorkspaceView(document.id)
+}
+
 export async function renderRevisionDraft(
   draftId: string,
   renderProfile?: string,

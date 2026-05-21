@@ -160,6 +160,11 @@
   - 目标是让用户粘贴或导入旧简历后自动形成 Document、Source、RevisionRun、Draft、Issue、Proposal、Evidence 和 RenderProjection。
   - 这是旧简历重构场景从“进入空白编辑器”转向“进入 AI-native 改稿工作台”的闭环入口。
 
+- `superpowers/plans/2026-05-21-wp12-blank-guided-flow.md`
+  - WP12 Blank Guided Flow 工程实施计划。
+  - 目标是让用户从空白开始时通过身份、目标、技能和经历线索生成可审阅初稿。
+  - 这是避免用户面对空白 A4 的基础引导入口。
+
 - `superpowers/plans/2026-05-08-typedance-foundation-slice-1.md`
   - Slice 0 + Slice 1 工程落地计划。
   - 目标是先完成可运行的本地优先简历编辑、A4 预览、sidecar 持久化和 PDF 导出闭环。

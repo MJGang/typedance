@@ -311,4 +311,106 @@ describe("revision api", () => {
     )
     expect(workspace.document.current_draft_id).toBe("draft_import")
   })
+
+  it("starts a blank guided resume through manual source and workspace view", async () => {
+    const responses = [
+      {
+        id: "doc_guided",
+        pack_id: "resume",
+        title: "新简历",
+        status: "active",
+        target_language: "zh-CN",
+        current_draft_id: null,
+        accepted_draft_id: null,
+        created_at: "2026-05-21T08:00:00.000Z",
+        updated_at: "2026-05-21T08:00:00.000Z",
+      },
+      {
+        id: "src_guided",
+        document_id: "doc_guided",
+        source_type: "manual_user_input",
+        title: "空白引导信息",
+        mime_type: "text/plain",
+        raw_text: "姓名: 张三\n目标方向: 前端工程师",
+        parse_status: "parsed",
+        created_at: "2026-05-21T08:00:00.000Z",
+      },
+      {
+        id: "run_guided",
+        document_id: "doc_guided",
+        pack_id: "resume",
+        run_type: "blank_guided_generate",
+        status: "completed",
+        source_document_ids: ["src_guided"],
+        target_draft_id: "draft_guided",
+        created_at: "2026-05-21T08:00:00.000Z",
+        updated_at: "2026-05-21T08:00:00.000Z",
+      },
+      {
+        document: {
+          id: "doc_guided",
+          pack_id: "resume",
+          title: "新简历",
+          status: "active",
+          target_language: "zh-CN",
+          current_draft_id: "draft_guided",
+          created_at: "2026-05-21T08:00:00.000Z",
+          updated_at: "2026-05-21T08:00:00.000Z",
+        },
+        current_draft: {
+          id: "draft_guided",
+          document_id: "doc_guided",
+          run_id: "run_guided",
+          pack_id: "resume",
+          status: "in_review",
+          summary: "基于引导信息生成的基础简历初稿",
+          applied_proposal_ids: [],
+          unresolved_issue_ids: [],
+          created_at: "2026-05-21T08:00:00.000Z",
+          updated_at: "2026-05-21T08:00:00.000Z",
+        },
+        modules: [],
+        claims: [],
+        issues: [],
+        proposals: [],
+        evidence: [],
+        source_summaries: [],
+        quality_gate: { status: "needs_review", blocking_issue_ids: [], warning_issue_ids: [] },
+        available_actions: [],
+      },
+    ]
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(responses.shift())))
+    vi.stubGlobal("fetch", fetchMock)
+    const requestBody = (callIndex: number) => {
+      const init = (fetchMock.mock.calls[callIndex] as unknown as [string, RequestInit?])[1]
+      if (typeof init?.body !== "string") throw new Error("Expected JSON request body")
+      return JSON.parse(init.body)
+    }
+
+    const { startBlankGuidedResume } = await import("./api")
+    const workspace = await startBlankGuidedResume({
+      title: "新简历",
+      name: "张三",
+      target_role: "前端工程师",
+      skills: "Vue3、TypeScript",
+    })
+
+    expect(requestBody(0)).toMatchObject({
+      title: "新简历",
+      initial_mode: "blank_guided",
+    })
+    expect(requestBody(1)).toMatchObject({
+      source_type: "manual_user_input",
+      raw_text: "姓名: 张三\n目标方向: 前端工程师\n技能: Vue3、TypeScript",
+    })
+    expect(requestBody(2)).toMatchObject({
+      run_type: "blank_guided_generate",
+      source_document_ids: ["src_guided"],
+    })
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "http://127.0.0.1:4317/documents/doc_guided/workspace-view",
+    )
+    expect(workspace.document.current_draft_id).toBe("draft_guided")
+  })
 })

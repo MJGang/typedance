@@ -259,6 +259,57 @@ def test_revision_api_returns_workspace_and_renders_draft(revision_client):
     assert accepted.json()["status"] == "accepted"
 
 
+def test_revision_api_runs_blank_guided_generation(revision_client):
+    client, _tmp_path = revision_client
+
+    created_document = client.post(
+        "/documents",
+        json={
+            "title": "新简历",
+            "pack_id": "resume",
+            "target_language": "zh-CN",
+            "initial_mode": "blank_guided",
+        },
+    )
+    document = created_document.json()
+    created_source = client.post(
+        f"/documents/{document['id']}/sources",
+        json={
+            "source_type": "manual_user_input",
+            "title": "空白引导信息",
+            "raw_text": "姓名: 张三\n目标方向: 前端工程师\n技能: Vue3、TypeScript",
+        },
+    )
+    source = created_source.json()
+
+    created_run = client.post(
+        f"/documents/{document['id']}/revision-runs",
+        json={
+            "run_type": "blank_guided_generate",
+            "source_document_ids": [source["id"]],
+            "user_intent": "从空白引导生成基础简历",
+        },
+    )
+
+    assert created_run.status_code == 201
+    run = created_run.json()
+    assert run["status"] == "completed"
+    assert run["target_draft_id"].startswith("draft_")
+
+    workspace = client.get(f"/documents/{document['id']}/workspace-view").json()
+    assert workspace["current_draft"]["id"] == run["target_draft_id"]
+    assert {module["type"] for module in workspace["modules"]} >= {
+        "BasicInfo",
+        "JobIntent",
+        "CoreSkills",
+        "WorkExperience",
+        "ProjectExperience",
+    }
+    assert workspace["issues"]
+    assert workspace["proposals"]
+    assert workspace["render_projection"]["draft_id"] == run["target_draft_id"]
+
+
 def test_revision_api_handles_issues_proposals_and_confirmations(revision_client):
     client, tmp_path = revision_client
     seed_workspace(tmp_path)

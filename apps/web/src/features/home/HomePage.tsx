@@ -7,6 +7,7 @@ import type { ResumeVersion, TemplateStyleConfig } from "@typedance/contracts"
 import { ResumeCard } from "./ResumeCard"
 import { NewResumeModal } from "./NewResumeModal"
 import { ImportOldResumeModal } from "./ImportOldResumeModal"
+import { BlankGuidedResumeModal } from "./BlankGuidedResumeModal"
 import { defaultClassicA4Style } from "../templates/data"
 
 export function HomePage() {
@@ -14,6 +15,7 @@ export function HomePage() {
   const [resumes, setResumes] = useState<ResumeVersion[]>([])
   const [modalOpen, setModalOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
+  const [guidedOpen, setGuidedOpen] = useState(false)
   const [styleMap, setStyleMap] = useState<Record<string, TemplateStyleConfig>>({})
 
   const loadResumes = useCallback(async () => {
@@ -69,7 +71,7 @@ export function HomePage() {
             <FileUp className="mr-2 h-4 w-4" />
             导入旧简历
           </Button>
-          <Button onClick={() => setModalOpen(true)}>
+          <Button onClick={() => setGuidedOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
             新建简历
           </Button>
@@ -85,7 +87,8 @@ export function HomePage() {
               <FileUp className="mr-2 h-4 w-4" />
               导入旧简历
             </Button>
-            <Button variant="outline" onClick={() => setModalOpen(true)}>创建第一份简历</Button>
+            <Button variant="outline" onClick={() => setGuidedOpen(true)}>创建第一份简历</Button>
+            <Button variant="ghost" onClick={() => setModalOpen(true)}>从模板开始</Button>
           </div>
         </div>
       ) : (
@@ -103,6 +106,7 @@ export function HomePage() {
       )}
 
       <ImportOldResumeModal open={importOpen} onOpenChange={setImportOpen} />
+      <BlankGuidedResumeModal open={guidedOpen} onOpenChange={setGuidedOpen} />
       <NewResumeModal open={modalOpen} onOpenChange={setModalOpen} />
     </div>
   )
