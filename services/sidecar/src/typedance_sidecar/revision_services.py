@@ -15,6 +15,7 @@ from .revision_models import (
     UserConfirmation,
     WorkspaceView,
 )
+from .revision_render_projection import DraftProjectionBuilder
 from .revision_repository import RevisionRepository
 
 
@@ -262,14 +263,46 @@ class WorkspaceService:
 
 
 class RenderService:
-    def __init__(self, repository: RevisionRepository) -> None:
+    def __init__(
+        self,
+        repository: RevisionRepository,
+        projection_builder: DraftProjectionBuilder | None = None,
+    ) -> None:
         self.repository = repository
+        self.projection_builder = projection_builder or DraftProjectionBuilder()
 
     def save_projection(self, projection: RenderProjection) -> RenderProjection:
         return self.repository.save_render_projection(projection)
 
     def get_projection(self, projection_id: str) -> RenderProjection | None:
         return self.repository.get_render_projection(projection_id)
+
+    def build_projection_for_draft(
+        self,
+        draft_id: str,
+        *,
+        render_profile: str | None = None,
+    ) -> RenderProjection:
+        draft = self.repository.get_draft_version(draft_id)
+        if draft is None:
+            raise RevisionServiceError(f"Draft not found: {draft_id}")
+
+        modules = self.repository.list_document_modules(draft.id)
+        projection = self.projection_builder.build(
+            draft,
+            modules,
+            render_profile=render_profile,
+        )
+        self.repository.save_render_projection(projection)
+        self.repository.save_draft_version(
+            draft.model_copy(
+                update={
+                    "render_projection_id": projection.id,
+                    "updated_at": utc_now(),
+                }
+            )
+        )
+        return projection
 
 
 class ExportService:

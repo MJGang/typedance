@@ -135,6 +135,11 @@
   - 目标是为 Parser、Structurer、Reviewer、Rewriter、Evidence Verifier、Opportunity Calibrator、Render Planner、Coach Narrator 建立结构化输出 schema。
   - 这是阻止 Agent 退化成“自然语言建议聊天框”的关键契约层。
 
+- `superpowers/plans/2026-05-21-wp7-render-projection.md`
+  - WP7 Render Projection 工程实施计划。
+  - 目标是让结构化 Draft 和模块稳定投影成 HTML/doc_json，继续保持 `doc_json` 只是渲染投影而不是事实源。
+  - 这是新工作台预览、PDF 导出和 legacy projection 适配的前置能力。
+
 - `superpowers/plans/2026-05-08-typedance-foundation-slice-1.md`
   - Slice 0 + Slice 1 工程落地计划。
   - 目标是先完成可运行的本地优先简历编辑、A4 预览、sidecar 持久化和 PDF 导出闭环。
