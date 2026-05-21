@@ -115,6 +115,16 @@
   - 目标是让 sidecar 保存 Revision Engine 的核心领域对象，包括分表、Pydantic 模型和 repository roundtrip。
   - 已在 `codex/wp2-storage` 分支完成首批存储层落地与验证。
 
+- `superpowers/plans/2026-05-21-wp3-revision-services.md`
+  - WP3 Revision Services 工程实施计划。
+  - 目标是在 WP2 存储层之上建立服务边界，让 API 和 Agent Runtime 不直接操作 repository。
+  - 已在 `codex/wp2-storage` 分支完成服务层状态流转、WorkspaceView 聚合与测试验证。
+
+- `superpowers/plans/2026-05-21-wp4-pack-runtime.md`
+  - WP4 Pack Runtime 工程实施计划。
+  - 目标是将 Resume Pack 变成 sidecar 可加载、可校验、可查询的运行时规则包。
+  - 这是后续 Agent Runtime、Revision API 和 Workspace UI 消费模块、问题、动作、质量规则的基础。
+
 - `superpowers/plans/2026-05-08-typedance-foundation-slice-1.md`
   - Slice 0 + Slice 1 工程落地计划。
   - 目标是先完成可运行的本地优先简历编辑、A4 预览、sidecar 持久化和 PDF 导出闭环。
