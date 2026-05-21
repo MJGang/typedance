@@ -15,6 +15,7 @@ from typedance_sidecar.revision_models import (
     DocumentModule,
     DraftVersion,
     EvidenceLink,
+    RenderProjection,
     RevisionIssue,
     RevisionProposal,
     RevisionRun,
@@ -103,7 +104,7 @@ def seed_guardrail_workspace(repo: RevisionRepository, *, claim_type: str = "res
             order=0,
             visibility="visible",
             status="needs_review",
-            data={"items": [{"id": "item_guardrail", "text": "负责订单系统重构"}]},
+            data={"items": [{"id": "item_guardrail", "description": "负责订单系统重构"}]},
             created_at=now,
             updated_at=now,
         )
@@ -201,17 +202,31 @@ def test_accepting_replace_claim_proposal_updates_claim_and_history(tmp_path):
     assert isinstance(proposal, RevisionProposal)
     assert isinstance(draft, DraftVersion)
     assert isinstance(issue, RevisionIssue)
+    repo.save_render_projection(
+        RenderProjection(
+            id="render_stale",
+            draft_id=draft.id,
+            render_profile="default-a4",
+            html="<article>负责订单系统重构</article>",
+            doc_json={"type": "doc", "content": []},
+            created_at=utc_now(),
+        )
+    )
+    repo.save_draft_version(draft.model_copy(update={"render_projection_id": "render_stale"}))
 
     applied = ProposalService(repo).accept_proposal(proposal.id)
 
     updated_claim = repo.list_document_claims(draft.id)[0]
+    updated_module = repo.list_document_modules(draft.id)[0]
     updated_draft = repo.get_draft_version(draft.id)
     updated_issue = repo.get_revision_issue(issue.id)
     assert applied.status == "applied"
     assert updated_claim.text == "主导订单系统重构，提升核心链路稳定性。"
+    assert updated_module.data["items"][0]["description"] == "主导订单系统重构，提升核心链路稳定性。"
     assert updated_draft is not None
     assert updated_draft.applied_proposal_ids == [proposal.id]
     assert updated_draft.unresolved_issue_ids == []
+    assert updated_draft.render_projection_id is None
     assert updated_issue is not None
     assert updated_issue.status == "accepted"
 

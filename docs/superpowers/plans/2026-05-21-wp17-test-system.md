@@ -30,6 +30,7 @@
 ## Task 2: Proposal Application Guardrail
 
 - [x] 写测试：接受 `replace_claim` Proposal 后，目标 `DocumentClaim.text` 必须变成 `proposed_snapshot.text`。
+- [x] 写测试：接受 `replace_claim` Proposal 后，目标 Module item 必须同步更新，旧 `RenderProjection` 必须失效。
 - [x] 写测试：Draft 必须记录 `applied_proposal_ids`，相关 Issue 必须关闭。
 - [x] 运行测试，确认当前服务层没有真正更新 Claim。
 - [x] 实现 `ProposalService` 的 `replace_claim` 应用逻辑。

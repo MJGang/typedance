@@ -184,6 +184,7 @@ class ProposalService:
             update={
                 "applied_proposal_ids": applied_ids,
                 "unresolved_issue_ids": unresolved_issue_ids,
+                "render_projection_id": None,
                 "updated_at": utc_now(),
             }
         )
@@ -208,6 +209,7 @@ class ProposalService:
         self.repository.save_document_claim(
             claim.model_copy(update={"text": proposed_text, "updated_at": now})
         )
+        self._update_claim_module_text(claim, proposed_text, now)
         if proposal.original_snapshot is None:
             return proposal.model_copy(update={"original_snapshot": {"text": claim.text}})
         return proposal
@@ -227,6 +229,47 @@ class ProposalService:
         if claim is None:
             raise RevisionServiceError(f"Claim not found: {claim_id}")
         return claim
+
+    def _update_claim_module_text(self, claim: DocumentClaim, proposed_text: str, now: str) -> None:
+        module = next(
+            (
+                module
+                for module in self.repository.list_document_modules(claim.draft_id)
+                if module.id == claim.module_id
+            ),
+            None,
+        )
+        if module is None or claim.item_id is None:
+            return
+
+        items = module.data.get("items")
+        if not isinstance(items, list):
+            return
+
+        updated_items = []
+        changed = False
+        for item in items:
+            if isinstance(item, dict) and item.get("id") == claim.item_id:
+                updated_item = dict(item)
+                if "description" in updated_item:
+                    updated_item["description"] = proposed_text
+                elif "text" in updated_item:
+                    updated_item["text"] = proposed_text
+                else:
+                    updated_item["description"] = proposed_text
+                updated_items.append(updated_item)
+                changed = True
+            else:
+                updated_items.append(item)
+
+        if not changed:
+            return
+
+        updated_data = dict(module.data)
+        updated_data["items"] = updated_items
+        self.repository.save_document_module(
+            module.model_copy(update={"data": updated_data, "updated_at": now})
+        )
 
 
 class EvidenceService:
