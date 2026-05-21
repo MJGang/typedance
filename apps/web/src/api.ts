@@ -32,6 +32,22 @@ import {
 import { chooseHtmlSavePathInTauri, choosePdfSavePathInTauri, isTauri } from "./tauri";
 const baseUrl = import.meta.env.VITE_SIDECAR_URL ?? "http://127.0.0.1:4317";
 
+type SaveFilePickerOptions = {
+  suggestedName?: string
+  types?: Array<{
+    description: string
+    accept: Record<string, string[]>
+  }>
+}
+
+type WindowWithSaveFilePicker = Window & {
+  showSaveFilePicker?: (options: SaveFilePickerOptions) => Promise<FileSystemFileHandle>
+}
+
+function getSaveFilePicker() {
+  return (window as WindowWithSaveFilePicker).showSaveFilePicker
+}
+
 function decodeHeaderPath(value: string | null): string | undefined {
   if (!value) return undefined
   try {
@@ -381,7 +397,7 @@ export async function exportRevisionDraftPdf(
     fileName = outputPath.split(/[/\\]/).pop() ?? fileName
   }
 
-  const showPicker = (window as any).showSaveFilePicker as ((opts: Record<string, unknown>) => Promise<FileSystemFileHandle>) | undefined
+  const showPicker = getSaveFilePicker()
   if (!outputPath && showPicker) {
     try {
       fileHandle = await showPicker({
@@ -463,7 +479,7 @@ export async function exportResumePdf(
     fileName = outputPath.split(/[/\\]/).pop() ?? fileName
   }
 
-  const showPicker = (window as any).showSaveFilePicker as ((opts: Record<string, unknown>) => Promise<FileSystemFileHandle>) | undefined
+  const showPicker = getSaveFilePicker()
   if (!outputPath && showPicker) {
     try {
       fileHandle = await showPicker({
@@ -541,7 +557,7 @@ export async function exportResumeHtml(
     fileName = outputPath.split(/[/\\]/).pop() ?? fileName
   }
 
-  const showPicker = (window as any).showSaveFilePicker as ((opts: Record<string, unknown>) => Promise<FileSystemFileHandle>) | undefined
+  const showPicker = getSaveFilePicker()
   if (!outputPath && showPicker) {
     try {
       fileHandle = await showPicker({
