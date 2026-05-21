@@ -140,6 +140,11 @@
   - 目标是让结构化 Draft 和模块稳定投影成 HTML/doc_json，继续保持 `doc_json` 只是渲染投影而不是事实源。
   - 这是新工作台预览、PDF 导出和 legacy projection 适配的前置能力。
 
+- `superpowers/plans/2026-05-21-wp8-revision-api.md`
+  - WP8 Revision API 工程实施计划。
+  - 目标是将 Document、Source、RevisionRun、WorkspaceView、Draft、Issue、Proposal、Evidence 等 Revision Engine 能力暴露为 FastAPI API。
+  - 这是前端从旧 `resume-versions` 数据源迁移到 AI-native 工作台数据源的入口。
+
 - `superpowers/plans/2026-05-08-typedance-foundation-slice-1.md`
   - Slice 0 + Slice 1 工程落地计划。
   - 目标是先完成可运行的本地优先简历编辑、A4 预览、sidecar 持久化和 PDF 导出闭环。

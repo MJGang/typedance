@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import uuid4
 
 from .models import utc_now
@@ -158,6 +159,8 @@ class EvidenceService:
         document_id: str,
         claim_id: str,
         *,
+        confirmation_type: Literal["truth_confirmed", "risk_accepted", "source_verified"] = "truth_confirmed",
+        evidence_link_id: str | None = None,
         issue_id: str | None = None,
         note: str | None = None,
         confirmation_id: str | None = None,
@@ -166,8 +169,9 @@ class EvidenceService:
             id=confirmation_id or f"confirm_{uuid4().hex}",
             document_id=document_id,
             claim_id=claim_id,
+            evidence_link_id=evidence_link_id,
             issue_id=issue_id,
-            confirmation_type="truth_confirmed",
+            confirmation_type=confirmation_type,
             note=note,
             created_at=utc_now(),
         )

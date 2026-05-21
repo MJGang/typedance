@@ -22,6 +22,8 @@ from .models import (
     utc_now,
 )
 from .pdf import render_and_export_pdf, render_resume_html, cleanup_browser
+from .revision_api import create_revision_router
+from .revision_repository import RevisionRepository
 
 
 @asynccontextmanager
@@ -59,6 +61,13 @@ def template_sample_repository() -> TemplateSampleRepository:
 
 def template_style_repository() -> TemplateStyleRepository:
     return TemplateStyleRepository(connect(app_data_dir() / "typedance.sqlite"))
+
+
+def revision_repository() -> RevisionRepository:
+    return RevisionRepository(connect(app_data_dir() / "typedance.sqlite"))
+
+
+app.include_router(create_revision_router(revision_repository))
 
 
 
