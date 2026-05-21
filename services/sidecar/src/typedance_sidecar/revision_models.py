@@ -268,3 +268,22 @@ class ExportArtifact(BaseModel):
     file_path: str | None = None
     review_status: ExportReviewStatus
     created_at: str
+
+
+class QualityGateResult(BaseModel):
+    status: Literal["unknown", "needs_review", "ready", "blocked"]
+    blocking_issue_ids: list[str] = Field(default_factory=list)
+    warning_issue_ids: list[str] = Field(default_factory=list)
+
+
+class WorkspaceView(BaseModel):
+    document: Document
+    current_draft: DraftVersion | None = None
+    modules: list[DocumentModule] = Field(default_factory=list)
+    claims: list[DocumentClaim] = Field(default_factory=list)
+    issues: list[RevisionIssue] = Field(default_factory=list)
+    proposals: list[RevisionProposal] = Field(default_factory=list)
+    evidence: list[EvidenceLink] = Field(default_factory=list)
+    source_summaries: list[SourceDocument] = Field(default_factory=list)
+    render_projection: RenderProjection | None = None
+    quality_gate: QualityGateResult | None = None

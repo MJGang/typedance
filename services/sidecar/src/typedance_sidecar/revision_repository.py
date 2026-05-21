@@ -298,6 +298,9 @@ class RevisionRepository:
         self._save("draft_versions", draft, {"document_id": draft.document_id})
         return draft
 
+    def get_draft_version(self, draft_id: str) -> DraftVersion | None:
+        return self._get("draft_versions", DraftVersion, draft_id)
+
     def list_draft_versions(self, document_id: str) -> list[DraftVersion]:
         return self._list("draft_versions", DraftVersion, "document_id", document_id)
 
@@ -322,6 +325,9 @@ class RevisionRepository:
             {"document_id": evidence.document_id, "claim_id": evidence.claim_id},
         )
         return evidence
+
+    def get_evidence_link(self, evidence_id: str) -> EvidenceLink | None:
+        return self._get("evidence_links", EvidenceLink, evidence_id)
 
     def list_evidence_links(self, document_id: str) -> list[EvidenceLink]:
         return self._list("evidence_links", EvidenceLink, "document_id", document_id)
@@ -348,6 +354,9 @@ class RevisionRepository:
         )
         return issue
 
+    def get_revision_issue(self, issue_id: str) -> RevisionIssue | None:
+        return self._get("revision_issues", RevisionIssue, issue_id)
+
     def list_revision_issues(self, draft_id: str) -> list[RevisionIssue]:
         return self._list("revision_issues", RevisionIssue, "draft_id", draft_id)
 
@@ -358,6 +367,9 @@ class RevisionRepository:
             {"document_id": proposal.document_id, "draft_id": proposal.draft_id},
         )
         return proposal
+
+    def get_revision_proposal(self, proposal_id: str) -> RevisionProposal | None:
+        return self._get("revision_proposals", RevisionProposal, proposal_id)
 
     def list_revision_proposals(self, draft_id: str) -> list[RevisionProposal]:
         return self._list("revision_proposals", RevisionProposal, "draft_id", draft_id)
