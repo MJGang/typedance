@@ -3,11 +3,16 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from .models import utc_now
-from .resume_agent_outputs import ParsedDocumentOutput, register_resume_agent_output_schemas
+from .resume_agent_outputs import ParsedDocumentOutput, StructuredResumeOutput, register_resume_agent_output_schemas
 from .resume_parser_runner import (
     ResumeParserRunRequest,
     ResumeParserRunner,
     build_resume_parser_runner,
+)
+from .resume_structurer_runner import (
+    ResumeStructurerRunRequest,
+    ResumeStructurerRunner,
+    RuleBasedResumeStructurerRunner,
 )
 from .revision_agent_runtime import AgentInputRef, AgentRuntime, AgentRuntimeError, AgentSchemaRegistry, build_agent_context
 from .revision_models import (
@@ -54,9 +59,11 @@ class RevisionImportFlowService:
         self,
         repository: RevisionRepository,
         parser_runner: ResumeParserRunner | None = None,
+        structurer_runner: ResumeStructurerRunner | None = None,
     ) -> None:
         self.repository = repository
         self.parser_runner = parser_runner or build_resume_parser_runner()
+        self.structurer_runner = structurer_runner or RuleBasedResumeStructurerRunner()
 
     def run_import_reconstruct(self, document_id: str, run_id: str) -> RevisionRun:
         document = self.repository.get_document(document_id)
@@ -107,14 +114,30 @@ class RevisionImportFlowService:
             )
         )
 
-        modules = self._build_modules(document, draft, parsed_blocks)
+        structured_output, structurer_step = self._invoke_structurer_agent(
+            document,
+            run,
+            draft,
+            parsed_blocks,
+        )
+        modules = self._build_modules_from_structured_output(document, draft, structured_output)
+        module_id_by_temp = {module.temp_id: saved.id for module, saved in zip(structured_output.modules, modules, strict=False)}
         for module in modules:
             self.repository.save_document_module(module)
-        self._save_step(run.id, "StructureResume")
 
-        claims = self._build_claims(draft, modules, parsed_blocks)
+        claims = self._build_claims_from_structured_output(draft, structured_output, module_id_by_temp)
         for claim in claims:
             self.repository.save_document_claim(claim)
+        self.repository.save_agent_step(
+            structurer_step.model_copy(
+                update={
+                    "output_refs": [
+                        *[f"DocumentModule:{module.id}" for module in modules],
+                        *[f"DocumentClaim:{claim.id}" for claim in claims],
+                    ]
+                }
+            )
+        )
 
         evidence_links = self._build_evidence(document, sources[0], claims)
         for evidence in evidence_links:
@@ -231,6 +254,94 @@ class RevisionImportFlowService:
         if not isinstance(result.payload, ParsedDocumentOutput):
             raise RevisionServiceError("SourceParser returned unexpected payload")
         return result.payload, result.step
+
+    def _invoke_structurer_agent(
+        self,
+        document: Document,
+        run: RevisionRun,
+        draft: DraftVersion,
+        parsed_blocks: list[ParsedBlock],
+    ):
+        runtime = AgentRuntime(
+            self.repository,
+            register_resume_agent_output_schemas(AgentSchemaRegistry()),
+        )
+        input_refs = [
+            AgentInputRef(object_type="DraftVersion", object_id=draft.id),
+            *[AgentInputRef(object_type="ParsedBlock", object_id=block.id) for block in parsed_blocks],
+        ]
+        context = build_agent_context(
+            run,
+            agent_name="ResumeStructurer",
+            input_refs=input_refs,
+            target_language=document.target_language,
+        )
+        request = ResumeStructurerRunRequest(
+            document_title=document.title,
+            pack_id=document.pack_id,
+            parsed_blocks=parsed_blocks,
+        )
+
+        def runner(received_context):
+            return self.structurer_runner(received_context, request)
+
+        result = runtime.invoke(context, runner)
+        if not isinstance(result.payload, StructuredResumeOutput):
+            raise RevisionServiceError("ResumeStructurer returned unexpected payload")
+        return result.payload, result.step
+
+    def _build_modules_from_structured_output(
+        self,
+        document: Document,
+        draft: DraftVersion,
+        structured_output: StructuredResumeOutput,
+    ) -> list[DocumentModule]:
+        now = utc_now()
+        return [
+            DocumentModule(
+                id=f"mod_{uuid4().hex}",
+                draft_id=draft.id,
+                pack_id=document.pack_id,
+                type=module.type,
+                title=module.title,
+                order=module.order,
+                visibility=module.visibility,
+                status=module.status,
+                data=module.data,
+                created_at=now,
+                updated_at=now,
+            )
+            for module in structured_output.modules
+        ]
+
+    def _build_claims_from_structured_output(
+        self,
+        draft: DraftVersion,
+        structured_output: StructuredResumeOutput,
+        module_id_by_temp: dict[str, str],
+    ) -> list[DocumentClaim]:
+        now = utc_now()
+        claims: list[DocumentClaim] = []
+        for claim_draft in structured_output.claims:
+            module_id = module_id_by_temp.get(claim_draft.module_temp_id)
+            if module_id is None:
+                continue
+            claims.append(
+                DocumentClaim(
+                    id=f"claim_{uuid4().hex}",
+                    draft_id=draft.id,
+                    module_id=module_id,
+                    item_id=claim_draft.item_temp_id,
+                    text=claim_draft.text,
+                    claim_type=claim_draft.claim_type,
+                    confidence=claim_draft.confidence,
+                    risk_flags=claim_draft.risk_flags,
+                    source_span_refs=claim_draft.source_block_refs,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        return claims
 
     def _block_type(self, text: str) -> str:
         if self._section_for(text) is not None:

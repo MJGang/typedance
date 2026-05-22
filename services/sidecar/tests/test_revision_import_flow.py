@@ -93,6 +93,11 @@ def test_import_flow_generates_workspace_objects(tmp_path):
     assert parser_steps[0].input_refs == ["SourceDocument:src_import"]
     assert parser_steps[0].output_refs
     assert all(ref.startswith("ParsedBlock:") for ref in parser_steps[0].output_refs)
+    structurer_steps = [step for step in steps if step.agent_name == "ResumeStructurer"]
+    assert len(structurer_steps) == 1
+    assert any(ref.startswith("ParsedBlock:") for ref in structurer_steps[0].input_refs)
+    assert any(ref.startswith("DocumentModule:") for ref in structurer_steps[0].output_refs)
+    assert any(ref.startswith("DocumentClaim:") for ref in structurer_steps[0].output_refs)
 
     workspace = WorkspaceService(repo).get_workspace_view(document.id)
     assert workspace.current_draft is not None
@@ -145,4 +150,26 @@ def test_import_flow_surfaces_parser_runtime_failure(tmp_path):
     assert failed_run.status == "failed_retryable"
     assert failed_run.output_summary == "parser model timeout"
     assert steps[-1].agent_name == "SourceParser"
+    assert steps[-1].status == "failed_model"
+
+
+def test_import_flow_surfaces_structurer_runtime_failure(tmp_path):
+    repo = make_repository(tmp_path)
+    document, _source, run = seed_import_run(repo)
+
+    def raise_model_error(_context, _request):
+        raise RuntimeError("structurer model timeout")
+
+    service = RevisionImportFlowService(repo, structurer_runner=raise_model_error)
+
+    with pytest.raises(RevisionServiceError, match="structurer model timeout"):
+        service.run_import_reconstruct(document.id, run.id)
+
+    failed_run = repo.get_revision_run(run.id)
+    steps = repo.list_agent_steps(run.id)
+
+    assert failed_run is not None
+    assert failed_run.status == "failed_retryable"
+    assert failed_run.output_summary == "structurer model timeout"
+    assert steps[-1].agent_name == "ResumeStructurer"
     assert steps[-1].status == "failed_model"
