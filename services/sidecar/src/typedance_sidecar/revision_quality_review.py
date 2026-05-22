@@ -5,7 +5,7 @@ from .resume_agent_outputs import ResumeReviewOutput, RevisionIssueDraft, regist
 from .resume_reviewer_runner import (
     ResumeReviewerRunRequest,
     ResumeReviewerRunner,
-    RuleBasedResumeReviewerRunner,
+    build_resume_reviewer_runner,
 )
 from .revision_agent_runtime import AgentInputRef, AgentRuntime, AgentRuntimeError, AgentSchemaRegistry, build_agent_context
 from .revision_models import (
@@ -30,7 +30,7 @@ class RevisionQualityReviewService:
         reviewer_runner: ResumeReviewerRunner | None = None,
     ) -> None:
         self.repository = repository
-        self.reviewer_runner = reviewer_runner or RuleBasedResumeReviewerRunner()
+        self.reviewer_runner = reviewer_runner or build_resume_reviewer_runner()
 
     def run_quality_review(self, document_id: str, run_id: str) -> RevisionRun:
         document = self.repository.get_document(document_id)

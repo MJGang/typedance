@@ -1,8 +1,11 @@
-from collections.abc import Callable
-from typing import Any
+import json
+import os
+from collections.abc import Callable, Mapping
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from .llm_provider import build_chat_model, has_configured_llm_api_key
 from .resume_agent_outputs import QualitySummary, ResumeReviewOutput, RevisionIssueDraft
 from .revision_agent_runtime import AgentInvocationContext
 from .revision_import_flow import METRIC_RE
@@ -23,7 +26,12 @@ class ResumeReviewerRunRequest(BaseModel):
     evidence_links: list[EvidenceLink] = Field(default_factory=list)
 
 
+ResumeReviewerMode = Literal["rule", "langchain", "auto"]
 ResumeReviewerRunner = Callable[[AgentInvocationContext, ResumeReviewerRunRequest], dict[str, Any]]
+
+
+class ResumeReviewerRunnerConfig(BaseModel):
+    mode: ResumeReviewerMode = "rule"
 
 
 class RuleBasedResumeReviewerRunner:
@@ -46,6 +54,98 @@ class RuleBasedResumeReviewerRunner:
             "payload": output.model_dump(),
             "output_refs": [],
         }
+
+
+class LangChainResumeReviewerRunner:
+    def __init__(self, model_factory: Callable[[], Any] = build_chat_model) -> None:
+        self.model_factory = model_factory
+
+    def __call__(
+        self,
+        context: AgentInvocationContext,
+        request: ResumeReviewerRunRequest,
+    ) -> dict[str, Any]:
+        model = self.model_factory()
+        structured_model = model.with_structured_output(ResumeReviewOutput)
+        raw_output = structured_model.invoke(_messages(context, request))
+        output = _coerce_review_output(raw_output)
+        return {
+            "invocation_id": context.invocation_id,
+            "run_id": context.run_id,
+            "document_id": context.document_id,
+            "pack_id": context.pack_id,
+            "agent_name": context.agent_name,
+            "output_type": "ResumeReviewOutput",
+            "confidence": 0.82,
+            "warnings": [],
+            "payload": output.model_dump(),
+            "output_refs": [],
+        }
+
+
+def load_resume_reviewer_runner_config(
+    environ: Mapping[str, str] | None = None,
+) -> ResumeReviewerRunnerConfig:
+    env = environ if environ is not None else os.environ
+    mode = env.get("TYPEDANCE_RESUME_REVIEWER_MODE", "rule").strip().lower()
+    if mode in {"rules", "deterministic", "local"}:
+        mode = "rule"
+    if mode not in {"rule", "langchain", "auto"}:
+        raise ValueError(f"Unsupported resume reviewer runner mode: {mode}")
+    return ResumeReviewerRunnerConfig(mode=mode)
+
+
+def build_resume_reviewer_runner(
+    environ: Mapping[str, str] | None = None,
+    *,
+    model_factory: Callable[[], Any] | None = None,
+) -> ResumeReviewerRunner:
+    env = environ if environ is not None else os.environ
+    config = load_resume_reviewer_runner_config(env)
+    if config.mode == "rule":
+        return RuleBasedResumeReviewerRunner()
+    if config.mode == "auto" and not has_configured_llm_api_key(env):
+        return RuleBasedResumeReviewerRunner()
+
+    factory = model_factory or (lambda: build_chat_model(environ=env))
+    return LangChainResumeReviewerRunner(model_factory=factory)
+
+
+def _messages(
+    context: AgentInvocationContext,
+    request: ResumeReviewerRunRequest,
+) -> list[dict[str, str]]:
+    payload = {
+        "run_type": "quality_review",
+        "document_id": context.document_id,
+        "draft": {
+            "modules": [module.model_dump() for module in request.modules],
+            "claims": [claim.model_dump() for claim in request.claims],
+            "evidence_links": [evidence.model_dump() for evidence in request.evidence_links],
+        },
+    }
+    return [
+        {
+            "role": "system",
+            "content": (
+                "你是 TypeDance 的 ResumeReviewer。只输出 ResumeReviewOutput 结构化结果。"
+                "你只能生成可定位、可处理的问题卡，不能直接改写最终简历。"
+                "高风险事实、缺少证据、缺少结果、模块缺失和导出风险都必须进入 issues。"
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(payload, ensure_ascii=False),
+        },
+    ]
+
+
+def _coerce_review_output(raw_output: Any) -> ResumeReviewOutput:
+    if isinstance(raw_output, ResumeReviewOutput):
+        return raw_output
+    if isinstance(raw_output, BaseModel):
+        return ResumeReviewOutput.model_validate(raw_output.model_dump())
+    return ResumeReviewOutput.model_validate(raw_output)
 
 
 def _build_issue_drafts(request: ResumeReviewerRunRequest) -> list[RevisionIssueDraft]:
