@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { AlertCircle, ArrowLeft, BriefcaseBusiness, Check, Download, FileText, Loader2, RefreshCcw, ShieldCheck, X } from "lucide-react"
+import { AlertCircle, ArrowLeft, BriefcaseBusiness, Check, Download, FileText, Loader2, RefreshCcw, Send, ShieldCheck, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import {
   acceptRevisionProposal,
+  createRevisionRun,
   dismissRevisionIssue,
   getRevisionWorkspaceView,
   rejectRevisionProposal,
@@ -152,6 +155,10 @@ function sourceTitle(sourceSummaries: SourceDocumentSummary[], sourceDocumentId:
   return sourceSummaries.find((source) => source.id === sourceDocumentId)?.title ?? "未知来源"
 }
 
+function issueContextActionId(issueId: string) {
+  return `issue_context_${issueId}`
+}
+
 function IssueList({
   issues,
   selectedIssueId,
@@ -219,7 +226,11 @@ function IssueDetail({
   sourceSummaries,
   actions,
   actingActionId,
+  contextInput,
+  isSubmittingContextInput,
   onAction,
+  onContextInputChange,
+  onSubmitContextInput,
 }: {
   issue: RevisionIssue | null
   module?: DocumentModule
@@ -229,7 +240,11 @@ function IssueDetail({
   sourceSummaries: SourceDocumentSummary[]
   actions: ContextualAction[]
   actingActionId: string | null
+  contextInput: string
+  isSubmittingContextInput: boolean
   onAction: (action: ContextualAction) => void
+  onContextInputChange: (value: string) => void
+  onSubmitContextInput: () => void
 }) {
   if (!issue) {
     return (
@@ -243,6 +258,7 @@ function IssueDetail({
   const relatedClaims = issueClaims(issue, relatedProposals, claims)
   const relatedEvidence = issueEvidence(issue, relatedProposals, relatedClaims, evidence)
   const availableActions = issueActions(issue, proposals, actions)
+  const contextInputId = `issue-context-input-${issue.id}`
 
   return (
     <section aria-label="问题处理详情" className="rounded-md border border-border p-3" role="region">
@@ -308,6 +324,33 @@ function IssueDetail({
           </Button>
         ))}
       </div>
+
+      <form
+        className="mt-4 space-y-2 rounded-md border border-dashed border-border p-3"
+        onSubmit={(event) => {
+          event.preventDefault()
+          onSubmitContextInput()
+        }}
+      >
+        <div className="space-y-1.5">
+          <Label htmlFor={contextInputId}>补充事实</Label>
+          <Textarea
+            id={contextInputId}
+            value={contextInput}
+            onChange={(event) => onContextInputChange(event.target.value)}
+            placeholder="例如：这个项目让接口错误率下降 30%，日均处理 2 万订单。"
+            rows={3}
+            className="min-h-24 resize-y"
+          />
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs leading-5 text-muted-foreground">这段内容会绑定到当前问题，作为下一轮局部改稿的上下文。</p>
+          <Button type="submit" size="sm" disabled={!contextInput.trim() || isSubmittingContextInput}>
+            {isSubmittingContextInput ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+            提交补充
+          </Button>
+        </div>
+      </form>
     </section>
   )
 }
@@ -320,6 +363,7 @@ export function RevisionWorkspacePage() {
   const [opportunityOpen, setOpportunityOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [selectedIssueId, setSelectedIssueId] = useState<string | undefined>()
+  const [issueContextInput, setIssueContextInput] = useState("")
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>("review")
 
   const loadWorkspace = useCallback(async () => {
@@ -363,6 +407,10 @@ export function RevisionWorkspacePage() {
     [selectedIssue, workspace],
   )
 
+  useEffect(() => {
+    setIssueContextInput("")
+  }, [selectedIssue?.id])
+
   const handleAction = useCallback(async (action: ContextualAction) => {
     if (!workspace) return
     setActingActionId(action.id)
@@ -403,6 +451,27 @@ export function RevisionWorkspacePage() {
       setActingActionId(null)
     }
   }, [loadWorkspace, workspace])
+
+  const handleSubmitIssueContext = useCallback(async () => {
+    const userIntent = issueContextInput.trim()
+    if (!workspace?.current_draft || !selectedIssue || !userIntent) return
+
+    const actionId = issueContextActionId(selectedIssue.id)
+    setActingActionId(actionId)
+    try {
+      await createRevisionRun(workspace.document.id, {
+        run_type: "issue_action",
+        base_draft_id: workspace.current_draft.id,
+        selected_module_id: selectedIssue.module_id,
+        selected_issue_id: selectedIssue.id,
+        user_intent: userIntent,
+      })
+      setIssueContextInput("")
+      await loadWorkspace()
+    } finally {
+      setActingActionId(null)
+    }
+  }, [issueContextInput, loadWorkspace, selectedIssue, workspace])
 
   if (!documentId) {
     return (
@@ -597,7 +666,11 @@ export function RevisionWorkspacePage() {
             sourceSummaries={workspace.source_summaries}
             actions={workspace.available_actions}
             actingActionId={actingActionId}
+            contextInput={issueContextInput}
+            isSubmittingContextInput={!!selectedIssue && actingActionId === issueContextActionId(selectedIssue.id)}
             onAction={handleAction}
+            onContextInputChange={setIssueContextInput}
+            onSubmitContextInput={handleSubmitIssueContext}
           />
 
           <section>

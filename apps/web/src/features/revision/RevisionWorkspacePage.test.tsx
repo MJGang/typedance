@@ -12,6 +12,7 @@ const apiMocks = vi.hoisted(() => ({
   rejectRevisionProposal: vi.fn(),
   dismissRevisionIssue: vi.fn(),
   runRevisionQualityReview: vi.fn(),
+  createRevisionRun: vi.fn(),
   calibrateRevisionOpportunity: vi.fn(),
   exportRevisionDraftPdf: vi.fn(),
 }))
@@ -23,6 +24,7 @@ vi.mock("@/api", () => ({
   rejectRevisionProposal: (...args: unknown[]) => apiMocks.rejectRevisionProposal(...args),
   dismissRevisionIssue: (...args: unknown[]) => apiMocks.dismissRevisionIssue(...args),
   runRevisionQualityReview: (...args: unknown[]) => apiMocks.runRevisionQualityReview(...args),
+  createRevisionRun: (...args: unknown[]) => apiMocks.createRevisionRun(...args),
   calibrateRevisionOpportunity: (...args: unknown[]) => apiMocks.calibrateRevisionOpportunity(...args),
   exportRevisionDraftPdf: (...args: unknown[]) => apiMocks.exportRevisionDraftPdf(...args),
 }))
@@ -201,11 +203,13 @@ describe("RevisionWorkspacePage", () => {
     apiMocks.rejectRevisionProposal.mockReset()
     apiMocks.dismissRevisionIssue.mockReset()
     apiMocks.runRevisionQualityReview.mockReset()
+    apiMocks.createRevisionRun.mockReset()
     apiMocks.calibrateRevisionOpportunity.mockReset()
     apiMocks.exportRevisionDraftPdf.mockReset()
     apiMocks.getRevisionWorkspaceView.mockResolvedValue(workspace)
     apiMocks.acceptRevisionProposal.mockResolvedValue({ id: "prop_1", status: "applied" })
     apiMocks.runRevisionQualityReview.mockResolvedValue({ id: "run_review", status: "completed" })
+    apiMocks.createRevisionRun.mockResolvedValue({ id: "run_issue", status: "created" })
     apiMocks.calibrateRevisionOpportunity.mockResolvedValue({ document: { id: "doc_1" } })
     apiMocks.exportRevisionDraftPdf.mockResolvedValue({ fileName: "resume.pdf", reviewStatus: "forced_with_risk" })
   })
@@ -286,6 +290,27 @@ describe("RevisionWorkspacePage", () => {
     expect(within(detail).getByRole("heading", { name: "缺少结果" })).toBeInTheDocument()
     expect(screen.getByTestId("revision-issue-issue_1")).toHaveAttribute("aria-pressed", "true")
     expect(screen.getAllByRole("button", { name: /接受修改/ })).toHaveLength(1)
+  })
+
+  it("submits contextual issue input as an issue action run", async () => {
+    renderPage()
+
+    const detail = await screen.findByRole("region", { name: "问题处理详情" })
+    fireEvent.change(within(detail).getByLabelText("补充事实"), {
+      target: { value: "这个项目让接口错误率下降 30%。" },
+    })
+    fireEvent.click(within(detail).getByRole("button", { name: "提交补充" }))
+
+    await waitFor(() => {
+      expect(apiMocks.createRevisionRun).toHaveBeenCalledWith("doc_1", {
+        run_type: "issue_action",
+        base_draft_id: "draft_1",
+        selected_module_id: "mod_1",
+        selected_issue_id: "issue_1",
+        user_intent: "这个项目让接口错误率下降 30%。",
+      })
+    })
+    await waitFor(() => expect(apiMocks.getRevisionWorkspaceView).toHaveBeenCalledTimes(2))
   })
 
   it("switches compact workspace panels without dropping review context", async () => {
