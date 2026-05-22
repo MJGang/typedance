@@ -104,6 +104,10 @@ function issueActions(issue: RevisionIssue, proposals: RevisionProposal[], actio
   })
 }
 
+function documentLevelActions(actions: ContextualAction[]) {
+  return actions.filter((action) => !action.target || Object.keys(action.target).length === 0)
+}
+
 function IssueList({
   issues,
   selectedIssueId,
@@ -282,7 +286,7 @@ export function RevisionWorkspacePage() {
     [workspace],
   )
   const selectedIssue = useMemo(
-    () => visibleIssues.find((issue) => issue.id === selectedIssueId) ?? null,
+    () => visibleIssues.find((issue) => issue.id === selectedIssueId) ?? visibleIssues[0] ?? null,
     [selectedIssueId, visibleIssues],
   )
   const selectedIssueModule = useMemo(
@@ -364,6 +368,7 @@ export function RevisionWorkspacePage() {
   }
 
   if (!workspace) return null
+  const globalActions = documentLevelActions(workspace.available_actions)
 
   return (
     <div className="flex min-h-[calc(100svh-3rem)] flex-col bg-background">
@@ -488,26 +493,26 @@ export function RevisionWorkspacePage() {
             </div>
           </section>
 
-          <section>
-            <p className="mb-2 text-xs font-medium text-muted-foreground">下一步</p>
-            <div className="flex flex-wrap gap-2">
-              {workspace.available_actions.length === 0 ? (
-                <span className="text-sm text-muted-foreground">暂无可执行动作。</span>
-              ) : workspace.available_actions.map((action) => (
-                <Button
-                  key={action.id}
-                  size="sm"
-                  variant={action.action_type === "accept_proposal" ? "default" : "outline"}
-                  onClick={() => handleAction(action)}
-                  disabled={actingActionId === action.id}
-                >
-                  {action.action_type === "accept_proposal" ? <Check className="mr-2 h-4 w-4" /> : null}
-                  {action.action_type === "reject_proposal" ? <X className="mr-2 h-4 w-4" /> : null}
-                  {action.label}
-                </Button>
-              ))}
-            </div>
-          </section>
+          {globalActions.length > 0 ? (
+            <section>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">下一步</p>
+              <div className="flex flex-wrap gap-2">
+                {globalActions.map((action) => (
+                  <Button
+                    key={action.id}
+                    size="sm"
+                    variant={action.action_type === "accept_proposal" ? "default" : "outline"}
+                    onClick={() => handleAction(action)}
+                    disabled={actingActionId === action.id}
+                  >
+                    {action.action_type === "accept_proposal" ? <Check className="mr-2 h-4 w-4" /> : null}
+                    {action.action_type === "reject_proposal" ? <X className="mr-2 h-4 w-4" /> : null}
+                    {action.label}
+                  </Button>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <section>
             <p className="mb-2 text-xs font-medium text-muted-foreground">问题</p>

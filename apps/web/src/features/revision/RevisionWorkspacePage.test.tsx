@@ -180,8 +180,8 @@ describe("RevisionWorkspacePage", () => {
     expect(await screen.findByRole("heading", { name: "张三的简历" })).toBeInTheDocument()
     expect(screen.getByText("还有 1 个问题建议处理后再导出。")).toBeInTheDocument()
     expect(screen.getByText("订单系统重构 / 核心开发")).toBeInTheDocument()
-    expect(screen.getByText("缺少结果")).toBeInTheDocument()
-    expect(screen.getByText("改成结果导向表达")).toBeInTheDocument()
+    expect(screen.getAllByText("缺少结果").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("改成结果导向表达").length).toBeGreaterThan(0)
   })
 
   it("runs an available proposal action and refreshes the workspace", async () => {
@@ -235,6 +235,16 @@ describe("RevisionWorkspacePage", () => {
 
     fireEvent.click(within(detail).getByRole("button", { name: /接受修改/ }))
     await waitFor(() => expect(apiMocks.acceptRevisionProposal).toHaveBeenCalledWith("prop_1"))
+  })
+
+  it("defaults to the first issue and keeps local actions out of global next steps", async () => {
+    renderPage()
+
+    const detail = await screen.findByRole("region", { name: "问题处理详情" })
+
+    expect(within(detail).getByRole("heading", { name: "缺少结果" })).toBeInTheDocument()
+    expect(screen.getByTestId("revision-issue-issue_1")).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getAllByRole("button", { name: /接受修改/ })).toHaveLength(1)
   })
 
   it("switches compact workspace panels without dropping review context", async () => {
