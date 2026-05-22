@@ -8,7 +8,7 @@ from .resume_agent_outputs import ResumeRewriteOutput, RevisionProposalDraft, re
 from .resume_rewriter_runner import (
     ResumeRewriterRunRequest,
     ResumeRewriterRunner,
-    RuleBasedResumeRewriterRunner,
+    build_resume_rewriter_runner,
 )
 from .revision_agent_runtime import AgentInputRef, AgentRuntime, AgentRuntimeError, AgentSchemaRegistry, build_agent_context
 from .revision_models import (
@@ -42,7 +42,7 @@ class RevisionIssueActionService:
         rewriter_runner: ResumeRewriterRunner | None = None,
     ) -> None:
         self.repository = repository
-        self.rewriter_runner = rewriter_runner or RuleBasedResumeRewriterRunner()
+        self.rewriter_runner = rewriter_runner or build_resume_rewriter_runner()
 
     def run_issue_action(self, document_id: str, run_id: str) -> RevisionRun:
         document = self.repository.get_document(document_id)

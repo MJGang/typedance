@@ -1,10 +1,11 @@
 import json
-from collections.abc import Callable
-from typing import Any
+import os
+from collections.abc import Callable, Mapping
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from .llm_provider import build_chat_model
+from .llm_provider import build_chat_model, has_configured_llm_api_key
 from .resume_agent_outputs import ResumeRewriteOutput, RevisionProposalDraft
 from .revision_agent_runtime import AgentInvocationContext
 from .revision_models import RiskLevel
@@ -24,7 +25,12 @@ class ResumeRewriterRunRequest(BaseModel):
     original_text: str | None = None
 
 
+ResumeRewriterMode = Literal["rule", "langchain", "auto"]
 ResumeRewriterRunner = Callable[[AgentInvocationContext, ResumeRewriterRunRequest], dict[str, Any]]
+
+
+class ResumeRewriterRunnerConfig(BaseModel):
+    mode: ResumeRewriterMode = "rule"
 
 
 class RuleBasedResumeRewriterRunner:
@@ -51,6 +57,34 @@ class LangChainResumeRewriterRunner:
         raw_output = structured_model.invoke(_messages(request))
         output = _coerce_rewrite_output(raw_output)
         return _envelope(context, request, output)
+
+
+def load_resume_rewriter_runner_config(
+    environ: Mapping[str, str] | None = None,
+) -> ResumeRewriterRunnerConfig:
+    env = environ if environ is not None else os.environ
+    mode = env.get("TYPEDANCE_RESUME_REWRITER_MODE", "rule").strip().lower()
+    if mode in {"rules", "deterministic", "local"}:
+        mode = "rule"
+    if mode not in {"rule", "langchain", "auto"}:
+        raise ValueError(f"Unsupported resume rewriter runner mode: {mode}")
+    return ResumeRewriterRunnerConfig(mode=mode)
+
+
+def build_resume_rewriter_runner(
+    environ: Mapping[str, str] | None = None,
+    *,
+    model_factory: Callable[[], Any] | None = None,
+) -> ResumeRewriterRunner:
+    env = environ if environ is not None else os.environ
+    config = load_resume_rewriter_runner_config(env)
+    if config.mode == "rule":
+        return RuleBasedResumeRewriterRunner()
+    if config.mode == "auto" and not has_configured_llm_api_key(env):
+        return RuleBasedResumeRewriterRunner()
+
+    factory = model_factory or (lambda: build_chat_model(environ=env))
+    return LangChainResumeRewriterRunner(model_factory=factory)
 
 
 def _rule_based_proposal(request: ResumeRewriterRunRequest) -> RevisionProposalDraft:

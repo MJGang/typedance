@@ -4,6 +4,7 @@ from typedance_sidecar.llm_provider import (
     DEFAULT_DEEPSEEK_BASE_URL,
     LlmProviderError,
     build_chat_model,
+    has_configured_llm_api_key,
     load_llm_provider_config,
 )
 
@@ -26,6 +27,8 @@ def test_llm_provider_requires_api_key_without_storing_secret():
 
     assert "api_key" not in config.model_dump()
     assert "sk-" not in repr(config)
+    assert has_configured_llm_api_key({}, config) is False
+    assert has_configured_llm_api_key({"DEEPSEEK_API_KEY": "sk-test"}, config) is True
 
 
 def test_llm_provider_builds_langchain_chat_model_from_env():

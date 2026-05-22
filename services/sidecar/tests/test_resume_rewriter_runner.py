@@ -3,6 +3,8 @@ from typedance_sidecar.resume_rewriter_runner import (
     LangChainResumeRewriterRunner,
     ResumeRewriterRunRequest,
     RuleBasedResumeRewriterRunner,
+    build_resume_rewriter_runner,
+    load_resume_rewriter_runner_config,
 )
 from typedance_sidecar.revision_agent_runtime import build_agent_context
 from typedance_sidecar.revision_models import RevisionRun
@@ -90,4 +92,29 @@ def test_langchain_resume_rewriter_runner_uses_structured_output_model():
     assert seen["schema"] is ResumeRewriteOutput
     assert envelope["output_refs"] == ["RevisionProposal:prop_1"]
     assert envelope["payload"] == expected_payload.model_dump()
-    assert "上线后接口错误率下降 30%" in seen["messages"][1]["content"]
+    assert make_request().user_intent.rstrip("。") in seen["messages"][1]["content"]
+
+
+def test_resume_rewriter_runner_config_defaults_to_rule_mode():
+    config = load_resume_rewriter_runner_config({})
+    runner = build_resume_rewriter_runner({})
+
+    assert config.mode == "rule"
+    assert isinstance(runner, RuleBasedResumeRewriterRunner)
+
+
+def test_resume_rewriter_runner_config_can_force_langchain_mode():
+    runner = build_resume_rewriter_runner({"TYPEDANCE_RESUME_REWRITER_MODE": "langchain"})
+
+    assert isinstance(runner, LangChainResumeRewriterRunner)
+
+
+def test_resume_rewriter_runner_auto_mode_uses_langchain_when_key_exists():
+    runner = build_resume_rewriter_runner(
+        {
+            "TYPEDANCE_RESUME_REWRITER_MODE": "auto",
+            "DEEPSEEK_API_KEY": "test-key",
+        }
+    )
+
+    assert isinstance(runner, LangChainResumeRewriterRunner)

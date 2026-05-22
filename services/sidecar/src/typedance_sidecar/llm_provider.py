@@ -74,6 +74,15 @@ def build_chat_model(
     return init_chat_model_fn(**kwargs)
 
 
+def has_configured_llm_api_key(
+    environ: Mapping[str, str] | None = None,
+    config: LlmProviderConfig | None = None,
+) -> bool:
+    resolved_config = config or load_llm_provider_config(environ)
+    env = environ if environ is not None else os.environ
+    return _first_present_env(env, resolved_config.api_key_env_names) is not None
+
+
 def _default_model(provider: str) -> str:
     if provider == "openai":
         return "gpt-5.4"
