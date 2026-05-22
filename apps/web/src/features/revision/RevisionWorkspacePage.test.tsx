@@ -236,4 +236,26 @@ describe("RevisionWorkspacePage", () => {
     fireEvent.click(within(detail).getByRole("button", { name: /接受修改/ }))
     await waitFor(() => expect(apiMocks.acceptRevisionProposal).toHaveBeenCalledWith("prop_1"))
   })
+
+  it("switches compact workspace panels without dropping review context", async () => {
+    renderPage()
+
+    const draftPanel = await screen.findByTestId("revision-draft-panel")
+    const reviewPanel = screen.getByTestId("revision-review-panel")
+    const issueButton = await screen.findByTestId("revision-issue-issue_1")
+
+    fireEvent.click(issueButton)
+
+    expect(draftPanel).toHaveClass("hidden")
+    expect(reviewPanel).not.toHaveClass("hidden")
+
+    fireEvent.click(screen.getByTestId("revision-mobile-draft-tab"))
+    expect(draftPanel).not.toHaveClass("hidden")
+    expect(reviewPanel).toHaveClass("hidden")
+
+    fireEvent.click(screen.getByTestId("revision-mobile-review-tab"))
+    expect(reviewPanel).not.toHaveClass("hidden")
+    expect(draftPanel).toHaveClass("hidden")
+    expect(screen.getByTestId("revision-issue-issue_1")).toHaveAttribute("aria-pressed", "true")
+  })
 })

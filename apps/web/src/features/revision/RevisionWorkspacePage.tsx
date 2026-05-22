@@ -20,6 +20,8 @@ type LoadState =
   | { status: "loaded"; workspace: WorkspaceView }
   | { status: "error"; message: string }
 
+type MobilePanel = "draft" | "review"
+
 function qualityLabel(status?: string) {
   if (status === "blocked") return "阻塞"
   if (status === "needs_review") return "待处理"
@@ -122,6 +124,7 @@ function IssueList({
           key={issue.id}
           type="button"
           aria-pressed={selectedIssueId === issue.id}
+          data-testid={`revision-issue-${issue.id}`}
           className={cn(
             "w-full rounded-md border border-border p-3 text-left transition-colors hover:border-primary/50 hover:bg-muted/40",
             selectedIssueId === issue.id && "border-primary bg-primary/5",
@@ -244,6 +247,7 @@ export function RevisionWorkspacePage() {
   const [opportunityOpen, setOpportunityOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [selectedIssueId, setSelectedIssueId] = useState<string | undefined>()
+  const [mobilePanel, setMobilePanel] = useState<MobilePanel>("review")
 
   const loadWorkspace = useCallback(async () => {
     if (!documentId) return
@@ -363,7 +367,7 @@ export function RevisionWorkspacePage() {
 
   return (
     <div className="flex min-h-[calc(100svh-3rem)] flex-col bg-background">
-      <header className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
+      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3">
         <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
@@ -371,43 +375,78 @@ export function RevisionWorkspacePage() {
           <h1 className="truncate text-sm font-semibold">{workspace.document.title}</h1>
           <p className="truncate text-xs text-muted-foreground">{workspace.run_status?.status ?? "未运行"}</p>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleQualityReview}
-          disabled={!workspace.current_draft || actingActionId === "quality_review"}
-        >
-          {actingActionId === "quality_review" ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <ShieldCheck className="mr-2 h-4 w-4" />
-          )}
-          质量检查
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setOpportunityOpen(true)}
-          disabled={!workspace.current_draft}
-        >
-          <BriefcaseBusiness className="mr-2 h-4 w-4" />
-          岗位校准
-        </Button>
-        <Button
-          size="sm"
-          onClick={() => setExportOpen(true)}
-          disabled={!workspace.current_draft}
-        >
-          <Download className="mr-2 h-4 w-4" />
-          导出
-        </Button>
-        <span className={`rounded-md border px-2 py-1 text-xs ${qualityClass(workspace.quality_gate?.status)}`}>
-          {qualityLabel(workspace.quality_gate?.status)}
-        </span>
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleQualityReview}
+            disabled={!workspace.current_draft || actingActionId === "quality_review"}
+          >
+            {actingActionId === "quality_review" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <ShieldCheck className="mr-2 h-4 w-4" />
+            )}
+            质量检查
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setOpportunityOpen(true)}
+            disabled={!workspace.current_draft}
+          >
+            <BriefcaseBusiness className="mr-2 h-4 w-4" />
+            岗位校准
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => setExportOpen(true)}
+            disabled={!workspace.current_draft}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            导出
+          </Button>
+          <span className={`rounded-md border px-2 py-1 text-xs ${qualityClass(workspace.quality_gate?.status)}`}>
+            {qualityLabel(workspace.quality_gate?.status)}
+          </span>
+        </div>
       </header>
 
+      <div className="border-b border-border px-4 py-2 lg:hidden">
+        <div className="grid grid-cols-2 gap-1 rounded-md border border-border bg-muted/35 p-1">
+          <Button
+            type="button"
+            size="sm"
+            variant={mobilePanel === "draft" ? "default" : "ghost"}
+            aria-pressed={mobilePanel === "draft"}
+            data-testid="revision-mobile-draft-tab"
+            className="w-full"
+            onClick={() => setMobilePanel("draft")}
+          >
+            草稿
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={mobilePanel === "review" ? "default" : "ghost"}
+            aria-pressed={mobilePanel === "review"}
+            data-testid="revision-mobile-review-tab"
+            className="w-full"
+            onClick={() => setMobilePanel("review")}
+          >
+            问题处理
+          </Button>
+        </div>
+      </div>
+
       <main className="grid min-h-0 flex-1 grid-cols-1 overflow-auto lg:grid-cols-[minmax(0,1fr)_360px]">
-        <section className="min-w-0 border-b border-border p-4 lg:border-b-0 lg:border-r">
+        <section
+          data-testid="revision-draft-panel"
+          className={cn(
+            "min-w-0 border-b border-border p-4 lg:border-b-0 lg:border-r",
+            mobilePanel !== "draft" && "hidden lg:block",
+          )}
+        >
           <div className="mx-auto max-w-3xl">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
@@ -435,7 +474,13 @@ export function RevisionWorkspacePage() {
           </div>
         </section>
 
-        <aside className="min-w-0 space-y-5 p-4">
+        <aside
+          data-testid="revision-review-panel"
+          className={cn(
+            "min-w-0 space-y-5 p-4",
+            mobilePanel !== "review" && "hidden lg:block",
+          )}
+        >
           <section>
             <p className="mb-2 text-xs font-medium text-muted-foreground">引导</p>
             <div className="rounded-md border border-border p-3">
