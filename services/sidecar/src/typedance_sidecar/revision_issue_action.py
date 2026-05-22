@@ -1,9 +1,11 @@
-from uuid import uuid4
 from typing import TypedDict
+from uuid import uuid4
 
 from langgraph.graph import END, START, StateGraph
 
 from .models import utc_now
+from .resume_agent_outputs import ResumeRewriteOutput, RevisionProposalDraft, register_resume_agent_output_schemas
+from .revision_agent_runtime import AgentInputRef, AgentRuntime, AgentRuntimeError, AgentSchemaRegistry, build_agent_context
 from .revision_models import (
     AgentStep,
     Document,
@@ -45,6 +47,8 @@ class RevisionIssueActionService:
 
         try:
             return self._run(document, run)
+        except AgentRuntimeError as exc:
+            raise RevisionServiceError(exc.message) from exc
         except RevisionServiceError as exc:
             self.repository.save_revision_run(
                 run.model_copy(
@@ -124,9 +128,27 @@ class RevisionIssueActionService:
         def build_issue_proposal(state: IssueActionGraphState) -> IssueActionGraphState:
             user_intent = state["user_intent"].strip()
             claim = self._selected_claim(issue, draft)
-            proposal = self._build_proposal(document, run, draft, issue, claim, user_intent)
+            proposal_id = f"prop_{uuid4().hex}"
+            rewrite_output = self._invoke_rewriter_agent(
+                document,
+                run,
+                draft,
+                issue,
+                claim,
+                user_intent,
+                proposal_id,
+                state.get("confirmation_id"),
+            )
+            proposal = self._build_proposal(
+                document,
+                run,
+                draft,
+                issue,
+                claim,
+                rewrite_output.proposals[0],
+                proposal_id,
+            )
             self.repository.save_revision_proposal(proposal)
-            self._save_step(run.id, "BuildIssueProposal")
             return {
                 "proposal_id": proposal.id,
                 "proposal_text": proposal.proposed_snapshot["text"],
@@ -198,7 +220,7 @@ class RevisionIssueActionService:
             )
         )
 
-    def _build_proposal(
+    def _invoke_rewriter_agent(
         self,
         document: Document,
         run: RevisionRun,
@@ -206,29 +228,108 @@ class RevisionIssueActionService:
         issue: RevisionIssue,
         claim: DocumentClaim | None,
         user_intent: str,
-    ) -> RevisionProposal:
-        now = utc_now()
-        target = self._target(issue, claim)
+        proposal_id: str,
+        confirmation_id: str | None,
+    ) -> ResumeRewriteOutput:
+        runtime = AgentRuntime(
+            self.repository,
+            register_resume_agent_output_schemas(AgentSchemaRegistry()),
+        )
+        input_refs = [
+            AgentInputRef(object_type="DraftVersion", object_id=draft.id),
+            AgentInputRef(object_type="RevisionIssue", object_id=issue.id),
+        ]
+        if claim is not None:
+            input_refs.append(AgentInputRef(object_type="DocumentClaim", object_id=claim.id))
+        if confirmation_id is not None:
+            input_refs.append(AgentInputRef(object_type="UserConfirmation", object_id=confirmation_id))
+
+        context = build_agent_context(
+            run,
+            agent_name="ResumeRewriter",
+            input_refs=input_refs,
+            target_language=document.target_language,
+        )
+
+        def runner(received_context):
+            proposal_draft = self._build_proposal_draft(issue, claim, user_intent)
+            return {
+                "invocation_id": received_context.invocation_id,
+                "run_id": received_context.run_id,
+                "document_id": received_context.document_id,
+                "pack_id": received_context.pack_id,
+                "agent_name": received_context.agent_name,
+                "output_type": "ResumeRewriteOutput",
+                "confidence": proposal_draft.confidence,
+                "warnings": [],
+                "payload": {
+                    "proposals": [proposal_draft.model_dump()],
+                    "follow_up_questions": [],
+                },
+                "output_refs": [f"RevisionProposal:{proposal_id}"],
+            }
+
+        result = runtime.invoke(context, runner)
+        if not isinstance(result.payload, ResumeRewriteOutput):
+            raise RevisionServiceError("ResumeRewriter returned unexpected payload")
+        if not result.payload.proposals:
+            raise RevisionServiceError("ResumeRewriter returned no proposals")
+        return result.payload
+
+    def _build_proposal_draft(
+        self,
+        issue: RevisionIssue,
+        claim: DocumentClaim | None,
+        user_intent: str,
+    ) -> RevisionProposalDraft:
         original_text = claim.text if claim is not None else issue.original_text
         proposed_text = self._merge_text(original_text, user_intent)
-        return RevisionProposal(
-            id=f"prop_{uuid4().hex}",
-            run_id=run.id,
-            document_id=document.id,
-            draft_id=draft.id,
-            target=target,
-            operation="replace_claim" if claim is not None else "user_guided_revision",
-            original_snapshot={"text": original_text} if original_text else None,
-            proposed_snapshot={"text": proposed_text},
+        return RevisionProposalDraft(
+            target=self._target(issue, claim),
+            operation="replace_claim" if claim is not None else "update_field",
+            before={"text": original_text} if original_text else None,
+            after={"text": proposed_text},
             summary="根据补充事实改写当前问题",
             rationale="用户在问题卡中补充了局部事实，系统据此生成可确认的改稿建议。",
-            related_issue_ids=[issue.id],
-            evidence_link_ids=issue.evidence_link_ids,
+            evidence_link_refs=issue.evidence_link_ids,
             confidence=0.86,
             risk_level="medium" if issue.severity != "blocking" else "high",
             requires_user_confirmation=False,
+            related_issue_refs=[issue.id],
+        )
+
+    def _build_proposal(
+        self,
+        document: Document,
+        run: RevisionRun,
+        draft: DraftVersion,
+        issue: RevisionIssue,
+        claim: DocumentClaim | None,
+        proposal_draft: RevisionProposalDraft,
+        proposal_id: str,
+    ) -> RevisionProposal:
+        now = utc_now()
+        original_text = claim.text if claim is not None else issue.original_text
+        after = proposal_draft.after if isinstance(proposal_draft.after, dict) else {}
+        proposed_text = after.get("text") if isinstance(after.get("text"), str) else self._merge_text(original_text, "")
+        return RevisionProposal(
+            id=proposal_id,
+            run_id=run.id,
+            document_id=document.id,
+            draft_id=draft.id,
+            target=proposal_draft.target.model_dump(exclude_none=True),
+            operation=proposal_draft.operation,
+            original_snapshot=proposal_draft.before if proposal_draft.before is not None else ({"text": original_text} if original_text else None),
+            proposed_snapshot={"text": proposed_text},
+            summary=proposal_draft.summary,
+            rationale=proposal_draft.rationale,
+            related_issue_ids=proposal_draft.related_issue_refs or [issue.id],
+            evidence_link_ids=proposal_draft.evidence_link_refs,
+            confidence=proposal_draft.confidence,
+            risk_level=proposal_draft.risk_level,
+            requires_user_confirmation=proposal_draft.requires_user_confirmation,
             status="pending",
-            created_by_agent="IssueActionOrchestrator",
+            created_by_agent="ResumeRewriter",
             created_at=now,
         )
 

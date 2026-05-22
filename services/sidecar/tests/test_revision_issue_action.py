@@ -1,3 +1,5 @@
+import pytest
+
 from typedance_sidecar.db import connect
 from typedance_sidecar.models import utc_now
 from typedance_sidecar.revision_issue_action import RevisionIssueActionService
@@ -11,6 +13,7 @@ from typedance_sidecar.revision_models import (
     SourceDocument,
 )
 from typedance_sidecar.revision_repository import RevisionRepository
+from typedance_sidecar.revision_services import RevisionServiceError
 
 
 def make_repository(tmp_path) -> RevisionRepository:
@@ -142,8 +145,15 @@ def test_issue_action_creates_contextual_proposal_from_user_fact(tmp_path):
     assert "局部改稿建议" in (completed.output_summary or "")
 
     steps = repo.list_agent_steps(run.id)
-    assert [step.agent_name for step in steps] == ["CollectIssueContext", "BuildIssueProposal"]
+    assert [step.agent_name for step in steps] == ["CollectIssueContext", "ResumeRewriter"]
     assert all(step.status == "completed" for step in steps)
+    assert steps[1].input_refs[:3] == [
+        "DraftVersion:draft_1",
+        "RevisionIssue:issue_1",
+        "DocumentClaim:claim_1",
+    ]
+    assert len(steps[1].input_refs) == 4
+    assert steps[1].input_refs[3].startswith("UserConfirmation:confirm_")
 
     confirmations = repo.list_user_confirmations("doc_1")
     assert len(confirmations) == 1
@@ -158,7 +168,47 @@ def test_issue_action_creates_contextual_proposal_from_user_fact(tmp_path):
     assert proposal.target == {"module_id": "mod_1", "claim_id": "claim_1"}
     assert proposal.related_issue_ids == ["issue_1"]
     assert proposal.status == "pending"
-    assert proposal.created_by_agent == "IssueActionOrchestrator"
+    assert proposal.created_by_agent == "ResumeRewriter"
+    assert steps[1].output_refs == [f"RevisionProposal:{proposal.id}"]
     assert proposal.proposed_snapshot == {
         "text": "负责订单系统重构，上线后接口错误率下降 30%。"
     }
+
+
+def test_issue_action_surfaces_rewriter_runtime_failure(tmp_path, monkeypatch):
+    repo = make_repository(tmp_path)
+    seed_issue_action_workspace(repo)
+    now = utc_now()
+    run = repo.save_revision_run(
+        RevisionRun(
+            id="run_issue",
+            document_id="doc_1",
+            pack_id="resume",
+            run_type="issue_action",
+            status="created",
+            base_draft_id="draft_1",
+            selected_module_id="mod_1",
+            selected_issue_id="issue_1",
+            user_intent="上线后接口错误率下降 30%。",
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    service = RevisionIssueActionService(repo)
+
+    def raise_model_error(*_args):
+        raise RuntimeError("model provider timeout")
+
+    monkeypatch.setattr(service, "_build_proposal_draft", raise_model_error)
+
+    with pytest.raises(RevisionServiceError, match="model provider timeout"):
+        service.run_issue_action("doc_1", run.id)
+
+    failed_run = repo.get_revision_run(run.id)
+    steps = repo.list_agent_steps(run.id)
+
+    assert failed_run is not None
+    assert failed_run.status == "failed_retryable"
+    assert failed_run.output_summary == "model provider timeout"
+    assert steps[-1].agent_name == "ResumeRewriter"
+    assert steps[-1].status == "failed_model"
