@@ -140,6 +140,15 @@ def test_quality_review_generates_issues_proposals_and_projection(tmp_path):
     assert workspace.quality_gate is not None
     assert workspace.quality_gate.status == "needs_review"
 
+    steps = repo.list_agent_steps(run.id)
+    reviewer_steps = [step for step in steps if step.agent_name == "ResumeReviewer"]
+    assert len(reviewer_steps) == 1
+    assert "DraftVersion:draft_review" in reviewer_steps[0].input_refs
+    assert any(ref.startswith("DocumentModule:") for ref in reviewer_steps[0].input_refs)
+    assert any(ref.startswith("DocumentClaim:") for ref in reviewer_steps[0].input_refs)
+    assert reviewer_steps[0].output_refs
+    assert all(ref.startswith("RevisionIssue:") for ref in reviewer_steps[0].output_refs)
+
 
 def test_quality_review_blocks_unconfirmed_high_risk_claims(tmp_path):
     repo = make_repository(tmp_path)
@@ -152,6 +161,28 @@ def test_quality_review_blocks_unconfirmed_high_risk_claims(tmp_path):
     assert any(issue.type == "claim_needs_confirmation" for issue in blocking_issues)
     assert workspace.quality_gate is not None
     assert workspace.quality_gate.status == "blocked"
+
+
+def test_quality_review_surfaces_reviewer_runtime_failure(tmp_path):
+    repo = make_repository(tmp_path)
+    document, _draft, run = seed_review_workspace(repo)
+
+    def raise_model_error(_context, _request):
+        raise RuntimeError("review model timeout")
+
+    service = RevisionQualityReviewService(repo, reviewer_runner=raise_model_error)
+
+    with pytest.raises(RevisionServiceError, match="review model timeout"):
+        service.run_quality_review(document.id, run.id)
+
+    failed_run = repo.get_revision_run(run.id)
+    steps = repo.list_agent_steps(run.id)
+
+    assert failed_run is not None
+    assert failed_run.status == "failed_retryable"
+    assert failed_run.output_summary == "review model timeout"
+    assert steps[-1].agent_name == "ResumeReviewer"
+    assert steps[-1].status == "failed_model"
 
 
 def test_quality_review_requires_a_draft(tmp_path):
