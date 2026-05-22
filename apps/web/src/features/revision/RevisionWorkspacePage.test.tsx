@@ -74,7 +74,21 @@ const workspace: WorkspaceView = {
       updated_at: "2026-05-21T08:00:00.000Z",
     },
   ],
-  claims: [],
+  claims: [
+    {
+      id: "claim_1",
+      draft_id: "draft_1",
+      module_id: "mod_1",
+      item_id: "project_1",
+      text: "负责核心链路重构。",
+      claim_type: "responsibility",
+      confidence: "supported",
+      risk_flags: [],
+      source_span_refs: [],
+      created_at: "2026-05-21T08:00:00.000Z",
+      updated_at: "2026-05-21T08:00:00.000Z",
+    },
+  ],
   issues: [
     {
       id: "issue_1",
@@ -82,6 +96,7 @@ const workspace: WorkspaceView = {
       document_id: "doc_1",
       draft_id: "draft_1",
       module_id: "mod_1",
+      claim_id: "claim_1",
       type: "missing_result",
       severity: "warning",
       title: "缺少结果",
@@ -90,7 +105,7 @@ const workspace: WorkspaceView = {
       actions: [],
       status: "open",
       created_by_agent: "ResumeReviewer",
-      evidence_link_ids: [],
+      evidence_link_ids: ["ev_1"],
       created_at: "2026-05-21T08:00:00.000Z",
     },
   ],
@@ -106,7 +121,7 @@ const workspace: WorkspaceView = {
       summary: "改成结果导向表达",
       rationale: "原文只有动作。",
       related_issue_ids: ["issue_1"],
-      evidence_link_ids: [],
+      evidence_link_ids: ["ev_1"],
       confidence: 0.8,
       risk_level: "medium",
       requires_user_confirmation: true,
@@ -115,8 +130,30 @@ const workspace: WorkspaceView = {
       created_at: "2026-05-21T08:00:00.000Z",
     },
   ],
-  evidence: [],
-  source_summaries: [],
+  evidence: [
+    {
+      id: "ev_1",
+      document_id: "doc_1",
+      source_document_id: "src_1",
+      claim_id: "claim_1",
+      support_level: "direct",
+      extracted_text: "负责核心链路重构。",
+      normalized_fact: "负责核心链路重构。",
+      confidence: 0.92,
+      user_confirmed: false,
+      created_at: "2026-05-21T08:00:00.000Z",
+    },
+  ],
+  source_summaries: [
+    {
+      id: "src_1",
+      document_id: "doc_1",
+      source_type: "old_resume",
+      title: "旧简历粘贴",
+      parse_status: "parsed",
+      created_at: "2026-05-21T08:00:00.000Z",
+    },
+  ],
   quality_gate: {
     status: "needs_review",
     blocking_issue_ids: [],
@@ -230,6 +267,10 @@ describe("RevisionWorkspacePage", () => {
     expect(within(detail).getByRole("heading", { name: "缺少结果" })).toBeInTheDocument()
     expect(within(detail).getByText("影响模块：项目经历")).toBeInTheDocument()
     expect(within(detail).getByText("需要补充影响范围。")).toBeInTheDocument()
+    expect(within(detail).getByText("当前依据")).toBeInTheDocument()
+    expect(within(detail).getByText("原始主张：负责核心链路重构。")).toBeInTheDocument()
+    expect(within(detail).getByText("来源：旧简历粘贴")).toBeInTheDocument()
+    expect(within(detail).getByText("原文：负责核心链路重构。")).toBeInTheDocument()
     expect(within(detail).getByText("改成结果导向表达")).toBeInTheDocument()
     expect(within(detail).getAllByRole("button", { name: /接受修改/ })).toHaveLength(1)
 

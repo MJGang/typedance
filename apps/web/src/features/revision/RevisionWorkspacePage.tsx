@@ -13,7 +13,16 @@ import {
 } from "@/api"
 import { ExportGateModal } from "./ExportGateModal"
 import { OpportunityCalibrationModal } from "./OpportunityCalibrationModal"
-import type { ContextualAction, DocumentModule, RevisionIssue, RevisionProposal, WorkspaceView } from "@typedance/contracts"
+import type {
+  ContextualAction,
+  DocumentClaim,
+  DocumentModule,
+  EvidenceLink,
+  RevisionIssue,
+  RevisionProposal,
+  SourceDocumentSummary,
+  WorkspaceView,
+} from "@typedance/contracts"
 
 type LoadState =
   | { status: "loading" }
@@ -108,6 +117,41 @@ function documentLevelActions(actions: ContextualAction[]) {
   return actions.filter((action) => !action.target || Object.keys(action.target).length === 0)
 }
 
+function issueClaims(issue: RevisionIssue, proposals: RevisionProposal[], claims: DocumentClaim[]) {
+  const claimIds = new Set<string>()
+  if (issue.claim_id) claimIds.add(issue.claim_id)
+  for (const proposal of proposals) {
+    if (proposal.target.claim_id) claimIds.add(proposal.target.claim_id)
+  }
+  return claims.filter((claim) => claimIds.has(claim.id))
+}
+
+function issueEvidence(
+  issue: RevisionIssue,
+  proposals: RevisionProposal[],
+  claims: DocumentClaim[],
+  evidence: EvidenceLink[],
+) {
+  const evidenceIds = new Set<string>(issue.evidence_link_ids)
+  const claimIds = new Set(claims.map((claim) => claim.id))
+  for (const proposal of proposals) {
+    proposal.evidence_link_ids.forEach((evidenceId) => evidenceIds.add(evidenceId))
+    if (proposal.target.claim_id) claimIds.add(proposal.target.claim_id)
+  }
+
+  const seen = new Set<string>()
+  return evidence.filter((item) => {
+    const matches = evidenceIds.has(item.id) || (!!item.claim_id && claimIds.has(item.claim_id))
+    if (!matches || seen.has(item.id)) return false
+    seen.add(item.id)
+    return true
+  })
+}
+
+function sourceTitle(sourceSummaries: SourceDocumentSummary[], sourceDocumentId: string) {
+  return sourceSummaries.find((source) => source.id === sourceDocumentId)?.title ?? "未知来源"
+}
+
 function IssueList({
   issues,
   selectedIssueId,
@@ -170,6 +214,9 @@ function IssueDetail({
   issue,
   module,
   proposals,
+  claims,
+  evidence,
+  sourceSummaries,
   actions,
   actingActionId,
   onAction,
@@ -177,6 +224,9 @@ function IssueDetail({
   issue: RevisionIssue | null
   module?: DocumentModule
   proposals: RevisionProposal[]
+  claims: DocumentClaim[]
+  evidence: EvidenceLink[]
+  sourceSummaries: SourceDocumentSummary[]
   actions: ContextualAction[]
   actingActionId: string | null
   onAction: (action: ContextualAction) => void
@@ -190,6 +240,8 @@ function IssueDetail({
   }
 
   const relatedProposals = proposals.filter((proposal) => proposal.related_issue_ids.includes(issue.id))
+  const relatedClaims = issueClaims(issue, relatedProposals, claims)
+  const relatedEvidence = issueEvidence(issue, relatedProposals, relatedClaims, evidence)
   const availableActions = issueActions(issue, proposals, actions)
 
   return (
@@ -209,6 +261,23 @@ function IssueDetail({
         <p className="text-muted-foreground">影响模块：{module?.title ?? "未定位模块"}</p>
         <p className="text-muted-foreground">{issue.reason}</p>
       </div>
+
+      {relatedClaims.length > 0 || relatedEvidence.length > 0 ? (
+        <div className="mt-4 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">当前依据</p>
+          {relatedClaims.map((claim) => (
+            <p key={claim.id} className="rounded-md bg-muted/35 p-3 text-sm leading-6">
+              原始主张：{claim.text}
+            </p>
+          ))}
+          {relatedEvidence.map((item) => (
+            <div key={item.id} className="rounded-md border border-border p-3 text-sm leading-6">
+              <p>来源：{sourceTitle(sourceSummaries, item.source_document_id)}</p>
+              {item.extracted_text ? <p className="text-muted-foreground">原文：{item.extracted_text}</p> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <div className="mt-4 space-y-2">
         <p className="text-xs font-medium text-muted-foreground">相关修改建议</p>
@@ -523,6 +592,9 @@ export function RevisionWorkspacePage() {
             issue={selectedIssue}
             module={selectedIssueModule}
             proposals={workspace.proposals}
+            claims={workspace.claims}
+            evidence={workspace.evidence}
+            sourceSummaries={workspace.source_summaries}
             actions={workspace.available_actions}
             actingActionId={actingActionId}
             onAction={handleAction}
