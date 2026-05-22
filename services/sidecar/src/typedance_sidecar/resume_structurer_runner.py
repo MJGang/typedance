@@ -1,10 +1,13 @@
+import json
+import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from .llm_provider import build_chat_model, has_configured_llm_api_key
 from .resume_agent_outputs import DocumentClaimDraft, DocumentModuleDraft, StructuredResumeOutput
 from .revision_agent_runtime import AgentInvocationContext
 from .revision_models import ParsedBlock
@@ -36,7 +39,12 @@ class ResumeStructurerRunRequest(BaseModel):
     parsed_blocks: list[ParsedBlock] = Field(default_factory=list)
 
 
+ResumeStructurerMode = Literal["rule", "langchain", "auto"]
 ResumeStructurerRunner = Callable[[AgentInvocationContext, ResumeStructurerRunRequest], dict[str, Any]]
+
+
+class ResumeStructurerRunnerConfig(BaseModel):
+    mode: ResumeStructurerMode = "rule"
 
 
 class RuleBasedResumeStructurerRunner:
@@ -65,6 +73,96 @@ class RuleBasedResumeStructurerRunner:
             "payload": output.model_dump(),
             "output_refs": [],
         }
+
+
+class LangChainResumeStructurerRunner:
+    def __init__(self, model_factory: Callable[[], Any] = build_chat_model) -> None:
+        self.model_factory = model_factory
+
+    def __call__(
+        self,
+        context: AgentInvocationContext,
+        request: ResumeStructurerRunRequest,
+    ) -> dict[str, Any]:
+        model = self.model_factory()
+        structured_model = model.with_structured_output(StructuredResumeOutput)
+        raw_output = structured_model.invoke(_messages(context, request))
+        output = _coerce_structured_output(raw_output)
+        return {
+            "invocation_id": context.invocation_id,
+            "run_id": context.run_id,
+            "document_id": context.document_id,
+            "pack_id": context.pack_id,
+            "agent_name": context.agent_name,
+            "output_type": "StructuredResumeOutput",
+            "confidence": 0.86,
+            "warnings": [],
+            "payload": output.model_dump(),
+            "output_refs": [],
+        }
+
+
+def load_resume_structurer_runner_config(
+    environ: Mapping[str, str] | None = None,
+) -> ResumeStructurerRunnerConfig:
+    env = environ if environ is not None else os.environ
+    mode = env.get("TYPEDANCE_RESUME_STRUCTURER_MODE", "rule").strip().lower()
+    if mode in {"rules", "deterministic", "local"}:
+        mode = "rule"
+    if mode not in {"rule", "langchain", "auto"}:
+        raise ValueError(f"Unsupported resume structurer runner mode: {mode}")
+    return ResumeStructurerRunnerConfig(mode=mode)
+
+
+def build_resume_structurer_runner(
+    environ: Mapping[str, str] | None = None,
+    *,
+    model_factory: Callable[[], Any] | None = None,
+) -> ResumeStructurerRunner:
+    env = environ if environ is not None else os.environ
+    config = load_resume_structurer_runner_config(env)
+    if config.mode == "rule":
+        return RuleBasedResumeStructurerRunner()
+    if config.mode == "auto" and not has_configured_llm_api_key(env):
+        return RuleBasedResumeStructurerRunner()
+
+    factory = model_factory or (lambda: build_chat_model(environ=env))
+    return LangChainResumeStructurerRunner(model_factory=factory)
+
+
+def _messages(
+    context: AgentInvocationContext,
+    request: ResumeStructurerRunRequest,
+) -> list[dict[str, str]]:
+    payload = {
+        "run_type": "import_reconstruct",
+        "document_id": context.document_id,
+        "document_title": request.document_title,
+        "pack_id": request.pack_id,
+        "parsed_blocks": [block.model_dump() for block in request.parsed_blocks],
+    }
+    return [
+        {
+            "role": "system",
+            "content": (
+                "你是 TypeDance 的 ResumeStructurer。只输出 StructuredResumeOutput 结构化结果。"
+                "你负责把 ParsedBlock 归入简历模块并抽取 DocumentClaimDraft。"
+                "不要改写事实，不确定的内容必须标记为 inferred 或进入 unresolved_blocks。"
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(payload, ensure_ascii=False),
+        },
+    ]
+
+
+def _coerce_structured_output(raw_output: Any) -> StructuredResumeOutput:
+    if isinstance(raw_output, StructuredResumeOutput):
+        return raw_output
+    if isinstance(raw_output, BaseModel):
+        return StructuredResumeOutput.model_validate(raw_output.model_dump())
+    return StructuredResumeOutput.model_validate(raw_output)
 
 
 def _build_module_drafts(request: ResumeStructurerRunRequest) -> list[DocumentModuleDraft]:

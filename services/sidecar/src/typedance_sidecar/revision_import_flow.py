@@ -12,7 +12,7 @@ from .resume_parser_runner import (
 from .resume_structurer_runner import (
     ResumeStructurerRunRequest,
     ResumeStructurerRunner,
-    RuleBasedResumeStructurerRunner,
+    build_resume_structurer_runner,
 )
 from .revision_agent_runtime import AgentInputRef, AgentRuntime, AgentRuntimeError, AgentSchemaRegistry, build_agent_context
 from .revision_models import (
@@ -63,7 +63,7 @@ class RevisionImportFlowService:
     ) -> None:
         self.repository = repository
         self.parser_runner = parser_runner or build_resume_parser_runner()
-        self.structurer_runner = structurer_runner or RuleBasedResumeStructurerRunner()
+        self.structurer_runner = structurer_runner or build_resume_structurer_runner()
 
     def run_import_reconstruct(self, document_id: str, run_id: str) -> RevisionRun:
         document = self.repository.get_document(document_id)
