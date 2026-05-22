@@ -25,6 +25,7 @@ from .revision_models import (
 from .revision_blank_guided_flow import RevisionBlankGuidedFlowService
 from .revision_export_gate import RevisionExportBlockedError, RevisionExportGateService
 from .revision_import_flow import RevisionImportFlowService
+from .revision_issue_action import RevisionIssueActionService
 from .revision_opportunity_calibration import RevisionOpportunityCalibrationService
 from .revision_quality_review import RevisionQualityReviewService
 from .revision_render_projection import RenderProjectionError
@@ -246,6 +247,8 @@ def create_revision_router(
                 return RevisionBlankGuidedFlowService(repo).run_blank_guided_generate(document_id, saved_run.id)
             if saved_run.run_type == "quality_review":
                 return RevisionQualityReviewService(repo).run_quality_review(document_id, saved_run.id)
+            if saved_run.run_type == "issue_action":
+                return RevisionIssueActionService(repo).run_issue_action(document_id, saved_run.id)
             if saved_run.run_type == "opportunity_calibrate":
                 return RevisionOpportunityCalibrationService(repo).run_opportunity_calibrate(document_id, saved_run.id)
             return saved_run

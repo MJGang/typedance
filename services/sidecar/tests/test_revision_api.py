@@ -373,6 +373,42 @@ def test_revision_api_runs_opportunity_calibration(revision_client):
     assert workspace["proposals"]
 
 
+def test_revision_api_runs_issue_action(revision_client):
+    client, tmp_path = revision_client
+    seed_workspace(tmp_path)
+
+    created_run = client.post(
+        "/documents/doc_1/revision-runs",
+        json={
+            "run_type": "issue_action",
+            "base_draft_id": "draft_1",
+            "selected_module_id": "mod_1",
+            "selected_issue_id": "issue_1",
+            "user_intent": "上线后接口错误率下降 30%。",
+        },
+    )
+
+    assert created_run.status_code == 201
+    run = created_run.json()
+    assert run["status"] == "completed"
+    assert run["target_draft_id"] == "draft_1"
+    assert "局部改稿建议" in run["output_summary"]
+
+    repo = repo_for(tmp_path)
+    proposals = [proposal for proposal in repo.list_revision_proposals("draft_1") if proposal.run_id == run["id"]]
+    assert len(proposals) == 1
+    assert proposals[0].related_issue_ids == ["issue_1"]
+    assert proposals[0].proposed_snapshot["text"].endswith("上线后接口错误率下降 30%。")
+
+    confirmations = repo.list_user_confirmations("doc_1")
+    assert any(
+        confirmation.issue_id == "issue_1"
+        and confirmation.claim_id == "claim_1"
+        and confirmation.note == "上线后接口错误率下降 30%。"
+        for confirmation in confirmations
+    )
+
+
 def test_revision_api_exports_draft_pdf_with_gate(revision_client, monkeypatch):
     client, tmp_path = revision_client
     seed_workspace(tmp_path)
