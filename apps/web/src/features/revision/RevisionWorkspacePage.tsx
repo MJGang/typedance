@@ -88,7 +88,6 @@ function targetMatches(action: ContextualAction, proposal: RevisionProposal) {
   if (!target) return false
   if (target.proposal_id && target.proposal_id === proposal.id) return true
   if (target.claim_id && target.claim_id === proposal.target.claim_id) return true
-  if (target.module_id && target.module_id === proposal.target.module_id) return true
   return action.id.endsWith(proposal.id)
 }
 
@@ -96,6 +95,9 @@ function issueActions(issue: RevisionIssue, proposals: RevisionProposal[], actio
   const relatedProposalIds = new Set(proposals.filter((proposal) => proposal.related_issue_ids.includes(issue.id)).map((proposal) => proposal.id))
   return actions.filter((action) => {
     if (action.target?.issue_id === issue.id) return true
+    if (action.action_type === "dismiss_issue") {
+      return action.id.endsWith(issue.id) || (!!issue.claim_id && action.target?.claim_id === issue.claim_id)
+    }
     return proposals.some((proposal) => relatedProposalIds.has(proposal.id) && targetMatches(action, proposal))
   })
 }

@@ -100,7 +100,7 @@ const workspace: WorkspaceView = {
       run_id: "run_1",
       document_id: "doc_1",
       draft_id: "draft_1",
-      target: { claim_id: "claim_1" },
+      target: { claim_id: "claim_1", module_id: "mod_1" },
       operation: "replace_claim",
       proposed_snapshot: { text: "主导订单系统重构，提升核心链路稳定性。" },
       summary: "改成结果导向表达",
@@ -135,7 +135,13 @@ const workspace: WorkspaceView = {
       id: "act_accept_prop_1",
       label: "接受修改",
       action_type: "accept_proposal",
-      target: { claim_id: "claim_1" },
+      target: { claim_id: "claim_1", module_id: "mod_1" },
+    },
+    {
+      id: "act_accept_prop_2",
+      label: "接受修改",
+      action_type: "accept_proposal",
+      target: { claim_id: "claim_2", module_id: "mod_1" },
     },
   ],
 }
@@ -181,7 +187,8 @@ describe("RevisionWorkspacePage", () => {
   it("runs an available proposal action and refreshes the workspace", async () => {
     renderPage()
 
-    fireEvent.click(await screen.findByRole("button", { name: /接受修改/ }))
+    const acceptButtons = await screen.findAllByRole("button", { name: /接受修改/ })
+    fireEvent.click(acceptButtons[0])
 
     await waitFor(() => expect(apiMocks.acceptRevisionProposal).toHaveBeenCalledWith("prop_1"))
     await waitFor(() => expect(apiMocks.getRevisionWorkspaceView).toHaveBeenCalledTimes(2))
@@ -224,6 +231,7 @@ describe("RevisionWorkspacePage", () => {
     expect(within(detail).getByText("影响模块：项目经历")).toBeInTheDocument()
     expect(within(detail).getByText("需要补充影响范围。")).toBeInTheDocument()
     expect(within(detail).getByText("改成结果导向表达")).toBeInTheDocument()
+    expect(within(detail).getAllByRole("button", { name: /接受修改/ })).toHaveLength(1)
 
     fireEvent.click(within(detail).getByRole("button", { name: /接受修改/ }))
     await waitFor(() => expect(apiMocks.acceptRevisionProposal).toHaveBeenCalledWith("prop_1"))
