@@ -175,7 +175,7 @@ def test_issue_action_creates_contextual_proposal_from_user_fact(tmp_path):
     }
 
 
-def test_issue_action_surfaces_rewriter_runtime_failure(tmp_path, monkeypatch):
+def test_issue_action_surfaces_rewriter_runtime_failure(tmp_path):
     repo = make_repository(tmp_path)
     seed_issue_action_workspace(repo)
     now = utc_now()
@@ -194,12 +194,10 @@ def test_issue_action_surfaces_rewriter_runtime_failure(tmp_path, monkeypatch):
             updated_at=now,
         )
     )
-    service = RevisionIssueActionService(repo)
-
-    def raise_model_error(*_args):
+    def raise_model_error(_context, _request):
         raise RuntimeError("model provider timeout")
 
-    monkeypatch.setattr(service, "_build_proposal_draft", raise_model_error)
+    service = RevisionIssueActionService(repo, rewriter_runner=raise_model_error)
 
     with pytest.raises(RevisionServiceError, match="model provider timeout"):
         service.run_issue_action("doc_1", run.id)

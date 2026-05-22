@@ -5,6 +5,11 @@ from langgraph.graph import END, START, StateGraph
 
 from .models import utc_now
 from .resume_agent_outputs import ResumeRewriteOutput, RevisionProposalDraft, register_resume_agent_output_schemas
+from .resume_rewriter_runner import (
+    ResumeRewriterRunRequest,
+    ResumeRewriterRunner,
+    RuleBasedResumeRewriterRunner,
+)
 from .revision_agent_runtime import AgentInputRef, AgentRuntime, AgentRuntimeError, AgentSchemaRegistry, build_agent_context
 from .revision_models import (
     AgentStep,
@@ -31,8 +36,13 @@ class IssueActionGraphState(TypedDict, total=False):
 
 
 class RevisionIssueActionService:
-    def __init__(self, repository: RevisionRepository) -> None:
+    def __init__(
+        self,
+        repository: RevisionRepository,
+        rewriter_runner: ResumeRewriterRunner | None = None,
+    ) -> None:
         self.repository = repository
+        self.rewriter_runner = rewriter_runner or RuleBasedResumeRewriterRunner()
 
     def run_issue_action(self, document_id: str, run_id: str) -> RevisionRun:
         document = self.repository.get_document(document_id)
@@ -251,23 +261,22 @@ class RevisionIssueActionService:
             target_language=document.target_language,
         )
 
+        request = ResumeRewriterRunRequest(
+            proposal_id=proposal_id,
+            issue_id=issue.id,
+            issue_type=issue.type,
+            issue_title=issue.title,
+            issue_message=issue.message,
+            issue_reason=issue.reason,
+            target=self._target(issue, claim),
+            user_intent=user_intent,
+            evidence_link_ids=issue.evidence_link_ids,
+            risk_level="medium" if issue.severity != "blocking" else "high",
+            original_text=claim.text if claim is not None else issue.original_text,
+        )
+
         def runner(received_context):
-            proposal_draft = self._build_proposal_draft(issue, claim, user_intent)
-            return {
-                "invocation_id": received_context.invocation_id,
-                "run_id": received_context.run_id,
-                "document_id": received_context.document_id,
-                "pack_id": received_context.pack_id,
-                "agent_name": received_context.agent_name,
-                "output_type": "ResumeRewriteOutput",
-                "confidence": proposal_draft.confidence,
-                "warnings": [],
-                "payload": {
-                    "proposals": [proposal_draft.model_dump()],
-                    "follow_up_questions": [],
-                },
-                "output_refs": [f"RevisionProposal:{proposal_id}"],
-            }
+            return self.rewriter_runner(received_context, request)
 
         result = runtime.invoke(context, runner)
         if not isinstance(result.payload, ResumeRewriteOutput):
@@ -275,28 +284,6 @@ class RevisionIssueActionService:
         if not result.payload.proposals:
             raise RevisionServiceError("ResumeRewriter returned no proposals")
         return result.payload
-
-    def _build_proposal_draft(
-        self,
-        issue: RevisionIssue,
-        claim: DocumentClaim | None,
-        user_intent: str,
-    ) -> RevisionProposalDraft:
-        original_text = claim.text if claim is not None else issue.original_text
-        proposed_text = self._merge_text(original_text, user_intent)
-        return RevisionProposalDraft(
-            target=self._target(issue, claim),
-            operation="replace_claim" if claim is not None else "update_field",
-            before={"text": original_text} if original_text else None,
-            after={"text": proposed_text},
-            summary="根据补充事实改写当前问题",
-            rationale="用户在问题卡中补充了局部事实，系统据此生成可确认的改稿建议。",
-            evidence_link_refs=issue.evidence_link_ids,
-            confidence=0.86,
-            risk_level="medium" if issue.severity != "blocking" else "high",
-            requires_user_confirmation=False,
-            related_issue_refs=[issue.id],
-        )
 
     def _build_proposal(
         self,
