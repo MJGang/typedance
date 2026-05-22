@@ -1,9 +1,12 @@
+import json
+import os
 import re
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Mapping
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from .llm_provider import build_chat_model, has_configured_llm_api_key
 from .resume_agent_outputs import ParsedBlockDraft, ParsedDocumentOutput
 from .revision_agent_runtime import AgentInvocationContext
 
@@ -27,7 +30,12 @@ class ResumeParserRunRequest(BaseModel):
     raw_text: str | None = None
 
 
+ResumeParserMode = Literal["rule", "langchain", "auto"]
 ResumeParserRunner = Callable[[AgentInvocationContext, ResumeParserRunRequest], dict[str, Any]]
+
+
+class ResumeParserRunnerConfig(BaseModel):
+    mode: ResumeParserMode = "rule"
 
 
 class RuleBasedResumeParserRunner:
@@ -54,6 +62,95 @@ class RuleBasedResumeParserRunner:
             "payload": output.model_dump(),
             "output_refs": [],
         }
+
+
+class LangChainResumeParserRunner:
+    def __init__(self, model_factory: Callable[[], Any] = build_chat_model) -> None:
+        self.model_factory = model_factory
+
+    def __call__(
+        self,
+        context: AgentInvocationContext,
+        request: ResumeParserRunRequest,
+    ) -> dict[str, Any]:
+        model = self.model_factory()
+        structured_model = model.with_structured_output(ParsedDocumentOutput)
+        raw_output = structured_model.invoke(_messages(context, request))
+        output = _coerce_parser_output(raw_output)
+        return {
+            "invocation_id": context.invocation_id,
+            "run_id": context.run_id,
+            "document_id": context.document_id,
+            "pack_id": context.pack_id,
+            "agent_name": context.agent_name,
+            "output_type": "ParsedDocumentOutput",
+            "confidence": 0.9,
+            "warnings": [],
+            "payload": output.model_dump(),
+            "output_refs": [],
+        }
+
+
+def load_resume_parser_runner_config(
+    environ: Mapping[str, str] | None = None,
+) -> ResumeParserRunnerConfig:
+    env = environ if environ is not None else os.environ
+    mode = env.get("TYPEDANCE_RESUME_PARSER_MODE", "rule").strip().lower()
+    if mode in {"rules", "deterministic", "local"}:
+        mode = "rule"
+    if mode not in {"rule", "langchain", "auto"}:
+        raise ValueError(f"Unsupported resume parser runner mode: {mode}")
+    return ResumeParserRunnerConfig(mode=mode)
+
+
+def build_resume_parser_runner(
+    environ: Mapping[str, str] | None = None,
+    *,
+    model_factory: Callable[[], Any] | None = None,
+) -> ResumeParserRunner:
+    env = environ if environ is not None else os.environ
+    config = load_resume_parser_runner_config(env)
+    if config.mode == "rule":
+        return RuleBasedResumeParserRunner()
+    if config.mode == "auto" and not has_configured_llm_api_key(env):
+        return RuleBasedResumeParserRunner()
+
+    factory = model_factory or (lambda: build_chat_model(environ=env))
+    return LangChainResumeParserRunner(model_factory=factory)
+
+
+def _messages(
+    context: AgentInvocationContext,
+    request: ResumeParserRunRequest,
+) -> list[dict[str, str]]:
+    payload = {
+        "run_type": "import_reconstruct",
+        "document_id": context.document_id,
+        "source_document_id": request.source_document_id,
+        "raw_text": request.raw_text,
+    }
+    return [
+        {
+            "role": "system",
+            "content": (
+                "你是 TypeDance 的 SourceParser。只输出 ParsedDocumentOutput 结构化结果。"
+                "你只负责解析和切块，不要重写、润色、补充用户经历。"
+                "保留原文顺序，并为每个 block 标注 type、text、order、source_span 和 confidence。"
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(payload, ensure_ascii=False),
+        },
+    ]
+
+
+def _coerce_parser_output(raw_output: Any) -> ParsedDocumentOutput:
+    if isinstance(raw_output, ParsedDocumentOutput):
+        return raw_output
+    if isinstance(raw_output, BaseModel):
+        return ParsedDocumentOutput.model_validate(raw_output.model_dump())
+    return ParsedDocumentOutput.model_validate(raw_output)
 
 
 def _parse_blocks(raw_text: str | None) -> list[ParsedBlockDraft]:

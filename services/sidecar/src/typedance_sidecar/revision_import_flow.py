@@ -7,7 +7,7 @@ from .resume_agent_outputs import ParsedDocumentOutput, register_resume_agent_ou
 from .resume_parser_runner import (
     ResumeParserRunRequest,
     ResumeParserRunner,
-    RuleBasedResumeParserRunner,
+    build_resume_parser_runner,
 )
 from .revision_agent_runtime import AgentInputRef, AgentRuntime, AgentRuntimeError, AgentSchemaRegistry, build_agent_context
 from .revision_models import (
@@ -56,7 +56,7 @@ class RevisionImportFlowService:
         parser_runner: ResumeParserRunner | None = None,
     ) -> None:
         self.repository = repository
-        self.parser_runner = parser_runner or RuleBasedResumeParserRunner()
+        self.parser_runner = parser_runner or build_resume_parser_runner()
 
     def run_import_reconstruct(self, document_id: str, run_id: str) -> RevisionRun:
         document = self.repository.get_document(document_id)

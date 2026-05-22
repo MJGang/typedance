@@ -1,7 +1,10 @@
 from typedance_sidecar.resume_agent_outputs import ParsedDocumentOutput
 from typedance_sidecar.resume_parser_runner import (
+    LangChainResumeParserRunner,
     ResumeParserRunRequest,
     RuleBasedResumeParserRunner,
+    build_resume_parser_runner,
+    load_resume_parser_runner_config,
 )
 from typedance_sidecar.revision_agent_runtime import build_agent_context
 from typedance_sidecar.revision_models import RevisionRun
@@ -37,3 +40,78 @@ def test_rule_based_resume_parser_runner_returns_parsed_blocks():
         "heading",
         "paragraph",
     ]
+
+
+def test_langchain_resume_parser_runner_uses_structured_output_model():
+    seen = {}
+    expected_payload = ParsedDocumentOutput.model_validate(
+        {
+            "source_document_id": "src_import",
+            "blocks": [
+                {
+                    "type": "paragraph",
+                    "text": "张三",
+                    "order": 0,
+                    "source_span": {"line": 0},
+                    "confidence": 0.9,
+                }
+            ],
+            "detected_language": "zh-CN",
+            "parse_warnings": [],
+        }
+    )
+
+    class FakeStructuredModel:
+        def invoke(self, messages):
+            seen["messages"] = messages
+            return expected_payload
+
+    class FakeModel:
+        def with_structured_output(self, schema):
+            seen["schema"] = schema
+            return FakeStructuredModel()
+
+    context = build_agent_context(
+        RevisionRun(
+            id="run_import",
+            document_id="doc_import",
+            pack_id="resume",
+            run_type="import_reconstruct",
+            status="created",
+            created_at="2026-05-22T00:00:00.000Z",
+            updated_at="2026-05-22T00:00:00.000Z",
+        ),
+        agent_name="SourceParser",
+    )
+    request = ResumeParserRunRequest(source_document_id="src_import", raw_text="张三")
+
+    envelope = LangChainResumeParserRunner(model_factory=lambda: FakeModel())(context, request)
+
+    assert seen["schema"] is ParsedDocumentOutput
+    assert envelope["payload"] == expected_payload.model_dump()
+    assert "src_import" in seen["messages"][1]["content"]
+
+
+def test_resume_parser_runner_config_defaults_to_rule_mode():
+    config = load_resume_parser_runner_config({})
+    runner = build_resume_parser_runner({})
+
+    assert config.mode == "rule"
+    assert isinstance(runner, RuleBasedResumeParserRunner)
+
+
+def test_resume_parser_runner_config_can_force_langchain_mode():
+    runner = build_resume_parser_runner({"TYPEDANCE_RESUME_PARSER_MODE": "langchain"})
+
+    assert isinstance(runner, LangChainResumeParserRunner)
+
+
+def test_resume_parser_runner_auto_mode_uses_langchain_when_key_exists():
+    runner = build_resume_parser_runner(
+        {
+            "TYPEDANCE_RESUME_PARSER_MODE": "auto",
+            "DEEPSEEK_API_KEY": "test-key",
+        }
+    )
+
+    assert isinstance(runner, LangChainResumeParserRunner)
