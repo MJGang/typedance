@@ -3,6 +3,13 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from .models import utc_now
+from .resume_agent_outputs import ParsedDocumentOutput, register_resume_agent_output_schemas
+from .resume_parser_runner import (
+    ResumeParserRunRequest,
+    ResumeParserRunner,
+    RuleBasedResumeParserRunner,
+)
+from .revision_agent_runtime import AgentInputRef, AgentRuntime, AgentRuntimeError, AgentSchemaRegistry, build_agent_context
 from .revision_models import (
     AgentStep,
     Document,
@@ -43,8 +50,13 @@ class ImportSection:
 
 
 class RevisionImportFlowService:
-    def __init__(self, repository: RevisionRepository) -> None:
+    def __init__(
+        self,
+        repository: RevisionRepository,
+        parser_runner: ResumeParserRunner | None = None,
+    ) -> None:
         self.repository = repository
+        self.parser_runner = parser_runner or RuleBasedResumeParserRunner()
 
     def run_import_reconstruct(self, document_id: str, run_id: str) -> RevisionRun:
         document = self.repository.get_document(document_id)
@@ -59,6 +71,8 @@ class RevisionImportFlowService:
 
         try:
             return self._run(document, run)
+        except AgentRuntimeError as exc:
+            raise RevisionServiceError(exc.message) from exc
         except RevisionServiceError as exc:
             self.repository.save_revision_run(
                 run.model_copy(
@@ -76,11 +90,9 @@ class RevisionImportFlowService:
         if not sources:
             raise RevisionServiceError("Import flow requires at least one source")
 
-        parsed_blocks = self._parse_sources(sources, run.id)
+        parsed_blocks = self._parse_sources(run, sources)
         if not parsed_blocks:
             raise RevisionServiceError("Import source has no text")
-
-        self._save_step(run.id, "ParseSource")
         now = utc_now()
         draft = self.repository.save_draft_version(
             DraftVersion(
@@ -162,28 +174,63 @@ class RevisionImportFlowService:
         selected_ids = set(source_ids)
         return [source for source in sources if source.id in selected_ids]
 
-    def _parse_sources(self, sources: list[SourceDocument], run_id: str) -> list[ParsedBlock]:
+    def _parse_sources(self, run: RevisionRun, sources: list[SourceDocument]) -> list[ParsedBlock]:
         parsed_blocks: list[ParsedBlock] = []
         for source in sources:
-            lines = [line.strip() for line in (source.raw_text or "").splitlines() if line.strip()]
-            if not lines:
-                continue
-
-            for order, line in enumerate(lines):
+            parser_output, parser_step = self._invoke_parser_agent(run, source)
+            source_blocks: list[ParsedBlock] = []
+            for block_draft in parser_output.blocks:
+                source_span = dict(block_draft.source_span)
+                source_span["run_id"] = run.id
                 block = ParsedBlock(
                     id=f"block_{uuid4().hex}",
                     source_document_id=source.id,
-                    type=self._block_type(line),
-                    text=line,
-                    order=len(parsed_blocks) + order,
-                    source_span={"run_id": run_id, "line": order},
+                    type=block_draft.type,
+                    text=block_draft.text,
+                    order=len(parsed_blocks) + block_draft.order,
+                    page=block_draft.page,
+                    source_span=source_span,
                 )
                 self.repository.save_parsed_block(block)
                 parsed_blocks.append(block)
+                source_blocks.append(block)
 
-            self.repository.save_source_document(source.model_copy(update={"parse_status": "parsed"}))
+            if source_blocks:
+                self.repository.save_source_document(source.model_copy(update={"parse_status": "parsed"}))
+            self.repository.save_agent_step(
+                parser_step.model_copy(
+                    update={"output_refs": [f"ParsedBlock:{block.id}" for block in source_blocks]}
+                )
+            )
 
         return parsed_blocks
+
+    def _invoke_parser_agent(
+        self,
+        run: RevisionRun,
+        source: SourceDocument,
+    ):
+        runtime = AgentRuntime(
+            self.repository,
+            register_resume_agent_output_schemas(AgentSchemaRegistry()),
+        )
+        context = build_agent_context(
+            run,
+            agent_name="SourceParser",
+            input_refs=[AgentInputRef(object_type="SourceDocument", object_id=source.id)],
+        )
+        request = ResumeParserRunRequest(
+            source_document_id=source.id,
+            raw_text=source.raw_text,
+        )
+
+        def runner(received_context):
+            return self.parser_runner(received_context, request)
+
+        result = runtime.invoke(context, runner)
+        if not isinstance(result.payload, ParsedDocumentOutput):
+            raise RevisionServiceError("SourceParser returned unexpected payload")
+        return result.payload, result.step
 
     def _block_type(self, text: str) -> str:
         if self._section_for(text) is not None:
