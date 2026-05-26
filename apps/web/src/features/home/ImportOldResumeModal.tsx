@@ -60,7 +60,7 @@ export function ImportOldResumeModal({ open, onOpenChange }: ImportOldResumeModa
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>导入旧简历</DialogTitle>
           <DialogDescription>系统会生成新版草稿、问题卡和可接受的修改建议。</DialogDescription>
@@ -79,7 +79,7 @@ export function ImportOldResumeModal({ open, onOpenChange }: ImportOldResumeModa
             <Label htmlFor="revision-import-content">旧简历内容</Label>
             <Textarea
               id="revision-import-content"
-              className="min-h-64 resize-y"
+              className="h-80 max-h-[45svh] field-sizing-fixed resize-y overflow-y-auto"
               value={rawText}
               onChange={(event) => setRawText(event.target.value)}
               disabled={submitting}

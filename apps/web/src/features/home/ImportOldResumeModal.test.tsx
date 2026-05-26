@@ -48,6 +48,19 @@ describe("ImportOldResumeModal", () => {
     expect(apiMocks.importOldResume).not.toHaveBeenCalled()
   })
 
+  it("keeps long pasted resume content scrollable inside the modal", () => {
+    renderModal()
+
+    expect(screen.getByRole("dialog")).toHaveClass("max-h-[calc(100svh-2rem)]", "overflow-y-auto")
+    expect(screen.getByLabelText("旧简历内容")).toHaveClass(
+      "field-sizing-fixed",
+      "h-80",
+      "max-h-[45svh]",
+      "overflow-y-auto",
+    )
+    expect(screen.getByLabelText("旧简历内容")).not.toHaveClass("field-sizing-content")
+  })
+
   it("imports pasted content and enters revision workspace", async () => {
     const { onOpenChange } = renderModal()
 
