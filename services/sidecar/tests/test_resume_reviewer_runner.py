@@ -146,23 +146,30 @@ def test_langchain_resume_reviewer_runner_uses_structured_output_model():
     assert "quality_review" in seen["messages"][1]["content"]
 
 
-def test_resume_reviewer_runner_config_defaults_to_rule_mode():
-    config = load_resume_reviewer_runner_config({})
-    runner = build_resume_reviewer_runner({})
+def test_resume_reviewer_runner_config_defaults_to_auto_and_rule_without_key(tmp_path):
+    env = {"TYPEDANCE_DATA_DIR": str(tmp_path)}
+    config = load_resume_reviewer_runner_config(env)
+    runner = build_resume_reviewer_runner(env)
 
-    assert config.mode == "rule"
+    assert config.mode == "auto"
     assert isinstance(runner, RuleBasedResumeReviewerRunner)
 
 
-def test_resume_reviewer_runner_config_can_force_langchain_mode():
-    runner = build_resume_reviewer_runner({"TYPEDANCE_RESUME_REVIEWER_MODE": "langchain"})
+def test_resume_reviewer_runner_config_can_force_langchain_mode(tmp_path):
+    runner = build_resume_reviewer_runner(
+        {
+            "TYPEDANCE_DATA_DIR": str(tmp_path),
+            "TYPEDANCE_RESUME_REVIEWER_MODE": "langchain",
+        }
+    )
 
     assert isinstance(runner, LangChainResumeReviewerRunner)
 
 
-def test_resume_reviewer_runner_auto_mode_uses_langchain_when_key_exists():
+def test_resume_reviewer_runner_auto_mode_uses_langchain_when_key_exists(tmp_path):
     runner = build_resume_reviewer_runner(
         {
+            "TYPEDANCE_DATA_DIR": str(tmp_path),
             "TYPEDANCE_RESUME_REVIEWER_MODE": "auto",
             "DEEPSEEK_API_KEY": "test-key",
         }

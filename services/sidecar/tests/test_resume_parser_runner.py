@@ -92,23 +92,30 @@ def test_langchain_resume_parser_runner_uses_structured_output_model():
     assert "src_import" in seen["messages"][1]["content"]
 
 
-def test_resume_parser_runner_config_defaults_to_rule_mode():
-    config = load_resume_parser_runner_config({})
-    runner = build_resume_parser_runner({})
+def test_resume_parser_runner_config_defaults_to_auto_and_rule_without_key(tmp_path):
+    env = {"TYPEDANCE_DATA_DIR": str(tmp_path)}
+    config = load_resume_parser_runner_config(env)
+    runner = build_resume_parser_runner(env)
 
-    assert config.mode == "rule"
+    assert config.mode == "auto"
     assert isinstance(runner, RuleBasedResumeParserRunner)
 
 
-def test_resume_parser_runner_config_can_force_langchain_mode():
-    runner = build_resume_parser_runner({"TYPEDANCE_RESUME_PARSER_MODE": "langchain"})
+def test_resume_parser_runner_config_can_force_langchain_mode(tmp_path):
+    runner = build_resume_parser_runner(
+        {
+            "TYPEDANCE_DATA_DIR": str(tmp_path),
+            "TYPEDANCE_RESUME_PARSER_MODE": "langchain",
+        }
+    )
 
     assert isinstance(runner, LangChainResumeParserRunner)
 
 
-def test_resume_parser_runner_auto_mode_uses_langchain_when_key_exists():
+def test_resume_parser_runner_auto_mode_uses_langchain_when_key_exists(tmp_path):
     runner = build_resume_parser_runner(
         {
+            "TYPEDANCE_DATA_DIR": str(tmp_path),
             "TYPEDANCE_RESUME_PARSER_MODE": "auto",
             "DEEPSEEK_API_KEY": "test-key",
         }

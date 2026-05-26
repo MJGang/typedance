@@ -95,23 +95,30 @@ def test_langchain_resume_rewriter_runner_uses_structured_output_model():
     assert make_request().user_intent.rstrip("。") in seen["messages"][1]["content"]
 
 
-def test_resume_rewriter_runner_config_defaults_to_rule_mode():
-    config = load_resume_rewriter_runner_config({})
-    runner = build_resume_rewriter_runner({})
+def test_resume_rewriter_runner_config_defaults_to_auto_and_rule_without_key(tmp_path):
+    env = {"TYPEDANCE_DATA_DIR": str(tmp_path)}
+    config = load_resume_rewriter_runner_config(env)
+    runner = build_resume_rewriter_runner(env)
 
-    assert config.mode == "rule"
+    assert config.mode == "auto"
     assert isinstance(runner, RuleBasedResumeRewriterRunner)
 
 
-def test_resume_rewriter_runner_config_can_force_langchain_mode():
-    runner = build_resume_rewriter_runner({"TYPEDANCE_RESUME_REWRITER_MODE": "langchain"})
+def test_resume_rewriter_runner_config_can_force_langchain_mode(tmp_path):
+    runner = build_resume_rewriter_runner(
+        {
+            "TYPEDANCE_DATA_DIR": str(tmp_path),
+            "TYPEDANCE_RESUME_REWRITER_MODE": "langchain",
+        }
+    )
 
     assert isinstance(runner, LangChainResumeRewriterRunner)
 
 
-def test_resume_rewriter_runner_auto_mode_uses_langchain_when_key_exists():
+def test_resume_rewriter_runner_auto_mode_uses_langchain_when_key_exists(tmp_path):
     runner = build_resume_rewriter_runner(
         {
+            "TYPEDANCE_DATA_DIR": str(tmp_path),
             "TYPEDANCE_RESUME_REWRITER_MODE": "auto",
             "DEEPSEEK_API_KEY": "test-key",
         }

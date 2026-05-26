@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from .llm_provider import build_chat_model, has_configured_llm_api_key
+from .model_settings import ModelSettingsError, resolve_model_settings
 from .resume_agent_outputs import QualitySummary, ResumeReviewOutput, RevisionIssueDraft
 from .revision_agent_runtime import AgentInvocationContext
 from .revision_import_flow import METRIC_RE
@@ -87,7 +88,10 @@ def load_resume_reviewer_runner_config(
     environ: Mapping[str, str] | None = None,
 ) -> ResumeReviewerRunnerConfig:
     env = environ if environ is not None else os.environ
-    mode = env.get("TYPEDANCE_RESUME_REVIEWER_MODE", "rule").strip().lower()
+    try:
+        mode = resolve_model_settings(environ=env).agents.reviewer
+    except ModelSettingsError:
+        mode = env.get("TYPEDANCE_RESUME_REVIEWER_MODE", "rule").strip().lower()
     if mode in {"rules", "deterministic", "local"}:
         mode = "rule"
     if mode not in {"rule", "langchain", "auto"}:

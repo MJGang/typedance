@@ -10,7 +10,7 @@ from .resume_agent_outputs import (
 from .resume_opportunity_calibrator_runner import (
     OpportunityCalibratorRunRequest,
     OpportunityCalibratorRunner,
-    RuleBasedOpportunityCalibratorRunner,
+    build_opportunity_calibrator_runner,
 )
 from .revision_agent_runtime import (
     AgentInputRef,
@@ -42,7 +42,7 @@ class RevisionOpportunityCalibrationService:
         calibrator_runner: OpportunityCalibratorRunner | None = None,
     ) -> None:
         self.repository = repository
-        self.calibrator_runner = calibrator_runner or RuleBasedOpportunityCalibratorRunner()
+        self.calibrator_runner = calibrator_runner or build_opportunity_calibrator_runner()
 
     def run_opportunity_calibrate(self, document_id: str, run_id: str) -> RevisionRun:
         document = self.repository.get_document(document_id)

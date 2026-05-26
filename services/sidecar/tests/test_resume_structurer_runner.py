@@ -126,23 +126,30 @@ def test_langchain_resume_structurer_runner_uses_structured_output_model():
     assert "StructuredResumeOutput" in seen["messages"][0]["content"]
 
 
-def test_resume_structurer_runner_config_defaults_to_rule_mode():
-    config = load_resume_structurer_runner_config({})
-    runner = build_resume_structurer_runner({})
+def test_resume_structurer_runner_config_defaults_to_auto_and_rule_without_key(tmp_path):
+    env = {"TYPEDANCE_DATA_DIR": str(tmp_path)}
+    config = load_resume_structurer_runner_config(env)
+    runner = build_resume_structurer_runner(env)
 
-    assert config.mode == "rule"
+    assert config.mode == "auto"
     assert isinstance(runner, RuleBasedResumeStructurerRunner)
 
 
-def test_resume_structurer_runner_config_can_force_langchain_mode():
-    runner = build_resume_structurer_runner({"TYPEDANCE_RESUME_STRUCTURER_MODE": "langchain"})
+def test_resume_structurer_runner_config_can_force_langchain_mode(tmp_path):
+    runner = build_resume_structurer_runner(
+        {
+            "TYPEDANCE_DATA_DIR": str(tmp_path),
+            "TYPEDANCE_RESUME_STRUCTURER_MODE": "langchain",
+        }
+    )
 
     assert isinstance(runner, LangChainResumeStructurerRunner)
 
 
-def test_resume_structurer_runner_auto_mode_uses_langchain_when_key_exists():
+def test_resume_structurer_runner_auto_mode_uses_langchain_when_key_exists(tmp_path):
     runner = build_resume_structurer_runner(
         {
+            "TYPEDANCE_DATA_DIR": str(tmp_path),
             "TYPEDANCE_RESUME_STRUCTURER_MODE": "auto",
             "DEEPSEEK_API_KEY": "test-key",
         }

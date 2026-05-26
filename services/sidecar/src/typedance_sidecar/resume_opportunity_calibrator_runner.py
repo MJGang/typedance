@@ -1,9 +1,13 @@
+import json
+import os
 import re
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Mapping
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from .llm_provider import build_chat_model, has_configured_llm_api_key
+from .model_settings import ModelSettingsError, resolve_model_settings
 from .resume_agent_outputs import (
     DraftVariantPlan,
     MatchSummary,
@@ -43,6 +47,11 @@ class OpportunityCalibratorRunRequest(BaseModel):
 
 
 OpportunityCalibratorRunner = Callable[[AgentInvocationContext, OpportunityCalibratorRunRequest], dict[str, Any]]
+OpportunityCalibratorMode = Literal["rule", "langchain", "auto"]
+
+
+class OpportunityCalibratorRunnerConfig(BaseModel):
+    mode: OpportunityCalibratorMode = "rule"
 
 
 class RuleBasedOpportunityCalibratorRunner:
@@ -78,6 +87,98 @@ class RuleBasedOpportunityCalibratorRunner:
             "payload": output.model_dump(),
             "output_refs": [],
         }
+
+
+class LangChainOpportunityCalibratorRunner:
+    def __init__(self, model_factory: Callable[[], Any] = build_chat_model) -> None:
+        self.model_factory = model_factory
+
+    def __call__(
+        self,
+        context: AgentInvocationContext,
+        request: OpportunityCalibratorRunRequest,
+    ) -> dict[str, Any]:
+        model = self.model_factory()
+        structured_model = model.with_structured_output(OpportunityCalibrationOutput)
+        raw_output = structured_model.invoke(_messages(context, request))
+        output = _coerce_calibration_output(raw_output)
+        return {
+            "invocation_id": context.invocation_id,
+            "run_id": context.run_id,
+            "document_id": context.document_id,
+            "pack_id": context.pack_id,
+            "agent_name": context.agent_name,
+            "output_type": "OpportunityCalibrationOutput",
+            "confidence": 0.78,
+            "warnings": [],
+            "payload": output.model_dump(),
+            "output_refs": [],
+        }
+
+
+def load_opportunity_calibrator_runner_config(
+    environ: Mapping[str, str] | None = None,
+) -> OpportunityCalibratorRunnerConfig:
+    env = environ if environ is not None else os.environ
+    try:
+        mode = resolve_model_settings(environ=env).agents.opportunity_calibrator
+    except ModelSettingsError:
+        mode = env.get("TYPEDANCE_RESUME_OPPORTUNITY_CALIBRATOR_MODE", "rule").strip().lower()
+    if mode in {"rules", "deterministic", "local"}:
+        mode = "rule"
+    if mode not in {"rule", "langchain", "auto"}:
+        raise ValueError(f"Unsupported opportunity calibrator runner mode: {mode}")
+    return OpportunityCalibratorRunnerConfig(mode=mode)
+
+
+def build_opportunity_calibrator_runner(
+    environ: Mapping[str, str] | None = None,
+    *,
+    model_factory: Callable[[], Any] | None = None,
+) -> OpportunityCalibratorRunner:
+    env = environ if environ is not None else os.environ
+    config = load_opportunity_calibrator_runner_config(env)
+    if config.mode == "rule":
+        return RuleBasedOpportunityCalibratorRunner()
+    if config.mode == "auto" and not has_configured_llm_api_key(env):
+        return RuleBasedOpportunityCalibratorRunner()
+    factory = model_factory or (lambda: build_chat_model(environ=env))
+    return LangChainOpportunityCalibratorRunner(model_factory=factory)
+
+
+def _messages(
+    context: AgentInvocationContext,
+    request: OpportunityCalibratorRunRequest,
+) -> list[dict[str, str]]:
+    payload = {
+        "run_type": "opportunity_calibrate",
+        "document_id": context.document_id,
+        "source_title": request.source_title,
+        "source_text": request.source_text,
+        "base_draft_id": request.base_draft_id,
+        "variant_draft_id": request.variant_draft_id,
+        "modules": [module.model_dump() for module in request.modules],
+        "claims": [claim.model_dump() for claim in request.claims],
+    }
+    return [
+        {
+            "role": "system",
+            "content": (
+                "你是 TypeDance 的 OpportunityCalibrator。只输出 OpportunityCalibrationOutput。"
+                "只能基于基础简历已有事实和岗位文本生成匹配分析、问题和建议。"
+                "不得为了匹配岗位而编造经历、技能、指标或证据。"
+            ),
+        },
+        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+    ]
+
+
+def _coerce_calibration_output(raw_output: Any) -> OpportunityCalibrationOutput:
+    if isinstance(raw_output, OpportunityCalibrationOutput):
+        return raw_output
+    if isinstance(raw_output, BaseModel):
+        return OpportunityCalibrationOutput.model_validate(raw_output.model_dump())
+    return OpportunityCalibrationOutput.model_validate(raw_output)
 
 
 def _opportunity_requirements(request: OpportunityCalibratorRunRequest) -> list[OpportunityRequirement]:
