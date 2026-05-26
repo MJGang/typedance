@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  agentModeSchema,
   agentStepSchema,
   documentClaimSchema,
   documentModuleSchema,
@@ -9,6 +10,9 @@ import {
   evidenceLinkSchema,
   exportArtifactSchema,
   languageSchema,
+  modelProviderSchema,
+  modelSettingsResponseSchema,
+  modelSettingsUpdateSchema,
   parsedBlockSchema,
   renderProjectionSchema,
   resumePackDefinition,
@@ -434,5 +438,60 @@ describe("AI-native contract guardrails", () => {
 
     expect(legacy.doc_json).toEqual({ type: "doc", content: [] });
     expect(draft.id).toBe("draft_new");
+  });
+});
+
+describe("model settings schemas", () => {
+  it("validates a redacted model settings response", () => {
+    const parsed = modelSettingsResponseSchema.parse({
+      config_path: "C:/Users/test/.typedance/config.toml",
+      auth_path: "C:/Users/test/.typedance/auth.json",
+      model: {
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        base_url: "https://api.deepseek.com",
+        temperature: 0,
+        timeout_seconds: 120,
+        structured_output: true,
+      },
+      agents: {
+        parser: "auto",
+        structurer: "auto",
+        reviewer: "auto",
+        rewriter: "auto",
+        opportunity_calibrator: "auto",
+      },
+      api_key: {
+        configured: true,
+        source: "auth_json",
+        preview: "...a9f2",
+      },
+    });
+
+    expect(parsed.model.model).toBe("deepseek-v4-flash");
+    expect(parsed.api_key.preview).toBe("...a9f2");
+  });
+
+  it("validates settings update without requiring an api key", () => {
+    const parsed = modelSettingsUpdateSchema.parse({
+      model: {
+        provider: "openai",
+        model: "gpt-5.4",
+        base_url: null,
+        temperature: 0.1,
+        timeout_seconds: 90,
+        structured_output: true,
+      },
+      agents: {
+        parser: "langchain",
+        structurer: "auto",
+        reviewer: "auto",
+        rewriter: "rule",
+        opportunity_calibrator: "auto",
+      },
+    });
+
+    expect(modelProviderSchema.parse("openai")).toBe("openai");
+    expect(agentModeSchema.parse(parsed.agents.rewriter)).toBe("rule");
   });
 });

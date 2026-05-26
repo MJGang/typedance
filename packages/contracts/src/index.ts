@@ -14,3 +14,4 @@ export * from "./revision/render";
 export * from "./revision/workspace-view";
 export * from "./packs/document-pack";
 export * from "./packs/resume-pack";
+export * from "./settings/model-settings";
