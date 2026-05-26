@@ -1,3 +1,4 @@
+import json
 import os
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -16,6 +17,9 @@ from .model_settings import (
 
 class LlmProviderError(Exception):
     pass
+
+
+StructuredOutputMethod = Literal["json_mode", "json_schema"]
 
 
 class LlmProviderConfig(BaseModel):
@@ -78,9 +82,33 @@ def build_chat_model(
     }
     if resolved_config.base_url:
         kwargs["base_url"] = resolved_config.base_url
-    if resolved_config.structured_output:
+    structured_output_method = structured_output_method_for_config(resolved_config)
+    if resolved_config.structured_output and structured_output_method == "json_schema":
         kwargs["profile"] = {"structured_output": True}
-    return init_chat_model_fn(**kwargs)
+    model = init_chat_model_fn(**kwargs)
+    _attach_structured_output_method(model, structured_output_method)
+    return model
+
+
+def structured_output_method_for_config(config: LlmProviderConfig) -> StructuredOutputMethod:
+    if config.provider == "openai" and config.structured_output:
+        return "json_schema"
+    return "json_mode"
+
+
+def with_typedance_structured_output(model: Any, schema: Any) -> Any:
+    method = getattr(model, "_typedance_structured_output_method", None)
+    if method in {"json_mode", "json_schema"}:
+        return model.with_structured_output(schema, method=method)
+    return model.with_structured_output(schema)
+
+
+def structured_output_system_instruction(schema: type[BaseModel]) -> str:
+    schema_json = json.dumps(schema.model_json_schema(), ensure_ascii=False)
+    return (
+        "只输出合法 json 对象，不要输出 Markdown、代码块或解释文本。"
+        f"json 必须能被 {schema.__name__} 解析，并完全符合这个 JSON Schema：{schema_json}"
+    )
 
 
 def has_configured_llm_api_key(
@@ -110,3 +138,13 @@ def _first_present_env(env: Mapping[str, str], names: list[str]) -> str | None:
         if value:
             return value
     return None
+
+
+def _attach_structured_output_method(model: Any, method: StructuredOutputMethod) -> None:
+    try:
+        setattr(model, "_typedance_structured_output_method", method)
+    except Exception:
+        try:
+            object.__setattr__(model, "_typedance_structured_output_method", method)
+        except Exception:
+            pass

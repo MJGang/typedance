@@ -7,7 +7,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from .llm_provider import build_chat_model, has_configured_llm_api_key
+from .llm_provider import (
+    build_chat_model,
+    has_configured_llm_api_key,
+    structured_output_system_instruction,
+    with_typedance_structured_output,
+)
 from .model_settings import ModelSettingsError, resolve_model_settings
 from .resume_agent_outputs import DocumentClaimDraft, DocumentModuleDraft, StructuredResumeOutput
 from .revision_agent_runtime import AgentInvocationContext
@@ -86,7 +91,7 @@ class LangChainResumeStructurerRunner:
         request: ResumeStructurerRunRequest,
     ) -> dict[str, Any]:
         model = self.model_factory()
-        structured_model = model.with_structured_output(StructuredResumeOutput)
+        structured_model = with_typedance_structured_output(model, StructuredResumeOutput)
         raw_output = structured_model.invoke(_messages(context, request))
         output = _coerce_structured_output(raw_output)
         return {
@@ -150,6 +155,7 @@ def _messages(
             "role": "system",
             "content": (
                 "你是 TypeDance 的 ResumeStructurer。只输出 StructuredResumeOutput 结构化结果。"
+                f"{structured_output_system_instruction(StructuredResumeOutput)}"
                 "你负责把 ParsedBlock 归入简历模块并抽取 DocumentClaimDraft。"
                 "不要改写事实，不确定的内容必须标记为 inferred 或进入 unresolved_blocks。"
             ),

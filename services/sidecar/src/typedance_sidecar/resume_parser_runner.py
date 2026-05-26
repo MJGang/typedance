@@ -6,7 +6,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from .llm_provider import build_chat_model, has_configured_llm_api_key
+from .llm_provider import (
+    build_chat_model,
+    has_configured_llm_api_key,
+    structured_output_system_instruction,
+    with_typedance_structured_output,
+)
 from .model_settings import ModelSettingsError, resolve_model_settings
 from .resume_agent_outputs import ParsedBlockDraft, ParsedDocumentOutput
 from .revision_agent_runtime import AgentInvocationContext
@@ -75,7 +80,7 @@ class LangChainResumeParserRunner:
         request: ResumeParserRunRequest,
     ) -> dict[str, Any]:
         model = self.model_factory()
-        structured_model = model.with_structured_output(ParsedDocumentOutput)
+        structured_model = with_typedance_structured_output(model, ParsedDocumentOutput)
         raw_output = structured_model.invoke(_messages(context, request))
         output = _coerce_parser_output(raw_output)
         return {
@@ -138,6 +143,7 @@ def _messages(
             "role": "system",
             "content": (
                 "你是 TypeDance 的 SourceParser。只输出 ParsedDocumentOutput 结构化结果。"
+                f"{structured_output_system_instruction(ParsedDocumentOutput)}"
                 "你只负责解析和切块，不要重写、润色、补充用户经历。"
                 "保留原文顺序，并为每个 block 标注 type、text、order、source_span 和 confidence。"
             ),

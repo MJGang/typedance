@@ -5,7 +5,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from .llm_provider import build_chat_model, has_configured_llm_api_key
+from .llm_provider import (
+    build_chat_model,
+    has_configured_llm_api_key,
+    structured_output_system_instruction,
+    with_typedance_structured_output,
+)
 from .model_settings import ModelSettingsError, resolve_model_settings
 from .resume_agent_outputs import ResumeRewriteOutput, RevisionProposalDraft
 from .revision_agent_runtime import AgentInvocationContext
@@ -54,7 +59,7 @@ class LangChainResumeRewriterRunner:
         request: ResumeRewriterRunRequest,
     ) -> dict[str, Any]:
         model = self.model_factory()
-        structured_model = model.with_structured_output(ResumeRewriteOutput)
+        structured_model = with_typedance_structured_output(model, ResumeRewriteOutput)
         raw_output = structured_model.invoke(_messages(request))
         output = _coerce_rewrite_output(raw_output)
         return _envelope(context, request, output)
@@ -128,6 +133,7 @@ def _messages(request: ResumeRewriterRunRequest) -> list[dict[str, str]]:
             "role": "system",
             "content": (
                 "你是 TypeDance 的 ResumeRewriter。只生成 ResumeRewriteOutput 结构化结果。"
+                f"{structured_output_system_instruction(ResumeRewriteOutput)}"
                 "不要编造用户未提供的事实；数字、结果和影响范围必须来自 user_fact、证据或原文。"
                 "输出 Proposal，不要直接改写最终简历。"
             ),

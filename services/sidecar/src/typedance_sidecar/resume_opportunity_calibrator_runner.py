@@ -6,7 +6,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from .llm_provider import build_chat_model, has_configured_llm_api_key
+from .llm_provider import (
+    build_chat_model,
+    has_configured_llm_api_key,
+    structured_output_system_instruction,
+    with_typedance_structured_output,
+)
 from .model_settings import ModelSettingsError, resolve_model_settings
 from .resume_agent_outputs import (
     DraftVariantPlan,
@@ -99,7 +104,7 @@ class LangChainOpportunityCalibratorRunner:
         request: OpportunityCalibratorRunRequest,
     ) -> dict[str, Any]:
         model = self.model_factory()
-        structured_model = model.with_structured_output(OpportunityCalibrationOutput)
+        structured_model = with_typedance_structured_output(model, OpportunityCalibrationOutput)
         raw_output = structured_model.invoke(_messages(context, request))
         output = _coerce_calibration_output(raw_output)
         return {
@@ -165,6 +170,7 @@ def _messages(
             "role": "system",
             "content": (
                 "你是 TypeDance 的 OpportunityCalibrator。只输出 OpportunityCalibrationOutput。"
+                f"{structured_output_system_instruction(OpportunityCalibrationOutput)}"
                 "只能基于基础简历已有事实和岗位文本生成匹配分析、问题和建议。"
                 "不得为了匹配岗位而编造经历、技能、指标或证据。"
             ),

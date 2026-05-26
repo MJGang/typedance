@@ -5,7 +5,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from .llm_provider import build_chat_model, has_configured_llm_api_key
+from .llm_provider import (
+    build_chat_model,
+    has_configured_llm_api_key,
+    structured_output_system_instruction,
+    with_typedance_structured_output,
+)
 from .model_settings import ModelSettingsError, resolve_model_settings
 from .resume_agent_outputs import QualitySummary, ResumeReviewOutput, RevisionIssueDraft
 from .revision_agent_runtime import AgentInvocationContext
@@ -67,7 +72,7 @@ class LangChainResumeReviewerRunner:
         request: ResumeReviewerRunRequest,
     ) -> dict[str, Any]:
         model = self.model_factory()
-        structured_model = model.with_structured_output(ResumeReviewOutput)
+        structured_model = with_typedance_structured_output(model, ResumeReviewOutput)
         raw_output = structured_model.invoke(_messages(context, request))
         output = _coerce_review_output(raw_output)
         return {
@@ -133,6 +138,7 @@ def _messages(
             "role": "system",
             "content": (
                 "你是 TypeDance 的 ResumeReviewer。只输出 ResumeReviewOutput 结构化结果。"
+                f"{structured_output_system_instruction(ResumeReviewOutput)}"
                 "你只能生成可定位、可处理的问题卡，不能直接改写最终简历。"
                 "高风险事实、缺少证据、缺少结果、模块缺失和导出风险都必须进入 issues。"
             ),

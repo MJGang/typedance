@@ -8,6 +8,28 @@ from fastapi.testclient import TestClient
 from typedance_sidecar.main import app
 
 
+@pytest.fixture(autouse=True)
+def isolate_model_settings(tmp_path, monkeypatch):
+    monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path / "typedance-data"))
+    for name in (
+        "TYPEDANCE_LLM_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "OPENAI_API_KEY",
+        "TYPEDANCE_LLM_PROVIDER",
+        "TYPEDANCE_LLM_MODEL",
+        "TYPEDANCE_LLM_BASE_URL",
+        "TYPEDANCE_LLM_TEMPERATURE",
+        "TYPEDANCE_LLM_TIMEOUT_SECONDS",
+        "TYPEDANCE_LLM_STRUCTURED_OUTPUT",
+        "TYPEDANCE_RESUME_PARSER_MODE",
+        "TYPEDANCE_RESUME_STRUCTURER_MODE",
+        "TYPEDANCE_RESUME_REVIEWER_MODE",
+        "TYPEDANCE_RESUME_REWRITER_MODE",
+        "TYPEDANCE_RESUME_OPPORTUNITY_CALIBRATOR_MODE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))

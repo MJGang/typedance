@@ -6,6 +6,7 @@ from typedance_sidecar.llm_provider import (
     build_chat_model,
     has_configured_llm_api_key,
     load_llm_provider_config,
+    with_typedance_structured_output,
 )
 
 
@@ -33,7 +34,11 @@ def test_llm_provider_requires_api_key_without_storing_secret(tmp_path):
 
 def test_llm_provider_builds_langchain_chat_model_from_env(tmp_path):
     calls = {}
-    expected_model = object()
+
+    class ExpectedModel:
+        pass
+
+    expected_model = ExpectedModel()
     config = load_llm_provider_config(
         {
             "TYPEDANCE_LLM_MODEL": "deepseek-reasoner",
@@ -62,8 +67,52 @@ def test_llm_provider_builds_langchain_chat_model_from_env(tmp_path):
         "api_key": "sk-test",
         "temperature": 0.2,
         "timeout": 90.0,
-        "profile": {"structured_output": True},
     }
+    assert getattr(model, "_typedance_structured_output_method") == "json_mode"
+
+
+def test_llm_provider_uses_native_structured_output_for_openai(tmp_path):
+    calls = {}
+
+    class ExpectedModel:
+        pass
+
+    expected_model = ExpectedModel()
+
+    def fake_init_chat_model(**kwargs):
+        calls.update(kwargs)
+        return expected_model
+
+    model = build_chat_model(
+        config=load_llm_provider_config(
+            {
+                "TYPEDANCE_LLM_PROVIDER": "openai",
+                "TYPEDANCE_LLM_MODEL": "gpt-5.4",
+            },
+            data_dir=tmp_path,
+        ),
+        environ={"OPENAI_API_KEY": "sk-openai"},
+        data_dir=tmp_path,
+        init_chat_model_fn=fake_init_chat_model,
+    )
+
+    assert calls["profile"] == {"structured_output": True}
+    assert getattr(model, "_typedance_structured_output_method") == "json_schema"
+
+
+def test_with_typedance_structured_output_passes_provider_method():
+    calls = {}
+
+    class FakeModel:
+        _typedance_structured_output_method = "json_mode"
+
+        def with_structured_output(self, schema, **kwargs):
+            calls["schema"] = schema
+            calls["kwargs"] = kwargs
+            return "structured"
+
+    assert with_typedance_structured_output(FakeModel(), dict) == "structured"
+    assert calls == {"schema": dict, "kwargs": {"method": "json_mode"}}
 
 
 def test_llm_provider_reads_api_key_from_auth_json(tmp_path):
