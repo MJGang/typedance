@@ -1,13 +1,17 @@
 import os
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any, Literal
 
 from langchain.chat_models import init_chat_model
 from pydantic import BaseModel, Field
 
-
-DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEFAULT_DEEPSEEK_MODEL = "deepseek-chat"
+from .model_settings import (
+    DEFAULT_DEEPSEEK_BASE_URL,
+    DEFAULT_DEEPSEEK_MODEL,
+    ModelSettingsError,
+    resolve_model_settings,
+)
 
 
 class LlmProviderError(Exception):
@@ -27,23 +31,23 @@ class LlmProviderConfig(BaseModel):
 
 def load_llm_provider_config(
     environ: Mapping[str, str] | None = None,
+    *,
+    data_dir: Path | None = None,
 ) -> LlmProviderConfig:
     env = environ if environ is not None else os.environ
-    provider = env.get("TYPEDANCE_LLM_PROVIDER", "deepseek").strip().lower()
-    if provider not in {"deepseek", "openai", "openai_compatible"}:
-        raise LlmProviderError(f"Unsupported LLM provider: {provider}")
-
-    model = env.get("TYPEDANCE_LLM_MODEL") or _default_model(provider)
-    base_url = env.get("TYPEDANCE_LLM_BASE_URL") or _default_base_url(provider)
+    try:
+        settings = resolve_model_settings(data_dir=data_dir, environ=env)
+    except ModelSettingsError as exc:
+        raise LlmProviderError(str(exc)) from exc
     return LlmProviderConfig(
-        provider=provider,
-        model=model,
+        provider=settings.model.provider,
+        model=settings.model.model,
         model_provider="openai",
-        base_url=base_url,
-        api_key_env_names=_api_key_env_names(provider),
-        temperature=_float_env(env, "TYPEDANCE_LLM_TEMPERATURE", 0),
-        timeout_seconds=_float_env(env, "TYPEDANCE_LLM_TIMEOUT_SECONDS", 120),
-        structured_output=_bool_env(env, "TYPEDANCE_LLM_STRUCTURED_OUTPUT", True),
+        base_url=settings.model.base_url,
+        api_key_env_names=_api_key_env_names(settings.model.provider),
+        temperature=settings.model.temperature,
+        timeout_seconds=settings.model.timeout_seconds,
+        structured_output=settings.model.structured_output,
     )
 
 
@@ -51,11 +55,16 @@ def build_chat_model(
     config: LlmProviderConfig | None = None,
     *,
     environ: Mapping[str, str] | None = None,
+    data_dir: Path | None = None,
     init_chat_model_fn: Callable[..., Any] = init_chat_model,
 ) -> Any:
-    resolved_config = config or load_llm_provider_config(environ)
     env = environ if environ is not None else os.environ
-    api_key = _first_present_env(env, resolved_config.api_key_env_names)
+    resolved_config = config or load_llm_provider_config(env, data_dir=data_dir)
+    try:
+        settings = resolve_model_settings(data_dir=data_dir, environ=env)
+    except ModelSettingsError as exc:
+        raise LlmProviderError(str(exc)) from exc
+    api_key = _first_present_env(env, resolved_config.api_key_env_names) or settings.api_key.value
     if not api_key:
         names = ", ".join(resolved_config.api_key_env_names)
         raise LlmProviderError(f"Missing LLM API key. Set one of: {names}")
@@ -77,22 +86,16 @@ def build_chat_model(
 def has_configured_llm_api_key(
     environ: Mapping[str, str] | None = None,
     config: LlmProviderConfig | None = None,
+    *,
+    data_dir: Path | None = None,
 ) -> bool:
-    resolved_config = config or load_llm_provider_config(environ)
     env = environ if environ is not None else os.environ
-    return _first_present_env(env, resolved_config.api_key_env_names) is not None
-
-
-def _default_model(provider: str) -> str:
-    if provider == "openai":
-        return "gpt-5.4"
-    return DEFAULT_DEEPSEEK_MODEL
-
-
-def _default_base_url(provider: str) -> str | None:
-    if provider == "deepseek":
-        return DEFAULT_DEEPSEEK_BASE_URL
-    return None
+    try:
+        settings = resolve_model_settings(data_dir=data_dir, environ=env)
+    except ModelSettingsError as exc:
+        raise LlmProviderError(str(exc)) from exc
+    resolved_config = config or load_llm_provider_config(env, data_dir=data_dir)
+    return (_first_present_env(env, resolved_config.api_key_env_names) or settings.api_key.value) is not None
 
 
 def _api_key_env_names(provider: str) -> list[str]:
@@ -107,25 +110,3 @@ def _first_present_env(env: Mapping[str, str], names: list[str]) -> str | None:
         if value:
             return value
     return None
-
-
-def _float_env(env: Mapping[str, str], name: str, default: float) -> float:
-    value = env.get(name)
-    if value is None or not value.strip():
-        return default
-    try:
-        return float(value)
-    except ValueError as exc:
-        raise LlmProviderError(f"Invalid float env {name}: {value}") from exc
-
-
-def _bool_env(env: Mapping[str, str], name: str, default: bool) -> bool:
-    value = env.get(name)
-    if value is None or not value.strip():
-        return default
-    normalized = value.strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    raise LlmProviderError(f"Invalid boolean env {name}: {value}")
