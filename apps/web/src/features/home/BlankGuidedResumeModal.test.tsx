@@ -68,7 +68,7 @@ describe("BlankGuidedResumeModal", () => {
       )
     })
     await waitFor(() => {
-      expect(screen.getByTestId("location")).toHaveTextContent("/revision/doc_guided")
+      expect(screen.getByTestId("location")).toHaveTextContent("/packs/resume/workspaces/doc_guided")
     })
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })

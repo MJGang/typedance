@@ -77,7 +77,7 @@ describe("ImportOldResumeModal", () => {
       })
     })
     await waitFor(() => {
-      expect(screen.getByTestId("location")).toHaveTextContent("/revision/doc_import")
+      expect(screen.getByTestId("location")).toHaveTextContent("/packs/resume/workspaces/doc_import")
     })
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })

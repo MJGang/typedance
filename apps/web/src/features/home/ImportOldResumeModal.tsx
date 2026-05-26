@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { Loader2, Wand2 } from "lucide-react"
 import { importOldResume } from "@/api"
 import { Button } from "@/components/ui/button"
+import { resumePackPaths } from "../resume-pack/routes"
 import {
   Dialog,
   DialogContent,
@@ -50,7 +51,7 @@ export function ImportOldResumeModal({ open, onOpenChange }: ImportOldResumeModa
         raw_text: rawText,
       })
       onOpenChange(false)
-      navigate(`/revision/${workspace.document.id}`)
+      navigate(resumePackPaths.workspace(workspace.document.id))
     } catch {
       setError("导入失败，请稍后重试。")
     } finally {

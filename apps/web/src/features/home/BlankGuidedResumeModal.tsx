@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { Loader2, Sparkles } from "lucide-react"
 import { startBlankGuidedResume } from "@/api"
 import { Button } from "@/components/ui/button"
+import { resumePackPaths } from "../resume-pack/routes"
 import {
   Dialog,
   DialogContent,
@@ -72,7 +73,7 @@ export function BlankGuidedResumeModal({ open, onOpenChange }: BlankGuidedResume
         project_experience: projectExperience,
       })
       onOpenChange(false)
-      navigate(`/revision/${workspace.document.id}`)
+      navigate(resumePackPaths.workspace(workspace.document.id))
     } catch {
       setError("生成失败，请稍后重试。")
     } finally {
