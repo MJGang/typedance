@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { templateRegistry, builtInSamples, defaultClassicA4Style } from "../templates/data"
 import { TemplatePreview } from "../templates/components/TemplatePreview"
 import { createResumeVersion } from "@/api"
+import { resumePackPaths } from "../resume-pack/routes"
 
 type NewResumeModalProps = {
   open: boolean
@@ -29,7 +30,7 @@ export function NewResumeModal({ open, onOpenChange }: NewResumeModalProps) {
         plain_text_snapshot: sample.plain_text_snapshot,
       })
       onOpenChange(false)
-      navigate(`/workspace/${resume.id}`)
+      navigate(resumePackPaths.resume(resume.id))
     } catch {
       // handle error
     } finally {
@@ -64,7 +65,7 @@ export function NewResumeModal({ open, onOpenChange }: NewResumeModalProps) {
           ))}
         </div>
         <p className="text-center text-sm text-muted-foreground">
-          也可以去 <Button variant="link" className="h-auto p-0" onClick={() => { onOpenChange(false); navigate("/templates"); }}>模板库</Button> 浏览更多
+          也可以去 <Button variant="link" className="h-auto p-0" onClick={() => { onOpenChange(false); navigate(resumePackPaths.templates); }}>模板库</Button> 浏览更多
         </p>
       </DialogContent>
     </Dialog>
