@@ -1,5 +1,10 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { getTemplateSample } from "./api"
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
 
 describe("template api", () => {
   it("loads a template sample", async () => {
@@ -622,5 +627,93 @@ describe("revision api", () => {
       { method: "POST" },
     )
     expect(workspace.document.id).toBe("doc_legacy_resume_1")
+  })
+})
+
+describe("model settings api", () => {
+  it("loads redacted model settings", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      config_path: "C:/Users/test/.typedance/config.toml",
+      auth_path: "C:/Users/test/.typedance/auth.json",
+      model: {
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        base_url: "https://api.deepseek.com",
+        temperature: 0,
+        timeout_seconds: 120,
+        structured_output: true,
+      },
+      agents: {
+        parser: "auto",
+        structurer: "auto",
+        reviewer: "auto",
+        rewriter: "auto",
+        opportunity_calibrator: "auto",
+      },
+      api_key: {
+        configured: true,
+        source: "auth_json",
+        preview: "...a9f2",
+      },
+    }))))
+
+    const { getModelSettings } = await import("./api")
+    const settings = await getModelSettings()
+
+    expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:4317/settings/model")
+    expect(settings.model.model).toBe("deepseek-v4-flash")
+  })
+
+  it("saves model settings with an optional api key", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      config_path: "C:/Users/test/.typedance/config.toml",
+      auth_path: "C:/Users/test/.typedance/auth.json",
+      model: {
+        provider: "openai",
+        model: "gpt-5.4",
+        base_url: null,
+        temperature: 0,
+        timeout_seconds: 120,
+        structured_output: true,
+      },
+      agents: {
+        parser: "langchain",
+        structurer: "auto",
+        reviewer: "auto",
+        rewriter: "auto",
+        opportunity_calibrator: "auto",
+      },
+      api_key: {
+        configured: true,
+        source: "auth_json",
+        preview: "...a9f2",
+      },
+    }))))
+
+    const { saveModelSettings } = await import("./api")
+    await saveModelSettings({
+      model: {
+        provider: "openai",
+        model: "gpt-5.4",
+        base_url: null,
+        temperature: 0,
+        timeout_seconds: 120,
+        structured_output: true,
+      },
+      agents: {
+        parser: "langchain",
+        structurer: "auto",
+        reviewer: "auto",
+        rewriter: "auto",
+        opportunity_calibrator: "auto",
+      },
+      api_key: "sk-test-a9f2",
+    })
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:4317/settings/model",
+      expect.objectContaining({ method: "PUT" }),
+    )
+    expect(JSON.parse((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].body).api_key).toBe("sk-test-a9f2")
   })
 })

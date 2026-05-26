@@ -4,6 +4,9 @@ import {
   draftVersionSchema,
   evidenceLinkSchema,
   exportArtifactSchema,
+  modelSettingsResponseSchema,
+  modelSettingsTestResponseSchema,
+  modelSettingsUpdateSchema,
   renderProjectionSchema,
   resumeVersionSchema,
   revisionIssueSchema,
@@ -18,6 +21,9 @@ import {
   type DraftVersion,
   type EvidenceLink,
   type ExportArtifact,
+  type ModelSettingsResponse,
+  type ModelSettingsTestResponse,
+  type ModelSettingsUpdate,
   type RenderProjection,
   type ResumeVersion,
   type RevisionIssue,
@@ -140,6 +146,47 @@ export async function projectLegacyResumeToRevisionWorkspace(resumeId: string): 
     response,
     (value) => workspaceViewSchema.parse(value),
     "Failed to project legacy resume",
+  )
+}
+
+export async function getModelSettings(): Promise<ModelSettingsResponse> {
+  const response = await fetch(`${baseUrl}/settings/model`)
+  return parseTemplateResponse(
+    response,
+    (value) => modelSettingsResponseSchema.parse(value),
+    "Failed to load model settings",
+  )
+}
+
+export async function saveModelSettings(input: ModelSettingsUpdate): Promise<ModelSettingsResponse> {
+  const payload = modelSettingsUpdateSchema.parse(input)
+  const response = await fetch(`${baseUrl}/settings/model`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  return parseTemplateResponse(
+    response,
+    (value) => modelSettingsResponseSchema.parse(value),
+    "Failed to save model settings",
+  )
+}
+
+export async function testModelSettings(): Promise<ModelSettingsTestResponse> {
+  const response = await fetch(`${baseUrl}/settings/model/test`, { method: "POST" })
+  return parseTemplateResponse(
+    response,
+    (value) => modelSettingsTestResponseSchema.parse(value),
+    "Failed to test model settings",
+  )
+}
+
+export async function clearModelApiKey(): Promise<ModelSettingsResponse> {
+  const response = await fetch(`${baseUrl}/settings/model/api-key`, { method: "DELETE" })
+  return parseTemplateResponse(
+    response,
+    (value) => modelSettingsResponseSchema.parse(value),
+    "Failed to clear model API key",
   )
 }
 
