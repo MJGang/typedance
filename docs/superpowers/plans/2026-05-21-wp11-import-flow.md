@@ -40,37 +40,37 @@
 
 ## Task 1: 后端导入编排服务
 
-- [ ] 新增 `RevisionImportFlowService.run_import_reconstruct(document_id, run_id)`。
-- [ ] 将 source raw_text 解析为 `ParsedBlock`，空行忽略，标题/联系方式/普通段落可区分。
-- [ ] 创建 `DraftVersion`，并把 `Document.current_draft_id` 指向新 draft。
-- [ ] 创建 `BasicInfo`、`CoreSkills`、`WorkExperience`、`ProjectExperience`、`Education` 等可见模块；找不到明确标题时保留为 `ImportedContent`。
-- [ ] 为关键内容生成 `DocumentClaim` 和 `EvidenceLink`。
-- [ ] 为缺少结果、缺少联系方式、未确认事实等风险生成 `RevisionIssue`。
-- [ ] 为可改写项生成 `RevisionProposal`，并把 proposal 关联到 issue。
-- [ ] 调用 `RenderService.build_projection_for_draft()` 生成 `RenderProjection`。
-- [ ] 将 run 更新为 `completed`，写入 `target_draft_id` 和 `output_summary`。
+- [x] 新增 `RevisionImportFlowService.run_import_reconstruct(document_id, run_id)`。
+- [x] 将 source raw_text 解析为 `ParsedBlock`，空行忽略，标题/联系方式/普通段落可区分。
+- [x] 创建 `DraftVersion`，并把 `Document.current_draft_id` 指向新 draft。
+- [x] 创建 `BasicInfo`、`CoreSkills`、`WorkExperience`、`ProjectExperience`、`Education` 等可见模块；找不到明确标题时保留为 `ImportedContent`。
+- [x] 为关键内容生成 `DocumentClaim` 和 `EvidenceLink`。
+- [x] 为缺少结果、缺少联系方式、未确认事实等风险生成 `RevisionIssue`。
+- [x] 为可改写项生成 `RevisionProposal`，并把 proposal 关联到 issue。
+- [x] 调用 `RenderService.build_projection_for_draft()` 生成 `RenderProjection`。
+- [x] 将 run 更新为 `completed`，写入 `target_draft_id` 和 `output_summary`。
 
 ## Task 2: Revision API 串入编排
 
-- [ ] `create_revision_run()` 保存 run 后，如果 `run_type == "import_reconstruct"`，调用 `RevisionImportFlowService`。
-- [ ] 没有 source 或 source 没有内容时返回 400。
-- [ ] 保持非 import run 的现有行为不变。
-- [ ] API 测试断言创建 import run 后，WorkspaceView 中存在 draft、modules、issues、proposals、evidence、render_projection。
+- [x] `create_revision_run()` 保存 run 后，如果 `run_type == "import_reconstruct"`，调用 `RevisionImportFlowService`。
+- [x] 没有 source 或 source 没有内容时返回 400。
+- [x] 保持非 import run 的现有行为不变。
+- [x] API 测试断言创建 import run 后，WorkspaceView 中存在 draft、modules、issues、proposals、evidence、render_projection。
 
 ## Task 3: 前端导入入口
 
-- [ ] 新增 `ImportOldResumeModal`，包含标题输入、旧简历内容 Textarea、错误态、提交中状态。
-- [ ] 提交时依次调用 `createRevisionDocument()`、`createRevisionSource()`、`createRevisionRun()`。
-- [ ] 成功后关闭弹窗并 `navigate("/revision/:documentId")`。
-- [ ] 首页空状态和顶部操作区都提供“导入旧简历”入口。
-- [ ] 保留原“新建简历/模板”入口，但不把旧简历导入导向 legacy workspace。
+- [x] 新增 `ImportOldResumeModal`，包含标题输入、旧简历内容 Textarea、错误态、提交中状态。
+- [x] 提交时依次调用 `createRevisionDocument()`、`createRevisionSource()`、`createRevisionRun()`。
+- [x] 成功后关闭弹窗并 `navigate("/revision/:documentId")`。
+- [x] 首页空状态和顶部操作区都提供“导入旧简历”入口。
+- [x] 保留原“新建简历/模板”入口，但不把旧简历导入导向 legacy workspace。
 
 ## Task 4: 测试与验证
 
-- [ ] `pytest services/sidecar/tests/test_revision_import_flow.py services/sidecar/tests/test_revision_api.py`
-- [ ] `corepack pnpm --filter @typedance/web test`
-- [ ] `corepack pnpm --filter @typedance/web build`
-- [ ] `corepack pnpm test`
+- [x] `pytest services/sidecar/tests/test_revision_import_flow.py services/sidecar/tests/test_revision_api.py`
+- [x] `corepack pnpm --filter @typedance/web test`
+- [x] `corepack pnpm --filter @typedance/web build`
+- [x] `corepack pnpm test`
 
 ## Completion
 

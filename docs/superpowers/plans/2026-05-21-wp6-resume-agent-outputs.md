@@ -26,35 +26,35 @@
 
 ## Task 1: Parser and Structurer Outputs
 
-- [ ] 定义 `ParsedBlockDraft`。
-- [ ] 定义 `ParsedDocumentOutput`。
-- [ ] 定义 `DocumentModuleDraft`。
-- [ ] 定义 `DocumentClaimDraft`。
-- [ ] 定义 `StructuredResumeOutput`。
+- [x] 定义 `ParsedBlockDraft`。
+- [x] 定义 `ParsedDocumentOutput`。
+- [x] 定义 `DocumentModuleDraft`。
+- [x] 定义 `DocumentClaimDraft`。
+- [x] 定义 `StructuredResumeOutput`。
 
 ## Task 2: Reviewer and Rewriter Outputs
 
-- [ ] 定义 `RevisionTarget`。
-- [ ] 定义 `RevisionActionTemplate`。
-- [ ] 定义 `RevisionIssueDraft`。
-- [ ] 定义 `QualitySummary` 和 `ResumeReviewOutput`。
-- [ ] 定义 `UserInputRequest`、`RevisionProposalDraft` 和 `ResumeRewriteOutput`。
+- [x] 定义 `RevisionTarget`。
+- [x] 定义 `RevisionActionTemplate`。
+- [x] 定义 `RevisionIssueDraft`。
+- [x] 定义 `QualitySummary` 和 `ResumeReviewOutput`。
+- [x] 定义 `UserInputRequest`、`RevisionProposalDraft` 和 `ResumeRewriteOutput`。
 
 ## Task 3: Evidence, Opportunity, Render, Coach Outputs
 
-- [ ] 定义 `EvidenceLinkDraft`、`ClaimConfidenceUpdate`、`EvidenceVerificationOutput`。
-- [ ] 定义 `OpportunityRequirement`、`MatchSummary`、`DraftVariantPlan`、`OpportunityCalibrationOutput`。
-- [ ] 定义 `LayoutWarning`、`RenderProjectionDraft`、`RenderPlanOutput`。
-- [ ] 定义 `ContextualAction`、`CoachNarrationOutput`。
+- [x] 定义 `EvidenceLinkDraft`、`ClaimConfidenceUpdate`、`EvidenceVerificationOutput`。
+- [x] 定义 `OpportunityRequirement`、`MatchSummary`、`DraftVariantPlan`、`OpportunityCalibrationOutput`。
+- [x] 定义 `LayoutWarning`、`RenderProjectionDraft`、`RenderPlanOutput`。
+- [x] 定义 `ContextualAction`、`CoachNarrationOutput`。
 
 ## Task 4: Registry and Tests
 
-- [ ] 实现 `resume_agent_output_schemas()`。
-- [ ] 实现 `register_resume_agent_output_schemas(registry)`。
-- [ ] 测试每个 output type 都能注册。
-- [ ] 测试 `AgentSchemaRegistry` 能验证典型 Parser / Reviewer / Rewriter / Coach 输出。
-- [ ] 测试非法 confidence 被 schema 拒绝。
-- [ ] 运行：
+- [x] 实现 `resume_agent_output_schemas()`。
+- [x] 实现 `register_resume_agent_output_schemas(registry)`。
+- [x] 测试每个 output type 都能注册。
+- [x] 测试 `AgentSchemaRegistry` 能验证典型 Parser / Reviewer / Rewriter / Coach 输出。
+- [x] 测试非法 confidence 被 schema 拒绝。
+- [x] 运行：
 
 ```bash
 corepack pnpm --filter @typedance/sidecar test -- tests/test_resume_agent_outputs.py

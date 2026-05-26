@@ -28,44 +28,44 @@
 
 ## Task 1: Router and Request Models
 
-- [ ] 新增 `CreateDocumentRequest`。
-- [ ] 新增 `CreateSourceRequest`。
-- [ ] 新增 `CreateRevisionRunRequest`。
-- [ ] 新增 `RenderDraftRequest`。
-- [ ] 新增 `ConfirmClaimRequest`。
-- [ ] 新增 `create_revision_router(repository_dependency)`。
+- [x] 新增 `CreateDocumentRequest`。
+- [x] 新增 `CreateSourceRequest`。
+- [x] 新增 `CreateRevisionRunRequest`。
+- [x] 新增 `RenderDraftRequest`。
+- [x] 新增 `ConfirmClaimRequest`。
+- [x] 新增 `create_revision_router(repository_dependency)`。
 
 ## Task 2: API Endpoints
 
-- [ ] `POST /documents`
-- [ ] `GET /documents`
-- [ ] `GET /documents/{document_id}`
-- [ ] `POST /documents/{document_id}/sources`
-- [ ] `GET /documents/{document_id}/sources`
-- [ ] `POST /documents/{document_id}/revision-runs`
-- [ ] `GET /revision-runs/{run_id}`
-- [ ] `GET /documents/{document_id}/workspace-view`
-- [ ] `GET /documents/{document_id}/drafts`
-- [ ] `GET /drafts/{draft_id}`
-- [ ] `POST /drafts/{draft_id}/render`
-- [ ] `POST /drafts/{draft_id}/accept`
-- [ ] `GET /drafts/{draft_id}/issues`
-- [ ] `POST /issues/{issue_id}/dismiss`
-- [ ] `GET /proposals/{proposal_id}`
-- [ ] `POST /proposals/{proposal_id}/accept`
-- [ ] `POST /proposals/{proposal_id}/reject`
-- [ ] `POST /claims/{claim_id}/confirm`
-- [ ] `POST /evidence-links/{evidence_link_id}/confirm`
+- [x] `POST /documents`
+- [x] `GET /documents`
+- [x] `GET /documents/{document_id}`
+- [x] `POST /documents/{document_id}/sources`
+- [x] `GET /documents/{document_id}/sources`
+- [x] `POST /documents/{document_id}/revision-runs`
+- [x] `GET /revision-runs/{run_id}`
+- [x] `GET /documents/{document_id}/workspace-view`
+- [x] `GET /documents/{document_id}/drafts`
+- [x] `GET /drafts/{draft_id}`
+- [x] `POST /drafts/{draft_id}/render`
+- [x] `POST /drafts/{draft_id}/accept`
+- [x] `GET /drafts/{draft_id}/issues`
+- [x] `POST /issues/{issue_id}/dismiss`
+- [x] `GET /proposals/{proposal_id}`
+- [x] `POST /proposals/{proposal_id}/accept`
+- [x] `POST /proposals/{proposal_id}/reject`
+- [x] `POST /claims/{claim_id}/confirm`
+- [x] `POST /evidence-links/{evidence_link_id}/confirm`
 
 ## Task 3: Tests
 
-- [ ] 测试 Document 和 Source API。
-- [ ] 测试 RevisionRun 创建和读取。
-- [ ] 测试 WorkspaceView 读取。
-- [ ] 测试 Draft render / accept。
-- [ ] 测试 Issue dismiss 和 Proposal accept。
-- [ ] 测试 claim/evidence confirm。
-- [ ] 运行：
+- [x] 测试 Document 和 Source API。
+- [x] 测试 RevisionRun 创建和读取。
+- [x] 测试 WorkspaceView 读取。
+- [x] 测试 Draft render / accept。
+- [x] 测试 Issue dismiss 和 Proposal accept。
+- [x] 测试 claim/evidence confirm。
+- [x] 运行：
 
 ```bash
 corepack pnpm --filter @typedance/sidecar test -- tests/test_revision_api.py

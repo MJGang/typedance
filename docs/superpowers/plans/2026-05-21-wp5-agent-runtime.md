@@ -26,38 +26,38 @@
 
 ## Task 1: Agent Runtime Models
 
-- [ ] 定义 `AgentInputRef`，把领域对象引用统一成 `ObjectType:object_id`。
-- [ ] 定义 `AgentWarning`。
-- [ ] 定义 `AgentInvocationContext`。
-- [ ] 定义 `AgentOutputEnvelope`。
-- [ ] 定义 `AgentInvocationResult`。
-- [ ] 定义 `AgentRuntimeError`，包含 `step_status`、`code`、`message`、`retryable`、`details`。
+- [x] 定义 `AgentInputRef`，把领域对象引用统一成 `ObjectType:object_id`。
+- [x] 定义 `AgentWarning`。
+- [x] 定义 `AgentInvocationContext`。
+- [x] 定义 `AgentOutputEnvelope`。
+- [x] 定义 `AgentInvocationResult`。
+- [x] 定义 `AgentRuntimeError`，包含 `step_status`、`code`、`message`、`retryable`、`details`。
 
 ## Task 2: Schema Registry
 
-- [ ] 实现 `AgentSchemaRegistry.register(output_type, model_type)`。
-- [ ] 实现 `AgentSchemaRegistry.validate(envelope)`。
-- [ ] 未注册 output type 抛出 `failed_schema` 错误。
-- [ ] payload 校验失败抛出 `failed_schema` 错误。
+- [x] 实现 `AgentSchemaRegistry.register(output_type, model_type)`。
+- [x] 实现 `AgentSchemaRegistry.validate(envelope)`。
+- [x] 未注册 output type 抛出 `failed_schema` 错误。
+- [x] payload 校验失败抛出 `failed_schema` 错误。
 
 ## Task 3: Runtime Execution
 
-- [ ] `AgentRuntime.invoke(context, runner)` 创建 running `AgentStep`。
-- [ ] runner 返回 dict 时转换为 `AgentOutputEnvelope`。
-- [ ] 校验信封必须匹配 context 的 invocation/run/document/pack/agent。
-- [ ] 成功时保存 completed `AgentStep`。
-- [ ] schema 失败时保存 failed_schema `AgentStep`，并将 run 更新为 `failed_retryable`。
-- [ ] policy 失败时保存 failed_policy `AgentStep`，并将 run 更新为 `failed_final`。
-- [ ] runner 抛异常时保存 failed_model `AgentStep`，并将 run 更新为 `failed_retryable`。
+- [x] `AgentRuntime.invoke(context, runner)` 创建 running `AgentStep`。
+- [x] runner 返回 dict 时转换为 `AgentOutputEnvelope`。
+- [x] 校验信封必须匹配 context 的 invocation/run/document/pack/agent。
+- [x] 成功时保存 completed `AgentStep`。
+- [x] schema 失败时保存 failed_schema `AgentStep`，并将 run 更新为 `failed_retryable`。
+- [x] policy 失败时保存 failed_policy `AgentStep`，并将 run 更新为 `failed_final`。
+- [x] runner 抛异常时保存 failed_model `AgentStep`，并将 run 更新为 `failed_retryable`。
 
 ## Task 4: Tests
 
-- [ ] 测试成功调用完成 AgentStep。
-- [ ] 测试 payload schema 失败不会 completed。
-- [ ] 测试信封和 context 不一致进入 failed_policy。
-- [ ] 测试 runner 异常进入 failed_model。
-- [ ] 测试未知 output type 进入 failed_schema。
-- [ ] 运行：
+- [x] 测试成功调用完成 AgentStep。
+- [x] 测试 payload schema 失败不会 completed。
+- [x] 测试信封和 context 不一致进入 failed_policy。
+- [x] 测试 runner 异常进入 failed_model。
+- [x] 测试未知 output type 进入 failed_schema。
+- [x] 运行：
 
 ```bash
 corepack pnpm --filter @typedance/sidecar test -- tests/test_revision_agent_runtime.py

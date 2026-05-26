@@ -29,27 +29,27 @@
 
 ## Task 1: Models and Repository
 
-- [ ] 定义 `RevisionRunStatusSummary`。
-- [ ] 定义 `CoachSummary`。
-- [ ] 定义 `ContextualAction`。
-- [ ] `WorkspaceView` 增加 `run_status`、`coach_summary`、`available_actions`。
-- [ ] `RevisionRepository.list_revision_runs(document_id)`。
+- [x] 定义 `RevisionRunStatusSummary`。
+- [x] 定义 `CoachSummary`。
+- [x] 定义 `ContextualAction`。
+- [x] `WorkspaceView` 增加 `run_status`、`coach_summary`、`available_actions`。
+- [x] `RevisionRepository.list_revision_runs(document_id)`。
 
 ## Task 2: Workspace Aggregation
 
-- [ ] 聚合当前 document 最新 run status。
-- [ ] 从 run 的 AgentStep 推断 current_step。
-- [ ] 聚合 issue/proposal/action 可执行动作。
-- [ ] 根据 quality gate 生成 coach summary。
-- [ ] 保持现有 draft/modules/claims/issues/proposals/evidence/source/render projection 聚合不变。
+- [x] 聚合当前 document 最新 run status。
+- [x] 从 run 的 AgentStep 推断 current_step。
+- [x] 聚合 issue/proposal/action 可执行动作。
+- [x] 根据 quality gate 生成 coach summary。
+- [x] 保持现有 draft/modules/claims/issues/proposals/evidence/source/render projection 聚合不变。
 
 ## Task 3: Tests
 
-- [ ] 测试 WorkspaceView 返回 run_status。
-- [ ] 测试 WorkspaceView 返回 coach_summary。
-- [ ] 测试 WorkspaceView 返回 available_actions。
-- [ ] 测试 API 返回同样字段。
-- [ ] 运行：
+- [x] 测试 WorkspaceView 返回 run_status。
+- [x] 测试 WorkspaceView 返回 coach_summary。
+- [x] 测试 WorkspaceView 返回 available_actions。
+- [x] 测试 API 返回同样字段。
+- [x] 运行：
 
 ```bash
 corepack pnpm --filter @typedance/sidecar test -- tests/test_revision_services.py tests/test_revision_api.py

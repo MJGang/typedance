@@ -40,37 +40,37 @@
 
 ## Task 1: 后端空白引导编排
 
-- [ ] 新增 `RevisionBlankGuidedFlowService.run_blank_guided_generate(document_id, run_id)`。
-- [ ] 读取 `manual_user_input` source 的 raw_text，解析为键值线索。
-- [ ] 创建 `DraftVersion`，并把 `Document.current_draft_id` 指向新 draft。
-- [ ] 创建 `BasicInfo`、`JobIntent`、`CoreSkills`、`WorkExperience`、`ProjectExperience` 模块。
-- [ ] 用户提供的线索生成 `DocumentClaim` 与 `EvidenceLink`。
-- [ ] 缺少工作经历、项目经历、技能、联系方式等内容时生成 `RevisionIssue`。
-- [ ] 对可改写或缺失项生成 `RevisionProposal`。
-- [ ] 调用 `RenderService.build_projection_for_draft()` 生成 `RenderProjection`。
-- [ ] 将 run 更新为 `completed`，写入 `target_draft_id` 和 `output_summary`。
+- [x] 新增 `RevisionBlankGuidedFlowService.run_blank_guided_generate(document_id, run_id)`。
+- [x] 读取 `manual_user_input` source 的 raw_text，解析为键值线索。
+- [x] 创建 `DraftVersion`，并把 `Document.current_draft_id` 指向新 draft。
+- [x] 创建 `BasicInfo`、`JobIntent`、`CoreSkills`、`WorkExperience`、`ProjectExperience` 模块。
+- [x] 用户提供的线索生成 `DocumentClaim` 与 `EvidenceLink`。
+- [x] 缺少工作经历、项目经历、技能、联系方式等内容时生成 `RevisionIssue`。
+- [x] 对可改写或缺失项生成 `RevisionProposal`。
+- [x] 调用 `RenderService.build_projection_for_draft()` 生成 `RenderProjection`。
+- [x] 将 run 更新为 `completed`，写入 `target_draft_id` 和 `output_summary`。
 
 ## Task 2: Revision API 串入 blank guided run
 
-- [ ] `create_revision_run()` 保存 run 后，如果 `run_type == "blank_guided_generate"`，调用 `RevisionBlankGuidedFlowService`。
-- [ ] 没有 manual source 或 source 没有内容时返回 400。
-- [ ] 保持 WP11 import flow 和其它 run 行为不变。
-- [ ] API 测试断言 blank guided run 后，WorkspaceView 中存在 draft、modules、issues、proposals、evidence、render_projection。
+- [x] `create_revision_run()` 保存 run 后，如果 `run_type == "blank_guided_generate"`，调用 `RevisionBlankGuidedFlowService`。
+- [x] 没有 manual source 或 source 没有内容时返回 400。
+- [x] 保持 WP11 import flow 和其它 run 行为不变。
+- [x] API 测试断言 blank guided run 后，WorkspaceView 中存在 draft、modules、issues、proposals、evidence、render_projection。
 
 ## Task 3: 前端引导入口
 
-- [ ] 新增 `BlankGuidedResumeModal`，包含身份状态、姓名、联系方式、目标方向、技能、经历线索、项目线索。
-- [ ] 提交时调用 `startBlankGuidedResume()`。
-- [ ] 成功后关闭弹窗并 `navigate("/revision/:documentId")`。
-- [ ] 首页“新建简历”主按钮打开引导弹窗，旧模板创建保留为次级入口。
-- [ ] 空状态不展示空白 A4，不进入 legacy workspace。
+- [x] 新增 `BlankGuidedResumeModal`，包含身份状态、姓名、联系方式、目标方向、技能、经历线索、项目线索。
+- [x] 提交时调用 `startBlankGuidedResume()`。
+- [x] 成功后关闭弹窗并 `navigate("/revision/:documentId")`。
+- [x] 首页“新建简历”主按钮打开引导弹窗，旧模板创建保留为次级入口。
+- [x] 空状态不展示空白 A4，不进入 legacy workspace。
 
 ## Task 4: 测试与验证
 
-- [ ] `pytest services/sidecar/tests/test_revision_blank_guided_flow.py services/sidecar/tests/test_revision_api.py`
-- [ ] `corepack pnpm --filter @typedance/web test`
-- [ ] `corepack pnpm --filter @typedance/web build`
-- [ ] `corepack pnpm test`
+- [x] `pytest services/sidecar/tests/test_revision_blank_guided_flow.py services/sidecar/tests/test_revision_api.py`
+- [x] `corepack pnpm --filter @typedance/web test`
+- [x] `corepack pnpm --filter @typedance/web build`
+- [x] `corepack pnpm test`
 
 ## Completion
 

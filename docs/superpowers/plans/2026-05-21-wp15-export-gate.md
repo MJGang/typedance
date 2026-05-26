@@ -35,33 +35,33 @@
 
 ## Task 1: 后端导出门禁
 
-- [ ] 新增 `RevisionExportGateService.export_pdf(draft_id, force_with_risk, output_path)`。
-- [ ] 打开 blocking issue 时阻止导出，保存 `ExportArtifact(review_status="blocked")`。
-- [ ] 打开 warning/info issue 且未显式确认风险时阻止导出。
-- [ ] 显式确认风险时允许导出，保存 `ExportArtifact(review_status="forced_with_risk")`。
-- [ ] 无打开问题时保存 `ExportArtifact(review_status="passed")`。
-- [ ] 没有 RenderProjection 时基于 Draft 自动补建默认 A4 投影。
+- [x] 新增 `RevisionExportGateService.export_pdf(draft_id, force_with_risk, output_path)`。
+- [x] 打开 blocking issue 时阻止导出，保存 `ExportArtifact(review_status="blocked")`。
+- [x] 打开 warning/info issue 且未显式确认风险时阻止导出。
+- [x] 显式确认风险时允许导出，保存 `ExportArtifact(review_status="forced_with_risk")`。
+- [x] 无打开问题时保存 `ExportArtifact(review_status="passed")`。
+- [x] 没有 RenderProjection 时基于 Draft 自动补建默认 A4 投影。
 
 ## Task 2: Revision API 导出接口
 
-- [ ] 新增 `POST /drafts/{draft_id}/export/pdf`。
-- [ ] 支持 `output_path` 和 `force_with_risk`。
-- [ ] 成功返回 PDF 文件，并通过响应头返回文件路径、artifact id 和 review status。
-- [ ] 门禁失败返回 409 和具体 issue id。
+- [x] 新增 `POST /drafts/{draft_id}/export/pdf`。
+- [x] 支持 `output_path` 和 `force_with_risk`。
+- [x] 成功返回 PDF 文件，并通过响应头返回文件路径、artifact id 和 review status。
+- [x] 门禁失败返回 409 和具体 issue id。
 
 ## Task 3: 前端导出门禁体验
 
-- [ ] `api.ts` 新增 `exportRevisionDraftPdf()`。
-- [ ] Revision Workspace 顶部新增导出入口。
-- [ ] 导出前展示门禁弹窗：阻塞问题、建议问题、风险说明和导出动作。
-- [ ] 阻塞状态禁止导出；建议状态允许用户显式带风险导出。
+- [x] `api.ts` 新增 `exportRevisionDraftPdf()`。
+- [x] Revision Workspace 顶部新增导出入口。
+- [x] 导出前展示门禁弹窗：阻塞问题、建议问题、风险说明和导出动作。
+- [x] 阻塞状态禁止导出；建议状态允许用户显式带风险导出。
 
 ## Verification
 
-- [ ] `pytest services/sidecar/tests/test_revision_export_gate.py services/sidecar/tests/test_revision_api.py services/sidecar/tests/test_pdf_export.py -q`
-- [ ] `corepack pnpm --filter @typedance/web test`
-- [ ] `corepack pnpm --filter @typedance/web build`
-- [ ] `corepack pnpm test`
+- [x] `pytest services/sidecar/tests/test_revision_export_gate.py services/sidecar/tests/test_revision_api.py services/sidecar/tests/test_pdf_export.py -q`
+- [x] `corepack pnpm --filter @typedance/web test`
+- [x] `corepack pnpm --filter @typedance/web build`
+- [x] `corepack pnpm test`
 
 ## Commit
 

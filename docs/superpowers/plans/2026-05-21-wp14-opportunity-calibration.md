@@ -40,38 +40,38 @@
 
 ## Task 1: 后端岗位校准服务
 
-- [ ] 新增 `RevisionOpportunityCalibrationService.run_opportunity_calibrate(document_id, run_id)`。
-- [ ] 定位 base draft：优先 `run.base_draft_id`，其次 `document.current_draft_id`。
-- [ ] 读取 `external_context` source 的岗位文本，提取岗位关键词。
-- [ ] 创建 `DraftVersion(variant_type="opportunity")`，复制 base draft 的可见模块。
-- [ ] 不创建虚构 claim；只复制已有 claim 到新 draft。
-- [ ] 缺少要求时创建 `missing_opportunity_requirement` issue。
-- [ ] 对过度贴合风险创建 `overfit_risk` issue。
-- [ ] 为缺口创建保守 proposal，提示用户补充真实事实而不是自动编造。
-- [ ] 调用 `RenderService.build_projection_for_draft()`。
-- [ ] 将 run 更新为 `completed`，写入 `target_draft_id` 和 `output_summary`，并把 document current draft 指向岗位版本。
+- [x] 新增 `RevisionOpportunityCalibrationService.run_opportunity_calibrate(document_id, run_id)`。
+- [x] 定位 base draft：优先 `run.base_draft_id`，其次 `document.current_draft_id`。
+- [x] 读取 `external_context` source 的岗位文本，提取岗位关键词。
+- [x] 创建 `DraftVersion(variant_type="opportunity")`，复制 base draft 的可见模块。
+- [x] 不创建虚构 claim；只复制已有 claim 到新 draft。
+- [x] 缺少要求时创建 `missing_opportunity_requirement` issue。
+- [x] 对过度贴合风险创建 `overfit_risk` issue。
+- [x] 为缺口创建保守 proposal，提示用户补充真实事实而不是自动编造。
+- [x] 调用 `RenderService.build_projection_for_draft()`。
+- [x] 将 run 更新为 `completed`，写入 `target_draft_id` 和 `output_summary`，并把 document current draft 指向岗位版本。
 
 ## Task 2: Revision API 串入 opportunity_calibrate run
 
-- [ ] `create_revision_run()` 保存 run 后，如果 `run_type == "opportunity_calibrate"`，调用 `RevisionOpportunityCalibrationService`。
-- [ ] 没有 base draft 或 external_context source 时返回 400。
-- [ ] 保持 import、blank guided、quality review 和其它 run 行为不变。
-- [ ] API 测试断言 opportunity run 后 WorkspaceView 当前 draft 为 `variant_type="opportunity"`。
+- [x] `create_revision_run()` 保存 run 后，如果 `run_type == "opportunity_calibrate"`，调用 `RevisionOpportunityCalibrationService`。
+- [x] 没有 base draft 或 external_context source 时返回 400。
+- [x] 保持 import、blank guided、quality review 和其它 run 行为不变。
+- [x] API 测试断言 opportunity run 后 WorkspaceView 当前 draft 为 `variant_type="opportunity"`。
 
 ## Task 3: Revision Workspace 校准入口
 
-- [ ] `api.ts` 新增 `calibrateRevisionOpportunity(documentId, baseDraftId, input)`。
-- [ ] 新增 `OpportunityCalibrationModal`，收集岗位名称和岗位描述。
-- [ ] `RevisionWorkspacePage` 在有 current draft 时展示“岗位校准”按钮。
-- [ ] 成功后刷新 WorkspaceView。
-- [ ] 不把岗位校准入口放到首页主路径，保持它是基础简历之后的版本化动作。
+- [x] `api.ts` 新增 `calibrateRevisionOpportunity(documentId, baseDraftId, input)`。
+- [x] 新增 `OpportunityCalibrationModal`，收集岗位名称和岗位描述。
+- [x] `RevisionWorkspacePage` 在有 current draft 时展示“岗位校准”按钮。
+- [x] 成功后刷新 WorkspaceView。
+- [x] 不把岗位校准入口放到首页主路径，保持它是基础简历之后的版本化动作。
 
 ## Task 4: 测试与验证
 
-- [ ] `pytest services/sidecar/tests/test_revision_opportunity_calibration.py services/sidecar/tests/test_revision_api.py`
-- [ ] `corepack pnpm --filter @typedance/web test`
-- [ ] `corepack pnpm --filter @typedance/web build`
-- [ ] `corepack pnpm test`
+- [x] `pytest services/sidecar/tests/test_revision_opportunity_calibration.py services/sidecar/tests/test_revision_api.py`
+- [x] `corepack pnpm --filter @typedance/web test`
+- [x] `corepack pnpm --filter @typedance/web build`
+- [x] `corepack pnpm test`
 
 ## Completion
 

@@ -36,36 +36,36 @@
 
 ## Task 1: 后端质量检查服务
 
-- [ ] 新增 `RevisionQualityReviewService.run_quality_review(document_id, run_id)`。
-- [ ] 定位 base draft：优先 `run.base_draft_id`，其次 `document.current_draft_id`，最后最新 draft。
-- [ ] 检查 BasicInfo、CoreSkills、WorkExperience、ProjectExperience 是否缺失或为空。
-- [ ] 检查联系方式、经历结果、证据、未确认高风险主张。
-- [ ] 为 blocking 风险创建 `RevisionIssue(severity="blocking")`。
-- [ ] 为 warning 风险创建 `RevisionIssue(severity="warning")`。
-- [ ] 为可处理问题创建 `RevisionProposal`。
-- [ ] 必要时调用 `RenderService.build_projection_for_draft()`。
-- [ ] 将 run 更新为 `completed`，写入 `target_draft_id` 和 `output_summary`。
+- [x] 新增 `RevisionQualityReviewService.run_quality_review(document_id, run_id)`。
+- [x] 定位 base draft：优先 `run.base_draft_id`，其次 `document.current_draft_id`，最后最新 draft。
+- [x] 检查 BasicInfo、CoreSkills、WorkExperience、ProjectExperience 是否缺失或为空。
+- [x] 检查联系方式、经历结果、证据、未确认高风险主张。
+- [x] 为 blocking 风险创建 `RevisionIssue(severity="blocking")`。
+- [x] 为 warning 风险创建 `RevisionIssue(severity="warning")`。
+- [x] 为可处理问题创建 `RevisionProposal`。
+- [x] 必要时调用 `RenderService.build_projection_for_draft()`。
+- [x] 将 run 更新为 `completed`，写入 `target_draft_id` 和 `output_summary`。
 
 ## Task 2: Revision API 串入 quality_review run
 
-- [ ] `create_revision_run()` 保存 run 后，如果 `run_type == "quality_review"`，调用 `RevisionQualityReviewService`。
-- [ ] 没有 draft 时返回 400。
-- [ ] 保持 import flow、blank guided flow 和其它 run 行为不变。
-- [ ] API 测试断言 quality_review run 后 WorkspaceView 中出现 issue、proposal、quality_gate。
+- [x] `create_revision_run()` 保存 run 后，如果 `run_type == "quality_review"`，调用 `RevisionQualityReviewService`。
+- [x] 没有 draft 时返回 400。
+- [x] 保持 import flow、blank guided flow 和其它 run 行为不变。
+- [x] API 测试断言 quality_review run 后 WorkspaceView 中出现 issue、proposal、quality_gate。
 
 ## Task 3: Revision Workspace 触发入口
 
-- [ ] `api.ts` 新增 `runRevisionQualityReview(documentId, baseDraftId?)`。
-- [ ] `RevisionWorkspacePage` 在有 current draft 时展示“运行质量检查”按钮。
-- [ ] 点击后调用 helper，刷新 WorkspaceView。
-- [ ] action pending 时禁用按钮，失败时展示页面错误。
+- [x] `api.ts` 新增 `runRevisionQualityReview(documentId, baseDraftId?)`。
+- [x] `RevisionWorkspacePage` 在有 current draft 时展示“运行质量检查”按钮。
+- [x] 点击后调用 helper，刷新 WorkspaceView。
+- [x] action pending 时禁用按钮，失败时展示页面错误。
 
 ## Task 4: 测试与验证
 
-- [ ] `pytest services/sidecar/tests/test_revision_quality_review.py services/sidecar/tests/test_revision_api.py`
-- [ ] `corepack pnpm --filter @typedance/web test`
-- [ ] `corepack pnpm --filter @typedance/web build`
-- [ ] `corepack pnpm test`
+- [x] `pytest services/sidecar/tests/test_revision_quality_review.py services/sidecar/tests/test_revision_api.py`
+- [x] `corepack pnpm --filter @typedance/web test`
+- [x] `corepack pnpm --filter @typedance/web build`
+- [x] `corepack pnpm test`
 
 ## Completion
 

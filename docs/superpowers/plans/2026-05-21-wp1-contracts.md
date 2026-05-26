@@ -76,7 +76,7 @@
 - Modify: `packages/contracts/src/index.ts`
 - Modify: `packages/contracts/tests/contracts.test.ts`
 
-- [ ] **Step 1: Create failing compatibility tests**
+- [x] **Step 1: Create failing compatibility tests**
 
 Replace the import block at the top of `packages/contracts/tests/contracts.test.ts` with:
 
@@ -102,7 +102,7 @@ describe("shared schemas", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify baseline still passes or exposes missing exports**
+- [x] **Step 2: Run test to verify baseline still passes or exposes missing exports**
 
 Run:
 
@@ -118,7 +118,7 @@ PASS if languageSchema is still exported from index.ts.
 
 This step protects current public exports before moving files.
 
-- [ ] **Step 3: Create shared schema file**
+- [x] **Step 3: Create shared schema file**
 
 Create `packages/contracts/src/shared.ts`:
 
@@ -150,7 +150,7 @@ export type LocalizedText = z.infer<typeof localizedTextSchema>;
 export type RevisionTarget = z.infer<typeof revisionTargetSchema>;
 ```
 
-- [ ] **Step 4: Move ResumeVersion legacy schema**
+- [x] **Step 4: Move ResumeVersion legacy schema**
 
 Create `packages/contracts/src/legacy/resume-version.ts`:
 
@@ -189,7 +189,7 @@ export type ResumeVersion = z.infer<typeof resumeVersionSchema>;
 export type PDFExport = z.infer<typeof pdfExportSchema>;
 ```
 
-- [ ] **Step 5: Move template style legacy schema**
+- [x] **Step 5: Move template style legacy schema**
 
 Create `packages/contracts/src/legacy/template-style.ts`:
 
@@ -252,7 +252,7 @@ export type BlockStyle = z.infer<typeof blockStyleSchema>;
 export type BlockType = z.infer<typeof blockTypeSchema>;
 ```
 
-- [ ] **Step 6: Replace public index with re-exports**
+- [x] **Step 6: Replace public index with re-exports**
 
 Replace `packages/contracts/src/index.ts` with:
 
@@ -262,7 +262,7 @@ export * from "./legacy/resume-version";
 export * from "./legacy/template-style";
 ```
 
-- [ ] **Step 7: Run compatibility tests**
+- [x] **Step 7: Run compatibility tests**
 
 Run:
 
@@ -276,7 +276,7 @@ Expected:
 PASS packages/contracts/tests/contracts.test.ts
 ```
 
-- [ ] **Step 8: Run contracts build**
+- [x] **Step 8: Run contracts build**
 
 Run:
 
@@ -290,7 +290,7 @@ Expected:
 No TypeScript errors.
 ```
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/contracts/src packages/contracts/tests/contracts.test.ts
@@ -307,7 +307,7 @@ git commit -m "refactor(contracts): 拆分 legacy 契约导出"
 - Modify: `packages/contracts/src/index.ts`
 - Modify: `packages/contracts/tests/contracts.test.ts`
 
-- [ ] **Step 1: Write failing tests for Document and Source**
+- [x] **Step 1: Write failing tests for Document and Source**
 
 Append to `packages/contracts/tests/contracts.test.ts`:
 
@@ -364,7 +364,7 @@ describe("revision document schemas", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -378,7 +378,7 @@ Expected:
 FAIL because documentSchema, sourceDocumentSchema, and parsedBlockSchema are not exported.
 ```
 
-- [ ] **Step 3: Implement document schema**
+- [x] **Step 3: Implement document schema**
 
 Create `packages/contracts/src/revision/document.ts`:
 
@@ -417,7 +417,7 @@ export type Document = z.infer<typeof documentSchema>;
 export type DocumentListItem = z.infer<typeof documentListItemSchema>;
 ```
 
-- [ ] **Step 4: Implement source schema**
+- [x] **Step 4: Implement source schema**
 
 Create `packages/contracts/src/revision/source.ts`:
 
@@ -473,7 +473,7 @@ export type ParsedBlock = z.infer<typeof parsedBlockSchema>;
 export type SourceDocumentSummary = z.infer<typeof sourceDocumentSummarySchema>;
 ```
 
-- [ ] **Step 5: Export revision schemas**
+- [x] **Step 5: Export revision schemas**
 
 Update `packages/contracts/src/index.ts`:
 
@@ -485,7 +485,7 @@ export * from "./revision/document";
 export * from "./revision/source";
 ```
 
-- [ ] **Step 6: Run tests and build**
+- [x] **Step 6: Run tests and build**
 
 Run:
 
@@ -501,7 +501,7 @@ PASS contracts tests.
 No TypeScript errors.
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/contracts/src packages/contracts/tests/contracts.test.ts
@@ -521,7 +521,7 @@ git commit -m "feat(contracts): 新增文档与来源契约"
 - Modify: `packages/contracts/src/index.ts`
 - Modify: `packages/contracts/tests/contracts.test.ts`
 
-- [ ] **Step 1: Write failing tests for core revision objects**
+- [x] **Step 1: Write failing tests for core revision objects**
 
 Append to `packages/contracts/tests/contracts.test.ts`:
 
@@ -626,7 +626,7 @@ describe("revision core object schemas", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -640,7 +640,7 @@ Expected:
 FAIL because core revision schemas are not exported.
 ```
 
-- [ ] **Step 3: Implement module schema**
+- [x] **Step 3: Implement module schema**
 
 Create `packages/contracts/src/revision/module.ts`:
 
@@ -691,7 +691,7 @@ export type DocumentModuleStatus = z.infer<typeof documentModuleStatusSchema>;
 export type DocumentModule = z.infer<typeof documentModuleSchema>;
 ```
 
-- [ ] **Step 4: Implement claim schema**
+- [x] **Step 4: Implement claim schema**
 
 Create `packages/contracts/src/revision/claim.ts`:
 
@@ -736,7 +736,7 @@ export type ClaimType = z.infer<typeof claimTypeSchema>;
 export type DocumentClaim = z.infer<typeof documentClaimSchema>;
 ```
 
-- [ ] **Step 5: Implement evidence schema**
+- [x] **Step 5: Implement evidence schema**
 
 Create `packages/contracts/src/revision/evidence.ts`:
 
@@ -781,7 +781,7 @@ export type EvidenceLink = z.infer<typeof evidenceLinkSchema>;
 export type UserConfirmation = z.infer<typeof userConfirmationSchema>;
 ```
 
-- [ ] **Step 6: Implement issue schema**
+- [x] **Step 6: Implement issue schema**
 
 Create `packages/contracts/src/revision/issue.ts`:
 
@@ -847,7 +847,7 @@ export type RevisionAction = z.infer<typeof revisionActionSchema>;
 export type RevisionIssue = z.infer<typeof revisionIssueSchema>;
 ```
 
-- [ ] **Step 7: Implement proposal schema**
+- [x] **Step 7: Implement proposal schema**
 
 Create `packages/contracts/src/revision/proposal.ts`:
 
@@ -890,7 +890,7 @@ export type RevisionOperation = z.infer<typeof revisionOperationSchema>;
 export type RevisionProposal = z.infer<typeof revisionProposalSchema>;
 ```
 
-- [ ] **Step 8: Export core revision schemas**
+- [x] **Step 8: Export core revision schemas**
 
 Update `packages/contracts/src/index.ts`:
 
@@ -907,7 +907,7 @@ export * from "./revision/issue";
 export * from "./revision/proposal";
 ```
 
-- [ ] **Step 9: Run tests and build**
+- [x] **Step 9: Run tests and build**
 
 Run:
 
@@ -923,7 +923,7 @@ PASS contracts tests.
 No TypeScript errors.
 ```
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add packages/contracts/src packages/contracts/tests/contracts.test.ts
@@ -942,7 +942,7 @@ git commit -m "feat(contracts): 新增修订核心对象契约"
 - Modify: `packages/contracts/src/index.ts`
 - Modify: `packages/contracts/tests/contracts.test.ts`
 
-- [ ] **Step 1: Write failing tests for WorkspaceView**
+- [x] **Step 1: Write failing tests for WorkspaceView**
 
 Append to `packages/contracts/tests/contracts.test.ts`:
 
@@ -1058,7 +1058,7 @@ describe("revision run and workspace schemas", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -1072,7 +1072,7 @@ Expected:
 FAIL because run, draft, render, and workspace schemas are not exported.
 ```
 
-- [ ] **Step 3: Implement RevisionRun and AgentStep**
+- [x] **Step 3: Implement RevisionRun and AgentStep**
 
 Create `packages/contracts/src/revision/run.ts`:
 
@@ -1152,7 +1152,7 @@ export type RevisionRun = z.infer<typeof revisionRunSchema>;
 export type AgentStep = z.infer<typeof agentStepSchema>;
 ```
 
-- [ ] **Step 4: Implement DraftVersion**
+- [x] **Step 4: Implement DraftVersion**
 
 Create `packages/contracts/src/revision/draft.ts`:
 
@@ -1181,7 +1181,7 @@ export type DraftVersionStatus = z.infer<typeof draftVersionStatusSchema>;
 export type DraftVersion = z.infer<typeof draftVersionSchema>;
 ```
 
-- [ ] **Step 5: Implement render and export schemas**
+- [x] **Step 5: Implement render and export schemas**
 
 Create `packages/contracts/src/revision/render.ts`:
 
@@ -1221,7 +1221,7 @@ export type RenderProjection = z.infer<typeof renderProjectionSchema>;
 export type ExportArtifact = z.infer<typeof exportArtifactSchema>;
 ```
 
-- [ ] **Step 6: Implement WorkspaceView**
+- [x] **Step 6: Implement WorkspaceView**
 
 Create `packages/contracts/src/revision/workspace-view.ts`:
 
@@ -1283,7 +1283,7 @@ export type ContextualAction = z.infer<typeof contextualActionSchema>;
 export type WorkspaceView = z.infer<typeof workspaceViewSchema>;
 ```
 
-- [ ] **Step 7: Export run, draft, render, workspace schemas**
+- [x] **Step 7: Export run, draft, render, workspace schemas**
 
 Update `packages/contracts/src/index.ts`:
 
@@ -1304,7 +1304,7 @@ export * from "./revision/render";
 export * from "./revision/workspace-view";
 ```
 
-- [ ] **Step 8: Run tests and build**
+- [x] **Step 8: Run tests and build**
 
 Run:
 
@@ -1320,7 +1320,7 @@ PASS contracts tests.
 No TypeScript errors.
 ```
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add packages/contracts/src packages/contracts/tests/contracts.test.ts
@@ -1337,7 +1337,7 @@ git commit -m "feat(contracts): 新增运行草稿与工作台契约"
 - Modify: `packages/contracts/src/index.ts`
 - Modify: `packages/contracts/tests/contracts.test.ts`
 
-- [ ] **Step 1: Write failing tests for pack schemas**
+- [x] **Step 1: Write failing tests for pack schemas**
 
 Append to `packages/contracts/tests/contracts.test.ts`:
 
@@ -1365,7 +1365,7 @@ describe("document pack schemas", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run:
 
@@ -1379,7 +1379,7 @@ Expected:
 FAIL because documentPackSchema, resumePackSchema, and resumePackDefinition are not exported.
 ```
 
-- [ ] **Step 3: Implement generic DocumentPack schema**
+- [x] **Step 3: Implement generic DocumentPack schema**
 
 Create `packages/contracts/src/packs/document-pack.ts`:
 
@@ -1452,7 +1452,7 @@ export type RenderMapping = z.infer<typeof renderMappingSchema>;
 export type DocumentPack = z.infer<typeof documentPackSchema>;
 ```
 
-- [ ] **Step 4: Implement ResumePack schema and definition**
+- [x] **Step 4: Implement ResumePack schema and definition**
 
 Create `packages/contracts/src/packs/resume-pack.ts`:
 
@@ -1535,7 +1535,7 @@ export const resumePackDefinition = {
 export type ResumePack = z.infer<typeof resumePackSchema>;
 ```
 
-- [ ] **Step 5: Export pack schemas**
+- [x] **Step 5: Export pack schemas**
 
 Update `packages/contracts/src/index.ts`:
 
@@ -1558,7 +1558,7 @@ export * from "./packs/document-pack";
 export * from "./packs/resume-pack";
 ```
 
-- [ ] **Step 6: Run tests and build**
+- [x] **Step 6: Run tests and build**
 
 Run:
 
@@ -1574,7 +1574,7 @@ PASS contracts tests.
 No TypeScript errors.
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/contracts/src packages/contracts/tests/contracts.test.ts
@@ -1589,7 +1589,7 @@ git commit -m "feat(contracts): 新增文档包与简历包契约"
 - Modify: `packages/contracts/tests/contracts.test.ts`
 - Modify: `docs/product/target-work-package-map.md`
 
-- [ ] **Step 1: Add guardrail tests**
+- [x] **Step 1: Add guardrail tests**
 
 Append to `packages/contracts/tests/contracts.test.ts`:
 
@@ -1660,7 +1660,7 @@ describe("AI-native contract guardrails", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 Run:
 
@@ -1674,7 +1674,7 @@ Expected:
 PASS all contracts tests.
 ```
 
-- [ ] **Step 3: Run repo-level tests that depend on contracts**
+- [x] **Step 3: Run repo-level tests that depend on contracts**
 
 Run:
 
@@ -1690,7 +1690,7 @@ PASS resume-renderer tests.
 PASS web tests.
 ```
 
-- [ ] **Step 4: Update target work package map with implementation status note**
+- [x] **Step 4: Update target work package map with implementation status note**
 
 In `docs/product/target-work-package-map.md`, under `## 2. WP1 Contracts`, append:
 
@@ -1705,7 +1705,7 @@ In `docs/product/target-work-package-map.md`, under `## 2. WP1 Contracts`, appen
 完成后，`ResumeVersion` 应只作为 legacy projection 保留；新系统的事实源从 `Document`、`DraftVersion`、`RevisionIssue`、`RevisionProposal`、`EvidenceLink` 和 `WorkspaceView` 开始。
 ```
 
-- [ ] **Step 5: Run final build**
+- [x] **Step 5: Run final build**
 
 Run:
 
@@ -1721,7 +1721,7 @@ Expected:
 No TypeScript build errors.
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/contracts/src packages/contracts/tests/contracts.test.ts docs/product/target-work-package-map.md

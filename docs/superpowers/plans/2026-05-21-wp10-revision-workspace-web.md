@@ -32,28 +32,28 @@
 
 ## Task 1: API Client
 
-- [ ] 新增 `createRevisionDocument()`。
-- [ ] 新增 `getRevisionWorkspaceView()`。
-- [ ] 新增 `renderRevisionDraft()`。
-- [ ] 新增 `acceptRevisionDraft()`。
-- [ ] 新增 `dismissRevisionIssue()`。
-- [ ] 新增 `acceptRevisionProposal()` / `rejectRevisionProposal()`。
-- [ ] 新增 `confirmRevisionClaim()` / `confirmEvidenceLink()`。
+- [x] 新增 `createRevisionDocument()`。
+- [x] 新增 `getRevisionWorkspaceView()`。
+- [x] 新增 `renderRevisionDraft()`。
+- [x] 新增 `acceptRevisionDraft()`。
+- [x] 新增 `dismissRevisionIssue()`。
+- [x] 新增 `acceptRevisionProposal()` / `rejectRevisionProposal()`。
+- [x] 新增 `confirmRevisionClaim()` / `confirmEvidenceLink()`。
 
 ## Task 2: Page
 
-- [ ] 用 `useEffect` 拉取 WorkspaceView，并按 React 官方建议在 cleanup 中忽略过期请求。
-- [ ] 显示 loading / error / empty states。
-- [ ] 左侧显示 render projection 或模块列表。
-- [ ] 右侧显示 coach summary、quality gate、available actions、issues、proposals。
-- [ ] 小屏自动单栏，不强行三栏。
+- [x] 用 `useEffect` 拉取 WorkspaceView，并按 React 官方建议在 cleanup 中忽略过期请求。
+- [x] 显示 loading / error / empty states。
+- [x] 左侧显示 render projection 或模块列表。
+- [x] 右侧显示 coach summary、quality gate、available actions、issues、proposals。
+- [x] 小屏自动单栏，不强行三栏。
 
 ## Task 3: Tests
 
-- [ ] 测试 API client URL、method、schema parse。
-- [ ] 测试页面 loading 后渲染 WorkspaceView。
-- [ ] 测试 action 按钮调用对应 API 并刷新。
-- [ ] 运行：
+- [x] 测试 API client URL、method、schema parse。
+- [x] 测试页面 loading 后渲染 WorkspaceView。
+- [x] 测试 action 按钮调用对应 API 并刷新。
+- [x] 运行：
 
 ```bash
 corepack pnpm --filter @typedance/web test

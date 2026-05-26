@@ -28,30 +28,30 @@
 
 ## Task 1: Projection Builder
 
-- [ ] 实现 `DraftProjectionBuilder.build(draft, modules, render_profile=None)`。
-- [ ] 使用 `default_pack_registry()` 获取 pack 默认 profile。
-- [ ] 拒绝不在 pack `supported_profiles` 内的 render profile。
-- [ ] 忽略 hidden module。
-- [ ] 按 module `order` 排序。
-- [ ] 生成 `RenderProjection.html`。
-- [ ] 生成 TipTap-like `doc_json`。
-- [ ] 对空草稿、过长内容、module 仍需确认生成 layout warnings。
+- [x] 实现 `DraftProjectionBuilder.build(draft, modules, render_profile=None)`。
+- [x] 使用 `default_pack_registry()` 获取 pack 默认 profile。
+- [x] 拒绝不在 pack `supported_profiles` 内的 render profile。
+- [x] 忽略 hidden module。
+- [x] 按 module `order` 排序。
+- [x] 生成 `RenderProjection.html`。
+- [x] 生成 TipTap-like `doc_json`。
+- [x] 对空草稿、过长内容、module 仍需确认生成 layout warnings。
 
 ## Task 2: RenderService Integration
 
-- [ ] `RenderService.build_projection_for_draft(draft_id, render_profile=None)` 读取 draft 和 modules。
-- [ ] 保存 `RenderProjection`。
-- [ ] 回写 `DraftVersion.render_projection_id`。
-- [ ] 找不到 draft 时抛出 `RevisionServiceError`。
+- [x] `RenderService.build_projection_for_draft(draft_id, render_profile=None)` 读取 draft 和 modules。
+- [x] 保存 `RenderProjection`。
+- [x] 回写 `DraftVersion.render_projection_id`。
+- [x] 找不到 draft 时抛出 `RevisionServiceError`。
 
 ## Task 3: Tests
 
-- [ ] 测试可见模块生成 HTML 与 doc_json。
-- [ ] 测试 hidden module 不进入投影。
-- [ ] 测试 unsupported profile 报错。
-- [ ] 测试 service 会保存 projection 并回写 draft。
-- [ ] 测试长内容产生 warning。
-- [ ] 运行：
+- [x] 测试可见模块生成 HTML 与 doc_json。
+- [x] 测试 hidden module 不进入投影。
+- [x] 测试 unsupported profile 报错。
+- [x] 测试 service 会保存 projection 并回写 draft。
+- [x] 测试长内容产生 warning。
+- [x] 运行：
 
 ```bash
 corepack pnpm --filter @typedance/sidecar test -- tests/test_revision_render_projection.py
