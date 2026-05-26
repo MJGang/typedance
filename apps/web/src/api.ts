@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  documentListItemSchema,
   documentSchema,
   draftVersionSchema,
   evidenceLinkSchema,
@@ -17,6 +18,7 @@ import {
   templateStyleConfigSchema,
   userConfirmationSchema,
   workspaceViewSchema,
+  type DocumentListItem,
   type Document as RevisionDocument,
   type DraftVersion,
   type EvidenceLink,
@@ -126,6 +128,15 @@ export async function createRevisionDocument(
     response,
     (value) => documentSchema.parse(value),
     "Failed to create revision document",
+  )
+}
+
+export async function listRevisionDocuments(): Promise<DocumentListItem[]> {
+  const response = await fetch(`${baseUrl}/documents`)
+  return parseTemplateResponse(
+    response,
+    (value) => z.array(documentListItemSchema).parse(value),
+    "Failed to list revision documents",
   )
 }
 

@@ -83,6 +83,32 @@ describe("exportResumePdf", () => {
 })
 
 describe("revision api", () => {
+  it("lists revision documents for the workspace dashboard", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify([
+      {
+        id: "doc_1",
+        pack_id: "resume",
+        title: "旧简历重构",
+        status: "active",
+        target_language: "zh-CN",
+        current_draft_id: "draft_1",
+        updated_at: "2026-05-26T08:00:00.000Z",
+        quality_state: "needs_review",
+      },
+    ]))))
+
+    const { listRevisionDocuments } = await import("./api")
+    const documents = await listRevisionDocuments()
+
+    expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:4317/documents")
+    expect(documents).toHaveLength(1)
+    expect(documents[0]).toMatchObject({
+      id: "doc_1",
+      title: "旧简历重构",
+      quality_state: "needs_review",
+    })
+  })
+
   it("loads a revision workspace view", async () => {
     const payload = {
       document: {
