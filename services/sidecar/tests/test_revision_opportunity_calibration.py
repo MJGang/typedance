@@ -168,6 +168,14 @@ def test_opportunity_calibration_creates_variant_without_fabricating_claims(tmp_
     assert any(issue.type == "overfit_risk" for issue in workspace.issues)
     assert workspace.proposals
 
+    steps = repo.list_agent_steps(run.id)
+    calibrator_steps = [step for step in steps if step.agent_name == "OpportunityCalibrator"]
+    assert len(calibrator_steps) == 1
+    assert "SourceDocument:src_opp" in calibrator_steps[0].input_refs
+    assert any(ref.startswith("DocumentModule:") for ref in calibrator_steps[0].input_refs)
+    assert any(ref.startswith("RevisionIssue:") for ref in calibrator_steps[0].output_refs)
+    assert any(ref.startswith("RevisionProposal:") for ref in calibrator_steps[0].output_refs)
+
 
 def test_opportunity_calibration_requires_external_context(tmp_path):
     repo = make_repository(tmp_path)
@@ -179,3 +187,25 @@ def test_opportunity_calibration_requires_external_context(tmp_path):
     failed_run = repo.get_revision_run(run.id)
     assert failed_run is not None
     assert failed_run.status == "failed_retryable"
+
+
+def test_opportunity_calibration_surfaces_calibrator_runtime_failure(tmp_path):
+    repo = make_repository(tmp_path)
+    document, _base_draft, run = seed_opportunity_workspace(repo)
+
+    def raise_model_error(_context, _request):
+        raise RuntimeError("calibrator model timeout")
+
+    service = RevisionOpportunityCalibrationService(repo, calibrator_runner=raise_model_error)
+
+    with pytest.raises(RevisionServiceError, match="calibrator model timeout"):
+        service.run_opportunity_calibrate(document.id, run.id)
+
+    failed_run = repo.get_revision_run(run.id)
+    steps = repo.list_agent_steps(run.id)
+
+    assert failed_run is not None
+    assert failed_run.status == "failed_retryable"
+    assert failed_run.output_summary == "calibrator model timeout"
+    assert steps[-1].agent_name == "OpportunityCalibrator"
+    assert steps[-1].status == "failed_model"
