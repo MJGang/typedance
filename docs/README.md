@@ -107,6 +107,14 @@
 
 > 收口状态（2026-05-26）：WP1-WP17 主体能力已在当前代码线落地，计划 checkbox 已按实现进度同步。当前 `main` 相比 `origin/main` 领先 1 个提交：`feat(sidecar): 接入机会校准 Agent 运行时`，该提交补齐机会校准 Agent 运行时与对应测试。
 
+- `superpowers/specs/2026-05-26-model-settings-design.md`
+  - 桌面端模型配置设计。
+  - 规定 `config.toml` 和 `auth.json` 分工、DeepSeek 默认模型、设置页行为与 settings API 边界。
+
+- `superpowers/plans/2026-05-26-model-settings.md`
+  - 桌面端模型配置工程实施计划。
+  - 已在 `codex/model-settings` 分支完成契约、sidecar 配置层、settings API、Agent mode 接入、设置页与验证收口。
+
 - `superpowers/plans/2026-05-21-wp1-contracts.md`
   - WP1 Contracts 工程实施计划。
   - 目标是把 Revision Engine 的核心对象先落到 `packages/contracts`，包括 Document、Source、Draft、Module、Claim、Evidence、Issue、Proposal、Run、Render、WorkspaceView 和 ResumePack。
