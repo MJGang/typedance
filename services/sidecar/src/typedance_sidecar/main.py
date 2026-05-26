@@ -27,6 +27,7 @@ from .revision_legacy_adapter import LegacyResumeAdapterService
 from .revision_models import WorkspaceView
 from .revision_repository import RevisionRepository
 from .revision_services import RevisionServiceError, WorkspaceService
+from .settings_api import create_settings_router
 
 
 @asynccontextmanager
@@ -70,6 +71,7 @@ def revision_repository() -> RevisionRepository:
 
 
 app.include_router(create_revision_router(revision_repository, lambda: app_data_dir() / "files" / "exports"))
+app.include_router(create_settings_router(app_data_dir))
 
 
 @app.post("/legacy/resume-versions/{resume_id}/revision-document", response_model=WorkspaceView)
