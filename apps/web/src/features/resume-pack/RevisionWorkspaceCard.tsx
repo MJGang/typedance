@@ -1,7 +1,6 @@
 import type { DocumentListItem } from "@typedance/contracts"
-import { Button } from "@/components/ui/button"
 import { PreviewShowcaseCard } from "@/components/preview-showcase-card"
-import { ClipboardCheck, FileText } from "lucide-react"
+import { ClipboardCheck } from "lucide-react"
 
 type RevisionWorkspaceCardProps = {
   document: DocumentListItem
@@ -20,6 +19,7 @@ export function RevisionWorkspaceCard({ document, onOpen }: RevisionWorkspaceCar
       previewClassName="bg-muted/40"
       preview={
         <div className="flex aspect-[210/297] w-full flex-col items-center justify-center gap-3 bg-card px-6 text-center">
+          <span className="sr-only">打开{document.title}</span>
           <div className="flex size-12 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <ClipboardCheck className="size-6" />
           </div>
@@ -28,12 +28,6 @@ export function RevisionWorkspaceCard({ document, onOpen }: RevisionWorkspaceCar
             <p className="text-xs text-muted-foreground">{document.target_language}</p>
           </div>
         </div>
-      }
-      floatingActions={
-        <Button size="sm" aria-label={`打开${document.title}`} onClick={onOpen}>
-          <FileText className="mr-2 size-4" />
-          打开
-        </Button>
       }
     />
   )

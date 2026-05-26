@@ -48,6 +48,16 @@ describe("ResumeWorkspacesPage", () => {
         updated_at: "2026-05-26T08:00:00.000Z",
         quality_state: "needs_review",
       },
+      {
+        id: "doc_cover_letter",
+        pack_id: "cover-letter",
+        title: "求职信工作台",
+        status: "active",
+        target_language: "zh-CN",
+        current_draft_id: "draft_cover_letter",
+        updated_at: "2026-05-26T08:30:00.000Z",
+        quality_state: "ready",
+      },
     ])
   })
 
@@ -57,6 +67,7 @@ describe("ResumeWorkspacesPage", () => {
     expect(await screen.findByRole("heading", { name: "工作台" })).toBeInTheDocument()
     expect(screen.getByText("旧简历重构")).toBeInTheDocument()
     expect(screen.getByText("需检查")).toBeInTheDocument()
+    expect(screen.queryByText("求职信工作台")).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("button", { name: /打开旧简历重构/ }))
 
