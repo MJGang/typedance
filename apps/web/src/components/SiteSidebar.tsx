@@ -76,9 +76,15 @@ export function SiteSidebar() {
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton tooltip="设置">
-              <Settings />
-              <span>设置</span>
+            <SidebarMenuButton
+              asChild
+              tooltip="设置"
+              isActive={location.pathname === "/settings"}
+            >
+              <Link to="/settings" aria-current={location.pathname === "/settings" ? "page" : undefined}>
+                <Settings />
+                <span>设置</span>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
