@@ -27,7 +27,7 @@ export const resumePackNavigation: ResumePackNavItem[] = [
     path: resumePackPaths.workspaces,
     icon: BriefcaseBusiness,
     isActive: (pathname) =>
-      pathname === resumePackPaths.workspaces || pathname.startsWith(`${resumePackPaths.workspaces}/`),
+      pathname === "/" || pathname === resumePackPaths.workspaces || pathname.startsWith(`${resumePackPaths.workspaces}/`),
   },
   {
     id: "resumes",

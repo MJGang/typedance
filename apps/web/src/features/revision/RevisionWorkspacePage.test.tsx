@@ -187,9 +187,9 @@ const workspace: WorkspaceView = {
 
 function renderPage() {
   render(
-    <MemoryRouter initialEntries={["/revision/doc_1"]}>
+    <MemoryRouter initialEntries={["/packs/resume/workspaces/doc_1"]}>
       <Routes>
-        <Route path="/revision/:documentId" element={<RevisionWorkspacePage />} />
+        <Route path="/packs/resume/workspaces/:documentId" element={<RevisionWorkspacePage />} />
       </Routes>
     </MemoryRouter>,
   )

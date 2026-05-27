@@ -41,7 +41,7 @@ describe("App", () => {
     window.history.pushState(null, "", "/")
   })
 
-  it("renders the home page", async () => {
+  it("renders the resume pack workspaces page as the default entry", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response(JSON.stringify([]), { status: 200 })),
@@ -49,17 +49,17 @@ describe("App", () => {
 
     render(<App />)
 
-    expect(screen.getAllByText("TypeDance").length).toBeGreaterThan(0)
-    expect(await screen.findByRole("heading", { name: "我的简历" })).toBeInTheDocument()
-    expect(screen.getAllByRole("button", { name: /导入旧简历/ }).length).toBeGreaterThan(0)
-    expect(screen.getByRole("link", { name: "首页" })).toHaveAttribute("data-active", "true")
-    expect(screen.getByRole("link", { name: "主题库" })).not.toHaveAttribute("data-active")
+    expect(await screen.findByRole("heading", { name: "工作台" })).toBeInTheDocument()
+    expect(screen.getByText("Resume Pack")).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "工作台" })).toHaveAttribute("data-active", "true")
+    expect(screen.getByRole("link", { name: "简历成品" })).not.toHaveAttribute("data-active")
+    expect(screen.queryByRole("button", { name: "切换 Pack" })).not.toBeInTheDocument()
   })
 
-  it("marks the theme library entry active on template pages", () => {
-    renderSidebarAt("/templates")
+  it("marks resume pack entries active on nested pages", () => {
+    renderSidebarAt("/packs/resume/templates")
 
-    expect(screen.getByRole("link", { name: "首页" })).not.toHaveAttribute("data-active")
-    expect(screen.getByRole("link", { name: "主题库" })).toHaveAttribute("data-active", "true")
+    expect(screen.getByRole("link", { name: "工作台" })).not.toHaveAttribute("data-active")
+    expect(screen.getByRole("link", { name: "模板" })).toHaveAttribute("data-active", "true")
   })
 });
