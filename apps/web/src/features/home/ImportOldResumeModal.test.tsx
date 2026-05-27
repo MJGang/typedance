@@ -82,7 +82,7 @@ describe("ImportOldResumeModal", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
-  it("imports a selected resume file and disables pasted content", async () => {
+  it("imports a selected resume file and hides pasted content area", async () => {
     const { onOpenChange } = renderModal()
     const file = new File(["项目经历\n负责订单系统重构"], "resume.md", { type: "text/markdown" })
 
@@ -90,7 +90,7 @@ describe("ImportOldResumeModal", () => {
     fireEvent.change(screen.getByLabelText("选择旧简历文件"), { target: { files: [file] } })
 
     expect(screen.getByText("resume.md")).toBeInTheDocument()
-    expect(screen.getByLabelText("旧简历内容")).toBeDisabled()
+    expect(screen.queryByLabelText("旧简历内容")).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("button", { name: "生成改稿工作台" }))
 
@@ -103,28 +103,13 @@ describe("ImportOldResumeModal", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
-  it("keeps file selection disabled after pasted content is entered", () => {
+  it("hides file selection area after pasted content is entered", () => {
     renderModal()
 
     fireEvent.change(screen.getByLabelText("旧简历内容"), {
       target: { value: "项目经历\n负责订单系统重构" },
     })
 
-    expect(screen.getByLabelText("选择旧简历文件")).toBeDisabled()
-  })
-
-  it("rejects dropped files when pasted content already exists", async () => {
-    renderModal()
-    const file = new File(["项目经历"], "resume.md", { type: "text/markdown" })
-
-    fireEvent.change(screen.getByLabelText("旧简历内容"), {
-      target: { value: "已粘贴的简历" },
-    })
-    fireEvent.drop(screen.getByTestId("resume-file-dropzone"), {
-      dataTransfer: { files: [file] },
-    })
-
-    expect(await screen.findByText("已粘贴内容，不能同时选择文件。")).toBeInTheDocument()
-    expect(screen.queryByText("resume.md")).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("选择旧简历文件")).not.toBeInTheDocument()
   })
 })

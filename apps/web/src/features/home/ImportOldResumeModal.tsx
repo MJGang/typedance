@@ -33,8 +33,7 @@ export function ImportOldResumeModal({ open, onOpenChange }: ImportOldResumeModa
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const hasPastedText = rawText.trim().length > 0
-  const fileInputDisabled = submitting || hasPastedText
-  const textareaDisabled = submitting || selectedFile !== null
+  const disabled = submitting
 
   useEffect(() => {
     if (!open) return
@@ -136,64 +135,68 @@ export function ImportOldResumeModal({ open, onOpenChange }: ImportOldResumeModa
               disabled={submitting}
             />
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="revision-import-file">选择旧简历文件</Label>
-            <div
-              data-testid="resume-file-dropzone"
-              aria-disabled={fileInputDisabled}
-              className={[
-                "grid gap-3 rounded-xl border border-dashed border-border bg-input/20 p-4 transition-colors",
-                fileInputDisabled ? "opacity-60" : "hover:border-ring hover:bg-input/30",
-              ].join(" ")}
-              onDragOver={handleDragOver}
-              onDrop={handleDrop}
-            >
-              <div className="flex items-center gap-3">
-                <UploadCloud className="size-5 text-muted-foreground" />
-                <div className="grid gap-1">
-                  <Label
-                    htmlFor="revision-import-file"
-                    className={fileInputDisabled ? "cursor-not-allowed text-muted-foreground" : "cursor-pointer"}
-                  >
-                    选择旧简历文件
-                  </Label>
-                  <p className="text-xs text-muted-foreground">PDF、Word、Markdown、TXT</p>
+          {!hasPastedText && (
+            <div className="grid gap-2">
+              <Label htmlFor="revision-import-file">选择旧简历文件</Label>
+              <div
+                data-testid="resume-file-dropzone"
+                aria-disabled={disabled}
+                className={[
+                  "grid gap-3 rounded-xl border border-dashed border-border bg-input/20 p-4 transition-colors",
+                  disabled ? "opacity-60" : "hover:border-ring hover:bg-input/30",
+                ].join(" ")}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+              >
+                <div className="flex items-center gap-3">
+                  <UploadCloud className="size-5 text-muted-foreground" />
+                  <div className="grid gap-1">
+                    <Label
+                      htmlFor="revision-import-file"
+                      className={disabled ? "cursor-not-allowed text-muted-foreground" : "cursor-pointer"}
+                    >
+                      选择旧简历文件
+                    </Label>
+                    <p className="text-xs text-muted-foreground">PDF、Word、Markdown、TXT</p>
+                  </div>
                 </div>
+                <Input
+                  ref={fileInputRef}
+                  id="revision-import-file"
+                  type="file"
+                  accept={ACCEPTED_RESUME_FILE_TYPES}
+                  disabled={disabled}
+                  onChange={handleFileInputChange}
+                  className="h-auto rounded-xl py-2"
+                />
+                {selectedFile && (
+                  <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+                    <span className="flex min-w-0 items-center gap-2 text-sm">
+                      <FileText className="size-4 text-muted-foreground" />
+                      <span className="truncate">{selectedFile.name}</span>
+                    </span>
+                    <Button type="button" variant="ghost" size="icon-xs" onClick={clearSelectedFile} disabled={submitting}>
+                      <X className="size-3" />
+                      <span className="sr-only">移除文件</span>
+                    </Button>
+                  </div>
+                )}
               </div>
-              <Input
-                ref={fileInputRef}
-                id="revision-import-file"
-                type="file"
-                accept={ACCEPTED_RESUME_FILE_TYPES}
-                disabled={fileInputDisabled}
-                onChange={handleFileInputChange}
-                className="h-auto rounded-xl py-2"
-              />
-              {selectedFile && (
-                <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
-                  <span className="flex min-w-0 items-center gap-2 text-sm">
-                    <FileText className="size-4 text-muted-foreground" />
-                    <span className="truncate">{selectedFile.name}</span>
-                  </span>
-                  <Button type="button" variant="ghost" size="icon-xs" onClick={clearSelectedFile} disabled={submitting}>
-                    <X className="size-3" />
-                    <span className="sr-only">移除文件</span>
-                  </Button>
-                </div>
-              )}
             </div>
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="revision-import-content">旧简历内容</Label>
-            <Textarea
-              id="revision-import-content"
-              className="h-80 max-h-[45svh] field-sizing-fixed resize-y overflow-y-auto"
-              value={rawText}
-              onChange={handleRawTextChange}
-              disabled={textareaDisabled}
-              placeholder="粘贴已有简历文本"
-            />
-          </div>
+          )}
+          {!selectedFile && (
+            <div className="grid gap-2">
+              <Label htmlFor="revision-import-content">旧简历内容</Label>
+              <Textarea
+                id="revision-import-content"
+                className="h-80 max-h-[45svh] field-sizing-fixed resize-y overflow-y-auto"
+                value={rawText}
+                onChange={handleRawTextChange}
+                disabled={disabled}
+                placeholder="粘贴已有简历文本"
+              />
+            </div>
+          )}
           {error && (
             <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {error}
