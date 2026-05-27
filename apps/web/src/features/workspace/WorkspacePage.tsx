@@ -11,6 +11,7 @@ import { StylePanel } from "../templates/components/style-panel/StylePanel"
 import { generateWorkspaceCSS } from "../templates/style-engine/css-generator"
 import { exportResumeHtml, exportResumePdf, getResumeVersion, getTemplateStyle, listTemplateStyles, saveTemplateStyle, updateResumeVersion } from "@/api"
 import { templateRegistry, defaultClassicA4Style } from "../templates/data"
+import { resumePackPaths } from "../resume-pack/routes"
 import { ExportStatusBar, type ExportStatusType } from "./components/ExportStatusBar"
 import { isTauri, openFileInTauri } from "@/tauri"
 import type { ResumeDocJson, ResumeEditorChange } from "./editor"
@@ -279,8 +280,8 @@ export function WorkspacePage() {
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
           <p className="text-lg text-muted-foreground">未找到简历</p>
-          <Button className="mt-4" onClick={() => navigate("/")}>
-            返回首页
+          <Button className="mt-4" onClick={() => navigate(resumePackPaths.resumes)}>
+            返回简历成品
           </Button>
         </div>
       </div>
@@ -293,7 +294,7 @@ export function WorkspacePage() {
         {/* Editor area */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2">
-            <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
+            <Button variant="ghost" size="icon" aria-label="返回简历成品" onClick={() => navigate(resumePackPaths.resumes)}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
             {editingTitle ? (

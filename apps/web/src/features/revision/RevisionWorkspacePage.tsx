@@ -14,6 +14,7 @@ import {
   renderRevisionDraft,
   runRevisionQualityReview,
 } from "@/api"
+import { resumePackPaths } from "../resume-pack/routes"
 import { ExportGateModal } from "./ExportGateModal"
 import { OpportunityCalibrationModal } from "./OpportunityCalibrationModal"
 import type {
@@ -511,7 +512,7 @@ export function RevisionWorkspacePage() {
   return (
     <div className="flex min-h-[calc(100svh-3rem)] flex-col bg-background">
       <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
+        <Button variant="ghost" size="icon" aria-label="返回工作台" onClick={() => navigate(resumePackPaths.workspaces)}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="min-w-0 flex-1">
