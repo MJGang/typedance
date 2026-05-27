@@ -11,6 +11,7 @@ type PreviewShowcaseCardProps = {
   selected?: boolean
   className?: string
   previewClassName?: string
+  interactiveLabel?: string
   onClick?: () => void
 }
 
@@ -24,6 +25,7 @@ export function PreviewShowcaseCard({
   selected = false,
   className,
   previewClassName,
+  interactiveLabel,
   onClick,
 }: PreviewShowcaseCardProps) {
   const interactive = typeof onClick === "function"
@@ -59,6 +61,7 @@ export function PreviewShowcaseCard({
         <div
           role={interactive ? "button" : undefined}
           tabIndex={interactive ? 0 : undefined}
+          aria-label={interactive ? interactiveLabel : undefined}
           className={cn(
             "overflow-hidden rounded-sm bg-white shadow-[0_10px_24px_rgb(15_23_42_/_10%)] outline-none",
             interactive && "cursor-pointer",

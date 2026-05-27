@@ -1,8 +1,17 @@
 import "@testing-library/jest-dom/vitest"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import type { MouseEvent, ReactNode } from "react"
 import { MemoryRouter, useLocation } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ResumeProductsPage } from "./ResumeProductsPage"
+
+type MockNodeProps = {
+  children?: ReactNode
+}
+
+type MockItemProps = MockNodeProps & {
+  onClick?: (event: MouseEvent<HTMLButtonElement>) => void
+}
 
 const apiMocks = vi.hoisted(() => ({
   listResumeVersions: vi.fn(),
@@ -21,6 +30,17 @@ vi.mock("@/api", () => ({
 
 vi.mock("../home/NewResumeModal", () => ({
   NewResumeModal: ({ open }: { open: boolean }) => open ? <div role="dialog">选择模板</div> : null,
+}))
+
+vi.mock("@/components/ui/dropdown-menu", () => ({
+  DropdownMenu: ({ children }: MockNodeProps) => <div>{children}</div>,
+  DropdownMenuTrigger: ({ children }: MockNodeProps) => <>{children}</>,
+  DropdownMenuContent: ({ children }: MockNodeProps) => <div>{children}</div>,
+  DropdownMenuItem: ({ children, onClick }: MockItemProps) => (
+    <button type="button" onClick={onClick}>
+      {children}
+    </button>
+  ),
 }))
 
 function LocationProbe() {

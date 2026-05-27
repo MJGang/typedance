@@ -29,6 +29,7 @@ export function ResumeCard({ resume, styleConfig, onClick, onRename, onDuplicate
       title={resume.title}
       subtitle={`${resume.target_language} · ${timeAgo}`}
       onClick={onClick}
+      interactiveLabel={`打开${resume.title}`}
       preview={
         <div className="aspect-[210/297] w-full overflow-hidden bg-white">
           {hasPreview ? (

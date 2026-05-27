@@ -87,28 +87,14 @@ export function ResumeProductsPage() {
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-x-6 gap-y-8">
           {resumes.map((resume) => (
-            <div key={resume.id} className="relative">
-              <button
-                type="button"
-                className="sr-only"
-                aria-label={resume.title}
-                onClick={() => navigate(resumePackPaths.resume(resume.id))}
-              />
-              <button
-                type="button"
-                className="sr-only"
-                onClick={() => void handleOpenRevisionWorkspace(resume.id)}
-              >
-                用新工作台打开
-              </button>
-              <ResumeCard
-                resume={resume}
-                styleConfig={styleMap[resume.template_id] ?? defaultClassicA4Style}
-                onClick={() => navigate(resumePackPaths.resume(resume.id))}
-                onOpenRevision={() => void handleOpenRevisionWorkspace(resume.id)}
-                onDelete={() => void handleDelete(resume.id)}
-              />
-            </div>
+            <ResumeCard
+              key={resume.id}
+              resume={resume}
+              styleConfig={styleMap[resume.template_id] ?? defaultClassicA4Style}
+              onClick={() => navigate(resumePackPaths.resume(resume.id))}
+              onOpenRevision={() => void handleOpenRevisionWorkspace(resume.id)}
+              onDelete={() => void handleDelete(resume.id)}
+            />
           ))}
         </div>
       )}

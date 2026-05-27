@@ -16,10 +16,10 @@ export function RevisionWorkspaceCard({ document, onOpen }: RevisionWorkspaceCar
       title={document.title}
       subtitle={`${statusLabel} · ${timeLabel}`}
       onClick={onOpen}
+      interactiveLabel={`打开${document.title}`}
       previewClassName="bg-muted/40"
       preview={
         <div className="flex aspect-[210/297] w-full flex-col items-center justify-center gap-3 bg-card px-6 text-center">
-          <span className="sr-only">打开{document.title}</span>
           <div className="flex size-12 items-center justify-center rounded-md bg-primary text-primary-foreground">
             <ClipboardCheck className="size-6" />
           </div>
