@@ -4,10 +4,11 @@ from typing import Literal
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from .import_resume_file_text import ImportResumeFileError, extract_import_resume_file_text
 from .models import Language, utc_now
 from .revision_models import (
     Document,
@@ -44,6 +45,8 @@ from .revision_services import (
 
 RepositoryDependency = Callable[[], RevisionRepository]
 ExportDirDependency = Callable[[], Path]
+SourceDirDependency = Callable[[], Path]
+MAX_IMPORT_FILE_BYTES = 20 * 1024 * 1024
 
 
 class CreateDocumentRequest(BaseModel):
@@ -114,6 +117,7 @@ class ConfirmClaimRequest(BaseModel):
 def create_revision_router(
     repository_dependency: RepositoryDependency,
     export_dir_dependency: ExportDirDependency | None = None,
+    source_dir_dependency: SourceDirDependency | None = None,
 ) -> APIRouter:
     router = APIRouter(tags=["revision"])
 
@@ -148,6 +152,11 @@ def create_revision_router(
         if export_dir_dependency is not None:
             return export_dir_dependency()
         return Path.home() / ".typedance" / "files" / "exports"
+
+    def source_dir() -> Path:
+        if source_dir_dependency is not None:
+            return source_dir_dependency()
+        return Path.home() / ".typedance" / "files" / "sources"
 
     def path_header_value(path: Path) -> str:
         return quote(str(path), safe=":/\\")
@@ -196,6 +205,43 @@ def create_revision_router(
             original_uri=payload.original_uri,
             raw_text=payload.raw_text,
             file_path=payload.file_path,
+            parse_status="pending",
+            created_at=utc_now(),
+        )
+        return SourceService(repo).save_source(source)
+
+    @router.post("/documents/{document_id}/sources/import-file", response_model=SourceDocument, status_code=201)
+    async def create_import_file_source(
+        document_id: str,
+        file: UploadFile = File(...),
+        repo: RevisionRepository = Depends(repository),
+    ) -> SourceDocument:
+        require_document(repo, document_id)
+        filename = _safe_upload_filename(file.filename or "resume")
+        data = await file.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="Import file is empty")
+        if len(data) > MAX_IMPORT_FILE_BYTES:
+            raise HTTPException(status_code=413, detail="Import file is too large")
+        try:
+            raw_text = extract_import_resume_file_text(
+                data,
+                filename=filename,
+                mime_type=file.content_type,
+            )
+        except ImportResumeFileError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        file_path = _save_import_source_file(source_dir(), document_id, filename, data)
+        source = SourceDocument(
+            id=f"src_{uuid4().hex}",
+            document_id=document_id,
+            source_type="old_resume",
+            title=filename,
+            mime_type=file.content_type,
+            original_uri=file.filename,
+            raw_text=raw_text,
+            file_path=str(file_path),
             parse_status="pending",
             created_at=utc_now(),
         )
@@ -433,3 +479,21 @@ def create_revision_router(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return router
+
+
+def _safe_upload_filename(filename: str) -> str:
+    name = Path(filename).name.strip() or "resume"
+    safe = "".join(char if char.isalnum() or char in {" ", ".", "-", "_"} else "_" for char in name)
+    return safe.strip(" .") or "resume"
+
+
+def _save_import_source_file(base_dir: Path, document_id: str, filename: str, data: bytes) -> Path:
+    target_dir = base_dir / document_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / filename
+    if target_path.exists():
+        stem = target_path.stem
+        suffix = target_path.suffix
+        target_path = target_dir / f"{stem}-{uuid4().hex}{suffix}"
+    target_path.write_bytes(data)
+    return target_path

@@ -70,7 +70,13 @@ def revision_repository() -> RevisionRepository:
     return RevisionRepository(connect(app_data_dir() / "typedance.sqlite"))
 
 
-app.include_router(create_revision_router(revision_repository, lambda: app_data_dir() / "files" / "exports"))
+app.include_router(
+    create_revision_router(
+        revision_repository,
+        lambda: app_data_dir() / "files" / "exports",
+        lambda: app_data_dir() / "files" / "sources",
+    )
+)
 app.include_router(create_settings_router(app_data_dir))
 
 

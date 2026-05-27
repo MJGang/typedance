@@ -343,6 +343,97 @@ describe("revision api", () => {
     expect(workspace.document.current_draft_id).toBe("draft_import")
   })
 
+  it("imports an old resume file through upload source run and workspace view", async () => {
+    const responses = [
+      {
+        id: "doc_import",
+        pack_id: "resume",
+        title: "旧简历重构",
+        status: "active",
+        target_language: "zh-CN",
+        current_draft_id: null,
+        accepted_draft_id: null,
+        created_at: "2026-05-21T08:00:00.000Z",
+        updated_at: "2026-05-21T08:00:00.000Z",
+      },
+      {
+        id: "src_import",
+        document_id: "doc_import",
+        source_type: "old_resume",
+        title: "resume.md",
+        mime_type: "text/markdown",
+        original_uri: "resume.md",
+        raw_text: "项目经历\n负责订单系统重构",
+        file_path: "C:/Users/test/.typedance/files/sources/doc_import/resume.md",
+        parse_status: "pending",
+        created_at: "2026-05-21T08:00:00.000Z",
+      },
+      {
+        id: "run_import",
+        document_id: "doc_import",
+        pack_id: "resume",
+        run_type: "import_reconstruct",
+        status: "completed",
+        source_document_ids: ["src_import"],
+        target_draft_id: "draft_import",
+        created_at: "2026-05-21T08:00:00.000Z",
+        updated_at: "2026-05-21T08:00:00.000Z",
+      },
+      {
+        document: {
+          id: "doc_import",
+          pack_id: "resume",
+          title: "旧简历重构",
+          status: "active",
+          target_language: "zh-CN",
+          current_draft_id: "draft_import",
+          created_at: "2026-05-21T08:00:00.000Z",
+          updated_at: "2026-05-21T08:00:00.000Z",
+        },
+        current_draft: {
+          id: "draft_import",
+          document_id: "doc_import",
+          run_id: "run_import",
+          pack_id: "resume",
+          status: "in_review",
+          summary: "基于旧简历生成的结构化草稿",
+          applied_proposal_ids: [],
+          unresolved_issue_ids: [],
+          created_at: "2026-05-21T08:00:00.000Z",
+          updated_at: "2026-05-21T08:00:00.000Z",
+        },
+        modules: [],
+        claims: [],
+        issues: [],
+        proposals: [],
+        evidence: [],
+        source_summaries: [],
+        quality_gate: { status: "ready", blocking_issue_ids: [], warning_issue_ids: [] },
+        available_actions: [],
+      },
+    ]
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(responses.shift())))
+    vi.stubGlobal("fetch", fetchMock)
+    const file = new File(["项目经历\n负责订单系统重构"], "resume.md", { type: "text/markdown" })
+
+    const { importOldResume } = await import("./api")
+    const workspace = await importOldResume({
+      title: "旧简历重构",
+      file,
+    })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "http://127.0.0.1:4317/documents/doc_import/sources/import-file",
+      expect.objectContaining({ method: "POST" }),
+    )
+    const uploadInit = (fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1]
+    const uploadBody = uploadInit.body
+    expect(uploadBody).toBeInstanceOf(FormData)
+    expect((uploadBody as FormData).get("file")).toBe(file)
+    expect(workspace.document.current_draft_id).toBe("draft_import")
+  })
+
   it("starts a blank guided resume through manual source and workspace view", async () => {
     const responses = [
       {

@@ -227,6 +227,42 @@ def test_revision_api_creates_document_source_and_run(revision_client):
     assert workspace["render_projection"]["draft_id"] == run["target_draft_id"]
 
 
+def test_revision_api_creates_uploaded_resume_source(revision_client, monkeypatch):
+    client, tmp_path = revision_client
+
+    created_document = client.post(
+        "/documents",
+        json={
+            "title": "张三的简历",
+            "pack_id": "resume",
+            "target_language": "zh-CN",
+            "initial_mode": "import_old_resume",
+        },
+    )
+    document = created_document.json()
+
+    monkeypatch.setattr(
+        "typedance_sidecar.revision_api.extract_import_resume_file_text",
+        lambda data, filename, mime_type=None: f"extracted from {filename}: {data.decode()}",
+    )
+
+    created_source = client.post(
+        f"/documents/{document['id']}/sources/import-file",
+        files={"file": ("resume.md", b"# resume import", "text/markdown")},
+    )
+
+    assert created_source.status_code == 201
+    source = created_source.json()
+    assert source["document_id"] == document["id"]
+    assert source["source_type"] == "old_resume"
+    assert source["title"] == "resume.md"
+    assert source["mime_type"] == "text/markdown"
+    assert source["original_uri"] == "resume.md"
+    assert source["raw_text"] == "extracted from resume.md: # resume import"
+    assert source["file_path"].endswith("resume.md")
+    assert (tmp_path / "files" / "sources" / document["id"] / "resume.md").read_bytes() == b"# resume import"
+
+
 def test_revision_api_returns_workspace_and_renders_draft(revision_client):
     client, tmp_path = revision_client
     seed_workspace(tmp_path)

@@ -1,6 +1,6 @@
-import { FormEvent, useEffect, useState } from "react"
+import { ChangeEvent, DragEvent, FormEvent, useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Loader2, Wand2 } from "lucide-react"
+import { FileText, Loader2, UploadCloud, Wand2, X } from "lucide-react"
 import { importOldResume } from "@/api"
 import { Button } from "@/components/ui/button"
 import { resumePackPaths } from "../resume-pack/routes"
@@ -16,6 +16,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 
+const ACCEPTED_RESUME_FILE_TYPES = ".pdf,.doc,.docx,.md,.markdown,.txt"
+const SUPPORTED_RESUME_FILE_EXTENSIONS = new Set(["pdf", "doc", "docx", "md", "markdown", "txt"])
+
 type ImportOldResumeModalProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -23,23 +26,80 @@ type ImportOldResumeModalProps = {
 
 export function ImportOldResumeModal({ open, onOpenChange }: ImportOldResumeModalProps) {
   const navigate = useNavigate()
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState("旧简历重构")
   const [rawText, setRawText] = useState("")
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const hasPastedText = rawText.trim().length > 0
+  const fileInputDisabled = submitting || hasPastedText
+  const textareaDisabled = submitting || selectedFile !== null
 
   useEffect(() => {
     if (!open) return
     setTitle("旧简历重构")
     setRawText("")
+    setSelectedFile(null)
     setSubmitting(false)
     setError(null)
+    if (fileInputRef.current) fileInputRef.current.value = ""
   }, [open])
+
+  function handleRawTextChange(event: ChangeEvent<HTMLTextAreaElement>) {
+    if (selectedFile) {
+      setError("已选择文件，不能同时粘贴内容。")
+      return
+    }
+    setRawText(event.target.value)
+    setError(null)
+  }
+
+  function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    selectFile(file)
+  }
+
+  function handleDragOver(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+    const file = event.dataTransfer.files[0]
+    if (!file) return
+    selectFile(file)
+  }
+
+  function selectFile(file: File) {
+    if (hasPastedText) {
+      setError("已粘贴内容，不能同时选择文件。")
+      if (fileInputRef.current) fileInputRef.current.value = ""
+      return
+    }
+
+    const extension = file.name.split(".").pop()?.toLowerCase() ?? ""
+    if (!SUPPORTED_RESUME_FILE_EXTENSIONS.has(extension)) {
+      setError("支持 PDF、Word、Markdown 或 TXT 文件。")
+      if (fileInputRef.current) fileInputRef.current.value = ""
+      return
+    }
+
+    setRawText("")
+    setSelectedFile(file)
+    setError(null)
+  }
+
+  function clearSelectedFile() {
+    setSelectedFile(null)
+    if (fileInputRef.current) fileInputRef.current.value = ""
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!rawText.trim()) {
-      setError("请先粘贴旧简历内容。")
+    if (!rawText.trim() && !selectedFile) {
+      setError("请粘贴简历内容或选择一个文件。")
       return
     }
 
@@ -48,7 +108,7 @@ export function ImportOldResumeModal({ open, onOpenChange }: ImportOldResumeModa
     try {
       const workspace = await importOldResume({
         title: title.trim() || "旧简历重构",
-        raw_text: rawText,
+        ...(selectedFile ? { file: selectedFile } : { raw_text: rawText }),
       })
       onOpenChange(false)
       navigate(resumePackPaths.workspace(workspace.document.id))
@@ -77,13 +137,60 @@ export function ImportOldResumeModal({ open, onOpenChange }: ImportOldResumeModa
             />
           </div>
           <div className="grid gap-2">
+            <Label htmlFor="revision-import-file">选择旧简历文件</Label>
+            <div
+              data-testid="resume-file-dropzone"
+              aria-disabled={fileInputDisabled}
+              className={[
+                "grid gap-3 rounded-xl border border-dashed border-border bg-input/20 p-4 transition-colors",
+                fileInputDisabled ? "opacity-60" : "hover:border-ring hover:bg-input/30",
+              ].join(" ")}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+            >
+              <div className="flex items-center gap-3">
+                <UploadCloud className="size-5 text-muted-foreground" />
+                <div className="grid gap-1">
+                  <Label
+                    htmlFor="revision-import-file"
+                    className={fileInputDisabled ? "cursor-not-allowed text-muted-foreground" : "cursor-pointer"}
+                  >
+                    选择旧简历文件
+                  </Label>
+                  <p className="text-xs text-muted-foreground">PDF、Word、Markdown、TXT</p>
+                </div>
+              </div>
+              <Input
+                ref={fileInputRef}
+                id="revision-import-file"
+                type="file"
+                accept={ACCEPTED_RESUME_FILE_TYPES}
+                disabled={fileInputDisabled}
+                onChange={handleFileInputChange}
+                className="h-auto rounded-xl py-2"
+              />
+              {selectedFile && (
+                <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+                  <span className="flex min-w-0 items-center gap-2 text-sm">
+                    <FileText className="size-4 text-muted-foreground" />
+                    <span className="truncate">{selectedFile.name}</span>
+                  </span>
+                  <Button type="button" variant="ghost" size="icon-xs" onClick={clearSelectedFile} disabled={submitting}>
+                    <X className="size-3" />
+                    <span className="sr-only">移除文件</span>
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="grid gap-2">
             <Label htmlFor="revision-import-content">旧简历内容</Label>
             <Textarea
               id="revision-import-content"
               className="h-80 max-h-[45svh] field-sizing-fixed resize-y overflow-y-auto"
               value={rawText}
-              onChange={(event) => setRawText(event.target.value)}
-              disabled={submitting}
+              onChange={handleRawTextChange}
+              disabled={textareaDisabled}
               placeholder="粘贴已有简历文本"
             />
           </div>

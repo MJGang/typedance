@@ -8,6 +8,8 @@ dependencies = [
   "langchain-openai>=1.2.2",
   "langgraph>=1.2.1",
   "pydantic>=2.7.0",
+  "python-multipart>=0.0.29",
+  "sharepoint-to-text>=1.1.11",
   "uvicorn>=0.30.0",
   "playwright>=1.40.0",
 ]

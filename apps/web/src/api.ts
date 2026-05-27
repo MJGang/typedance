@@ -224,6 +224,23 @@ export async function createRevisionSource(
   )
 }
 
+export async function createRevisionUploadedSource(
+  documentId: string,
+  file: File,
+): Promise<SourceDocument> {
+  const formData = new FormData()
+  formData.append("file", file)
+  const response = await fetch(`${baseUrl}/documents/${documentId}/sources/import-file`, {
+    method: "POST",
+    body: formData,
+  })
+  return parseTemplateResponse(
+    response,
+    (value) => sourceDocumentSchema.parse(value),
+    "Failed to create revision source from file",
+  )
+}
+
 export async function createRevisionRun(
   documentId: string,
   run: {
@@ -250,23 +267,32 @@ export async function createRevisionRun(
 
 export type ImportOldResumeInput = {
   title: string
-  raw_text: string
+  raw_text?: string
+  file?: File
   target_language?: "zh-CN" | "en-US"
 }
 
 export async function importOldResume(input: ImportOldResumeInput): Promise<WorkspaceView> {
+  const hasRawText = typeof input.raw_text === "string" && input.raw_text.trim().length > 0
+  const hasFile = input.file instanceof File
+  if (hasRawText === hasFile) {
+    throw new Error("Import requires exactly one source")
+  }
+
   const document = await createRevisionDocument({
     title: input.title,
     pack_id: "resume",
     target_language: input.target_language ?? "zh-CN",
     initial_mode: "import_old_resume",
   })
-  const source = await createRevisionSource(document.id, {
-    source_type: "old_resume",
-    title: "旧简历",
-    raw_text: input.raw_text,
-    mime_type: "text/plain",
-  })
+  const source = input.file
+    ? await createRevisionUploadedSource(document.id, input.file)
+    : await createRevisionSource(document.id, {
+        source_type: "old_resume",
+        title: "旧简历",
+        raw_text: input.raw_text,
+        mime_type: "text/plain",
+      })
   await createRevisionRun(document.id, {
     run_type: "import_reconstruct",
     source_document_ids: [source.id],
