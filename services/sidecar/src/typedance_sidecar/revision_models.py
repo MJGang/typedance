@@ -104,26 +104,26 @@ SourceCanvasNodeType = Literal["heading", "paragraph", "list_item", "table_cell"
 
 
 class SourceResumeCanvasNode(BaseModel):
-    canvas_node_id: str
+    canvas_node_id: str = Field(min_length=1)
     node_type: SourceCanvasNodeType
     text: str
-    source_block_id: str | None = None
+    source_block_id: str | None = Field(default=None, min_length=1)
     source_span: dict[str, Any] = Field(default_factory=dict)
-    module_id: str | None = None
+    module_id: str | None = Field(default=None, min_length=1)
 
 
 class ModuleAnchor(BaseModel):
-    module_id: str
+    module_id: str = Field(min_length=1)
     canvas_node_ids: list[str] = Field(default_factory=list)
-    title: str
-    order: int
+    title: str = Field(min_length=1)
+    order: int = Field(ge=0)
 
 
 class SourceResumeCanvas(BaseModel):
-    id: str
-    document_id: str
-    old_resume_source_id: str
-    doc_json: Any
+    id: str = Field(min_length=1)
+    document_id: str = Field(min_length=1)
+    old_resume_source_id: str = Field(min_length=1)
+    doc_json: dict[str, Any]
     node_map: list[SourceResumeCanvasNode] = Field(default_factory=list)
     module_anchors: list[ModuleAnchor] = Field(default_factory=list)
     created_at: str

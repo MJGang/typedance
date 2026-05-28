@@ -13,6 +13,7 @@ from typedance_sidecar.revision_models import (
     RevisionProposal,
     RevisionRun,
     SourceDocument,
+    SourceResumeCanvas,
 )
 from typedance_sidecar.revision_repository import RevisionRepository
 from typedance_sidecar.revision_services import (
@@ -54,6 +55,34 @@ def seed_revision_workspace(repo: RevisionRepository) -> dict[str, object]:
             raw_text="负责订单系统重构",
             parse_status="parsed",
             created_at=now,
+        )
+    )
+    source_canvas = repo.save_source_resume_canvas(
+        SourceResumeCanvas(
+            id="canvas_1",
+            document_id=document.id,
+            old_resume_source_id=source.id,
+            doc_json={"type": "doc", "content": [{"type": "paragraph"}]},
+            node_map=[
+                {
+                    "canvas_node_id": "node_1",
+                    "source_block_id": "blk_1",
+                    "node_type": "paragraph",
+                    "text": "负责订单系统重构",
+                    "source_span": {"line": 1},
+                    "module_id": "mod_1",
+                }
+            ],
+            module_anchors=[
+                {
+                    "module_id": "mod_1",
+                    "canvas_node_ids": ["node_1"],
+                    "title": "项目经历",
+                    "order": 0,
+                }
+            ],
+            created_at=now,
+            updated_at=now,
         )
     )
     run = repo.save_revision_run(
@@ -178,6 +207,7 @@ def seed_revision_workspace(repo: RevisionRepository) -> dict[str, object]:
     return {
         "document": document,
         "source": source,
+        "source_canvas": source_canvas,
         "run": run,
         "draft": draft,
         "module": module,
@@ -304,6 +334,9 @@ def test_workspace_service_aggregates_current_revision_view(tmp_path):
     assert [proposal.id for proposal in view.proposals] == ["prop_1"]
     assert [evidence.id for evidence in view.evidence] == ["ev_1"]
     assert [source.id for source in view.source_summaries] == ["src_1"]
+    assert view.source_resume_canvas is not None
+    assert view.source_resume_canvas.id == "canvas_1"
+    assert view.source_resume_canvas.doc_json == {"type": "doc", "content": [{"type": "paragraph"}]}
     assert view.render_projection is not None
     assert view.render_projection.id == "render_1"
     assert view.quality_gate is not None
@@ -324,6 +357,34 @@ def test_workspace_service_aggregates_current_revision_view(tmp_path):
         "accept_proposal",
         "reject_proposal",
     ]
+
+
+def test_workspace_service_saves_source_resume_canvas_document(tmp_path):
+    repo = make_repository(tmp_path)
+    seeded = seed_revision_workspace(repo)
+    canvas = seeded["source_canvas"]
+    assert isinstance(canvas, SourceResumeCanvas)
+
+    next_doc_json = {
+        "type": "doc",
+        "content": [
+            {
+                "type": "paragraph",
+                "content": [{"type": "text", "text": "更新后的旧简历正文"}],
+            }
+        ],
+    }
+    saved = WorkspaceService(repo).save_source_resume_canvas_document("doc_1", next_doc_json)
+
+    assert saved.id == canvas.id
+    assert saved.document_id == canvas.document_id
+    assert saved.old_resume_source_id == canvas.old_resume_source_id
+    assert saved.doc_json == next_doc_json
+    assert saved.node_map == canvas.node_map
+    assert saved.module_anchors == canvas.module_anchors
+    assert saved.created_at == canvas.created_at
+    assert saved.updated_at != canvas.updated_at
+    assert repo.get_source_resume_canvas("doc_1") == saved
 
 
 def test_render_and_export_services_wrap_repository_operations(tmp_path):

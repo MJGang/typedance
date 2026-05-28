@@ -14,6 +14,7 @@ import {
   revisionProposalSchema,
   revisionRunSchema,
   sourceDocumentSchema,
+  sourceResumeCanvasSchema,
   templateSampleContentSchema,
   templateStyleConfigSchema,
   userConfirmationSchema,
@@ -32,6 +33,7 @@ import {
   type RevisionProposal,
   type RevisionRun,
   type SourceDocument,
+  type SourceResumeCanvas,
   type TemplateSampleContent,
   type TemplateStyleConfig,
   type UserConfirmation,
@@ -146,6 +148,22 @@ export async function getRevisionWorkspaceView(documentId: string): Promise<Work
     response,
     (value) => workspaceViewSchema.parse(value),
     "Failed to load revision workspace",
+  )
+}
+
+export async function saveSourceResumeCanvas(
+  documentId: string,
+  docJson: Record<string, unknown>,
+): Promise<SourceResumeCanvas> {
+  const response = await fetch(`${baseUrl}/documents/${documentId}/source-resume-canvas`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ doc_json: docJson }),
+  })
+  return parseTemplateResponse(
+    response,
+    (value) => sourceResumeCanvasSchema.parse(value),
+    "Failed to save source resume canvas",
   )
 }
 

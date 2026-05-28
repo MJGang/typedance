@@ -15,6 +15,7 @@ from typedance_sidecar.revision_models import (
     RevisionProposal,
     RevisionRun,
     SourceDocument,
+    SourceResumeCanvas,
 )
 from typedance_sidecar.revision_repository import RevisionRepository
 
@@ -53,6 +54,34 @@ def seed_workspace(tmp_path) -> RevisionRepository:
             raw_text="负责订单系统重构",
             parse_status="parsed",
             created_at=now,
+        )
+    )
+    repo.save_source_resume_canvas(
+        SourceResumeCanvas(
+            id="canvas_1",
+            document_id=document.id,
+            old_resume_source_id=source.id,
+            doc_json={"type": "doc", "content": []},
+            node_map=[
+                {
+                    "canvas_node_id": "node_1",
+                    "source_block_id": "blk_1",
+                    "node_type": "paragraph",
+                    "text": "负责订单系统重构",
+                    "source_span": {"line": 1},
+                    "module_id": "mod_1",
+                }
+            ],
+            module_anchors=[
+                {
+                    "module_id": "mod_1",
+                    "canvas_node_ids": ["node_1"],
+                    "title": "项目经历",
+                    "order": 0,
+                }
+            ],
+            created_at=now,
+            updated_at=now,
         )
     )
     run = repo.save_revision_run(
@@ -273,6 +302,7 @@ def test_revision_api_returns_workspace_and_renders_draft(revision_client):
     assert workspace["document"]["id"] == "doc_1"
     assert workspace["current_draft"]["id"] == "draft_1"
     assert workspace["modules"][0]["id"] == "mod_1"
+    assert workspace["source_resume_canvas"]["id"] == "canvas_1"
     assert workspace["run_status"]["run_id"] == "run_1"
     assert workspace["run_status"]["status"] == "completed"
     assert workspace["coach_summary"]["summary"] == "还有 1 个问题建议处理后再导出。"
@@ -294,6 +324,53 @@ def test_revision_api_returns_workspace_and_renders_draft(revision_client):
     accepted = client.post("/drafts/draft_1/accept")
     assert accepted.status_code == 200
     assert accepted.json()["status"] == "accepted"
+
+
+def test_revision_api_saves_source_resume_canvas_document(revision_client):
+    client, tmp_path = revision_client
+    seed_workspace(tmp_path)
+
+    response = client.put(
+        "/documents/doc_1/source-resume-canvas",
+        json={
+            "doc_json": {
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": "用户编辑后的旧简历正文"}],
+                    }
+                ],
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == "canvas_1"
+    assert payload["doc_json"]["content"][0]["content"][0]["text"] == "用户编辑后的旧简历正文"
+    assert payload["node_map"][0]["canvas_node_id"] == "node_1"
+    assert payload["module_anchors"][0]["module_id"] == "mod_1"
+
+
+def test_revision_api_returns_404_when_source_resume_canvas_missing(revision_client):
+    client, _tmp_path = revision_client
+    created_document = client.post(
+        "/documents",
+        json={
+            "title": "没有旧画布的简历",
+            "pack_id": "resume",
+            "target_language": "zh-CN",
+        },
+    )
+    document = created_document.json()
+
+    response = client.put(
+        f"/documents/{document['id']}/source-resume-canvas",
+        json={"doc_json": {"type": "doc", "content": []}},
+    )
+
+    assert response.status_code == 404
 
 
 def test_revision_api_runs_blank_guided_generation(revision_client):

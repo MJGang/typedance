@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import quote
 from uuid import uuid4
 
@@ -20,6 +20,7 @@ from .revision_models import (
     RevisionProposal,
     RevisionRun,
     SourceDocument,
+    SourceResumeCanvas,
     UserConfirmation,
     WorkspaceView,
 )
@@ -99,6 +100,10 @@ class CreateRevisionRunRequest(BaseModel):
 
 class RenderDraftRequest(BaseModel):
     render_profile: str | None = None
+
+
+class SaveSourceResumeCanvasRequest(BaseModel):
+    doc_json: dict[str, Any]
 
 
 class ExportDraftPdfRequest(BaseModel):
@@ -315,6 +320,20 @@ def create_revision_router(
     ) -> WorkspaceView:
         try:
             return WorkspaceService(repo).get_workspace_view(document_id)
+        except RevisionServiceError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.put("/documents/{document_id}/source-resume-canvas", response_model=SourceResumeCanvas)
+    def save_source_resume_canvas(
+        document_id: str,
+        payload: SaveSourceResumeCanvasRequest,
+        repo: RevisionRepository = Depends(repository),
+    ) -> SourceResumeCanvas:
+        try:
+            return WorkspaceService(repo).save_source_resume_canvas_document(
+                document_id,
+                payload.doc_json,
+            )
         except RevisionServiceError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 

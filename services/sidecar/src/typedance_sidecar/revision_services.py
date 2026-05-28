@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 from .models import utc_now
@@ -17,6 +17,7 @@ from .revision_models import (
     RevisionProposal,
     RevisionRunStatusSummary,
     SourceDocument,
+    SourceResumeCanvas,
     UserConfirmation,
     WorkspaceView,
 )
@@ -350,6 +351,27 @@ class WorkspaceService:
             coach_summary=self._coach_summary(quality_gate, current_draft, available_actions),
             available_actions=available_actions,
         )
+
+    def save_source_resume_canvas_document(
+        self,
+        document_id: str,
+        doc_json: dict[str, Any],
+    ) -> SourceResumeCanvas:
+        document = self.repository.get_document(document_id)
+        if document is None:
+            raise RevisionServiceError(f"Document not found: {document_id}")
+
+        canvas = self.repository.get_source_resume_canvas(document.id)
+        if canvas is None:
+            raise RevisionServiceError(f"Source resume canvas not found: {document_id}")
+
+        saved = canvas.model_copy(
+            update={
+                "doc_json": doc_json,
+                "updated_at": utc_now(),
+            }
+        )
+        return self.repository.save_source_resume_canvas(saved)
 
     def _current_draft(self, document: Document) -> DraftVersion | None:
         if document.current_draft_id is not None:
