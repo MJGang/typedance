@@ -50,7 +50,11 @@ class SourceResumeCanvasBuilder:
             old_resume_source_id=source.id,
             doc_json={"type": "doc", "content": doc_nodes},
             node_map=node_map,
-            module_anchors=self._module_anchors(modules, module_source_refs),
+            module_anchors=self._module_anchors(
+                modules,
+                module_source_refs,
+                valid_block_ids={block.id for block in sorted_blocks},
+            ),
             created_at=now,
             updated_at=now,
         )
@@ -164,11 +168,16 @@ class SourceResumeCanvasBuilder:
         self,
         modules: list[DocumentModule],
         module_source_refs: dict[str, list[str]],
+        valid_block_ids: set[str],
     ) -> list[ModuleAnchor]:
         anchors: list[ModuleAnchor] = []
         visible_modules = [module for module in modules if module.visibility == "visible"]
         for module in sorted(visible_modules, key=lambda item: item.order):
-            node_ids = [self._canvas_node_id(block_id) for block_id in module_source_refs.get(module.id, [])]
+            node_ids = [
+                self._canvas_node_id(block_id)
+                for block_id in module_source_refs.get(module.id, [])
+                if block_id in valid_block_ids
+            ]
             if not node_ids:
                 continue
             anchors.append(

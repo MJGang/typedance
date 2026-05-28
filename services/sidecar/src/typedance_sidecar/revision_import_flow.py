@@ -97,6 +97,8 @@ class RevisionImportFlowService:
         sources = self._selected_sources(document.id, run.source_document_ids)
         if not sources:
             raise RevisionServiceError("Import flow requires at least one source")
+        if len(sources) > 1:
+            raise RevisionServiceError("Import flow requires exactly one source")
 
         parsed_blocks = self._parse_sources(run, sources)
         if not parsed_blocks:
