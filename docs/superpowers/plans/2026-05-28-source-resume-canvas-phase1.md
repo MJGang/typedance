@@ -315,7 +315,7 @@ def test_repository_saves_source_resume_canvas(tmp_path):
 Run:
 
 ```powershell
-corepack pnpm --filter @typedance/sidecar test -- services/sidecar/tests/test_revision_repository.py::test_repository_saves_source_resume_canvas
+corepack pnpm --filter @typedance/sidecar exec pytest tests/test_revision_repository.py::test_repository_saves_source_resume_canvas
 ```
 
 Expected: FAIL because the models and repository methods do not exist.
@@ -401,7 +401,7 @@ Add methods after `list_parsed_blocks`:
 Run:
 
 ```powershell
-corepack pnpm --filter @typedance/sidecar test -- services/sidecar/tests/test_revision_repository.py::test_repository_saves_source_resume_canvas
+corepack pnpm --filter @typedance/sidecar exec pytest tests/test_revision_repository.py::test_repository_saves_source_resume_canvas
 ```
 
 Expected: PASS.
@@ -484,7 +484,7 @@ def test_builder_preserves_original_blocks_and_canvas_node_ids():
 Run:
 
 ```powershell
-corepack pnpm --filter @typedance/sidecar test -- services/sidecar/tests/test_revision_source_canvas.py
+corepack pnpm --filter @typedance/sidecar exec pytest tests/test_revision_source_canvas.py
 ```
 
 Expected: FAIL because `revision_source_canvas.py` does not exist.
@@ -744,7 +744,7 @@ In `services/sidecar/tests/test_revision_blank_guided_flow.py`, after retrieving
 Run:
 
 ```powershell
-corepack pnpm --filter @typedance/sidecar test -- services/sidecar/tests/test_revision_source_canvas.py services/sidecar/tests/test_revision_import_flow.py services/sidecar/tests/test_revision_blank_guided_flow.py
+corepack pnpm --filter @typedance/sidecar exec pytest tests/test_revision_source_canvas.py tests/test_revision_import_flow.py tests/test_revision_blank_guided_flow.py
 ```
 
 Expected: PASS.
@@ -964,8 +964,8 @@ it("saves source resume canvas doc json", async () => {
 Run:
 
 ```powershell
-corepack pnpm --filter @typedance/sidecar test -- services/sidecar/tests/test_revision_services.py services/sidecar/tests/test_revision_api.py
-corepack pnpm --filter @typedance/web test -- src/api.test.ts
+corepack pnpm --filter @typedance/sidecar exec pytest tests/test_revision_services.py tests/test_revision_api.py
+corepack pnpm --filter @typedance/web exec vitest run src/api.test.ts
 ```
 
 Expected: PASS.
@@ -1022,7 +1022,7 @@ it("renders source canvas node attributes as data attributes", async () => {
 Run:
 
 ```powershell
-corepack pnpm --filter @typedance/web test -- src/features/workspace/components/ResumeRichTextEditor.toolbar.test.tsx
+corepack pnpm --filter @typedance/web exec vitest run src/features/workspace/components/ResumeRichTextEditor.toolbar.test.tsx
 ```
 
 Expected: FAIL because the attributes are not part of the TipTap schema and are not rendered.
@@ -1090,7 +1090,7 @@ Add to `useImperativeHandle`:
 Run:
 
 ```powershell
-corepack pnpm --filter @typedance/web test -- src/features/workspace/components/ResumeRichTextEditor.toolbar.test.tsx
+corepack pnpm --filter @typedance/web exec vitest run src/features/workspace/components/ResumeRichTextEditor.toolbar.test.tsx
 ```
 
 Expected: PASS.
@@ -1177,7 +1177,7 @@ it("renders collapsible module outline", async () => {
 Run:
 
 ```powershell
-corepack pnpm --filter @typedance/web test -- src/features/revision/RevisionWorkspacePage.test.tsx
+corepack pnpm --filter @typedance/web exec vitest run src/features/revision/RevisionWorkspacePage.test.tsx
 ```
 
 Expected: FAIL because `DraftCanvas` does not exist and page still renders iframe/fallback module list.
@@ -1340,7 +1340,7 @@ Append to `apps/web/src/styles.css`:
 Run:
 
 ```powershell
-corepack pnpm --filter @typedance/web test -- src/features/revision/RevisionWorkspacePage.test.tsx
+corepack pnpm --filter @typedance/web exec vitest run src/features/revision/RevisionWorkspacePage.test.tsx
 ```
 
 Expected: PASS.
@@ -1398,7 +1398,7 @@ it("shows staged import progress while submitting", async () => {
 Run:
 
 ```powershell
-corepack pnpm --filter @typedance/web test -- src/features/home/ImportOldResumeModal.test.tsx
+corepack pnpm --filter @typedance/web exec vitest run src/features/home/ImportOldResumeModal.test.tsx
 ```
 
 Expected: FAIL because `importOldResume` has no progress callback and modal does not render stage text.
@@ -1517,7 +1517,7 @@ Render before errors:
 Run:
 
 ```powershell
-corepack pnpm --filter @typedance/web test -- src/features/home/ImportOldResumeModal.test.tsx src/api.test.ts
+corepack pnpm --filter @typedance/web exec vitest run src/features/home/ImportOldResumeModal.test.tsx src/api.test.ts
 ```
 
 Expected: PASS.
@@ -1541,7 +1541,7 @@ git commit -m "feat(import): 展示旧简历导入阶段进度"
 Run:
 
 ```powershell
-corepack pnpm --filter @typedance/sidecar test -- services/sidecar/tests/test_revision_source_canvas.py services/sidecar/tests/test_revision_import_flow.py services/sidecar/tests/test_revision_blank_guided_flow.py services/sidecar/tests/test_revision_services.py services/sidecar/tests/test_revision_api.py
+corepack pnpm --filter @typedance/sidecar exec pytest tests/test_revision_source_canvas.py tests/test_revision_import_flow.py tests/test_revision_blank_guided_flow.py tests/test_revision_services.py tests/test_revision_api.py
 ```
 
 Expected: PASS.
@@ -1551,7 +1551,7 @@ Expected: PASS.
 Run:
 
 ```powershell
-corepack pnpm --filter @typedance/web test -- src/features/workspace/components/ResumeRichTextEditor.toolbar.test.tsx src/features/revision/RevisionWorkspacePage.test.tsx src/features/home/ImportOldResumeModal.test.tsx src/api.test.ts
+corepack pnpm --filter @typedance/web exec vitest run src/features/workspace/components/ResumeRichTextEditor.toolbar.test.tsx src/features/revision/RevisionWorkspacePage.test.tsx src/features/home/ImportOldResumeModal.test.tsx src/api.test.ts
 ```
 
 Expected: PASS.
