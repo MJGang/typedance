@@ -129,7 +129,7 @@ class SourceResumeCanvasBuilder:
                                 "content": [
                                     {
                                         "type": "text",
-                                        "text": block.text.lstrip("-*•· ").strip(),
+                                        "text": block.text,
                                     }
                                 ],
                             }

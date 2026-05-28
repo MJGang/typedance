@@ -66,3 +66,35 @@ def test_builder_preserves_original_blocks_and_canvas_node_ids():
     assert canvas.node_map[2].text == "负责订单系统重构"
     assert canvas.node_map[2].module_id == "mod_work"
     assert canvas.module_anchors[0].canvas_node_ids == ["node_block_2", "node_block_3"]
+
+
+def test_builder_preserves_original_list_block_text_in_doc_json():
+    now = utc_now()
+    source = SourceDocument(
+        id="src_1",
+        document_id="doc_1",
+        source_type="old_resume",
+        title="旧简历",
+        raw_text="- 负责订单系统重构",
+        parse_status="parsed",
+        created_at=now,
+    )
+    block = ParsedBlock(
+        id="block_1",
+        source_document_id=source.id,
+        type="list",
+        text="- 负责订单系统重构",
+        order=0,
+        source_span={"line": 1},
+    )
+
+    canvas = SourceResumeCanvasBuilder().build(
+        source=source,
+        parsed_blocks=[block],
+        modules=[],
+        module_source_refs={},
+    )
+
+    paragraph = canvas.doc_json["content"][0]["content"][0]["content"][0]
+    assert paragraph["content"][0]["text"] == "- 负责订单系统重构"
+    assert canvas.node_map[0].text == "- 负责订单系统重构"
