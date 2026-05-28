@@ -19,6 +19,7 @@ from .revision_models import (
     RevisionProposal,
     RevisionRun,
     SourceDocument,
+    SourceResumeCanvas,
     UserConfirmation,
 )
 
@@ -48,6 +49,16 @@ REVISION_TABLE_DEFINITIONS = [
     CREATE TABLE IF NOT EXISTS parsed_blocks (
       id TEXT PRIMARY KEY,
       source_document_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      schema_version TEXT NOT NULL DEFAULT '0.1.0',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS source_resume_canvases (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
       payload TEXT NOT NULL,
       schema_version TEXT NOT NULL DEFAULT '0.1.0',
       created_at TEXT NOT NULL,
@@ -293,6 +304,14 @@ class RevisionRepository:
 
     def list_parsed_blocks(self, source_document_id: str) -> list[ParsedBlock]:
         return self._list("parsed_blocks", ParsedBlock, "source_document_id", source_document_id)
+
+    def save_source_resume_canvas(self, canvas: SourceResumeCanvas) -> SourceResumeCanvas:
+        self._save("source_resume_canvases", canvas, {"document_id": canvas.document_id})
+        return canvas
+
+    def get_source_resume_canvas(self, document_id: str) -> SourceResumeCanvas | None:
+        canvases = self._list("source_resume_canvases", SourceResumeCanvas, "document_id", document_id)
+        return canvases[-1] if canvases else None
 
     def save_draft_version(self, draft: DraftVersion) -> DraftVersion:
         self._save("draft_versions", draft, {"document_id": draft.document_id})
