@@ -75,6 +75,8 @@ def test_blank_guided_flow_generates_initial_workspace(tmp_path):
     workspace = WorkspaceService(repo).get_workspace_view(document.id)
     assert workspace.current_draft is not None
     assert workspace.render_projection is not None
+    assert workspace.source_resume_canvas is not None
+    assert workspace.source_resume_canvas.doc_json["type"] == "doc"
     assert {module.type for module in workspace.modules} >= {
         "BasicInfo",
         "JobIntent",

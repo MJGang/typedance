@@ -343,6 +343,7 @@ class WorkspaceService:
             proposals=proposals,
             evidence=self.repository.list_evidence_links(document.id),
             source_summaries=self.repository.list_source_documents(document.id),
+            source_resume_canvas=self.repository.get_source_resume_canvas(document.id),
             render_projection=render_projection,
             quality_gate=quality_gate,
             run_status=self._run_status(document.id),

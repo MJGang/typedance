@@ -30,6 +30,7 @@ from .revision_models import (
 )
 from .revision_repository import RevisionRepository
 from .revision_services import RenderService, RevisionServiceError
+from .revision_source_canvas import SourceResumeCanvasBuilder
 
 
 CONTACT_EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
@@ -122,8 +123,21 @@ class RevisionImportFlowService:
         )
         modules = self._build_modules_from_structured_output(document, draft, structured_output)
         module_id_by_temp = {module.temp_id: saved.id for module, saved in zip(structured_output.modules, modules, strict=False)}
+        module_source_refs = {
+            saved.id: module.source_block_refs
+            for module, saved in zip(structured_output.modules, modules, strict=False)
+        }
         for module in modules:
             self.repository.save_document_module(module)
+
+        source_canvas = SourceResumeCanvasBuilder().build(
+            source=sources[0],
+            parsed_blocks=parsed_blocks,
+            modules=modules,
+            module_source_refs=module_source_refs,
+        )
+        self.repository.save_source_resume_canvas(source_canvas)
+        self._save_step(run.id, "BuildSourceCanvas")
 
         claims = self._build_claims_from_structured_output(draft, structured_output, module_id_by_temp)
         for claim in claims:
