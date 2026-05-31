@@ -1,3 +1,5 @@
+import pytest
+
 from typedance_sidecar.db import connect
 from typedance_sidecar.models import utc_now
 from typedance_sidecar.revision_models import (
@@ -23,6 +25,7 @@ from typedance_sidecar.revision_services import (
     IssueService,
     ProposalService,
     RenderService,
+    RevisionServiceError,
     SourceService,
     WorkspaceService,
 )
@@ -370,6 +373,7 @@ def test_workspace_service_saves_source_resume_canvas_document(tmp_path):
         "content": [
             {
                 "type": "paragraph",
+                "attrs": {"canvasNodeId": "node_1", "moduleId": "mod_1"},
                 "content": [{"type": "text", "text": "更新后的旧简历正文"}],
             }
         ],
@@ -380,11 +384,87 @@ def test_workspace_service_saves_source_resume_canvas_document(tmp_path):
     assert saved.document_id == canvas.document_id
     assert saved.old_resume_source_id == canvas.old_resume_source_id
     assert saved.doc_json == next_doc_json
-    assert saved.node_map == canvas.node_map
+    assert len(saved.node_map) == 1
+    assert saved.node_map[0].canvas_node_id == "node_1"
+    assert saved.node_map[0].source_block_id == "blk_1"
+    assert saved.node_map[0].source_span == {"line": 1}
+    assert saved.node_map[0].module_id == "mod_1"
+    assert saved.node_map[0].text == next_doc_json["content"][0]["content"][0]["text"]
     assert saved.module_anchors == canvas.module_anchors
     assert saved.created_at == canvas.created_at
     assert saved.updated_at != canvas.updated_at
     assert repo.get_source_resume_canvas("doc_1") == saved
+
+
+def test_workspace_service_removes_stale_source_resume_canvas_references(tmp_path):
+    repo = make_repository(tmp_path)
+    seed_revision_workspace(repo)
+
+    saved = WorkspaceService(repo).save_source_resume_canvas_document(
+        "doc_1",
+        {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "attrs": {"canvasNodeId": "node_new"},
+                    "content": [{"type": "text", "text": "new paragraph"}],
+                }
+            ],
+        },
+    )
+
+    assert saved.node_map == []
+    assert saved.module_anchors == []
+
+
+def test_workspace_service_updates_nested_text_and_module_id_for_retained_node(tmp_path):
+    repo = make_repository(tmp_path)
+    seed_revision_workspace(repo)
+
+    saved = WorkspaceService(repo).save_source_resume_canvas_document(
+        "doc_1",
+        {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "bulletList",
+                    "content": [
+                        {
+                            "type": "listItem",
+                            "attrs": {"canvasNodeId": "node_1", "moduleId": "mod_2"},
+                            "content": [
+                                {
+                                    "type": "paragraph",
+                                    "content": [{"type": "text", "text": "updated paragraph"}],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert saved.node_map[0].text == "updated paragraph"
+    assert saved.node_map[0].module_id == "mod_2"
+
+
+def test_workspace_service_rejects_duplicate_source_resume_canvas_node_ids(tmp_path):
+    repo = make_repository(tmp_path)
+    seed_revision_workspace(repo)
+
+    with pytest.raises(RevisionServiceError, match="Duplicate canvasNodeId: node_1"):
+        WorkspaceService(repo).save_source_resume_canvas_document(
+            "doc_1",
+            {
+                "type": "doc",
+                "content": [
+                    {"type": "paragraph", "attrs": {"canvasNodeId": "node_1"}},
+                    {"type": "paragraph", "attrs": {"canvasNodeId": "node_1"}},
+                ],
+            },
+        )
 
 
 def test_render_and_export_services_wrap_repository_operations(tmp_path):

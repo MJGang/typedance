@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .import_resume_file_text import ImportResumeFileError, extract_import_resume_file_text
 from .models import Language, utc_now
@@ -104,6 +104,15 @@ class RenderDraftRequest(BaseModel):
 
 class SaveSourceResumeCanvasRequest(BaseModel):
     doc_json: dict[str, Any]
+
+    @field_validator("doc_json", mode="after")
+    @classmethod
+    def validate_doc_json(cls, doc_json: dict[str, Any]) -> dict[str, Any]:
+        if doc_json.get("type") != "doc":
+            raise ValueError("doc_json.type must be 'doc'")
+        if not isinstance(doc_json.get("content"), list):
+            raise ValueError("doc_json.content must be a list")
+        return doc_json
 
 
 class ExportDraftPdfRequest(BaseModel):

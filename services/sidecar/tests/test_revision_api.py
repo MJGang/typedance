@@ -338,6 +338,7 @@ def test_revision_api_saves_source_resume_canvas_document(revision_client):
                 "content": [
                     {
                         "type": "paragraph",
+                        "attrs": {"canvasNodeId": "node_1", "moduleId": "mod_1"},
                         "content": [{"type": "text", "text": "用户编辑后的旧简历正文"}],
                     }
                 ],
@@ -350,7 +351,39 @@ def test_revision_api_saves_source_resume_canvas_document(revision_client):
     assert payload["id"] == "canvas_1"
     assert payload["doc_json"]["content"][0]["content"][0]["text"] == "用户编辑后的旧简历正文"
     assert payload["node_map"][0]["canvas_node_id"] == "node_1"
+    assert payload["node_map"][0]["text"] == payload["doc_json"]["content"][0]["content"][0]["text"]
     assert payload["module_anchors"][0]["module_id"] == "mod_1"
+
+
+@pytest.mark.parametrize(
+    "doc_json",
+    [
+        {},
+        {"type": "paragraph", "content": []},
+        {"type": "doc", "content": {}},
+    ],
+)
+def test_revision_api_rejects_invalid_source_resume_canvas_document(revision_client, doc_json):
+    client, tmp_path = revision_client
+    seed_workspace(tmp_path)
+
+    response = client.put(
+        "/documents/doc_1/source-resume-canvas",
+        json={"doc_json": doc_json},
+    )
+
+    assert response.status_code == 422
+
+
+def test_revision_api_returns_404_when_source_resume_canvas_document_missing(revision_client):
+    client, _tmp_path = revision_client
+
+    response = client.put(
+        "/documents/doc_missing/source-resume-canvas",
+        json={"doc_json": {"type": "doc", "content": []}},
+    )
+
+    assert response.status_code == 404
 
 
 def test_revision_api_returns_404_when_source_resume_canvas_missing(revision_client):
