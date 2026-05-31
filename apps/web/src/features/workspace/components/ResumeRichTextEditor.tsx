@@ -62,6 +62,7 @@ export type ResumeRichTextEditorHandle = {
   setColumnsCount: (count: ColumnsCount) => void
   setColumnsGap: (gap: ColumnsGap) => void
   unsetColumns: () => void
+  scrollToCanvasNode: (canvasNodeId: string) => void
 }
 
 type ToolbarState = {
@@ -223,6 +224,27 @@ const BlockStyle = Extension.create({
               const marginLeft = Number.parseFloat(element.style.marginLeft)
               return Number.isFinite(marginLeft) ? Math.max(0, Math.round(marginLeft / 24)) : 0
             },
+          },
+          canvasNodeId: {
+            default: null,
+            parseHTML: (element: HTMLElement) => element.getAttribute("data-canvas-node-id"),
+            renderHTML: (attributes) => typeof attributes.canvasNodeId === "string" && attributes.canvasNodeId
+              ? { "data-canvas-node-id": attributes.canvasNodeId }
+              : {},
+          },
+          sourceBlockId: {
+            default: null,
+            parseHTML: (element: HTMLElement) => element.getAttribute("data-source-block-id"),
+            renderHTML: (attributes) => typeof attributes.sourceBlockId === "string" && attributes.sourceBlockId
+              ? { "data-source-block-id": attributes.sourceBlockId }
+              : {},
+          },
+          moduleId: {
+            default: null,
+            parseHTML: (element: HTMLElement) => element.getAttribute("data-module-id"),
+            renderHTML: (attributes) => typeof attributes.moduleId === "string" && attributes.moduleId
+              ? { "data-module-id": attributes.moduleId }
+              : {},
           },
         },
       },
@@ -519,6 +541,18 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       },
       unsetColumns: () => {
         editor?.chain().focus().unsetColumns().run()
+      },
+      scrollToCanvasNode: (canvasNodeId) => {
+        const root = editor?.view.dom
+        if (!root) return
+
+        const canvasNodes = root.querySelectorAll("[data-canvas-node-id]")
+        for (const canvasNode of canvasNodes) {
+          if (canvasNode instanceof HTMLElement && canvasNode.getAttribute("data-canvas-node-id") === canvasNodeId) {
+            canvasNode.scrollIntoView({ behavior: "smooth", block: "center" })
+            return
+          }
+        }
       },
     }), [editor])
 
