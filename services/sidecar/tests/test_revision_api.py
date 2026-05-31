@@ -386,6 +386,26 @@ def test_revision_api_returns_404_when_source_resume_canvas_document_missing(rev
     assert response.status_code == 404
 
 
+def test_revision_api_returns_400_for_duplicate_source_resume_canvas_node_ids(revision_client):
+    client, tmp_path = revision_client
+    seed_workspace(tmp_path)
+
+    response = client.put(
+        "/documents/doc_1/source-resume-canvas",
+        json={
+            "doc_json": {
+                "type": "doc",
+                "content": [
+                    {"type": "paragraph", "attrs": {"canvasNodeId": "node_1"}},
+                    {"type": "paragraph", "attrs": {"canvasNodeId": "node_1"}},
+                ],
+            }
+        },
+    )
+
+    assert response.status_code == 400
+
+
 def test_revision_api_returns_404_when_source_resume_canvas_missing(revision_client):
     client, _tmp_path = revision_client
     created_document = client.post(

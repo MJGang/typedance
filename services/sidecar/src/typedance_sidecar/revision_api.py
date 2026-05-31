@@ -35,6 +35,7 @@ from .revision_repository import RevisionRepository
 from .revision_services import (
     DraftService,
     EvidenceService,
+    InvalidSourceResumeCanvasError,
     IssueService,
     ProposalService,
     RenderService,
@@ -343,6 +344,8 @@ def create_revision_router(
                 document_id,
                 payload.doc_json,
             )
+        except InvalidSourceResumeCanvasError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RevisionServiceError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 

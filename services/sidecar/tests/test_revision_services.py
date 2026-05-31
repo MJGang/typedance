@@ -448,6 +448,29 @@ def test_workspace_service_updates_nested_text_and_module_id_for_retained_node(t
 
     assert saved.node_map[0].text == "updated paragraph"
     assert saved.node_map[0].module_id == "mod_2"
+    assert saved.module_anchors == []
+
+
+def test_workspace_service_clears_module_id_and_anchor_when_doc_node_has_no_module_id(tmp_path):
+    repo = make_repository(tmp_path)
+    seed_revision_workspace(repo)
+
+    saved = WorkspaceService(repo).save_source_resume_canvas_document(
+        "doc_1",
+        {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "attrs": {"canvasNodeId": "node_1"},
+                    "content": [{"type": "text", "text": "updated paragraph"}],
+                }
+            ],
+        },
+    )
+
+    assert saved.node_map[0].module_id is None
+    assert saved.module_anchors == []
 
 
 def test_workspace_service_rejects_duplicate_source_resume_canvas_node_ids(tmp_path):
