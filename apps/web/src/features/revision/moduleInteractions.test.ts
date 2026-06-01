@@ -1,5 +1,5 @@
 import type { ModuleAnchor } from "@typedance/contracts"
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   buildModuleVisualRegions,
   clampOutlinePosition,
@@ -88,6 +88,34 @@ describe("module outline preferences", () => {
       expanded: false,
       position: { x: 120, y: 48 },
     })
+  })
+
+  it("does not persist preferences with non-finite positions", () => {
+    saveModuleOutlinePreferences("document-a", {
+      visible: true,
+      expanded: false,
+      position: { x: Number.NaN, y: 48 },
+    })
+
+    expect(localStorage.getItem(moduleOutlineStorageKey("document-a"))).toBeNull()
+  })
+
+  it("silently degrades when localStorage setItem throws a SecurityError", () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError")
+    })
+
+    try {
+      expect(() => {
+        saveModuleOutlinePreferences("document-a", {
+          visible: true,
+          expanded: false,
+          position: { x: 120, y: 48 },
+        })
+      }).not.toThrow()
+    } finally {
+      setItem.mockRestore()
+    }
   })
 
   it.each([
@@ -253,6 +281,104 @@ describe("buildModuleVisualRegions", () => {
     ])
   })
 
+  it("skips pagination gaps with non-finite coordinates or non-positive dimensions", () => {
+    expect(
+      buildModuleVisualRegions({
+        anchors: [anchor("module-a", ["node-1"])],
+        nodes: [
+          { canvasNodeId: "node-1", rect: { top: 80, bottom: 160, left: 10, right: 110 } },
+        ],
+        gaps: [
+          { top: Number.NaN, bottom: 90 },
+          { top: 140, bottom: Number.POSITIVE_INFINITY },
+          { top: 95, bottom: 90 },
+          { top: 100, bottom: 120 },
+        ],
+      }),
+    ).toEqual([
+      {
+        moduleId: "module-a",
+        pageIndex: 0,
+        top: 80,
+        left: 10,
+        width: 100,
+        height: 20,
+      },
+      {
+        moduleId: "module-a",
+        pageIndex: 1,
+        top: 120,
+        left: 10,
+        width: 100,
+        height: 40,
+      },
+    ])
+  })
+
+  it("merges overlapping pagination gaps before assigning page indexes", () => {
+    expect(
+      buildModuleVisualRegions({
+        anchors: [anchor("module-a", ["node-1"])],
+        nodes: [
+          { canvasNodeId: "node-1", rect: { top: 80, bottom: 170, left: 10, right: 110 } },
+        ],
+        gaps: [
+          { top: 100, bottom: 130 },
+          { top: 120, bottom: 150 },
+        ],
+      }),
+    ).toEqual([
+      {
+        moduleId: "module-a",
+        pageIndex: 0,
+        top: 80,
+        left: 10,
+        width: 100,
+        height: 20,
+      },
+      {
+        moduleId: "module-a",
+        pageIndex: 1,
+        top: 150,
+        left: 10,
+        width: 100,
+        height: 20,
+      },
+    ])
+  })
+
+  it("merges duplicate pagination gaps before assigning page indexes", () => {
+    expect(
+      buildModuleVisualRegions({
+        anchors: [anchor("module-a", ["node-1"])],
+        nodes: [
+          { canvasNodeId: "node-1", rect: { top: 80, bottom: 160, left: 10, right: 110 } },
+        ],
+        gaps: [
+          { top: 100, bottom: 120 },
+          { top: 100, bottom: 120 },
+        ],
+      }),
+    ).toEqual([
+      {
+        moduleId: "module-a",
+        pageIndex: 0,
+        top: 80,
+        left: 10,
+        width: 100,
+        height: 20,
+      },
+      {
+        moduleId: "module-a",
+        pageIndex: 1,
+        top: 120,
+        left: 10,
+        width: 100,
+        height: 40,
+      },
+    ])
+  })
+
   it("skips missing nodes and rectangles fully inside a gap", () => {
     expect(
       buildModuleVisualRegions({
@@ -270,6 +396,46 @@ describe("buildModuleVisualRegions", () => {
         top: 130,
         left: 20,
         width: 80,
+        height: 20,
+      },
+    ])
+  })
+
+  it("skips rectangles with non-finite coordinates or non-positive dimensions", () => {
+    expect(
+      buildModuleVisualRegions({
+        anchors: [
+          anchor("module-a", [
+            "valid",
+            "nan-top",
+            "infinite-right",
+            "inverted-height",
+            "zero-height",
+            "inverted-width",
+            "zero-width",
+          ]),
+        ],
+        nodes: [
+          { canvasNodeId: "valid", rect: { top: 10, bottom: 30, left: 5, right: 50 } },
+          { canvasNodeId: "nan-top", rect: { top: Number.NaN, bottom: 30, left: 5, right: 50 } },
+          {
+            canvasNodeId: "infinite-right",
+            rect: { top: 10, bottom: 30, left: 5, right: Number.POSITIVE_INFINITY },
+          },
+          { canvasNodeId: "inverted-height", rect: { top: 30, bottom: 10, left: 5, right: 50 } },
+          { canvasNodeId: "zero-height", rect: { top: 10, bottom: 10, left: 5, right: 50 } },
+          { canvasNodeId: "inverted-width", rect: { top: 10, bottom: 30, left: 50, right: 5 } },
+          { canvasNodeId: "zero-width", rect: { top: 10, bottom: 30, left: 5, right: 5 } },
+        ],
+        gaps: [],
+      }),
+    ).toEqual([
+      {
+        moduleId: "module-a",
+        pageIndex: 0,
+        top: 10,
+        left: 5,
+        width: 45,
         height: 20,
       },
     ])

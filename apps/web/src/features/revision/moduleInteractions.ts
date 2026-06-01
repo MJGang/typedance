@@ -33,6 +33,17 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value)
 }
 
+function isValidRect(rect: ModuleLayoutRect): boolean {
+  return (
+    isFiniteNumber(rect.top)
+    && isFiniteNumber(rect.bottom)
+    && isFiniteNumber(rect.left)
+    && isFiniteNumber(rect.right)
+    && rect.bottom > rect.top
+    && rect.right > rect.left
+  )
+}
+
 function isModuleOutlinePreferences(value: unknown): value is PersistedModuleOutlinePreferences {
   if (typeof value !== "object" || value === null) return false
 
@@ -55,6 +66,30 @@ function finiteNonNegative(value: number): number {
 
 function finiteCoordinate(value: number): number {
   return Number.isFinite(value) ? value : 0
+}
+
+function normalizePaginationGaps(gaps: PaginationGap[]): PaginationGap[] {
+  const sortedGaps = gaps
+    .filter((gap) => (
+      isFiniteNumber(gap.top)
+      && isFiniteNumber(gap.bottom)
+      && gap.bottom > gap.top
+    ))
+    .map((gap) => ({ ...gap }))
+    .sort((left, right) => left.top - right.top || left.bottom - right.bottom)
+
+  const normalizedGaps: PaginationGap[] = []
+  for (const gap of sortedGaps) {
+    const previousGap = normalizedGaps[normalizedGaps.length - 1]
+    if (!previousGap || gap.top > previousGap.bottom) {
+      normalizedGaps.push(gap)
+      continue
+    }
+
+    previousGap.bottom = Math.max(previousGap.bottom, gap.bottom)
+  }
+
+  return normalizedGaps
 }
 
 export function moduleOutlineStorageKey(documentId: string): string {
@@ -88,6 +123,8 @@ export function saveModuleOutlinePreferences(
   documentId: string,
   preferences: PersistedModuleOutlinePreferences,
 ): void {
+  if (!isModuleOutlinePreferences(preferences)) return
+
   const persistedPreferences: PersistedModuleOutlinePreferences = {
     visible: preferences.visible,
     expanded: preferences.expanded,
@@ -97,7 +134,11 @@ export function saveModuleOutlinePreferences(
     },
   }
 
-  localStorage.setItem(moduleOutlineStorageKey(documentId), JSON.stringify(persistedPreferences))
+  try {
+    localStorage.setItem(moduleOutlineStorageKey(documentId), JSON.stringify(persistedPreferences))
+  } catch {
+    // Preference persistence is best-effort when browser storage is unavailable.
+  }
 }
 
 export function clampOutlinePosition(
@@ -175,9 +216,7 @@ export function buildModuleVisualRegions({
   const sortedAnchors = anchors
     .map((anchor, inputIndex) => ({ anchor, inputIndex }))
     .sort((left, right) => left.anchor.order - right.anchor.order || left.inputIndex - right.inputIndex)
-  const sortedGaps = gaps
-    .map((gap) => ({ ...gap }))
-    .sort((left, right) => left.top - right.top || left.bottom - right.bottom)
+  const normalizedGaps = normalizePaginationGaps(gaps)
   const rectsByNodeId = new Map(nodes.map((node) => [node.canvasNodeId, node.rect]))
   const moduleOrder = new Map<string, number>()
   const regions = new Map<string, ModuleVisualRegion>()
@@ -187,9 +226,9 @@ export function buildModuleVisualRegions({
 
     for (const canvasNodeId of anchor.canvas_node_ids) {
       const rect = rectsByNodeId.get(canvasNodeId)
-      if (!rect) continue
+      if (!rect || !isValidRect(rect)) continue
 
-      for (const fragment of splitRectAcrossGaps(rect, sortedGaps)) {
+      for (const fragment of splitRectAcrossGaps(rect, normalizedGaps)) {
         const key = `${anchor.module_id}\u0000${fragment.pageIndex}`
         const existingRegion = regions.get(key)
         if (!existingRegion) {
