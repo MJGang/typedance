@@ -51,6 +51,7 @@ describe("ImportOldResumeModal", () => {
   it("keeps long pasted resume content scrollable inside the modal", () => {
     renderModal()
 
+    expect(screen.getByText("系统会保留原始简历内容，并生成可直接编辑的工作台。")).toBeInTheDocument()
     expect(screen.getByRole("dialog")).toHaveClass("max-h-[calc(100svh-2rem)]", "overflow-y-auto")
     expect(screen.getByLabelText("旧简历内容")).toHaveClass(
       "field-sizing-fixed",
@@ -74,7 +75,7 @@ describe("ImportOldResumeModal", () => {
       expect(apiMocks.importOldResume).toHaveBeenCalledWith({
         title: "张三旧简历",
         raw_text: "项目经历\n负责订单系统重构",
-      })
+      }, expect.any(Function))
     })
     await waitFor(() => {
       expect(screen.getByTestId("location")).toHaveTextContent("/packs/resume/workspaces/doc_import")
@@ -98,7 +99,7 @@ describe("ImportOldResumeModal", () => {
       expect(apiMocks.importOldResume).toHaveBeenCalledWith({
         title: "张三旧简历",
         file,
-      })
+      }, expect.any(Function))
     })
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
@@ -111,5 +112,31 @@ describe("ImportOldResumeModal", () => {
     })
 
     expect(screen.queryByLabelText("选择旧简历文件")).not.toBeInTheDocument()
+  })
+
+  it("shows staged import progress while submitting", async () => {
+    let resolveImport: (value: { document: { id: string } }) => void = () => {}
+    apiMocks.importOldResume.mockImplementation(
+      (_input, onProgress?: (step: string) => void) => new Promise((resolve) => {
+        resolveImport = resolve
+        onProgress?.("create_document")
+        onProgress?.("save_source")
+        onProgress?.("run_import")
+      }),
+    )
+    renderModal()
+
+    fireEvent.change(screen.getByLabelText("旧简历内容"), { target: { value: "张三" } })
+    fireEvent.click(screen.getByRole("button", { name: "生成改稿工作台" }))
+
+    expect(await screen.findByText("正在准备可编辑工作台")).toBeInTheDocument()
+    expect(screen.getByText("创建工作台")).toBeInTheDocument()
+    expect(screen.getByText("保存旧简历")).toBeInTheDocument()
+    expect(screen.getByText("解析原文、生成画布并识别模块")).toBeInTheDocument()
+
+    resolveImport({ document: { id: "doc_import" } })
+    await waitFor(() => {
+      expect(screen.getByTestId("location")).toHaveTextContent("/packs/resume/workspaces/doc_import")
+    })
   })
 })

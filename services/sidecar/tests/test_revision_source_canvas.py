@@ -1,0 +1,144 @@
+from typedance_sidecar.models import utc_now
+from typedance_sidecar.revision_models import DocumentModule, ParsedBlock, SourceDocument
+from typedance_sidecar.revision_source_canvas import SourceResumeCanvasBuilder
+
+
+def test_builder_preserves_original_blocks_and_canvas_node_ids():
+    now = utc_now()
+    source = SourceDocument(
+        id="src_1",
+        document_id="doc_1",
+        source_type="old_resume",
+        title="旧简历",
+        raw_text="张三\n工作经历\n负责订单系统重构",
+        parse_status="parsed",
+        created_at=now,
+    )
+    blocks = [
+        ParsedBlock(
+            id="block_1",
+            source_document_id=source.id,
+            type="paragraph",
+            text="张三",
+            order=0,
+            source_span={"line": 1},
+        ),
+        ParsedBlock(
+            id="block_2",
+            source_document_id=source.id,
+            type="heading",
+            text="工作经历",
+            order=1,
+            source_span={"line": 2},
+        ),
+        ParsedBlock(
+            id="block_3",
+            source_document_id=source.id,
+            type="paragraph",
+            text="负责订单系统重构",
+            order=2,
+            source_span={"line": 3},
+        ),
+    ]
+    module = DocumentModule(
+        id="mod_work",
+        draft_id="draft_1",
+        pack_id="resume",
+        type="WorkExperience",
+        title="工作经历",
+        order=1,
+        visibility="visible",
+        status="needs_review",
+        data={},
+        created_at=now,
+        updated_at=now,
+    )
+
+    canvas = SourceResumeCanvasBuilder().build(
+        source=source,
+        parsed_blocks=blocks,
+        modules=[module],
+        module_source_refs={"mod_work": ["block_2", "block_3"]},
+    )
+
+    assert canvas.old_resume_source_id == "src_1"
+    assert canvas.doc_json["content"][0]["attrs"]["canvasNodeId"] == "node_block_1"
+    assert canvas.node_map[2].text == "负责订单系统重构"
+    assert canvas.node_map[2].module_id == "mod_work"
+    assert canvas.module_anchors[0].canvas_node_ids == ["node_block_2", "node_block_3"]
+
+
+def test_builder_preserves_original_list_block_text_in_doc_json():
+    now = utc_now()
+    source = SourceDocument(
+        id="src_1",
+        document_id="doc_1",
+        source_type="old_resume",
+        title="旧简历",
+        raw_text="- 负责订单系统重构",
+        parse_status="parsed",
+        created_at=now,
+    )
+    block = ParsedBlock(
+        id="block_1",
+        source_document_id=source.id,
+        type="list",
+        text="- 负责订单系统重构",
+        order=0,
+        source_span={"line": 1},
+    )
+
+    canvas = SourceResumeCanvasBuilder().build(
+        source=source,
+        parsed_blocks=[block],
+        modules=[],
+        module_source_refs={},
+    )
+
+    paragraph = canvas.doc_json["content"][0]["content"][0]["content"][0]
+    assert paragraph["content"][0]["text"] == "- 负责订单系统重构"
+    assert canvas.node_map[0].text == "- 负责订单系统重构"
+
+
+def test_builder_filters_module_anchors_to_current_source_blocks():
+    now = utc_now()
+    source = SourceDocument(
+        id="src_1",
+        document_id="doc_1",
+        source_type="old_resume",
+        title="旧简历",
+        raw_text="工作经历",
+        parse_status="parsed",
+        created_at=now,
+    )
+    block = ParsedBlock(
+        id="block_1",
+        source_document_id=source.id,
+        type="heading",
+        text="工作经历",
+        order=0,
+        source_span={"line": 1},
+    )
+    module = DocumentModule(
+        id="mod_work",
+        draft_id="draft_1",
+        pack_id="resume",
+        type="WorkExperience",
+        title="工作经历",
+        order=1,
+        visibility="visible",
+        status="needs_review",
+        data={},
+        created_at=now,
+        updated_at=now,
+    )
+
+    canvas = SourceResumeCanvasBuilder().build(
+        source=source,
+        parsed_blocks=[block],
+        modules=[module],
+        module_source_refs={"mod_work": ["block_1", "block_other_source"]},
+    )
+
+    assert canvas.module_anchors[0].canvas_node_ids == ["node_block_1"]
+    assert "node_block_other_source" not in canvas.module_anchors[0].canvas_node_ids

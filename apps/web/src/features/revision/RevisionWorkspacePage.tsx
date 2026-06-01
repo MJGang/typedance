@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { AlertCircle, ArrowLeft, BriefcaseBusiness, Check, Download, FileText, Loader2, RefreshCcw, Send, ShieldCheck, X } from "lucide-react"
+import { AlertCircle, ArrowLeft, BriefcaseBusiness, Check, Download, Loader2, RefreshCcw, Send, ShieldCheck, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -11,12 +11,13 @@ import {
   dismissRevisionIssue,
   getRevisionWorkspaceView,
   rejectRevisionProposal,
-  renderRevisionDraft,
   runRevisionQualityReview,
 } from "@/api"
 import { resumePackPaths } from "../resume-pack/routes"
+import { DraftCanvas } from "./DraftCanvas"
 import { ExportGateModal } from "./ExportGateModal"
 import { OpportunityCalibrationModal } from "./OpportunityCalibrationModal"
+import { useSourceCanvasAutosave } from "./useSourceCanvasAutosave"
 import type {
   ContextualAction,
   DocumentClaim,
@@ -24,6 +25,7 @@ import type {
   EvidenceLink,
   RevisionIssue,
   RevisionProposal,
+  SourceResumeCanvas,
   SourceDocumentSummary,
   WorkspaceView,
 } from "@typedance/contracts"
@@ -47,55 +49,6 @@ function qualityClass(status?: string) {
   if (status === "needs_review") return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
   if (status === "ready") return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
   return "border-border bg-muted text-muted-foreground"
-}
-
-function moduleLines(module: DocumentModule) {
-  const items = module.data.items
-  if (Array.isArray(items)) {
-    return items.flatMap((item) => {
-      if (typeof item === "string") return item ? [item] : []
-      if (!item || typeof item !== "object") return []
-      const record = item as Record<string, unknown>
-      const title = [record.title, record.role, record.company, record.time_range]
-        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-        .join(" / ")
-      const description = typeof record.description === "string" ? record.description : ""
-      const bullets = Array.isArray(record.bullets)
-        ? record.bullets.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-        : []
-      return [title, description, ...bullets].filter(Boolean)
-    })
-  }
-
-  return Object.entries(module.data)
-    .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
-    .map(([key, value]) => `${key}: ${value}`)
-}
-
-function ModuleList({ modules }: { modules: DocumentModule[] }) {
-  if (modules.length === 0) {
-    return <p className="text-sm text-muted-foreground">还没有可展示的结构化模块。</p>
-  }
-
-  return (
-    <div className="space-y-5">
-      {modules.map((module) => (
-        <section key={module.id} className="border-b border-border pb-4 last:border-b-0">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold">{module.title}</h2>
-            <span className="shrink-0 text-xs text-muted-foreground">{module.status}</span>
-          </div>
-          <ul className="space-y-1.5 text-sm leading-6 text-foreground/85">
-            {moduleLines(module).map((line, index) => (
-              <li key={`${module.id}-${index}`} className="pl-3 [text-indent:-0.75rem]">
-                <span className="text-muted-foreground">- </span>{line}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
-    </div>
-  )
 }
 
 function targetMatches(action: ContextualAction, proposal: RevisionProposal) {
@@ -158,6 +111,14 @@ function sourceTitle(sourceSummaries: SourceDocumentSummary[], sourceDocumentId:
 
 function issueContextActionId(issueId: string) {
   return `issue_context_${issueId}`
+}
+
+function mergeLatestSavedCanvas(workspace: WorkspaceView, latestSavedCanvas: SourceResumeCanvas | null) {
+  if (!latestSavedCanvas || latestSavedCanvas.document_id !== workspace.document.id) return workspace
+  return {
+    ...workspace,
+    source_resume_canvas: latestSavedCanvas,
+  }
 }
 
 function IssueList({
@@ -366,35 +327,121 @@ export function RevisionWorkspacePage() {
   const [selectedIssueId, setSelectedIssueId] = useState<string | undefined>()
   const [issueContextInput, setIssueContextInput] = useState("")
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>("review")
+  const mountedRef = useRef(false)
+  const currentDocumentIdRef = useRef(documentId)
+  const latestSavedCanvasRef = useRef<SourceResumeCanvas | null>(null)
+  const loadRequestEpochRef = useRef(0)
+  currentDocumentIdRef.current = documentId
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      loadRequestEpochRef.current += 1
+    }
+  }, [])
+
+  const handleSavedCanvas = useCallback((savedCanvas: SourceResumeCanvas) => {
+    latestSavedCanvasRef.current = savedCanvas
+    if (!mountedRef.current || currentDocumentIdRef.current !== savedCanvas.document_id) return
+    setState((currentState) => {
+      if (currentState.status !== "loaded" || currentState.workspace.document.id !== savedCanvas.document_id) {
+        return currentState
+      }
+      return {
+        status: "loaded",
+        workspace: {
+          ...currentState.workspace,
+          source_resume_canvas: savedCanvas,
+        },
+      }
+    })
+  }, [])
+  const {
+    flush: flushCanvasSaves,
+    handleChange: handleCanvasChange,
+    latestSavedCanvas,
+    localDocJson: localCanvasDocJson,
+    retry: retryCanvasSave,
+    saveStatus: canvasSaveStatus,
+  } = useSourceCanvasAutosave(documentId, handleSavedCanvas)
+  if (latestSavedCanvas?.document_id === documentId) {
+    latestSavedCanvasRef.current = latestSavedCanvas
+  }
 
   const loadWorkspace = useCallback(async () => {
     if (!documentId) return
-    setState({ status: "loading" })
+    const capturedDocumentId = documentId
+    const requestEpoch = ++loadRequestEpochRef.current
+    await flushCanvasSaves()
+    if (
+      !mountedRef.current
+      || requestEpoch !== loadRequestEpochRef.current
+      || currentDocumentIdRef.current !== capturedDocumentId
+    ) return
+    setState((currentState) => currentState.status === "loaded" ? currentState : { status: "loading" })
     try {
-      const workspace = await getRevisionWorkspaceView(documentId)
-      setState({ status: "loaded", workspace })
+      const workspace = await getRevisionWorkspaceView(capturedDocumentId)
+      if (
+        !mountedRef.current
+        || requestEpoch !== loadRequestEpochRef.current
+        || currentDocumentIdRef.current !== capturedDocumentId
+      ) return
+      setState({ status: "loaded", workspace: mergeLatestSavedCanvas(workspace, latestSavedCanvasRef.current) })
     } catch {
+      if (
+        !mountedRef.current
+        || requestEpoch !== loadRequestEpochRef.current
+        || currentDocumentIdRef.current !== capturedDocumentId
+      ) return
       setState({ status: "error", message: "无法加载工作台，请检查 Sidecar 服务。" })
     }
-  }, [documentId])
+  }, [documentId, flushCanvasSaves])
 
   useEffect(() => {
     if (!documentId) return
-    let ignore = false
+    const capturedDocumentId = documentId
+    latestSavedCanvasRef.current = latestSavedCanvas?.document_id === capturedDocumentId ? latestSavedCanvas : null
+    const requestEpoch = ++loadRequestEpochRef.current
     setState({ status: "loading" })
-    getRevisionWorkspaceView(documentId)
-      .then((workspace) => {
-        if (!ignore) setState({ status: "loaded", workspace })
-      })
-      .catch(() => {
-        if (!ignore) setState({ status: "error", message: "无法加载工作台，请检查 Sidecar 服务。" })
-      })
+    void (async () => {
+      await flushCanvasSaves()
+      if (
+        !mountedRef.current
+        || requestEpoch !== loadRequestEpochRef.current
+        || currentDocumentIdRef.current !== capturedDocumentId
+      ) return
+      try {
+        const workspace = await getRevisionWorkspaceView(capturedDocumentId)
+        if (
+          mountedRef.current
+          && requestEpoch === loadRequestEpochRef.current
+          && currentDocumentIdRef.current === capturedDocumentId
+        ) {
+          setState({ status: "loaded", workspace: mergeLatestSavedCanvas(workspace, latestSavedCanvasRef.current) })
+        }
+      } catch {
+        if (
+          mountedRef.current
+          && requestEpoch === loadRequestEpochRef.current
+          && currentDocumentIdRef.current === capturedDocumentId
+        ) {
+          setState({ status: "error", message: "无法加载工作台，请检查 Sidecar 服务。" })
+        }
+      }
+    })()
     return () => {
-      ignore = true
+      loadRequestEpochRef.current += 1
     }
-  }, [documentId])
+  }, [documentId, flushCanvasSaves])
 
-  const workspace = state.status === "loaded" ? state.workspace : null
+  const workspace = state.status === "loaded" && state.workspace.document.id === documentId ? state.workspace : null
+  const sourceCanvas = workspace?.source_resume_canvas
+    ? {
+        ...workspace.source_resume_canvas,
+        doc_json: localCanvasDocJson ?? workspace.source_resume_canvas.doc_json,
+      }
+    : undefined
   const visibleIssues = useMemo(
     () => workspace?.issues.filter((issue) => issue.status === "open" || issue.status === "needs_user_input") ?? [],
     [workspace],
@@ -425,17 +472,6 @@ export function RevisionWorkspacePage() {
       } else if (action.action_type === "view_source") {
         return
       }
-      await loadWorkspace()
-    } finally {
-      setActingActionId(null)
-    }
-  }, [loadWorkspace, workspace])
-
-  const handleRender = useCallback(async () => {
-    if (!workspace?.current_draft) return
-    setActingActionId("render")
-    try {
-      await renderRevisionDraft(workspace.current_draft.id, "default-a4")
       await loadWorkspace()
     } finally {
       setActingActionId(null)
@@ -592,27 +628,22 @@ export function RevisionWorkspacePage() {
           )}
         >
           <div className="mx-auto max-w-3xl">
-            <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="mb-3">
               <div>
-                <p className="text-xs text-muted-foreground">当前草稿</p>
-                <h2 className="text-base font-semibold">{workspace.current_draft?.summary ?? "尚未生成草稿"}</h2>
+                <p className="text-xs text-muted-foreground">原始简历</p>
+                <h2 className="text-base font-semibold">可编辑 A4 画布</h2>
               </div>
-              <Button size="sm" variant="outline" onClick={handleRender} disabled={!workspace.current_draft || actingActionId === "render"}>
-                <FileText className="mr-2 h-4 w-4" />
-                {actingActionId === "render" ? "生成中" : "生成预览"}
-              </Button>
             </div>
-            {workspace.render_projection?.html ? (
-              <div className="overflow-hidden rounded-md border border-border bg-white shadow-sm">
-                <iframe
-                  title="结构化草稿预览"
-                  srcDoc={workspace.render_projection.html}
-                  className="h-[720px] w-full bg-white"
-                />
-              </div>
+            {sourceCanvas ? (
+              <DraftCanvas
+                canvas={sourceCanvas}
+                onChange={handleCanvasChange}
+                onRetrySave={retryCanvasSave}
+                saveStatus={canvasSaveStatus}
+              />
             ) : (
-              <div className="rounded-md border border-border p-4">
-                <ModuleList modules={workspace.modules} />
+              <div className="rounded-md border border-border bg-muted/30 p-4">
+                <p className="text-sm font-medium">原始画布尚未生成</p>
               </div>
             )}
           </div>

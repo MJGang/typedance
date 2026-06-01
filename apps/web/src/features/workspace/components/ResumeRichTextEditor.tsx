@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react"
-import { Extension, Mark } from "@tiptap/core"
+import { Extension, Mark, type Editor } from "@tiptap/core"
 import { Markdown } from "@tiptap/markdown"
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
 import { Plugin } from "@tiptap/pm/state"
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react"
 import type { JSONContent } from "@tiptap/react"
@@ -62,6 +63,7 @@ export type ResumeRichTextEditorHandle = {
   setColumnsCount: (count: ColumnsCount) => void
   setColumnsGap: (gap: ColumnsGap) => void
   unsetColumns: () => void
+  scrollToCanvasNode: (canvasNodeId: string) => void
 }
 
 type ToolbarState = {
@@ -197,7 +199,7 @@ const InlineStyle = Mark.create({
   },
 })
 
-const BlockStyle = Extension.create({
+export const BlockStyle = Extension.create({
   name: "blockStyle",
 
   addGlobalAttributes() {
@@ -224,6 +226,27 @@ const BlockStyle = Extension.create({
               return Number.isFinite(marginLeft) ? Math.max(0, Math.round(marginLeft / 24)) : 0
             },
           },
+          canvasNodeId: {
+            default: null,
+            parseHTML: (element: HTMLElement) => element.getAttribute("data-canvas-node-id"),
+            renderHTML: (attributes) => typeof attributes.canvasNodeId === "string" && attributes.canvasNodeId
+              ? { "data-canvas-node-id": attributes.canvasNodeId }
+              : {},
+          },
+          sourceBlockId: {
+            default: null,
+            parseHTML: (element: HTMLElement) => element.getAttribute("data-source-block-id"),
+            renderHTML: (attributes) => typeof attributes.sourceBlockId === "string" && attributes.sourceBlockId
+              ? { "data-source-block-id": attributes.sourceBlockId }
+              : {},
+          },
+          moduleId: {
+            default: null,
+            parseHTML: (element: HTMLElement) => element.getAttribute("data-module-id"),
+            renderHTML: (attributes) => typeof attributes.moduleId === "string" && attributes.moduleId
+              ? { "data-module-id": attributes.moduleId }
+              : {},
+          },
         },
       },
       {
@@ -242,6 +265,63 @@ const BlockStyle = Extension.create({
     ]
   },
 })
+
+type SourceCanvasAttrs = {
+  canvasNodeId: unknown
+  sourceBlockId: unknown
+  moduleId: unknown
+}
+
+function getSourceCanvasAttrs(attrs: Record<string, unknown>): SourceCanvasAttrs {
+  return {
+    canvasNodeId: attrs.canvasNodeId,
+    sourceBlockId: attrs.sourceBlockId,
+    moduleId: attrs.moduleId,
+  }
+}
+
+function getSelectedSourceCanvasAttrs(editor: Editor): Array<{ pos: number; attrs: SourceCanvasAttrs }> {
+  const attrsByPosition: Array<{ pos: number; attrs: SourceCanvasAttrs }> = []
+  const { doc, selection } = editor.state
+  const recordTextBlock = (node: ProseMirrorNode, pos: number) => {
+    if (!node.isTextblock || !BLOCK_STYLE_NODE_TYPES.includes(node.type.name as (typeof BLOCK_STYLE_NODE_TYPES)[number])) return
+    attrsByPosition.push({ pos, attrs: getSourceCanvasAttrs(node.attrs) })
+  }
+
+  if (selection.empty) {
+    for (let depth = selection.$from.depth; depth > 0; depth -= 1) {
+      const node = selection.$from.node(depth)
+      if (node.isTextblock) {
+        recordTextBlock(node, selection.$from.before(depth))
+        break
+      }
+    }
+    return attrsByPosition
+  }
+
+  doc.nodesBetween(selection.from, selection.to, recordTextBlock)
+  return attrsByPosition
+}
+
+export function setToolbarTextBlock(editor: Editor, block: "paragraph" | "heading1" | "heading2" | "heading3") {
+  const sourceAttrsByPosition = getSelectedSourceCanvasAttrs(editor)
+  const chain = editor.chain().focus()
+
+  if (block === "paragraph") chain.setParagraph()
+  if (block === "heading1") chain.toggleHeading({ level: 1 })
+  if (block === "heading2") chain.toggleHeading({ level: 2 })
+  if (block === "heading3") chain.toggleHeading({ level: 3 })
+
+  chain.command(({ tr }) => {
+    for (const { pos, attrs } of sourceAttrsByPosition) {
+      const mappedPos = tr.mapping.map(pos)
+      const node = tr.doc.nodeAt(mappedPos)
+      if (!node?.isTextblock || !BLOCK_STYLE_NODE_TYPES.includes(node.type.name as (typeof BLOCK_STYLE_NODE_TYPES)[number])) continue
+      tr.setNodeMarkup(mappedPos, undefined, { ...node.attrs, ...attrs })
+    }
+    return true
+  }).run()
+}
 
 const PasteMarkdown = Extension.create({
   name: "pasteMarkdown",
@@ -520,6 +600,19 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       unsetColumns: () => {
         editor?.chain().focus().unsetColumns().run()
       },
+      scrollToCanvasNode: (canvasNodeId) => {
+        if (!editor || editor.isDestroyed) return
+        const root = editor.view.dom
+
+        const canvasNodes = root.querySelectorAll("[data-canvas-node-id]")
+        for (const canvasNode of canvasNodes) {
+          if (canvasNode instanceof HTMLElement && canvasNode.getAttribute("data-canvas-node-id") === canvasNodeId) {
+            const behavior = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+            canvasNode.scrollIntoView({ behavior, block: "center" })
+            return
+          }
+        }
+      },
     }), [editor])
 
     useEffect(() => {
@@ -556,10 +649,9 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                 disabled={!editor}
                 className="td-toolbar-block-trigger"
                 onChange={(block) => {
-                  if (block === "paragraph") editor?.chain().focus().setParagraph().run()
-                  if (block === "heading1") editor?.chain().focus().toggleHeading({ level: 1 }).run()
-                  if (block === "heading2") editor?.chain().focus().toggleHeading({ level: 2 }).run()
-                  if (block === "heading3") editor?.chain().focus().toggleHeading({ level: 3 }).run()
+                  if (editor && (block === "paragraph" || block === "heading1" || block === "heading2" || block === "heading3")) {
+                    setToolbarTextBlock(editor, block)
+                  }
                 }}
               />
               <ToolbarSelect

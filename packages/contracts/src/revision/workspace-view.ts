@@ -9,6 +9,7 @@ import { renderProjectionSchema } from "./render";
 import { revisionActionSchema, revisionIssueSchema } from "./issue";
 import { revisionProposalSchema } from "./proposal";
 import { revisionRunStatusSchema } from "./run";
+import { sourceResumeCanvasSchema } from "./source-canvas";
 import { sourceDocumentSummarySchema } from "./source";
 
 export const qualityGateResultSchema = z.object({
@@ -41,6 +42,7 @@ export const workspaceViewSchema = z.object({
   proposals: z.array(revisionProposalSchema).default([]),
   evidence: z.array(evidenceLinkSchema).default([]),
   source_summaries: z.array(sourceDocumentSummarySchema).default([]),
+  source_resume_canvas: sourceResumeCanvasSchema.optional(),
   render_projection: renderProjectionSchema.optional(),
   quality_gate: qualityGateResultSchema.optional(),
   run_status: revisionRunStatusSummarySchema.optional(),

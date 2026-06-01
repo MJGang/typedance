@@ -197,6 +197,45 @@ describe("revision api", () => {
     expect(projection.id).toBe("render_1")
   })
 
+  it("saves source resume canvas document json", async () => {
+    const responsePayload = {
+      id: "canvas_1",
+      document_id: "doc_1",
+      old_resume_source_id: "src_old",
+      doc_json: {
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: "更新正文" }] }],
+      },
+      node_map: [],
+      module_anchors: [],
+      created_at: "2026-05-28T08:00:00.000Z",
+      updated_at: "2026-05-28T08:01:00.000Z",
+    }
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(responsePayload))))
+
+    const { saveSourceResumeCanvas } = await import("./api")
+    const canvas = await saveSourceResumeCanvas("doc_1", {
+      type: "doc",
+      content: [{ type: "paragraph" }],
+    })
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:4317/documents/doc_1/source-resume-canvas",
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          doc_json: {
+            type: "doc",
+            content: [{ type: "paragraph" }],
+          },
+        }),
+      },
+    )
+    expect(canvas.id).toBe("canvas_1")
+    expect(canvas.doc_json).toEqual(responsePayload.doc_json)
+  })
+
   it("accepts a revision proposal", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       id: "prop_1",
@@ -304,10 +343,11 @@ describe("revision api", () => {
     }
 
     const { importOldResume } = await import("./api")
+    const progressSteps: string[] = []
     const workspace = await importOldResume({
       title: "旧简历重构",
       raw_text: "项目经历\n负责订单系统重构",
-    })
+    }, (step) => progressSteps.push(step))
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -341,6 +381,12 @@ describe("revision api", () => {
       "http://127.0.0.1:4317/documents/doc_import/workspace-view",
     )
     expect(workspace.document.current_draft_id).toBe("draft_import")
+    expect(progressSteps).toEqual([
+      "create_document",
+      "save_source",
+      "run_import",
+      "load_workspace",
+    ])
   })
 
   it("imports an old resume file through upload source run and workspace view", async () => {

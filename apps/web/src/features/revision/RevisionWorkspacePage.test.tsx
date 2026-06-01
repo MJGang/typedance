@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest"
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { MemoryRouter, Route, Routes } from "react-router-dom"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { WorkspaceView } from "@typedance/contracts"
 import { RevisionWorkspacePage } from "./RevisionWorkspacePage"
@@ -15,6 +15,11 @@ const apiMocks = vi.hoisted(() => ({
   createRevisionRun: vi.fn(),
   calibrateRevisionOpportunity: vi.fn(),
   exportRevisionDraftPdf: vi.fn(),
+  saveSourceResumeCanvas: vi.fn(),
+}))
+
+const draftCanvasMocks = vi.hoisted(() => ({
+  render: vi.fn(),
 }))
 
 vi.mock("@/api", () => ({
@@ -27,6 +32,75 @@ vi.mock("@/api", () => ({
   createRevisionRun: (...args: unknown[]) => apiMocks.createRevisionRun(...args),
   calibrateRevisionOpportunity: (...args: unknown[]) => apiMocks.calibrateRevisionOpportunity(...args),
   exportRevisionDraftPdf: (...args: unknown[]) => apiMocks.exportRevisionDraftPdf(...args),
+  saveSourceResumeCanvas: (...args: unknown[]) => apiMocks.saveSourceResumeCanvas(...args),
+}))
+
+function canvasText(docJson: unknown): string {
+  if (!docJson || typeof docJson !== "object") return ""
+  if ("text" in docJson && typeof docJson.text === "string") return docJson.text
+  if (!("content" in docJson) || !Array.isArray(docJson.content)) return ""
+  return docJson.content.map(canvasText).join("")
+}
+
+vi.mock("./DraftCanvas", () => ({
+  DraftCanvas: ({
+    canvas,
+    onChange,
+    onRetrySave,
+    saveStatus,
+  }: {
+    canvas: WorkspaceView["source_resume_canvas"]
+    onChange: (change: { plainText: string; docJson: { type: "doc"; content: unknown[] } }) => void
+    onRetrySave: () => void
+    saveStatus: "idle" | "saving" | "saved" | "error"
+  }) => (
+    draftCanvasMocks.render(canvas?.document_id),
+    <section aria-label="原始简历画布">
+      <p>{canvasText(canvas?.doc_json)}</p>
+      <button type="button" aria-expanded="true" aria-label="折叠模块大纲">模块大纲</button>
+      {canvas?.module_anchors.map((anchor) => <button key={anchor.module_id} type="button">{anchor.title}</button>)}
+      <button
+        type="button"
+        onClick={() => onChange({
+          plainText: "负责核心链路重构并提升稳定性。",
+          docJson: {
+            type: "doc",
+            content: [
+              {
+                type: "paragraph",
+                attrs: { canvasNodeId: "node_project", sourceBlockId: "block_project", moduleId: "mod_1" },
+                content: [{ type: "text", text: "负责核心链路重构并提升稳定性。" }],
+              },
+            ],
+          },
+        })}
+      >
+        编辑原始画布
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange({
+          plainText: "负责核心链路重构并提升稳定性与可观测性。",
+          docJson: {
+            type: "doc",
+            content: [
+              {
+                type: "paragraph",
+                attrs: { canvasNodeId: "node_project", sourceBlockId: "block_project", moduleId: "mod_1" },
+                content: [{ type: "text", text: "负责核心链路重构并提升稳定性与可观测性。" }],
+              },
+            ],
+          },
+        })}
+      >
+        再次编辑原始画布
+      </button>
+      <span aria-live="polite">
+        {saveStatus === "saving" ? "正在保存" : saveStatus === "saved" ? "已保存" : saveStatus === "error" ? "保存失败" : ""}
+      </span>
+      {saveStatus === "error" ? <button type="button" onClick={onRetrySave}>重试保存</button> : null}
+    </section>
+  ),
 }))
 
 const workspace: WorkspaceView = {
@@ -156,6 +230,41 @@ const workspace: WorkspaceView = {
       created_at: "2026-05-21T08:00:00.000Z",
     },
   ],
+  source_resume_canvas: {
+    id: "canvas_1",
+    document_id: "doc_1",
+    old_resume_source_id: "src_1",
+    doc_json: {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { canvasNodeId: "node_project", sourceBlockId: "block_project", moduleId: "mod_1" },
+          content: [{ type: "text", text: "负责核心链路重构。" }],
+        },
+      ],
+    },
+    node_map: [
+      {
+        canvas_node_id: "node_project",
+        source_block_id: "block_project",
+        node_type: "paragraph",
+        text: "负责核心链路重构。",
+        source_span: { line: 1 },
+        module_id: "mod_1",
+      },
+    ],
+    module_anchors: [
+      {
+        module_id: "mod_1",
+        canvas_node_ids: ["node_project"],
+        title: "项目经历",
+        order: 0,
+      },
+    ],
+    created_at: "2026-05-21T08:00:00.000Z",
+    updated_at: "2026-05-21T08:00:00.000Z",
+  },
   quality_gate: {
     status: "needs_review",
     blocking_issue_ids: [],
@@ -186,13 +295,65 @@ const workspace: WorkspaceView = {
 }
 
 function renderPage() {
-  render(
+  return render(
     <MemoryRouter initialEntries={["/packs/resume/workspaces/doc_1"]}>
       <Routes>
         <Route path="/packs/resume/workspaces/:documentId" element={<RevisionWorkspacePage />} />
       </Routes>
     </MemoryRouter>,
   )
+}
+
+function RouteSwitch() {
+  const navigate = useNavigate()
+  return <button type="button" onClick={() => navigate("/packs/resume/workspaces/doc_2")}>切换文档</button>
+}
+
+function renderPageWithRouteSwitch() {
+  return render(
+    <MemoryRouter initialEntries={["/packs/resume/workspaces/doc_1"]}>
+      <RouteSwitch />
+      <Routes>
+        <Route path="/packs/resume/workspaces/:documentId" element={<RevisionWorkspacePage />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
+function workspaceForDocument(documentId: string, title: string): WorkspaceView {
+  return {
+    ...workspace,
+    document: { ...workspace.document, id: documentId, title },
+    source_resume_canvas: {
+      ...workspace.source_resume_canvas!,
+      document_id: documentId,
+    },
+  }
+}
+
+function savedCanvasWithLatestText() {
+  return {
+    ...workspace.source_resume_canvas!,
+    doc_json: {
+      type: "doc" as const,
+      content: [{
+        type: "paragraph",
+        content: [{ type: "text", text: "负责核心链路重构并提升稳定性。" }],
+      }],
+    },
+    module_anchors: [{
+      module_id: "mod_1",
+      canvas_node_ids: ["node_project"],
+      title: "最新模块",
+      order: 0,
+    }],
+  }
+}
+
+function dispatchBeforeUnload() {
+  const event = new Event("beforeunload", { cancelable: true })
+  window.dispatchEvent(event)
+  return event
 }
 
 describe("RevisionWorkspacePage", () => {
@@ -206,12 +367,15 @@ describe("RevisionWorkspacePage", () => {
     apiMocks.createRevisionRun.mockReset()
     apiMocks.calibrateRevisionOpportunity.mockReset()
     apiMocks.exportRevisionDraftPdf.mockReset()
+    apiMocks.saveSourceResumeCanvas.mockReset()
+    draftCanvasMocks.render.mockReset()
     apiMocks.getRevisionWorkspaceView.mockResolvedValue(workspace)
     apiMocks.acceptRevisionProposal.mockResolvedValue({ id: "prop_1", status: "applied" })
     apiMocks.runRevisionQualityReview.mockResolvedValue({ id: "run_review", status: "completed" })
     apiMocks.createRevisionRun.mockResolvedValue({ id: "run_issue", status: "created" })
     apiMocks.calibrateRevisionOpportunity.mockResolvedValue({ document: { id: "doc_1" } })
     apiMocks.exportRevisionDraftPdf.mockResolvedValue({ fileName: "resume.pdf", reviewStatus: "forced_with_risk" })
+    apiMocks.saveSourceResumeCanvas.mockResolvedValue(workspace.source_resume_canvas)
   })
 
   it("loads and renders the workspace view", async () => {
@@ -220,9 +384,331 @@ describe("RevisionWorkspacePage", () => {
     expect(screen.getByText("加载工作台")).toBeInTheDocument()
     expect(await screen.findByRole("heading", { name: "张三的简历" })).toBeInTheDocument()
     expect(screen.getByText("还有 1 个问题建议处理后再导出。")).toBeInTheDocument()
-    expect(screen.getByText("订单系统重构 / 核心开发")).toBeInTheDocument()
+    expect(screen.getByText("负责核心链路重构。")).toBeInTheDocument()
     expect(screen.getAllByText("缺少结果").length).toBeGreaterThan(0)
     expect(screen.getAllByText("改成结果导向表达").length).toBeGreaterThan(0)
+  })
+
+  it("renders the source resume canvas instead of iframe preview", async () => {
+    renderPage()
+
+    expect(await screen.findByText("负责核心链路重构。")).toBeInTheDocument()
+    expect(screen.queryByTitle("结构化草稿预览")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "折叠模块大纲" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "项目经历" })).toBeInTheDocument()
+  })
+
+  it("debounces source canvas autosave and announces success", async () => {
+    renderPage()
+    await screen.findByText("负责核心链路重构。")
+    vi.useFakeTimers()
+
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "编辑原始画布" }))
+      expect(apiMocks.saveSourceResumeCanvas).not.toHaveBeenCalled()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600)
+      })
+
+      expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledTimes(1)
+      expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledWith("doc_1", expect.objectContaining({ type: "doc" }))
+      expect(screen.getByText("已保存")).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("keeps local canvas text and retries a failed autosave explicitly", async () => {
+    apiMocks.saveSourceResumeCanvas.mockRejectedValueOnce(new Error("save failed"))
+    renderPage()
+    await screen.findByText("负责核心链路重构。")
+    vi.useFakeTimers()
+
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "编辑原始画布" }))
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600)
+      })
+
+      expect(screen.getByText("保存失败")).toBeInTheDocument()
+      expect(screen.getByText("负责核心链路重构并提升稳定性。")).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole("button", { name: "重试保存" }))
+
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledTimes(2)
+      expect(screen.getByText("已保存")).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("serializes autosaves and drains the latest local canvas after the in-flight save", async () => {
+    let resolveFirstSave: (canvas: NonNullable<WorkspaceView["source_resume_canvas"]>) => void = () => {}
+    let resolveSecondSave: (canvas: NonNullable<WorkspaceView["source_resume_canvas"]>) => void = () => {}
+    apiMocks.saveSourceResumeCanvas
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveFirstSave = resolve
+      }))
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveSecondSave = resolve
+      }))
+    renderPage()
+    await screen.findByText("负责核心链路重构。")
+    vi.useFakeTimers()
+
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "编辑原始画布" }))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600)
+      })
+      fireEvent.click(screen.getByRole("button", { name: "再次编辑原始画布" }))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600)
+      })
+      expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledTimes(1)
+
+      await act(async () => {
+        resolveFirstSave({
+          ...workspace.source_resume_canvas!,
+          doc_json: {
+            type: "doc",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "旧响应正文" }] }],
+          },
+        })
+      })
+      expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledTimes(2)
+      expect(screen.getByText("负责核心链路重构并提升稳定性与可观测性。")).toBeInTheDocument()
+
+      await act(async () => {
+        resolveSecondSave({
+          ...workspace.source_resume_canvas!,
+          doc_json: {
+            type: "doc",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "负责核心链路重构并提升稳定性与可观测性。" }] }],
+          },
+        })
+      })
+      expect(screen.getByText("已保存")).toBeInTheDocument()
+      expect(screen.queryByText("旧响应正文")).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("flushes pending canvas text before refreshing the workspace", async () => {
+    let resolveSave: (canvas: NonNullable<WorkspaceView["source_resume_canvas"]>) => void = () => {}
+    apiMocks.saveSourceResumeCanvas.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveSave = resolve
+    }))
+    renderPage()
+    await screen.findByText("负责核心链路重构。")
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑原始画布" }))
+    fireEvent.click(screen.getByRole("button", { name: "质量检查" }))
+
+    await waitFor(() => expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledTimes(1))
+    expect(apiMocks.getRevisionWorkspaceView).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveSave(workspace.source_resume_canvas!)
+    })
+
+    await waitFor(() => expect(apiMocks.getRevisionWorkspaceView).toHaveBeenCalledTimes(2))
+  })
+
+  it("keeps unload protection while an unmounted cleanup save is pending", async () => {
+    let resolveSave: (canvas: NonNullable<WorkspaceView["source_resume_canvas"]>) => void = () => {}
+    apiMocks.saveSourceResumeCanvas.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveSave = resolve
+    }))
+    const { unmount } = renderPage()
+    await screen.findByText("负责核心链路重构。")
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑原始画布" }))
+    unmount()
+
+    expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledTimes(1)
+    const pendingUnloadPrevented = dispatchBeforeUnload().defaultPrevented
+
+    await act(async () => {
+      resolveSave(savedCanvasWithLatestText())
+    })
+    expect(pendingUnloadPrevented).toBe(true)
+    expect(dispatchBeforeUnload().defaultPrevented).toBe(false)
+  })
+
+  it("waits for a cleanup save before loading a remounted workspace for the same document", async () => {
+    let resolveFirstSave: (canvas: NonNullable<WorkspaceView["source_resume_canvas"]>) => void = () => {}
+    apiMocks.saveSourceResumeCanvas.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveFirstSave = resolve
+    }))
+    const firstPage = renderPage()
+    await screen.findByText("负责核心链路重构。")
+    fireEvent.click(screen.getByRole("button", { name: "编辑原始画布" }))
+    firstPage.unmount()
+    expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledTimes(1)
+
+    const secondPage = renderPage()
+    try {
+      expect(apiMocks.getRevisionWorkspaceView).toHaveBeenCalledTimes(1)
+
+      await act(async () => {
+        resolveFirstSave(savedCanvasWithLatestText())
+      })
+
+      await waitFor(() => expect(apiMocks.getRevisionWorkspaceView).toHaveBeenCalledTimes(2))
+      expect(await screen.findByText("负责核心链路重构并提升稳定性。")).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: "最新模块" })).toBeInTheDocument()
+    } finally {
+      await act(async () => {
+        resolveFirstSave(savedCanvasWithLatestText())
+        await Promise.resolve()
+      })
+      secondPage.unmount()
+    }
+  })
+
+  it("does not implicitly retry a failed save while refreshing or unmounting", async () => {
+    apiMocks.saveSourceResumeCanvas.mockRejectedValueOnce(new Error("save failed"))
+    const page = renderPage()
+    await screen.findByText("负责核心链路重构。")
+    vi.useFakeTimers()
+
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "编辑原始画布" }))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600)
+      })
+      expect(screen.getByText("保存失败")).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole("button", { name: "质量检查" }))
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(apiMocks.getRevisionWorkspaceView).toHaveBeenCalledTimes(2)
+      expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledTimes(1)
+
+      page.unmount()
+      expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledTimes(1)
+
+      const recoveryPage = renderPage()
+      vi.useRealTimers()
+      expect(await screen.findByText("保存失败")).toBeInTheDocument()
+      fireEvent.click(screen.getByRole("button", { name: "重试保存" }))
+      await act(async () => {
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+      expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledTimes(2)
+      recoveryPage.unmount()
+    } finally {
+      page.unmount()
+      vi.useRealTimers()
+    }
+  })
+
+  it("restores a failed cleanup save after remount and retries it explicitly", async () => {
+    apiMocks.saveSourceResumeCanvas
+      .mockRejectedValueOnce(new Error("save failed"))
+      .mockResolvedValueOnce(savedCanvasWithLatestText())
+    const firstPage = renderPage()
+    await screen.findByText("负责核心链路重构。")
+    fireEvent.click(screen.getByRole("button", { name: "编辑原始画布" }))
+    firstPage.unmount()
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const failedUnloadPrevented = dispatchBeforeUnload().defaultPrevented
+
+    const secondPage = renderPage()
+    try {
+      expect(await screen.findByText("负责核心链路重构并提升稳定性。")).toBeInTheDocument()
+      expect(screen.getByText("保存失败")).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole("button", { name: "重试保存" }))
+
+      await waitFor(() => expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledTimes(2))
+      expect(screen.getByText("已保存")).toBeInTheDocument()
+    } finally {
+      secondPage.unmount()
+    }
+    expect(failedUnloadPrevented).toBe(true)
+    expect(dispatchBeforeUnload().defaultPrevented).toBe(false)
+  })
+
+  it("prevents unload while a canvas save is pending", async () => {
+    renderPage()
+    await screen.findByText("负责核心链路重构。")
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑原始画布" }))
+    expect(dispatchBeforeUnload().defaultPrevented).toBe(true)
+  })
+
+  it("does not render an old workspace canvas after the route document changes", async () => {
+    let resolveSecondWorkspace: (nextWorkspace: WorkspaceView) => void = () => {}
+    apiMocks.getRevisionWorkspaceView.mockImplementation((documentId: string) => {
+      if (documentId === "doc_1") return Promise.resolve(workspace)
+      return new Promise((resolve) => {
+        resolveSecondWorkspace = resolve
+      })
+    })
+    renderPageWithRouteSwitch()
+    await screen.findByText("负责核心链路重构。")
+    draftCanvasMocks.render.mockClear()
+
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "切换文档" }))
+
+      expect(draftCanvasMocks.render).not.toHaveBeenCalled()
+      expect(screen.queryByRole("button", { name: "编辑原始画布" })).not.toBeInTheDocument()
+    } finally {
+      await waitFor(() => {
+        expect(apiMocks.getRevisionWorkspaceView).toHaveBeenCalledWith("doc_2")
+      })
+      await act(async () => {
+        resolveSecondWorkspace(workspaceForDocument("doc_2", "李四的简历"))
+      })
+    }
+
+    expect(await screen.findByRole("heading", { name: "李四的简历" })).toBeInTheDocument()
+  })
+
+  it("drops an old refresh continuation when the route changes during flush", async () => {
+    let resolveSave: (canvas: NonNullable<WorkspaceView["source_resume_canvas"]>) => void = () => {}
+    apiMocks.saveSourceResumeCanvas.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveSave = resolve
+    }))
+    apiMocks.getRevisionWorkspaceView.mockImplementation((documentId: string) => (
+      Promise.resolve(documentId === "doc_1" ? workspace : workspaceForDocument("doc_2", "李四的简历"))
+    ))
+    renderPageWithRouteSwitch()
+    await screen.findByText("负责核心链路重构。")
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑原始画布" }))
+    fireEvent.click(screen.getByRole("button", { name: "质量检查" }))
+    await waitFor(() => expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByRole("button", { name: "切换文档" }))
+    expect(await screen.findByRole("heading", { name: "李四的简历" })).toBeInTheDocument()
+
+    await act(async () => {
+      resolveSave(savedCanvasWithLatestText())
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(apiMocks.getRevisionWorkspaceView.mock.calls.map(([documentId]) => documentId)).toEqual(["doc_1", "doc_2"])
+    expect(screen.getByRole("heading", { name: "李四的简历" })).toBeInTheDocument()
   })
 
   it("runs an available proposal action and refreshes the workspace", async () => {

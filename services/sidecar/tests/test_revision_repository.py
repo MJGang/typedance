@@ -7,12 +7,15 @@ from typedance_sidecar.revision_models import (
     DraftVersion,
     EvidenceLink,
     ExportArtifact,
+    ModuleAnchor,
     ParsedBlock,
     RenderProjection,
     RevisionAction,
     RevisionIssue,
     RevisionProposal,
     RevisionRun,
+    SourceResumeCanvas,
+    SourceResumeCanvasNode,
     SourceDocument,
     UserConfirmation,
     utc_now,
@@ -24,6 +27,7 @@ REVISION_TABLES = {
     "documents",
     "source_documents",
     "parsed_blocks",
+    "source_resume_canvases",
     "draft_versions",
     "document_modules",
     "document_claims",
@@ -37,6 +41,10 @@ REVISION_TABLES = {
     "render_projections",
     "export_artifacts",
 }
+
+
+def make_repository(tmp_path) -> RevisionRepository:
+    return RevisionRepository(connect(tmp_path / "typedance.sqlite"))
 
 
 def test_revision_models_validate_minimal_document_and_source():
@@ -62,6 +70,50 @@ def test_revision_models_validate_minimal_document_and_source():
 
     assert document.id == "doc_1"
     assert source.document_id == document.id
+
+
+def test_repository_saves_source_resume_canvas(tmp_path):
+    repo = make_repository(tmp_path)
+    now = utc_now()
+    canvas = SourceResumeCanvas(
+        id="canvas_1",
+        document_id="doc_1",
+        old_resume_source_id="src_1",
+        doc_json={
+            "type": "doc",
+            "content": [
+                {
+                    "type": "paragraph",
+                    "attrs": {"canvasNodeId": "node_1"},
+                    "content": [{"type": "text", "text": "负责订单系统重构"}],
+                }
+            ],
+        },
+        node_map=[
+            SourceResumeCanvasNode(
+                canvas_node_id="node_1",
+                source_block_id="block_1",
+                node_type="paragraph",
+                text="负责订单系统重构",
+                source_span={"line": 1},
+                module_id="mod_1",
+            )
+        ],
+        module_anchors=[
+            ModuleAnchor(
+                module_id="mod_1",
+                canvas_node_ids=["node_1"],
+                title="工作经历",
+                order=1,
+            )
+        ],
+        created_at=now,
+        updated_at=now,
+    )
+
+    repo.save_source_resume_canvas(canvas)
+
+    assert repo.get_source_resume_canvas("doc_1") == canvas
 
 
 def test_connect_creates_revision_tables(tmp_path):

@@ -1,12 +1,12 @@
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .import_resume_file_text import ImportResumeFileError, extract_import_resume_file_text
 from .models import Language, utc_now
@@ -20,6 +20,7 @@ from .revision_models import (
     RevisionProposal,
     RevisionRun,
     SourceDocument,
+    SourceResumeCanvas,
     UserConfirmation,
     WorkspaceView,
 )
@@ -34,6 +35,7 @@ from .revision_repository import RevisionRepository
 from .revision_services import (
     DraftService,
     EvidenceService,
+    InvalidSourceResumeCanvasError,
     IssueService,
     ProposalService,
     RenderService,
@@ -99,6 +101,19 @@ class CreateRevisionRunRequest(BaseModel):
 
 class RenderDraftRequest(BaseModel):
     render_profile: str | None = None
+
+
+class SaveSourceResumeCanvasRequest(BaseModel):
+    doc_json: dict[str, Any]
+
+    @field_validator("doc_json", mode="after")
+    @classmethod
+    def validate_doc_json(cls, doc_json: dict[str, Any]) -> dict[str, Any]:
+        if doc_json.get("type") != "doc":
+            raise ValueError("doc_json.type must be 'doc'")
+        if not isinstance(doc_json.get("content"), list):
+            raise ValueError("doc_json.content must be a list")
+        return doc_json
 
 
 class ExportDraftPdfRequest(BaseModel):
@@ -315,6 +330,22 @@ def create_revision_router(
     ) -> WorkspaceView:
         try:
             return WorkspaceService(repo).get_workspace_view(document_id)
+        except RevisionServiceError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.put("/documents/{document_id}/source-resume-canvas", response_model=SourceResumeCanvas)
+    def save_source_resume_canvas(
+        document_id: str,
+        payload: SaveSourceResumeCanvasRequest,
+        repo: RevisionRepository = Depends(repository),
+    ) -> SourceResumeCanvas:
+        try:
+            return WorkspaceService(repo).save_source_resume_canvas_document(
+                document_id,
+                payload.doc_json,
+            )
+        except InvalidSourceResumeCanvasError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RevisionServiceError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 

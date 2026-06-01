@@ -14,6 +14,7 @@ import {
   revisionProposalSchema,
   revisionRunSchema,
   sourceDocumentSchema,
+  sourceResumeCanvasSchema,
   templateSampleContentSchema,
   templateStyleConfigSchema,
   userConfirmationSchema,
@@ -32,6 +33,7 @@ import {
   type RevisionProposal,
   type RevisionRun,
   type SourceDocument,
+  type SourceResumeCanvas,
   type TemplateSampleContent,
   type TemplateStyleConfig,
   type UserConfirmation,
@@ -146,6 +148,22 @@ export async function getRevisionWorkspaceView(documentId: string): Promise<Work
     response,
     (value) => workspaceViewSchema.parse(value),
     "Failed to load revision workspace",
+  )
+}
+
+export async function saveSourceResumeCanvas(
+  documentId: string,
+  docJson: Record<string, unknown>,
+): Promise<SourceResumeCanvas> {
+  const response = await fetch(`${baseUrl}/documents/${documentId}/source-resume-canvas`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ doc_json: docJson }),
+  })
+  return parseTemplateResponse(
+    response,
+    (value) => sourceResumeCanvasSchema.parse(value),
+    "Failed to save source resume canvas",
   )
 }
 
@@ -272,19 +290,30 @@ export type ImportOldResumeInput = {
   target_language?: "zh-CN" | "en-US"
 }
 
-export async function importOldResume(input: ImportOldResumeInput): Promise<WorkspaceView> {
+export type ImportOldResumeProgressStep =
+  | "create_document"
+  | "save_source"
+  | "run_import"
+  | "load_workspace"
+
+export async function importOldResume(
+  input: ImportOldResumeInput,
+  onProgress?: (step: ImportOldResumeProgressStep) => void,
+): Promise<WorkspaceView> {
   const hasRawText = typeof input.raw_text === "string" && input.raw_text.trim().length > 0
   const hasFile = input.file instanceof File
   if (hasRawText === hasFile) {
     throw new Error("Import requires exactly one source")
   }
 
+  onProgress?.("create_document")
   const document = await createRevisionDocument({
     title: input.title,
     pack_id: "resume",
     target_language: input.target_language ?? "zh-CN",
     initial_mode: "import_old_resume",
   })
+  onProgress?.("save_source")
   const source = input.file
     ? await createRevisionUploadedSource(document.id, input.file)
     : await createRevisionSource(document.id, {
@@ -293,11 +322,13 @@ export async function importOldResume(input: ImportOldResumeInput): Promise<Work
         raw_text: input.raw_text,
         mime_type: "text/plain",
       })
+  onProgress?.("run_import")
   await createRevisionRun(document.id, {
     run_type: "import_reconstruct",
     source_document_ids: [source.id],
     user_intent: "导入旧简历并生成可审阅草稿",
   })
+  onProgress?.("load_workspace")
   return getRevisionWorkspaceView(document.id)
 }
 

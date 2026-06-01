@@ -21,11 +21,12 @@ import {
   revisionIssueSchema,
   revisionProposalSchema,
   revisionRunSchema,
+  sourceResumeCanvasSchema,
   sourceDocumentSchema,
   templateSampleContentSchema,
   templateStyleConfigSchema,
   workspaceViewSchema,
-} from "../src/index";
+} from "../src";
 
 describe("shared schemas", () => {
   it("exports language schema from the public index", () => {
@@ -260,6 +261,51 @@ describe("revision core object schemas", () => {
 });
 
 describe("revision run and workspace schemas", () => {
+  it("parses source resume canvas with stable node and module anchors", () => {
+    const canvas = sourceResumeCanvasSchema.parse({
+      id: "canvas_1",
+      document_id: "doc_1",
+      old_resume_source_id: "src_old_resume",
+      doc_json: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            attrs: {
+              canvasNodeId: "node_1",
+              sourceBlockId: "block_1",
+              moduleId: "mod_1",
+            },
+            content: [{ type: "text", text: "负责订单系统重构" }],
+          },
+        ],
+      },
+      node_map: [
+        {
+          canvas_node_id: "node_1",
+          source_block_id: "block_1",
+          node_type: "paragraph",
+          text: "负责订单系统重构",
+          source_span: { line: 1 },
+          module_id: "mod_1",
+        },
+      ],
+      module_anchors: [
+        {
+          module_id: "mod_1",
+          canvas_node_ids: ["node_1"],
+          title: "工作经历",
+          order: 1,
+        },
+      ],
+      created_at: "2026-05-28T08:00:00.000Z",
+      updated_at: "2026-05-28T08:00:00.000Z",
+    });
+
+    expect(canvas.node_map[0].canvas_node_id).toBe("node_1");
+    expect(canvas.module_anchors[0].canvas_node_ids).toEqual(["node_1"]);
+  });
+
   it("validates run, draft, render projection, export artifact, and workspace view", () => {
     const run = revisionRunSchema.parse({
       id: "run_1",
@@ -337,6 +383,16 @@ describe("revision run and workspace schemas", () => {
       proposals: [],
       evidence: [],
       source_summaries: [],
+      source_resume_canvas: {
+        id: "canvas_1",
+        document_id: "doc_1",
+        old_resume_source_id: "src_old_resume",
+        doc_json: { type: "doc", content: [] },
+        node_map: [],
+        module_anchors: [],
+        created_at: "2026-05-28T08:00:00.000Z",
+        updated_at: "2026-05-28T08:00:00.000Z",
+      },
       render_projection: render,
       quality_gate: {
         status: "needs_review",
@@ -356,6 +412,7 @@ describe("revision run and workspace schemas", () => {
     });
 
     expect(workspace.current_draft?.id).toBe(draft.id);
+    expect(workspace.source_resume_canvas?.id).toBe("canvas_1");
     expect(artifact.review_status).toBe("passed");
   });
 });

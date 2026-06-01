@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 from .models import utc_now
@@ -10,6 +10,7 @@ from .revision_models import (
     DraftVersion,
     EvidenceLink,
     ExportArtifact,
+    ModuleAnchor,
     ParsedBlock,
     QualityGateResult,
     RenderProjection,
@@ -17,6 +18,8 @@ from .revision_models import (
     RevisionProposal,
     RevisionRunStatusSummary,
     SourceDocument,
+    SourceResumeCanvas,
+    SourceResumeCanvasNode,
     UserConfirmation,
     WorkspaceView,
 )
@@ -30,6 +33,10 @@ CONFIRMING_USER_CONFIRMATION_TYPES = {"truth_confirmed", "source_verified"}
 
 
 class RevisionServiceError(Exception):
+    pass
+
+
+class InvalidSourceResumeCanvasError(RevisionServiceError):
     pass
 
 
@@ -343,12 +350,119 @@ class WorkspaceService:
             proposals=proposals,
             evidence=self.repository.list_evidence_links(document.id),
             source_summaries=self.repository.list_source_documents(document.id),
+            source_resume_canvas=self.repository.get_source_resume_canvas(document.id),
             render_projection=render_projection,
             quality_gate=quality_gate,
             run_status=self._run_status(document.id),
             coach_summary=self._coach_summary(quality_gate, current_draft, available_actions),
             available_actions=available_actions,
         )
+
+    def save_source_resume_canvas_document(
+        self,
+        document_id: str,
+        doc_json: dict[str, Any],
+    ) -> SourceResumeCanvas:
+        document = self.repository.get_document(document_id)
+        if document is None:
+            raise RevisionServiceError(f"Document not found: {document_id}")
+
+        canvas = self.repository.get_source_resume_canvas(document.id)
+        if canvas is None:
+            raise RevisionServiceError(f"Source resume canvas not found: {document_id}")
+
+        current_nodes = self._source_resume_canvas_nodes(doc_json)
+        node_map = [
+            self._sync_source_resume_canvas_node(node, current_nodes[node.canvas_node_id])
+            for node in canvas.node_map
+            if node.canvas_node_id in current_nodes
+        ]
+        saved = canvas.model_copy(
+            update={
+                "doc_json": doc_json,
+                "node_map": node_map,
+                "module_anchors": self._sync_source_resume_canvas_module_anchors(
+                    canvas.module_anchors,
+                    node_map,
+                ),
+                "updated_at": utc_now(),
+            }
+        )
+        return self.repository.save_source_resume_canvas(saved)
+
+    def _source_resume_canvas_nodes(
+        self,
+        doc_json: dict[str, Any],
+    ) -> dict[str, dict[str, Any]]:
+        nodes: dict[str, dict[str, Any]] = {}
+
+        def collect(value: Any) -> None:
+            if isinstance(value, list):
+                for item in value:
+                    collect(item)
+                return
+            if not isinstance(value, dict):
+                return
+
+            attrs = value.get("attrs")
+            canvas_node_id = attrs.get("canvasNodeId") if isinstance(attrs, dict) else None
+            if isinstance(canvas_node_id, str) and canvas_node_id:
+                if canvas_node_id in nodes:
+                    raise InvalidSourceResumeCanvasError(f"Duplicate canvasNodeId: {canvas_node_id}")
+                nodes[canvas_node_id] = value
+
+            for item in value.values():
+                collect(item)
+
+        collect(doc_json)
+        return nodes
+
+    def _sync_source_resume_canvas_node(
+        self,
+        node: SourceResumeCanvasNode,
+        doc_node: dict[str, Any],
+    ) -> SourceResumeCanvasNode:
+        updates = {
+            "text": self._source_resume_canvas_node_text(doc_node),
+            "module_id": None,
+        }
+        attrs = doc_node.get("attrs")
+        module_id = attrs.get("moduleId") if isinstance(attrs, dict) else None
+        if isinstance(module_id, str) and module_id:
+            updates["module_id"] = module_id
+        return node.model_copy(update=updates)
+
+    def _sync_source_resume_canvas_module_anchors(
+        self,
+        anchors: list[ModuleAnchor],
+        node_map: list[SourceResumeCanvasNode],
+    ) -> list[ModuleAnchor]:
+        module_by_node_id = {
+            node.canvas_node_id: node.module_id
+            for node in node_map
+        }
+        synced_anchors = []
+        for anchor in anchors:
+            node_ids = [
+                node_id
+                for node_id in anchor.canvas_node_ids
+                if module_by_node_id.get(node_id) == anchor.module_id
+            ]
+            if node_ids:
+                synced_anchors.append(anchor.model_copy(update={"canvas_node_ids": node_ids}))
+        return synced_anchors
+
+    def _source_resume_canvas_node_text(self, value: Any) -> str:
+        if isinstance(value, list):
+            return "".join(self._source_resume_canvas_node_text(item) for item in value)
+        if not isinstance(value, dict):
+            return ""
+
+        text = value.get("text")
+        content = value.get("content")
+        return (
+            text if isinstance(text, str) else ""
+        ) + self._source_resume_canvas_node_text(content)
 
     def _current_draft(self, document: Document) -> DraftVersion | None:
         if document.current_draft_id is not None:

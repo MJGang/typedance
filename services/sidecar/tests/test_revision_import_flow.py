@@ -98,12 +98,18 @@ def test_import_flow_generates_workspace_objects(tmp_path):
     assert any(ref.startswith("ParsedBlock:") for ref in structurer_steps[0].input_refs)
     assert any(ref.startswith("DocumentModule:") for ref in structurer_steps[0].output_refs)
     assert any(ref.startswith("DocumentClaim:") for ref in structurer_steps[0].output_refs)
+    assert any(step.agent_name == "BuildSourceCanvas" for step in steps)
 
     workspace = WorkspaceService(repo).get_workspace_view(document.id)
     assert workspace.current_draft is not None
     assert workspace.current_draft.id == completed_run.target_draft_id
     assert workspace.render_projection is not None
     assert workspace.render_projection.draft_id == workspace.current_draft.id
+    assert workspace.source_resume_canvas is not None
+    assert workspace.source_resume_canvas.old_resume_source_id == source.id
+    assert workspace.source_resume_canvas.doc_json["type"] == "doc"
+    assert workspace.source_resume_canvas.node_map
+    assert workspace.source_resume_canvas.module_anchors
     assert {module.type for module in workspace.modules} >= {
         "BasicInfo",
         "WorkExperience",
@@ -124,6 +130,53 @@ def test_import_flow_rejects_empty_sources(tmp_path):
     document, _source, run = seed_import_run(repo, raw_text="  \n\n")
 
     with pytest.raises(RevisionServiceError, match="Import source has no text"):
+        RevisionImportFlowService(repo).run_import_reconstruct(document.id, run.id)
+
+    failed_run = repo.get_revision_run(run.id)
+    assert failed_run is not None
+    assert failed_run.status == "failed_retryable"
+
+
+def test_import_flow_recognizes_common_career_skills_heading(tmp_path):
+    repo = make_repository(tmp_path)
+    document, _source, run = seed_import_run(
+        repo,
+        raw_text="""
+张三
+
+职业技能
+React、TypeScript、Node.js
+""",
+    )
+
+    RevisionImportFlowService(repo).run_import_reconstruct(document.id, run.id)
+
+    workspace = WorkspaceService(repo).get_workspace_view(document.id)
+    assert workspace.source_resume_canvas is not None
+    assert any(module.type == "CoreSkills" for module in workspace.modules)
+    assert any(anchor.title == "专业技能" for anchor in workspace.source_resume_canvas.module_anchors)
+
+
+def test_import_flow_rejects_multiple_sources(tmp_path):
+    repo = make_repository(tmp_path)
+    document, source, run = seed_import_run(repo)
+    now = utc_now()
+    second_source = repo.save_source_document(
+        SourceDocument(
+            id="src_import_2",
+            document_id=document.id,
+            source_type="old_resume",
+            title="第二份旧简历",
+            raw_text="李四\n项目经历\n负责支付系统优化",
+            parse_status="pending",
+            created_at=now,
+        )
+    )
+    repo.save_revision_run(
+        run.model_copy(update={"source_document_ids": [source.id, second_source.id]})
+    )
+
+    with pytest.raises(RevisionServiceError, match="Import flow requires exactly one source"):
         RevisionImportFlowService(repo).run_import_reconstruct(document.id, run.id)
 
     failed_run = repo.get_revision_run(run.id)

@@ -1563,3 +1563,21 @@ textarea {
   background: var(--background) !important;
   background-color: var(--background) !important;
 }
+
+.td-source-resume-canvas [data-module-id] {
+  border-radius: 4px;
+  transition:
+    outline-color 150ms ease,
+    background-color 150ms ease;
+}
+
+.td-source-resume-canvas [data-module-id]:hover {
+  outline: 1px solid rgb(59 130 246 / 45%);
+  background-color: rgb(59 130 246 / 6%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .td-source-resume-canvas [data-module-id] {
+    transition: none;
+  }
+}

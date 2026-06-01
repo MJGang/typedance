@@ -100,6 +100,36 @@ class ParsedBlock(BaseModel):
     source_span: dict[str, Any] = Field(default_factory=dict)
 
 
+SourceCanvasNodeType = Literal["heading", "paragraph", "list_item", "table_cell", "unknown"]
+
+
+class SourceResumeCanvasNode(BaseModel):
+    canvas_node_id: str = Field(min_length=1)
+    node_type: SourceCanvasNodeType
+    text: str
+    source_block_id: str | None = Field(default=None, min_length=1)
+    source_span: dict[str, Any] = Field(default_factory=dict)
+    module_id: str | None = Field(default=None, min_length=1)
+
+
+class ModuleAnchor(BaseModel):
+    module_id: str = Field(min_length=1)
+    canvas_node_ids: list[str] = Field(default_factory=list)
+    title: str = Field(min_length=1)
+    order: int = Field(ge=0)
+
+
+class SourceResumeCanvas(BaseModel):
+    id: str = Field(min_length=1)
+    document_id: str = Field(min_length=1)
+    old_resume_source_id: str = Field(min_length=1)
+    doc_json: dict[str, Any]
+    node_map: list[SourceResumeCanvasNode] = Field(default_factory=list)
+    module_anchors: list[ModuleAnchor] = Field(default_factory=list)
+    created_at: str
+    updated_at: str
+
+
 class DraftVersion(BaseModel):
     id: str
     document_id: str
@@ -303,6 +333,7 @@ class WorkspaceView(BaseModel):
     proposals: list[RevisionProposal] = Field(default_factory=list)
     evidence: list[EvidenceLink] = Field(default_factory=list)
     source_summaries: list[SourceDocument] = Field(default_factory=list)
+    source_resume_canvas: SourceResumeCanvas | None = None
     render_projection: RenderProjection | None = None
     quality_gate: QualityGateResult | None = None
     run_status: RevisionRunStatusSummary | None = None
