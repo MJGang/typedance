@@ -8,7 +8,7 @@ import type { JSONContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import DragHandle from "@tiptap/extension-drag-handle-react"
 import { PaginationPlus, PAGE_SIZES } from "tiptap-pagination-plus"
-import { Bold, Columns3, Eraser, GripVertical, Heading1, Heading2, Heading3, Italic, Pilcrow, Underline } from "lucide-react"
+import { Bold, Columns3, Eraser, GripVertical, Heading1, Heading2, Heading3, Italic, ListTree, Pilcrow, Underline } from "lucide-react"
 import { Column, Columns, type ColumnsCount, type ColumnsGap } from "@typedance/tiptap-layout"
 
 import { Button } from "@/components/ui/button"
@@ -46,10 +46,13 @@ type ResumeRichTextEditorProps = {
   docJson: ResumeDocJson
   onChange: (change: ResumeEditorChange) => void
   onSelectionUpdate?: (blockType: string, context?: ResumeSelectionContext) => void
+  onSourceCanvasModuleChange?: (moduleId: string | null) => void
   editable?: boolean
   cssText?: string
   marginConfig?: MarginConfig
   onMarginChange?: (margins: MarginConfig) => void
+  moduleOutlineVisible?: boolean
+  onModuleOutlineVisibleChange?: (visible: boolean) => void
 }
 
 export type ResumeSelectionContext = {
@@ -63,7 +66,8 @@ export type ResumeRichTextEditorHandle = {
   setColumnsCount: (count: ColumnsCount) => void
   setColumnsGap: (gap: ColumnsGap) => void
   unsetColumns: () => void
-  scrollToCanvasNode: (canvasNodeId: string) => void
+  setTextSelection: (selection: { anchor: number; head: number }) => void
+  scrollToCanvasNode: (canvasNodeId: string, options?: { topOffset?: number }) => void
 }
 
 type ToolbarState = {
@@ -457,6 +461,19 @@ function getSelectedColumnsContext(editor: NonNullable<ReturnType<typeof useEdit
   return null
 }
 
+function getSelectionAnchorModuleId(editor: Editor): string | null {
+  const { $anchor } = editor.state.selection
+
+  for (let depth = $anchor.depth; depth >= 0; depth -= 1) {
+    const moduleId = $anchor.node(depth).attrs.moduleId
+    if (typeof moduleId === "string" && moduleId) {
+      return moduleId
+    }
+  }
+
+  return null
+}
+
 function getActiveToolbarBlock(editor: NonNullable<ReturnType<typeof useEditor>>): ToolbarBlock {
   if (editor.isActive("columns")) return "columns"
   if (editor.isActive("heading", { level: 1 })) return "heading1"
@@ -474,9 +491,12 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       docJson,
       onChange,
       onSelectionUpdate,
+      onSourceCanvasModuleChange,
       editable = true,
       cssText = "",
       marginConfig,
+      moduleOutlineVisible = false,
+      onModuleOutlineVisibleChange,
     },
     ref,
   ) {
@@ -484,6 +504,8 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
     onChangeRef.current = onChange
     const onSelectionUpdateRef = useRef(onSelectionUpdate)
     onSelectionUpdateRef.current = onSelectionUpdate
+    const onSourceCanvasModuleChangeRef = useRef(onSourceCanvasModuleChange)
+    onSourceCanvasModuleChangeRef.current = onSourceCanvasModuleChange
 
     const editor = useEditor({
       extensions: [
@@ -528,6 +550,8 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         })
       },
       onSelectionUpdate: ({ editor }) => {
+        onSourceCanvasModuleChangeRef.current?.(getSelectionAnchorModuleId(editor))
+
         const onUpdate = onSelectionUpdateRef.current
         if (!onUpdate) return
 
@@ -600,7 +624,11 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       unsetColumns: () => {
         editor?.chain().focus().unsetColumns().run()
       },
-      scrollToCanvasNode: (canvasNodeId) => {
+      setTextSelection: (selection) => {
+        if (!editor || editor.isDestroyed) return
+        editor.commands.setTextSelection({ from: selection.anchor, to: selection.head })
+      },
+      scrollToCanvasNode: (canvasNodeId, options) => {
         if (!editor || editor.isDestroyed) return
         const root = editor.view.dom
 
@@ -608,6 +636,17 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         for (const canvasNode of canvasNodes) {
           if (canvasNode instanceof HTMLElement && canvasNode.getAttribute("data-canvas-node-id") === canvasNodeId) {
             const behavior = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+            if (options?.topOffset !== undefined) {
+              const viewport = canvasNode.closest(".td-editor-print-wrapper")
+              if (!(viewport instanceof HTMLElement)) return
+              const targetRect = canvasNode.getBoundingClientRect()
+              const viewportRect = viewport.getBoundingClientRect()
+              viewport.scrollTo({
+                top: Math.max(0, viewport.scrollTop + targetRect.top - viewportRect.top - options.topOffset),
+                behavior,
+              })
+              return
+            }
             canvasNode.scrollIntoView({ behavior, block: "center" })
             return
           }
@@ -786,6 +825,19 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                 </PopoverContent>
               </Popover>
             </ToolbarGroup>
+            {onModuleOutlineVisibleChange && (
+              <>
+                <ToolbarVerticalSeparator />
+                <ToolbarGroup>
+                  <ToolbarIconButton
+                    label="模块大纲"
+                    icon={ListTree}
+                    isActive={moduleOutlineVisible}
+                    onClick={() => onModuleOutlineVisibleChange(!moduleOutlineVisible)}
+                  />
+                </ToolbarGroup>
+              </>
+            )}
           </div>
         )}
         <style>{cssText}</style>
