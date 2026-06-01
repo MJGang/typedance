@@ -343,10 +343,11 @@ describe("revision api", () => {
     }
 
     const { importOldResume } = await import("./api")
+    const progressSteps: string[] = []
     const workspace = await importOldResume({
       title: "旧简历重构",
       raw_text: "项目经历\n负责订单系统重构",
-    })
+    }, (step) => progressSteps.push(step))
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -380,6 +381,12 @@ describe("revision api", () => {
       "http://127.0.0.1:4317/documents/doc_import/workspace-view",
     )
     expect(workspace.document.current_draft_id).toBe("draft_import")
+    expect(progressSteps).toEqual([
+      "create_document",
+      "save_source",
+      "run_import",
+      "load_workspace",
+    ])
   })
 
   it("imports an old resume file through upload source run and workspace view", async () => {

@@ -1,7 +1,7 @@
 import { ChangeEvent, DragEvent, FormEvent, useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { FileText, Loader2, UploadCloud, Wand2, X } from "lucide-react"
-import { importOldResume } from "@/api"
+import { importOldResume, type ImportOldResumeProgressStep } from "@/api"
 import { Button } from "@/components/ui/button"
 import { resumePackPaths } from "../resume-pack/routes"
 import {
@@ -18,6 +18,12 @@ import { Textarea } from "@/components/ui/textarea"
 
 const ACCEPTED_RESUME_FILE_TYPES = ".pdf,.doc,.docx,.md,.markdown,.txt"
 const SUPPORTED_RESUME_FILE_EXTENSIONS = new Set(["pdf", "doc", "docx", "md", "markdown", "txt"])
+const IMPORT_PROGRESS_LABELS: Record<ImportOldResumeProgressStep, string> = {
+  create_document: "创建工作台",
+  save_source: "保存旧简历",
+  run_import: "解析原文、生成画布并识别模块",
+  load_workspace: "打开可编辑画布",
+}
 
 type ImportOldResumeModalProps = {
   open: boolean
@@ -31,6 +37,7 @@ export function ImportOldResumeModal({ open, onOpenChange }: ImportOldResumeModa
   const [rawText, setRawText] = useState("")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [progressSteps, setProgressSteps] = useState<ImportOldResumeProgressStep[]>([])
   const [error, setError] = useState<string | null>(null)
   const hasPastedText = rawText.trim().length > 0
   const disabled = submitting
@@ -41,6 +48,7 @@ export function ImportOldResumeModal({ open, onOpenChange }: ImportOldResumeModa
     setRawText("")
     setSelectedFile(null)
     setSubmitting(false)
+    setProgressSteps([])
     setError(null)
     if (fileInputRef.current) fileInputRef.current.value = ""
   }, [open])
@@ -103,11 +111,14 @@ export function ImportOldResumeModal({ open, onOpenChange }: ImportOldResumeModa
     }
 
     setSubmitting(true)
+    setProgressSteps([])
     setError(null)
     try {
       const workspace = await importOldResume({
         title: title.trim() || "旧简历重构",
         ...(selectedFile ? { file: selectedFile } : { raw_text: rawText }),
+      }, (step) => {
+        setProgressSteps((steps) => steps.includes(step) ? steps : [...steps, step])
       })
       onOpenChange(false)
       navigate(resumePackPaths.workspace(workspace.document.id))
@@ -201,6 +212,23 @@ export function ImportOldResumeModal({ open, onOpenChange }: ImportOldResumeModa
             <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {error}
             </p>
+          )}
+          {submitting && progressSteps.length > 0 && (
+            <div
+              aria-live="polite"
+              className="rounded-md border border-border bg-muted/30 p-3"
+              role="status"
+            >
+              <p className="mb-2 text-sm font-medium">正在准备可编辑工作台</p>
+              <ol className="space-y-1.5 text-sm text-muted-foreground">
+                {progressSteps.map((step) => (
+                  <li key={step} className="flex items-center gap-2">
+                    <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+                    <span>{IMPORT_PROGRESS_LABELS[step]}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
           )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
