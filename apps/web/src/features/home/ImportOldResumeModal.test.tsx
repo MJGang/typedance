@@ -51,6 +51,7 @@ describe("ImportOldResumeModal", () => {
   it("keeps long pasted resume content scrollable inside the modal", () => {
     renderModal()
 
+    expect(screen.getByText("系统会保留原始简历内容，并生成可直接编辑的工作台。")).toBeInTheDocument()
     expect(screen.getByRole("dialog")).toHaveClass("max-h-[calc(100svh-2rem)]", "overflow-y-auto")
     expect(screen.getByLabelText("旧简历内容")).toHaveClass(
       "field-sizing-fixed",

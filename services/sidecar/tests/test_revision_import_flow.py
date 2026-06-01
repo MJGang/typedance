@@ -137,6 +137,26 @@ def test_import_flow_rejects_empty_sources(tmp_path):
     assert failed_run.status == "failed_retryable"
 
 
+def test_import_flow_recognizes_common_career_skills_heading(tmp_path):
+    repo = make_repository(tmp_path)
+    document, _source, run = seed_import_run(
+        repo,
+        raw_text="""
+张三
+
+职业技能
+React、TypeScript、Node.js
+""",
+    )
+
+    RevisionImportFlowService(repo).run_import_reconstruct(document.id, run.id)
+
+    workspace = WorkspaceService(repo).get_workspace_view(document.id)
+    assert workspace.source_resume_canvas is not None
+    assert any(module.type == "CoreSkills" for module in workspace.modules)
+    assert any(anchor.title == "专业技能" for anchor in workspace.source_resume_canvas.module_anchors)
+
+
 def test_import_flow_rejects_multiple_sources(tmp_path):
     repo = make_repository(tmp_path)
     document, source, run = seed_import_run(repo)

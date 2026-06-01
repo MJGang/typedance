@@ -134,7 +134,7 @@ export function ImportOldResumeModal({ open, onOpenChange }: ImportOldResumeModa
       <DialogContent className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>导入旧简历</DialogTitle>
-          <DialogDescription>系统会生成新版草稿、问题卡和可接受的修改建议。</DialogDescription>
+          <DialogDescription>系统会保留原始简历内容，并生成可直接编辑的工作台。</DialogDescription>
         </DialogHeader>
         <form className="grid gap-5" onSubmit={handleSubmit}>
           <div className="grid gap-2">
