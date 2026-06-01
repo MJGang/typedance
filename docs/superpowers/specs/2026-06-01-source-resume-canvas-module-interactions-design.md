@@ -114,7 +114,7 @@ DraftCanvas
 
 - 读取 `ModuleAnchor.canvas_node_ids`。
 - 在编辑器 DOM 中查询对应的 `[data-canvas-node-id]` 节点。
-- 根据 A4 页面容器边界计算模块矩形。
+- 根据 PaginationPlus 生成的 `.rm-pagination-gap` 分页间隙切分模块矩形。
 - 分别绘制 hover 和 active 反馈。
 - 设置 `pointer-events: none`，不拦截正文点击、选区和输入。
 - 使用 `@media print { display: none; }` 作为额外导出防线。
@@ -166,7 +166,7 @@ DraftCanvas
 
 - `SourceResumeCanvas.module_anchors`
 - 编辑器 DOM 中的 `[data-canvas-node-id]`
-- 编辑器 A4 页面容器
+- PaginationPlus 生成的 `.rm-pagination-gap` 分页间隙
 - 编辑区可视容器
 
 ### 输出
@@ -185,8 +185,8 @@ type ModuleVisualRegion = {
 ### 合并策略
 
 1. 读取同一模块的所有锚点节点。
-2. 按 A4 页面分组。
-3. 在每张页面内按 DOM 顺序合并连续节点矩形。
+2. 读取 `.rm-pagination-gap` 的垂直区间，按分页间隙切分节点矩形。
+3. 在每张 A4 页面内按 DOM 顺序合并连续节点矩形。
 4. 标题节点已经属于模块锚点，因此标题行自然包含在模块矩形中。
 5. 对跨页模块生成多个 `ModuleVisualRegion`。
 
