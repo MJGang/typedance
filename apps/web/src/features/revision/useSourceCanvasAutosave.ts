@@ -5,6 +5,28 @@ import type { ResumeDocJson, ResumeEditorChange } from "../workspace/editor"
 import type { DraftCanvasSaveStatus } from "./DraftCanvas"
 
 const AUTOSAVE_DELAY_MS = 600
+const documentSaveChains = new Map<string, Promise<void>>()
+
+function serializeSourceCanvasSave<T>(documentId: string, task: () => Promise<T>) {
+  const previousSave = documentSaveChains.get(documentId)
+  let result: Promise<T>
+  try {
+    result = previousSave ? previousSave.then(task) : task()
+  } catch (error) {
+    result = Promise.reject(error)
+  }
+  const chainTail = result.then(
+    () => undefined,
+    () => undefined,
+  )
+  documentSaveChains.set(documentId, chainTail)
+  void chainTail.then(() => {
+    if (documentSaveChains.get(documentId) === chainTail) {
+      documentSaveChains.delete(documentId)
+    }
+  })
+  return result
+}
 
 type PendingSave = {
   docJson: ResumeDocJson
@@ -48,9 +70,12 @@ function createAutosaveQueue({
         onStatusChange("saving")
 
         try {
-          const savedCanvas = await saveSourceResumeCanvas(
+          const savedCanvas = await serializeSourceCanvasSave(
             documentId,
-            saving.docJson as unknown as Record<string, unknown>,
+            () => saveSourceResumeCanvas(
+              documentId,
+              saving.docJson as unknown as Record<string, unknown>,
+            ),
           )
           onSaved(savedCanvas)
         } catch {
@@ -83,16 +108,15 @@ function createAutosaveQueue({
     enqueue(docJson: ResumeDocJson) {
       latestVersion += 1
       pendingSave = { docJson, version: latestVersion }
-      failed = false
-      onStatusChange("idle")
       clearDebounceTimer()
+      if (failed) return
+      onStatusChange("idle")
       debounceTimer = setTimeout(() => {
         debounceTimer = null
         void startDrain()
       }, AUTOSAVE_DELAY_MS)
     },
     flush() {
-      failed = false
       return startDrain()
     },
     hasActivity() {

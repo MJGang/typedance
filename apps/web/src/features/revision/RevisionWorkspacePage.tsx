@@ -389,7 +389,7 @@ export function RevisionWorkspacePage() {
     }
   }, [documentId])
 
-  const workspace = state.status === "loaded" ? state.workspace : null
+  const workspace = state.status === "loaded" && state.workspace.document.id === documentId ? state.workspace : null
   const sourceCanvas = workspace?.source_resume_canvas
     ? {
         ...workspace.source_resume_canvas,
