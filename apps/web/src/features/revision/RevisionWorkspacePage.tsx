@@ -327,11 +327,23 @@ export function RevisionWorkspacePage() {
   const [selectedIssueId, setSelectedIssueId] = useState<string | undefined>()
   const [issueContextInput, setIssueContextInput] = useState("")
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>("review")
+  const mountedRef = useRef(false)
+  const currentDocumentIdRef = useRef(documentId)
   const latestSavedCanvasRef = useRef<SourceResumeCanvas | null>(null)
   const loadRequestEpochRef = useRef(0)
+  currentDocumentIdRef.current = documentId
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      loadRequestEpochRef.current += 1
+    }
+  }, [])
 
   const handleSavedCanvas = useCallback((savedCanvas: SourceResumeCanvas) => {
     latestSavedCanvasRef.current = savedCanvas
+    if (!mountedRef.current || currentDocumentIdRef.current !== savedCanvas.document_id) return
     setState((currentState) => {
       if (currentState.status !== "loaded" || currentState.workspace.document.id !== savedCanvas.document_id) {
         return currentState
@@ -348,46 +360,80 @@ export function RevisionWorkspacePage() {
   const {
     flush: flushCanvasSaves,
     handleChange: handleCanvasChange,
+    latestSavedCanvas,
     localDocJson: localCanvasDocJson,
     retry: retryCanvasSave,
     saveStatus: canvasSaveStatus,
   } = useSourceCanvasAutosave(documentId, handleSavedCanvas)
+  if (latestSavedCanvas?.document_id === documentId) {
+    latestSavedCanvasRef.current = latestSavedCanvas
+  }
 
   const loadWorkspace = useCallback(async () => {
     if (!documentId) return
-    await flushCanvasSaves()
+    const capturedDocumentId = documentId
     const requestEpoch = ++loadRequestEpochRef.current
+    await flushCanvasSaves()
+    if (
+      !mountedRef.current
+      || requestEpoch !== loadRequestEpochRef.current
+      || currentDocumentIdRef.current !== capturedDocumentId
+    ) return
     setState((currentState) => currentState.status === "loaded" ? currentState : { status: "loading" })
     try {
-      const workspace = await getRevisionWorkspaceView(documentId)
-      if (requestEpoch !== loadRequestEpochRef.current) return
+      const workspace = await getRevisionWorkspaceView(capturedDocumentId)
+      if (
+        !mountedRef.current
+        || requestEpoch !== loadRequestEpochRef.current
+        || currentDocumentIdRef.current !== capturedDocumentId
+      ) return
       setState({ status: "loaded", workspace: mergeLatestSavedCanvas(workspace, latestSavedCanvasRef.current) })
     } catch {
-      if (requestEpoch !== loadRequestEpochRef.current) return
+      if (
+        !mountedRef.current
+        || requestEpoch !== loadRequestEpochRef.current
+        || currentDocumentIdRef.current !== capturedDocumentId
+      ) return
       setState({ status: "error", message: "无法加载工作台，请检查 Sidecar 服务。" })
     }
   }, [documentId, flushCanvasSaves])
 
   useEffect(() => {
     if (!documentId) return
-    latestSavedCanvasRef.current = null
+    const capturedDocumentId = documentId
+    latestSavedCanvasRef.current = latestSavedCanvas?.document_id === capturedDocumentId ? latestSavedCanvas : null
     const requestEpoch = ++loadRequestEpochRef.current
     setState({ status: "loading" })
-    getRevisionWorkspaceView(documentId)
-      .then((workspace) => {
-        if (requestEpoch === loadRequestEpochRef.current) {
+    void (async () => {
+      await flushCanvasSaves()
+      if (
+        !mountedRef.current
+        || requestEpoch !== loadRequestEpochRef.current
+        || currentDocumentIdRef.current !== capturedDocumentId
+      ) return
+      try {
+        const workspace = await getRevisionWorkspaceView(capturedDocumentId)
+        if (
+          mountedRef.current
+          && requestEpoch === loadRequestEpochRef.current
+          && currentDocumentIdRef.current === capturedDocumentId
+        ) {
           setState({ status: "loaded", workspace: mergeLatestSavedCanvas(workspace, latestSavedCanvasRef.current) })
         }
-      })
-      .catch(() => {
-        if (requestEpoch === loadRequestEpochRef.current) {
+      } catch {
+        if (
+          mountedRef.current
+          && requestEpoch === loadRequestEpochRef.current
+          && currentDocumentIdRef.current === capturedDocumentId
+        ) {
           setState({ status: "error", message: "无法加载工作台，请检查 Sidecar 服务。" })
         }
-      })
+      }
+    })()
     return () => {
       loadRequestEpochRef.current += 1
     }
-  }, [documentId])
+  }, [documentId, flushCanvasSaves])
 
   const workspace = state.status === "loaded" && state.workspace.document.id === documentId ? state.workspace : null
   const sourceCanvas = workspace?.source_resume_canvas

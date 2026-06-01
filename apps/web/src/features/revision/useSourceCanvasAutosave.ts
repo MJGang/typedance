@@ -5,195 +5,230 @@ import type { ResumeDocJson, ResumeEditorChange } from "../workspace/editor"
 import type { DraftCanvasSaveStatus } from "./DraftCanvas"
 
 const AUTOSAVE_DELAY_MS = 600
-const documentSaveChains = new Map<string, Promise<void>>()
-
-function serializeSourceCanvasSave<T>(documentId: string, task: () => Promise<T>) {
-  const previousSave = documentSaveChains.get(documentId)
-  let result: Promise<T>
-  try {
-    result = previousSave ? previousSave.then(task) : task()
-  } catch (error) {
-    result = Promise.reject(error)
-  }
-  const chainTail = result.then(
-    () => undefined,
-    () => undefined,
-  )
-  documentSaveChains.set(documentId, chainTail)
-  void chainTail.then(() => {
-    if (documentSaveChains.get(documentId) === chainTail) {
-      documentSaveChains.delete(documentId)
-    }
-  })
-  return result
-}
 
 type PendingSave = {
   docJson: ResumeDocJson
   version: number
 }
 
-type AutosaveQueueOptions = {
-  documentId: string
-  onSaved: (canvas: SourceResumeCanvas) => void
-  onSettled: () => void
-  onStatusChange: (status: DraftCanvasSaveStatus) => void
+type AutosaveSnapshot = {
+  documentId?: string
+  latestSavedCanvas: SourceResumeCanvas | null
+  localDocJson: ResumeDocJson | null
+  saveStatus: DraftCanvasSaveStatus
 }
 
-function createAutosaveQueue({
-  documentId,
-  onSaved,
-  onSettled,
-  onStatusChange,
-}: AutosaveQueueOptions) {
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null
-  let failed = false
-  let inFlight: Promise<boolean> | null = null
-  let latestVersion = 0
-  let pendingSave: PendingSave | null = null
+const emptySnapshot: AutosaveSnapshot = {
+  latestSavedCanvas: null,
+  localDocJson: null,
+  saveStatus: "idle",
+}
 
-  const clearDebounceTimer = () => {
-    if (!debounceTimer) return
-    clearTimeout(debounceTimer)
-    debounceTimer = null
+const coordinatorRegistry = new Map<string, SourceCanvasAutosaveCoordinator>()
+
+class SourceCanvasAutosaveCoordinator {
+  private debounceTimer: ReturnType<typeof setTimeout> | null = null
+  private failed = false
+  private inFlight: Promise<boolean> | null = null
+  private latestLocalDocJson: ResumeDocJson | null = null
+  private latestSavedCanvas: SourceResumeCanvas | null = null
+  private latestVersion = 0
+  private listeners = new Set<(snapshot: AutosaveSnapshot) => void>()
+  private pendingSave: PendingSave | null = null
+  private saveStatus: DraftCanvasSaveStatus = "idle"
+
+  constructor(private readonly documentId: string) {}
+
+  getSnapshot(): AutosaveSnapshot {
+    return {
+      documentId: this.documentId,
+      latestSavedCanvas: this.latestSavedCanvas,
+      localDocJson: this.latestLocalDocJson,
+      saveStatus: this.saveStatus,
+    }
   }
 
-  const startDrain = () => {
-    clearDebounceTimer()
-    if (inFlight) return inFlight
-    if (failed || !pendingSave) return Promise.resolve(!failed)
+  subscribe(listener: (snapshot: AutosaveSnapshot) => void) {
+    this.listeners.add(listener)
+    listener(this.getSnapshot())
+    return () => {
+      this.listeners.delete(listener)
+      this.schedulePrune()
+    }
+  }
+
+  enqueue(docJson: ResumeDocJson) {
+    this.latestVersion += 1
+    this.latestLocalDocJson = docJson
+    this.pendingSave = { docJson, version: this.latestVersion }
+    this.failed = false
+    this.saveStatus = "idle"
+    this.clearDebounceTimer()
+    this.notify()
+    this.debounceTimer = setTimeout(() => {
+      this.debounceTimer = null
+      void this.drain()
+    }, AUTOSAVE_DELAY_MS)
+  }
+
+  flush() {
+    return this.drain()
+  }
+
+  hasUnsavedChanges() {
+    return Boolean(this.latestLocalDocJson || this.pendingSave || this.inFlight || this.failed)
+  }
+
+  retry() {
+    this.failed = false
+    this.saveStatus = "idle"
+    this.notify()
+    return this.drain()
+  }
+
+  private clearDebounceTimer() {
+    if (!this.debounceTimer) return
+    clearTimeout(this.debounceTimer)
+    this.debounceTimer = null
+  }
+
+  private drain() {
+    this.clearDebounceTimer()
+    if (this.inFlight) return this.inFlight
+    if (this.failed || !this.pendingSave) return Promise.resolve(!this.failed)
 
     const drainPromise = (async () => {
-      while (pendingSave && !failed) {
-        const saving = pendingSave
-        pendingSave = null
-        onStatusChange("saving")
+      while (this.pendingSave && !this.failed) {
+        const saving = this.pendingSave
+        this.pendingSave = null
+        this.saveStatus = "saving"
+        this.notify()
 
         try {
-          const savedCanvas = await serializeSourceCanvasSave(
-            documentId,
-            () => saveSourceResumeCanvas(
-              documentId,
-              saving.docJson as unknown as Record<string, unknown>,
-            ),
+          const savedCanvas = await saveSourceResumeCanvas(
+            this.documentId,
+            saving.docJson as unknown as Record<string, unknown>,
           )
-          onSaved(savedCanvas)
+          this.latestSavedCanvas = savedCanvas
+          this.notify()
         } catch {
-          const queuedAfterFailure = pendingSave as PendingSave | null
+          const queuedAfterFailure = this.pendingSave as PendingSave | null
           if (!queuedAfterFailure || queuedAfterFailure.version < saving.version) {
-            pendingSave = saving
+            this.pendingSave = saving
           }
-          failed = true
-          onStatusChange("error")
+          this.failed = true
+          this.saveStatus = "error"
+          this.notify()
           return false
         }
 
-        clearDebounceTimer()
-        if (saving.version === latestVersion && !pendingSave) {
-          onSettled()
-          onStatusChange("saved")
+        this.clearDebounceTimer()
+        if (saving.version === this.latestVersion && !this.pendingSave) {
+          this.latestLocalDocJson = null
+          this.saveStatus = "saved"
+          this.notify()
         }
       }
 
-      return !failed
+      return !this.failed
     })()
 
-    inFlight = drainPromise.finally(() => {
-      inFlight = null
+    this.inFlight = drainPromise.finally(() => {
+      this.inFlight = null
+      this.schedulePrune()
     })
-    return inFlight
+    return this.inFlight
   }
 
-  return {
-    enqueue(docJson: ResumeDocJson) {
-      latestVersion += 1
-      pendingSave = { docJson, version: latestVersion }
-      clearDebounceTimer()
-      if (failed) return
-      onStatusChange("idle")
-      debounceTimer = setTimeout(() => {
-        debounceTimer = null
-        void startDrain()
-      }, AUTOSAVE_DELAY_MS)
-    },
-    flush() {
-      return startDrain()
-    },
-    hasActivity() {
-      return Boolean(pendingSave || inFlight)
-    },
-    retry() {
-      failed = false
-      return startDrain()
-    },
+  private notify() {
+    const snapshot = this.getSnapshot()
+    for (const listener of this.listeners) listener(snapshot)
   }
+
+  private schedulePrune() {
+    queueMicrotask(() => {
+      if (
+        this.listeners.size === 0
+        && !this.pendingSave
+        && !this.inFlight
+        && !this.failed
+        && !this.latestLocalDocJson
+        && coordinatorRegistry.get(this.documentId) === this
+      ) {
+        coordinatorRegistry.delete(this.documentId)
+      }
+    })
+  }
+}
+
+function getSourceCanvasAutosaveCoordinator(documentId: string) {
+  const existingCoordinator = coordinatorRegistry.get(documentId)
+  if (existingCoordinator) return existingCoordinator
+  const coordinator = new SourceCanvasAutosaveCoordinator(documentId)
+  coordinatorRegistry.set(documentId, coordinator)
+  return coordinator
 }
 
 export function useSourceCanvasAutosave(
   documentId: string | undefined,
   onSaved: (canvas: SourceResumeCanvas) => void,
 ) {
-  const [localDocJson, setLocalDocJson] = useState<ResumeDocJson | null>(null)
-  const [saveStatus, setSaveStatus] = useState<DraftCanvasSaveStatus>("idle")
-  const mountedRef = useRef(false)
-  const queueRef = useRef<ReturnType<typeof createAutosaveQueue> | null>(null)
-
-  const queue = useMemo(() => {
-    if (!documentId) return null
-
-    const nextQueue = createAutosaveQueue({
-      documentId,
-      onSaved: (canvas) => {
-        if (mountedRef.current && queueRef.current === nextQueue) onSaved(canvas)
-      },
-      onSettled: () => {
-        if (mountedRef.current && queueRef.current === nextQueue) setLocalDocJson(null)
-      },
-      onStatusChange: (status) => {
-        if (mountedRef.current && queueRef.current === nextQueue) setSaveStatus(status)
-      },
-    })
-    return nextQueue
-  }, [documentId, onSaved])
-  queueRef.current = queue
+  const coordinator = useMemo(
+    () => documentId ? getSourceCanvasAutosaveCoordinator(documentId) : null,
+    [documentId],
+  )
+  const [snapshotState, setSnapshotState] = useState<AutosaveSnapshot>(
+    () => coordinator?.getSnapshot() ?? emptySnapshot,
+  )
+  const deliveredSavedCanvasRef = useRef<SourceResumeCanvas | null>(null)
+  const onSavedRef = useRef(onSaved)
+  onSavedRef.current = onSaved
 
   useEffect(() => {
-    mountedRef.current = true
-    setLocalDocJson(null)
-    setSaveStatus("idle")
+    if (!coordinator) {
+      setSnapshotState(emptySnapshot)
+      return
+    }
 
-    if (!queue) return
-
+    const unsubscribe = coordinator.subscribe((snapshot) => {
+      setSnapshotState(snapshot)
+      if (snapshot.latestSavedCanvas && deliveredSavedCanvasRef.current !== snapshot.latestSavedCanvas) {
+        deliveredSavedCanvasRef.current = snapshot.latestSavedCanvas
+        onSavedRef.current(snapshot.latestSavedCanvas)
+      }
+    })
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!queue.hasActivity()) return
+      if (!coordinator.hasUnsavedChanges()) return
       event.preventDefault()
       event.returnValue = ""
     }
     window.addEventListener("beforeunload", handleBeforeUnload)
 
     return () => {
-      mountedRef.current = false
+      unsubscribe()
       window.removeEventListener("beforeunload", handleBeforeUnload)
-      void queue.flush()
+      void coordinator.flush()
     }
-  }, [queue])
+  }, [coordinator])
+
+  const snapshot = snapshotState.documentId === documentId
+    ? snapshotState
+    : coordinator?.getSnapshot() ?? emptySnapshot
 
   const handleChange = useCallback((change: ResumeEditorChange) => {
-    if (!queue) return
-    setLocalDocJson(change.docJson)
-    queue.enqueue(change.docJson)
-  }, [queue])
-
-  const flush = useCallback(() => queue?.flush() ?? Promise.resolve(true), [queue])
+    coordinator?.enqueue(change.docJson)
+  }, [coordinator])
+  const flush = useCallback(() => coordinator?.flush() ?? Promise.resolve(true), [coordinator])
   const retry = useCallback(() => {
-    void queue?.retry()
-  }, [queue])
+    void coordinator?.retry()
+  }, [coordinator])
 
   return {
     flush,
     handleChange,
-    localDocJson,
+    latestSavedCanvas: snapshot.latestSavedCanvas,
+    localDocJson: snapshot.localDocJson,
     retry,
-    saveStatus,
+    saveStatus: snapshot.saveStatus,
   }
 }
