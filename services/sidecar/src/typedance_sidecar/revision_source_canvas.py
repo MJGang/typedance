@@ -186,6 +186,8 @@ class SourceResumeCanvasBuilder:
             if not valid_positions:
                 continue
             first_position = min(valid_positions)
+            if sorted_blocks[first_position].type == "heading":
+                continue
             if first_position == 0:
                 continue
             previous_block = sorted_blocks[first_position - 1]
