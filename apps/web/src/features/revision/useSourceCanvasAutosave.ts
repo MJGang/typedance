@@ -26,6 +26,18 @@ const emptySnapshot: AutosaveSnapshot = {
 
 const coordinatorRegistry = new Map<string, SourceCanvasAutosaveCoordinator>()
 
+export function __hasSourceCanvasAutosaveCoordinatorForTests(documentId: string) {
+  return coordinatorRegistry.has(documentId)
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", (event) => {
+    if (![...coordinatorRegistry.values()].some((coordinator) => coordinator.hasUnsavedChanges())) return
+    event.preventDefault()
+    event.returnValue = ""
+  })
+}
+
 class SourceCanvasAutosaveCoordinator {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
   private failed = false
@@ -55,6 +67,10 @@ class SourceCanvasAutosaveCoordinator {
       this.listeners.delete(listener)
       this.schedulePrune()
     }
+  }
+
+  scheduleInitialPrune() {
+    setTimeout(() => this.pruneIfIdle(), 0)
   }
 
   enqueue(docJson: ResumeDocJson) {
@@ -146,18 +162,20 @@ class SourceCanvasAutosaveCoordinator {
   }
 
   private schedulePrune() {
-    queueMicrotask(() => {
-      if (
-        this.listeners.size === 0
-        && !this.pendingSave
-        && !this.inFlight
-        && !this.failed
-        && !this.latestLocalDocJson
-        && coordinatorRegistry.get(this.documentId) === this
-      ) {
-        coordinatorRegistry.delete(this.documentId)
-      }
-    })
+    queueMicrotask(() => this.pruneIfIdle())
+  }
+
+  private pruneIfIdle() {
+    if (
+      this.listeners.size === 0
+      && !this.pendingSave
+      && !this.inFlight
+      && !this.failed
+      && !this.latestLocalDocJson
+      && coordinatorRegistry.get(this.documentId) === this
+    ) {
+      coordinatorRegistry.delete(this.documentId)
+    }
   }
 }
 
@@ -166,6 +184,7 @@ function getSourceCanvasAutosaveCoordinator(documentId: string) {
   if (existingCoordinator) return existingCoordinator
   const coordinator = new SourceCanvasAutosaveCoordinator(documentId)
   coordinatorRegistry.set(documentId, coordinator)
+  coordinator.scheduleInitialPrune()
   return coordinator
 }
 
@@ -197,16 +216,8 @@ export function useSourceCanvasAutosave(
         onSavedRef.current(snapshot.latestSavedCanvas)
       }
     })
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!coordinator.hasUnsavedChanges()) return
-      event.preventDefault()
-      event.returnValue = ""
-    }
-    window.addEventListener("beforeunload", handleBeforeUnload)
-
     return () => {
       unsubscribe()
-      window.removeEventListener("beforeunload", handleBeforeUnload)
       void coordinator.flush()
     }
   }, [coordinator])

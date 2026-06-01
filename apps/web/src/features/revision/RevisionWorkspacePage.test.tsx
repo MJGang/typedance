@@ -350,6 +350,12 @@ function savedCanvasWithLatestText() {
   }
 }
 
+function dispatchBeforeUnload() {
+  const event = new Event("beforeunload", { cancelable: true })
+  window.dispatchEvent(event)
+  return event
+}
+
 describe("RevisionWorkspacePage", () => {
   beforeEach(() => {
     apiMocks.getRevisionWorkspaceView.mockReset()
@@ -515,7 +521,11 @@ describe("RevisionWorkspacePage", () => {
     await waitFor(() => expect(apiMocks.getRevisionWorkspaceView).toHaveBeenCalledTimes(2))
   })
 
-  it("flushes pending canvas text during unmount", async () => {
+  it("keeps unload protection while an unmounted cleanup save is pending", async () => {
+    let resolveSave: (canvas: NonNullable<WorkspaceView["source_resume_canvas"]>) => void = () => {}
+    apiMocks.saveSourceResumeCanvas.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveSave = resolve
+    }))
     const { unmount } = renderPage()
     await screen.findByText("负责核心链路重构。")
 
@@ -523,6 +533,13 @@ describe("RevisionWorkspacePage", () => {
     unmount()
 
     expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledTimes(1)
+    const pendingUnloadPrevented = dispatchBeforeUnload().defaultPrevented
+
+    await act(async () => {
+      resolveSave(savedCanvasWithLatestText())
+    })
+    expect(pendingUnloadPrevented).toBe(true)
+    expect(dispatchBeforeUnload().defaultPrevented).toBe(false)
   })
 
   it("waits for a cleanup save before loading a remounted workspace for the same document", async () => {
@@ -609,6 +626,7 @@ describe("RevisionWorkspacePage", () => {
       await Promise.resolve()
       await Promise.resolve()
     })
+    const failedUnloadPrevented = dispatchBeforeUnload().defaultPrevented
 
     const secondPage = renderPage()
     try {
@@ -622,6 +640,8 @@ describe("RevisionWorkspacePage", () => {
     } finally {
       secondPage.unmount()
     }
+    expect(failedUnloadPrevented).toBe(true)
+    expect(dispatchBeforeUnload().defaultPrevented).toBe(false)
   })
 
   it("prevents unload while a canvas save is pending", async () => {
@@ -629,10 +649,7 @@ describe("RevisionWorkspacePage", () => {
     await screen.findByText("负责核心链路重构。")
 
     fireEvent.click(screen.getByRole("button", { name: "编辑原始画布" }))
-    const event = new Event("beforeunload", { cancelable: true })
-    window.dispatchEvent(event)
-
-    expect(event.defaultPrevented).toBe(true)
+    expect(dispatchBeforeUnload().defaultPrevented).toBe(true)
   })
 
   it("does not render an old workspace canvas after the route document changes", async () => {
