@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { AlertCircle, ArrowLeft, BriefcaseBusiness, Check, Download, FileText, Loader2, RefreshCcw, Send, ShieldCheck, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -13,8 +13,11 @@ import {
   rejectRevisionProposal,
   renderRevisionDraft,
   runRevisionQualityReview,
+  saveSourceResumeCanvas,
 } from "@/api"
 import { resumePackPaths } from "../resume-pack/routes"
+import type { ResumeDocJson, ResumeEditorChange } from "../workspace/editor"
+import { DraftCanvas, type DraftCanvasSaveStatus } from "./DraftCanvas"
 import { ExportGateModal } from "./ExportGateModal"
 import { OpportunityCalibrationModal } from "./OpportunityCalibrationModal"
 import type {
@@ -47,55 +50,6 @@ function qualityClass(status?: string) {
   if (status === "needs_review") return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
   if (status === "ready") return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
   return "border-border bg-muted text-muted-foreground"
-}
-
-function moduleLines(module: DocumentModule) {
-  const items = module.data.items
-  if (Array.isArray(items)) {
-    return items.flatMap((item) => {
-      if (typeof item === "string") return item ? [item] : []
-      if (!item || typeof item !== "object") return []
-      const record = item as Record<string, unknown>
-      const title = [record.title, record.role, record.company, record.time_range]
-        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-        .join(" / ")
-      const description = typeof record.description === "string" ? record.description : ""
-      const bullets = Array.isArray(record.bullets)
-        ? record.bullets.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-        : []
-      return [title, description, ...bullets].filter(Boolean)
-    })
-  }
-
-  return Object.entries(module.data)
-    .filter(([, value]) => typeof value === "string" && value.trim().length > 0)
-    .map(([key, value]) => `${key}: ${value}`)
-}
-
-function ModuleList({ modules }: { modules: DocumentModule[] }) {
-  if (modules.length === 0) {
-    return <p className="text-sm text-muted-foreground">还没有可展示的结构化模块。</p>
-  }
-
-  return (
-    <div className="space-y-5">
-      {modules.map((module) => (
-        <section key={module.id} className="border-b border-border pb-4 last:border-b-0">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold">{module.title}</h2>
-            <span className="shrink-0 text-xs text-muted-foreground">{module.status}</span>
-          </div>
-          <ul className="space-y-1.5 text-sm leading-6 text-foreground/85">
-            {moduleLines(module).map((line, index) => (
-              <li key={`${module.id}-${index}`} className="pl-3 [text-indent:-0.75rem]">
-                <span className="text-muted-foreground">- </span>{line}
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
-    </div>
-  )
 }
 
 function targetMatches(action: ContextualAction, proposal: RevisionProposal) {
@@ -366,6 +320,10 @@ export function RevisionWorkspacePage() {
   const [selectedIssueId, setSelectedIssueId] = useState<string | undefined>()
   const [issueContextInput, setIssueContextInput] = useState("")
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>("review")
+  const [localCanvasDocJson, setLocalCanvasDocJson] = useState<ResumeDocJson | null>(null)
+  const [canvasSaveStatus, setCanvasSaveStatus] = useState<DraftCanvasSaveStatus>("idle")
+  const canvasSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const canvasSaveVersionRef = useRef(0)
 
   const loadWorkspace = useCallback(async () => {
     if (!documentId) return
@@ -395,6 +353,12 @@ export function RevisionWorkspacePage() {
   }, [documentId])
 
   const workspace = state.status === "loaded" ? state.workspace : null
+  const sourceCanvas = workspace?.source_resume_canvas
+    ? {
+        ...workspace.source_resume_canvas,
+        doc_json: localCanvasDocJson ?? workspace.source_resume_canvas.doc_json,
+      }
+    : undefined
   const visibleIssues = useMemo(
     () => workspace?.issues.filter((issue) => issue.status === "open" || issue.status === "needs_user_input") ?? [],
     [workspace],
@@ -411,6 +375,61 @@ export function RevisionWorkspacePage() {
   useEffect(() => {
     setIssueContextInput("")
   }, [selectedIssue?.id])
+
+  useEffect(() => {
+    setLocalCanvasDocJson(null)
+    setCanvasSaveStatus("idle")
+
+    return () => {
+      if (canvasSaveTimerRef.current) {
+        clearTimeout(canvasSaveTimerRef.current)
+        canvasSaveTimerRef.current = null
+      }
+      canvasSaveVersionRef.current += 1
+    }
+  }, [documentId])
+
+  const handleCanvasChange = useCallback((change: ResumeEditorChange) => {
+    const workspaceDocumentId = workspace?.document.id
+    if (!workspaceDocumentId) return
+
+    setLocalCanvasDocJson(change.docJson)
+    setCanvasSaveStatus("idle")
+    canvasSaveVersionRef.current += 1
+    const saveVersion = canvasSaveVersionRef.current
+
+    if (canvasSaveTimerRef.current) {
+      clearTimeout(canvasSaveTimerRef.current)
+    }
+
+    canvasSaveTimerRef.current = setTimeout(() => {
+      canvasSaveTimerRef.current = null
+      setCanvasSaveStatus("saving")
+      saveSourceResumeCanvas(workspaceDocumentId, change.docJson as unknown as Record<string, unknown>)
+        .then((savedCanvas) => {
+          if (saveVersion !== canvasSaveVersionRef.current) return
+          setState((currentState) => {
+            if (currentState.status !== "loaded" || currentState.workspace.document.id !== workspaceDocumentId) {
+              return currentState
+            }
+            return {
+              status: "loaded",
+              workspace: {
+                ...currentState.workspace,
+                source_resume_canvas: savedCanvas,
+              },
+            }
+          })
+          setLocalCanvasDocJson(null)
+          setCanvasSaveStatus("saved")
+        })
+        .catch(() => {
+          if (saveVersion === canvasSaveVersionRef.current) {
+            setCanvasSaveStatus("error")
+          }
+        })
+    }, 600)
+  }, [workspace?.document.id])
 
   const handleAction = useCallback(async (action: ContextualAction) => {
     if (!workspace) return
@@ -594,25 +613,19 @@ export function RevisionWorkspacePage() {
           <div className="mx-auto max-w-3xl">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs text-muted-foreground">当前草稿</p>
-                <h2 className="text-base font-semibold">{workspace.current_draft?.summary ?? "尚未生成草稿"}</h2>
+                <p className="text-xs text-muted-foreground">原始简历</p>
+                <h2 className="text-base font-semibold">可编辑 A4 画布</h2>
               </div>
               <Button size="sm" variant="outline" onClick={handleRender} disabled={!workspace.current_draft || actingActionId === "render"}>
                 <FileText className="mr-2 h-4 w-4" />
                 {actingActionId === "render" ? "生成中" : "生成预览"}
               </Button>
             </div>
-            {workspace.render_projection?.html ? (
-              <div className="overflow-hidden rounded-md border border-border bg-white shadow-sm">
-                <iframe
-                  title="结构化草稿预览"
-                  srcDoc={workspace.render_projection.html}
-                  className="h-[720px] w-full bg-white"
-                />
-              </div>
+            {sourceCanvas ? (
+              <DraftCanvas canvas={sourceCanvas} onChange={handleCanvasChange} saveStatus={canvasSaveStatus} />
             ) : (
-              <div className="rounded-md border border-border p-4">
-                <ModuleList modules={workspace.modules} />
+              <div className="rounded-md border border-border bg-muted/30 p-4">
+                <p className="text-sm font-medium">原始画布尚未生成</p>
               </div>
             )}
           </div>
