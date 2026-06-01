@@ -155,6 +155,19 @@ React、TypeScript、Node.js
     assert workspace.source_resume_canvas is not None
     assert any(module.type == "CoreSkills" for module in workspace.modules)
     assert any(anchor.title == "专业技能" for anchor in workspace.source_resume_canvas.module_anchors)
+    skills_anchor = next(
+        anchor
+        for anchor in workspace.source_resume_canvas.module_anchors
+        if anchor.title == "专业技能"
+    )
+    heading_node = next(
+        node
+        for node in workspace.source_resume_canvas.node_map
+        if node.canvas_node_id == skills_anchor.canvas_node_ids[0]
+    )
+    assert heading_node.text == "职业技能"
+    assert heading_node.node_type == "heading"
+    assert heading_node.module_id == skills_anchor.module_id
 
 
 def test_import_flow_rejects_multiple_sources(tmp_path):

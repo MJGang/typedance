@@ -42,6 +42,30 @@ def test_rule_based_resume_parser_runner_returns_parsed_blocks():
     ]
 
 
+def test_rule_based_resume_parser_runner_recognizes_career_skills_heading():
+    context = build_agent_context(
+        RevisionRun(
+            id="run_import",
+            document_id="doc_import",
+            pack_id="resume",
+            run_type="import_reconstruct",
+            status="created",
+            created_at="2026-05-22T00:00:00.000Z",
+            updated_at="2026-05-22T00:00:00.000Z",
+        ),
+        agent_name="SourceParser",
+    )
+    request = ResumeParserRunRequest(
+        source_document_id="src_import",
+        raw_text="职业技能",
+    )
+
+    envelope = RuleBasedResumeParserRunner()(context, request)
+
+    payload = ParsedDocumentOutput.model_validate(envelope["payload"])
+    assert payload.blocks[0].type == "heading"
+
+
 def test_langchain_resume_parser_runner_uses_structured_output_model():
     seen = {}
     expected_payload = ParsedDocumentOutput.model_validate(

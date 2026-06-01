@@ -25,7 +25,11 @@ class SourceResumeCanvasBuilder:
             [block for block in parsed_blocks if block.source_document_id == source.id],
             key=lambda block: block.order,
         )
-        module_by_block = self._module_by_block(module_source_refs)
+        enhanced_module_source_refs = self._include_adjacent_module_headings(
+            sorted_blocks,
+            module_source_refs,
+        )
+        module_by_block = self._module_by_block(enhanced_module_source_refs)
         doc_nodes = []
         node_map = []
 
@@ -52,7 +56,7 @@ class SourceResumeCanvasBuilder:
             node_map=node_map,
             module_anchors=self._module_anchors(
                 modules,
-                module_source_refs,
+                enhanced_module_source_refs,
                 valid_block_ids={block.id for block in sorted_blocks},
             ),
             created_at=now,
@@ -156,6 +160,41 @@ class SourceResumeCanvasBuilder:
         if block.type in {"paragraph", "contact", "date_range"}:
             return "paragraph"
         return "unknown"
+
+    def _include_adjacent_module_headings(
+        self,
+        sorted_blocks: list[ParsedBlock],
+        module_source_refs: dict[str, list[str]],
+    ) -> dict[str, list[str]]:
+        enhanced_refs = {
+            module_id: list(block_ids)
+            for module_id, block_ids in module_source_refs.items()
+        }
+        block_positions = {block.id: index for index, block in enumerate(sorted_blocks)}
+        assigned_block_ids = {
+            block_id
+            for block_ids in enhanced_refs.values()
+            for block_id in block_ids
+        }
+
+        for module_id, block_ids in enhanced_refs.items():
+            valid_positions = [
+                block_positions[block_id]
+                for block_id in block_ids
+                if block_id in block_positions
+            ]
+            if not valid_positions:
+                continue
+            first_position = min(valid_positions)
+            if first_position == 0:
+                continue
+            previous_block = sorted_blocks[first_position - 1]
+            if previous_block.type != "heading" or previous_block.id in assigned_block_ids:
+                continue
+            block_ids.insert(0, previous_block.id)
+            assigned_block_ids.add(previous_block.id)
+
+        return enhanced_refs
 
     def _module_by_block(self, module_source_refs: dict[str, list[str]]) -> dict[str, str]:
         result: dict[str, str] = {}
