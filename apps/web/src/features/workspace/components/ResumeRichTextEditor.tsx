@@ -607,7 +607,8 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         const canvasNodes = root.querySelectorAll("[data-canvas-node-id]")
         for (const canvasNode of canvasNodes) {
           if (canvasNode instanceof HTMLElement && canvasNode.getAttribute("data-canvas-node-id") === canvasNodeId) {
-            canvasNode.scrollIntoView({ behavior: "smooth", block: "center" })
+            const behavior = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+            canvasNode.scrollIntoView({ behavior, block: "center" })
             return
           }
         }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { AlertCircle, ArrowLeft, BriefcaseBusiness, Check, Download, FileText, Loader2, RefreshCcw, Send, ShieldCheck, X } from "lucide-react"
+import { AlertCircle, ArrowLeft, BriefcaseBusiness, Check, Download, Loader2, RefreshCcw, Send, ShieldCheck, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -11,15 +11,13 @@ import {
   dismissRevisionIssue,
   getRevisionWorkspaceView,
   rejectRevisionProposal,
-  renderRevisionDraft,
   runRevisionQualityReview,
-  saveSourceResumeCanvas,
 } from "@/api"
 import { resumePackPaths } from "../resume-pack/routes"
-import type { ResumeDocJson, ResumeEditorChange } from "../workspace/editor"
-import { DraftCanvas, type DraftCanvasSaveStatus } from "./DraftCanvas"
+import { DraftCanvas } from "./DraftCanvas"
 import { ExportGateModal } from "./ExportGateModal"
 import { OpportunityCalibrationModal } from "./OpportunityCalibrationModal"
+import { useSourceCanvasAutosave } from "./useSourceCanvasAutosave"
 import type {
   ContextualAction,
   DocumentClaim,
@@ -27,6 +25,7 @@ import type {
   EvidenceLink,
   RevisionIssue,
   RevisionProposal,
+  SourceResumeCanvas,
   SourceDocumentSummary,
   WorkspaceView,
 } from "@typedance/contracts"
@@ -112,6 +111,14 @@ function sourceTitle(sourceSummaries: SourceDocumentSummary[], sourceDocumentId:
 
 function issueContextActionId(issueId: string) {
   return `issue_context_${issueId}`
+}
+
+function mergeLatestSavedCanvas(workspace: WorkspaceView, latestSavedCanvas: SourceResumeCanvas | null) {
+  if (!latestSavedCanvas || latestSavedCanvas.document_id !== workspace.document.id) return workspace
+  return {
+    ...workspace,
+    source_resume_canvas: latestSavedCanvas,
+  }
 }
 
 function IssueList({
@@ -320,35 +327,65 @@ export function RevisionWorkspacePage() {
   const [selectedIssueId, setSelectedIssueId] = useState<string | undefined>()
   const [issueContextInput, setIssueContextInput] = useState("")
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>("review")
-  const [localCanvasDocJson, setLocalCanvasDocJson] = useState<ResumeDocJson | null>(null)
-  const [canvasSaveStatus, setCanvasSaveStatus] = useState<DraftCanvasSaveStatus>("idle")
-  const canvasSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const canvasSaveVersionRef = useRef(0)
+  const latestSavedCanvasRef = useRef<SourceResumeCanvas | null>(null)
+  const loadRequestEpochRef = useRef(0)
+
+  const handleSavedCanvas = useCallback((savedCanvas: SourceResumeCanvas) => {
+    latestSavedCanvasRef.current = savedCanvas
+    setState((currentState) => {
+      if (currentState.status !== "loaded" || currentState.workspace.document.id !== savedCanvas.document_id) {
+        return currentState
+      }
+      return {
+        status: "loaded",
+        workspace: {
+          ...currentState.workspace,
+          source_resume_canvas: savedCanvas,
+        },
+      }
+    })
+  }, [])
+  const {
+    flush: flushCanvasSaves,
+    handleChange: handleCanvasChange,
+    localDocJson: localCanvasDocJson,
+    retry: retryCanvasSave,
+    saveStatus: canvasSaveStatus,
+  } = useSourceCanvasAutosave(documentId, handleSavedCanvas)
 
   const loadWorkspace = useCallback(async () => {
     if (!documentId) return
-    setState({ status: "loading" })
+    await flushCanvasSaves()
+    const requestEpoch = ++loadRequestEpochRef.current
+    setState((currentState) => currentState.status === "loaded" ? currentState : { status: "loading" })
     try {
       const workspace = await getRevisionWorkspaceView(documentId)
-      setState({ status: "loaded", workspace })
+      if (requestEpoch !== loadRequestEpochRef.current) return
+      setState({ status: "loaded", workspace: mergeLatestSavedCanvas(workspace, latestSavedCanvasRef.current) })
     } catch {
+      if (requestEpoch !== loadRequestEpochRef.current) return
       setState({ status: "error", message: "无法加载工作台，请检查 Sidecar 服务。" })
     }
-  }, [documentId])
+  }, [documentId, flushCanvasSaves])
 
   useEffect(() => {
     if (!documentId) return
-    let ignore = false
+    latestSavedCanvasRef.current = null
+    const requestEpoch = ++loadRequestEpochRef.current
     setState({ status: "loading" })
     getRevisionWorkspaceView(documentId)
       .then((workspace) => {
-        if (!ignore) setState({ status: "loaded", workspace })
+        if (requestEpoch === loadRequestEpochRef.current) {
+          setState({ status: "loaded", workspace: mergeLatestSavedCanvas(workspace, latestSavedCanvasRef.current) })
+        }
       })
       .catch(() => {
-        if (!ignore) setState({ status: "error", message: "无法加载工作台，请检查 Sidecar 服务。" })
+        if (requestEpoch === loadRequestEpochRef.current) {
+          setState({ status: "error", message: "无法加载工作台，请检查 Sidecar 服务。" })
+        }
       })
     return () => {
-      ignore = true
+      loadRequestEpochRef.current += 1
     }
   }, [documentId])
 
@@ -376,61 +413,6 @@ export function RevisionWorkspacePage() {
     setIssueContextInput("")
   }, [selectedIssue?.id])
 
-  useEffect(() => {
-    setLocalCanvasDocJson(null)
-    setCanvasSaveStatus("idle")
-
-    return () => {
-      if (canvasSaveTimerRef.current) {
-        clearTimeout(canvasSaveTimerRef.current)
-        canvasSaveTimerRef.current = null
-      }
-      canvasSaveVersionRef.current += 1
-    }
-  }, [documentId])
-
-  const handleCanvasChange = useCallback((change: ResumeEditorChange) => {
-    const workspaceDocumentId = workspace?.document.id
-    if (!workspaceDocumentId) return
-
-    setLocalCanvasDocJson(change.docJson)
-    setCanvasSaveStatus("idle")
-    canvasSaveVersionRef.current += 1
-    const saveVersion = canvasSaveVersionRef.current
-
-    if (canvasSaveTimerRef.current) {
-      clearTimeout(canvasSaveTimerRef.current)
-    }
-
-    canvasSaveTimerRef.current = setTimeout(() => {
-      canvasSaveTimerRef.current = null
-      setCanvasSaveStatus("saving")
-      saveSourceResumeCanvas(workspaceDocumentId, change.docJson as unknown as Record<string, unknown>)
-        .then((savedCanvas) => {
-          if (saveVersion !== canvasSaveVersionRef.current) return
-          setState((currentState) => {
-            if (currentState.status !== "loaded" || currentState.workspace.document.id !== workspaceDocumentId) {
-              return currentState
-            }
-            return {
-              status: "loaded",
-              workspace: {
-                ...currentState.workspace,
-                source_resume_canvas: savedCanvas,
-              },
-            }
-          })
-          setLocalCanvasDocJson(null)
-          setCanvasSaveStatus("saved")
-        })
-        .catch(() => {
-          if (saveVersion === canvasSaveVersionRef.current) {
-            setCanvasSaveStatus("error")
-          }
-        })
-    }, 600)
-  }, [workspace?.document.id])
-
   const handleAction = useCallback(async (action: ContextualAction) => {
     if (!workspace) return
     setActingActionId(action.id)
@@ -444,17 +426,6 @@ export function RevisionWorkspacePage() {
       } else if (action.action_type === "view_source") {
         return
       }
-      await loadWorkspace()
-    } finally {
-      setActingActionId(null)
-    }
-  }, [loadWorkspace, workspace])
-
-  const handleRender = useCallback(async () => {
-    if (!workspace?.current_draft) return
-    setActingActionId("render")
-    try {
-      await renderRevisionDraft(workspace.current_draft.id, "default-a4")
       await loadWorkspace()
     } finally {
       setActingActionId(null)
@@ -611,18 +582,19 @@ export function RevisionWorkspacePage() {
           )}
         >
           <div className="mx-auto max-w-3xl">
-            <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="mb-3">
               <div>
                 <p className="text-xs text-muted-foreground">原始简历</p>
                 <h2 className="text-base font-semibold">可编辑 A4 画布</h2>
               </div>
-              <Button size="sm" variant="outline" onClick={handleRender} disabled={!workspace.current_draft || actingActionId === "render"}>
-                <FileText className="mr-2 h-4 w-4" />
-                {actingActionId === "render" ? "生成中" : "生成预览"}
-              </Button>
             </div>
             {sourceCanvas ? (
-              <DraftCanvas canvas={sourceCanvas} onChange={handleCanvasChange} saveStatus={canvasSaveStatus} />
+              <DraftCanvas
+                canvas={sourceCanvas}
+                onChange={handleCanvasChange}
+                onRetrySave={retryCanvasSave}
+                saveStatus={canvasSaveStatus}
+              />
             ) : (
               <div className="rounded-md border border-border bg-muted/30 p-4">
                 <p className="text-sm font-medium">原始画布尚未生成</p>

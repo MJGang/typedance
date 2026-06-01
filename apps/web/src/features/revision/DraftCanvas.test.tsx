@@ -81,9 +81,31 @@ describe("DraftCanvas", () => {
   })
 
   it("announces save failures without hiding the original canvas", () => {
-    render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="error" />)
+    const onRetrySave = vi.fn()
+    render(<DraftCanvas canvas={canvas} onChange={vi.fn()} onRetrySave={onRetrySave} saveStatus="error" />)
 
     expect(screen.getByText("负责核心链路重构。")).toBeInTheDocument()
     expect(screen.getByText("保存失败")).toHaveAttribute("aria-live", "polite")
+    fireEvent.click(screen.getByRole("button", { name: "重试保存" }))
+    expect(onRetrySave).toHaveBeenCalledTimes(1)
+  })
+
+  it("renders all module anchors at the same outline depth", () => {
+    render(
+      <DraftCanvas
+        canvas={{
+          ...canvas,
+          module_anchors: [
+            ...canvas.module_anchors,
+            { module_id: "mod_2", canvas_node_ids: ["node_project"], title: "第二模块", order: 1 },
+          ],
+        }}
+        onChange={vi.fn()}
+        saveStatus="idle"
+      />,
+    )
+
+    expect(screen.getByRole("button", { name: "项目经历" })).toHaveClass("pl-2")
+    expect(screen.getByRole("button", { name: "第二模块" })).toHaveClass("pl-2")
   })
 })

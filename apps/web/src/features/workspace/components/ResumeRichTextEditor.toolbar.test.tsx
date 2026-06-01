@@ -96,6 +96,43 @@ describe("ResumeRichTextEditor toolbar", () => {
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" })
   })
 
+  it("scrolls a source canvas node without animation when reduced motion is preferred", () => {
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    })
+    const originalMatchMedia = window.matchMedia
+    window.matchMedia = vi.fn().mockReturnValue({ matches: true })
+    const ref = createRef<ResumeRichTextEditorHandle>()
+
+    try {
+      render(
+        <TooltipProvider>
+          <ResumeRichTextEditor
+            ref={ref}
+            ariaLabel="Resume text"
+            docJson={{
+              type: "doc",
+              content: [{
+                type: "paragraph",
+                attrs: { canvasNodeId: "node_1" },
+                content: [{ type: "text", text: "Source paragraph" }],
+              }],
+            }}
+            onChange={() => {}}
+          />
+        </TooltipProvider>,
+      )
+
+      ref.current?.scrollToCanvasNode("node_1")
+
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "center" })
+    } finally {
+      window.matchMedia = originalMatchMedia
+    }
+  })
+
   it("keeps each source canvas attribute set when converting multiple paragraphs to headings", () => {
     const editor = new Editor({
       extensions: [StarterKit, BlockStyle],

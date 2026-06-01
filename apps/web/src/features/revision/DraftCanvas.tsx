@@ -14,10 +14,9 @@ export type DraftCanvasSaveStatus = "idle" | "saving" | "saved" | "error"
 type DraftCanvasProps = {
   canvas: SourceResumeCanvas
   onChange: (change: ResumeEditorChange) => void
+  onRetrySave?: () => void
   saveStatus: DraftCanvasSaveStatus
 }
-
-const outlineIndentClasses = ["pl-2", "pl-4", "pl-6", "pl-8"]
 
 function saveStatusLabel(status: DraftCanvasSaveStatus) {
   if (status === "saving") return "正在保存"
@@ -26,7 +25,7 @@ function saveStatusLabel(status: DraftCanvasSaveStatus) {
   return ""
 }
 
-export function DraftCanvas({ canvas, onChange, saveStatus }: DraftCanvasProps) {
+export function DraftCanvas({ canvas, onChange, onRetrySave, saveStatus }: DraftCanvasProps) {
   const editorRef = useRef<ResumeRichTextEditorHandle>(null)
   const [outlineOpen, setOutlineOpen] = useState(true)
   const anchors = useMemo(
@@ -60,29 +59,32 @@ export function DraftCanvas({ canvas, onChange, saveStatus }: DraftCanvasProps) 
           </span>
           <ChevronDown className={cn("size-4 transition-transform duration-150", outlineOpen && "rotate-180")} />
         </Button>
-        <span
-          aria-live="polite"
+        <div
           className={cn(
-            "block min-h-5 border-t border-border px-2 py-1 text-xs text-muted-foreground",
+            "flex min-h-5 items-center justify-between gap-2 border-t border-border px-2 py-1 text-xs text-muted-foreground",
             saveStatus === "error" && "text-destructive",
           )}
         >
-          {saveStatusLabel(saveStatus)}
-        </span>
+          <span aria-live="polite">{saveStatusLabel(saveStatus)}</span>
+          {saveStatus === "error" && onRetrySave ? (
+            <Button type="button" variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={onRetrySave}>
+              重试保存
+            </Button>
+          ) : null}
+        </div>
         {outlineOpen ? (
           <div className="max-h-80 overflow-y-auto border-t border-border p-1">
             {anchors.length === 0 ? (
               <p className="px-2 py-2 text-xs text-muted-foreground">暂无可用模块大纲。</p>
             ) : (
-              anchors.map((anchor, index) => (
+              anchors.map((anchor) => (
                 <Button
                   key={anchor.module_id}
                   type="button"
                   variant="ghost"
                   size="sm"
                   className={cn(
-                    "h-auto w-full justify-start whitespace-normal py-1.5 text-left text-xs",
-                    outlineIndentClasses[Math.min(index, 3)],
+                    "h-auto w-full justify-start whitespace-normal py-1.5 pl-2 text-left text-xs",
                   )}
                   onClick={() => scrollToAnchor(anchor)}
                 >
