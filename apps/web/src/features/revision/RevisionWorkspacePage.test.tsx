@@ -413,6 +413,9 @@ describe("RevisionWorkspacePage", () => {
 
       expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledTimes(1)
       expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledWith("doc_1", expect.objectContaining({ type: "doc" }))
+      expect(JSON.stringify(apiMocks.saveSourceResumeCanvas.mock.calls[0]?.[1])).not.toMatch(
+        /activeModuleId|hoveredModuleId|outline|position/,
+      )
       expect(screen.getByText("已保存")).toBeInTheDocument()
     } finally {
       vi.useRealTimers()

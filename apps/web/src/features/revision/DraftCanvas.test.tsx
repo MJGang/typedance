@@ -362,6 +362,39 @@ describe("DraftCanvas", () => {
     })
   })
 
+  it("keeps interaction state out of the submitted editor document", async () => {
+    const onChange = vi.fn()
+    render(<DraftCanvas canvas={canvas} onChange={onChange} saveStatus="idle" />)
+    await waitFor(() => {
+      expect(screen.getByLabelText("简历模块大纲")).toHaveStyle({
+        left: "380px",
+        top: "48px",
+      })
+    })
+    act(() => editorMocks.props?.onSourceCanvasModuleChange?.("mod_1"))
+    fireEvent.pointerOver(screen.getByTestId("canvas-node-mod_2"))
+    const handle = screen.getByTestId("module-outline-drag-handle")
+    Object.assign(handle, {
+      setPointerCapture: vi.fn(),
+      releasePointerCapture: vi.fn(),
+      hasPointerCapture: vi.fn(() => true),
+    })
+    fireEvent.pointerDown(handle, { pointerId: 7, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(handle, { pointerId: 7, clientX: -90, clientY: 62 })
+    fireEvent.pointerUp(handle, { pointerId: 7, clientX: -90, clientY: 62 })
+
+    const docJson = {
+      type: "doc" as const,
+      content: [{ type: "paragraph", content: [{ type: "text", text: "原始正文" }] }],
+    }
+    act(() => editorMocks.props?.onChange({ plainText: "原始正文", docJson }))
+
+    expect(onChange).toHaveBeenCalledWith({ plainText: "原始正文", docJson })
+    expect(JSON.stringify(onChange.mock.calls[onChange.mock.calls.length - 1]?.[0].docJson)).not.toMatch(
+      /activeModuleId|hoveredModuleId|outline|position/,
+    )
+  })
+
   it("announces save failures without hiding the original canvas", () => {
     const onRetrySave = vi.fn()
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} onRetrySave={onRetrySave} saveStatus="error" />)

@@ -99,13 +99,22 @@ def fake_pdf_renderer(html: str, output_path: Path) -> Path:
 def test_export_gate_writes_pdf_artifact_and_marks_draft_exported(tmp_path):
     repo = make_repository(tmp_path)
     _document, draft = seed_export_workspace(repo)
+    rendered_html: list[str] = []
+
+    def recording_pdf_renderer(html: str, output_path: Path) -> Path:
+        rendered_html.append(html)
+        return fake_pdf_renderer(html, output_path)
 
     artifact = RevisionExportGateService(
         repo,
         output_dir=tmp_path / "exports",
-        pdf_renderer=fake_pdf_renderer,
+        pdf_renderer=recording_pdf_renderer,
     ).export_pdf(draft.id)
 
+    assert len(rendered_html) == 1
+    assert "td-module-interaction-layer" not in rendered_html[0]
+    assert "td-module-interaction-only" not in rendered_html[0]
+    assert "模块大纲" not in rendered_html[0]
     assert artifact.review_status == "passed"
     assert artifact.file_path is not None
     assert Path(artifact.file_path).exists()
