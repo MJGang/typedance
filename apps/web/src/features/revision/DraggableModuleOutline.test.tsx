@@ -217,6 +217,22 @@ describe("DraggableModuleOutline", () => {
     expect(capture.releasePointerCapture).toHaveBeenCalledWith(9)
   })
 
+  it("commits the last moved position when pointer cancel has no coordinates", () => {
+    const props = createProps()
+    render(<DraggableModuleOutline {...props} />)
+    const outline = screen.getByLabelText("简历模块大纲")
+    const handle = screen.getByTestId("module-outline-drag-handle")
+    mockOutlineSize(outline)
+    mockPointerCapture(handle)
+
+    fireEvent.pointerDown(handle, { pointerId: 9, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(handle, { pointerId: 9, clientX: 50, clientY: 60 })
+    fireEvent.pointerCancel(handle, { pointerId: 9 })
+
+    expect(props.onPositionCommit).toHaveBeenCalledTimes(1)
+    expect(props.onPositionCommit).toHaveBeenCalledWith({ x: 60, y: 80 })
+  })
+
   it("clamps the initial position when a drag ends without moving", () => {
     const props = createProps({ position: { x: 500, y: 400 } })
     render(<DraggableModuleOutline {...props} />)
