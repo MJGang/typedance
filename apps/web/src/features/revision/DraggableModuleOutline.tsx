@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { ChevronDown, ListTree } from "lucide-react"
 import type { ModuleAnchor } from "@typedance/contracts"
 import { Button } from "@/components/ui/button"
@@ -54,21 +54,37 @@ export function DraggableModuleOutline({
   const dragStateRef = useRef<DragState | null>(null)
   const [temporaryPosition, setTemporaryPosition] = useState(position)
 
-  useEffect(() => {
-    if (!dragStateRef.current) setTemporaryPosition(position)
-  }, [position])
-
-  const clampPosition = (nextPosition: Position) => {
+  const clampPosition = useCallback((nextPosition: Position) => {
     const rect = outlineRef.current?.getBoundingClientRect()
     return clampOutlinePosition(
       nextPosition,
       bounds,
       { width: rect?.width ?? 0, height: rect?.height ?? 0 },
     )
-  }
+  }, [bounds.height, bounds.width])
+
+  useEffect(() => {
+    if (dragStateRef.current || bounds.width <= 0 || bounds.height <= 0) return
+
+    const nextPosition = clampPosition(position)
+    setTemporaryPosition(nextPosition)
+    if (nextPosition.x !== position.x || nextPosition.y !== position.y) {
+      onPositionCommit(nextPosition)
+    }
+  }, [
+    anchors.length,
+    bounds.height,
+    bounds.width,
+    clampPosition,
+    expanded,
+    onPositionCommit,
+    position.x,
+    position.y,
+    saveStatus,
+  ])
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (dragStateRef.current) return
+    if (event.button !== 0 || dragStateRef.current) return
 
     const dragState = {
       pointerId: event.pointerId,
@@ -100,7 +116,7 @@ export function DraggableModuleOutline({
       event.currentTarget.releasePointerCapture?.(event.pointerId)
     }
     const finalPosition = event.type === "pointercancel"
-      ? dragState.latest
+      ? clampPosition(dragState.latest)
       : clampPosition({
           x: dragState.origin.x + event.clientX - dragState.start.x,
           y: dragState.origin.y + event.clientY - dragState.start.y,

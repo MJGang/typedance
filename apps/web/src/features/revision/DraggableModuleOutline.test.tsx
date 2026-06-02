@@ -244,8 +244,7 @@ describe("DraggableModuleOutline", () => {
     fireEvent.pointerDown(handle, { pointerId: 7, clientX: 10, clientY: 10 })
     fireEvent.pointerUp(handle, { pointerId: 7, clientX: 10, clientY: 10 })
 
-    expect(props.onPositionCommit).toHaveBeenCalledTimes(1)
-    expect(props.onPositionCommit).toHaveBeenCalledWith({ x: 200, y: 120 })
+    expect(props.onPositionCommit).toHaveBeenLastCalledWith({ x: 200, y: 120 })
   })
 
   it("commits the pointer up coordinates after the last move", () => {
@@ -305,6 +304,84 @@ describe("DraggableModuleOutline", () => {
     )
 
     expect(outline).toHaveStyle({ left: "72px", top: "84px" })
+  })
+
+  it("reclamps and commits the position when idle bounds shrink", () => {
+    const props = createProps({ position: { x: 180, y: 100 } })
+    const { rerender } = render(<DraggableModuleOutline {...props} />)
+    const outline = screen.getByLabelText("简历模块大纲")
+    mockOutlineSize(outline)
+
+    rerender(
+      <DraggableModuleOutline
+        {...props}
+        bounds={{ width: 160, height: 120 }}
+      />,
+    )
+
+    expect(outline).toHaveStyle({ left: "60px", top: "40px" })
+    expect(props.onPositionCommit).toHaveBeenLastCalledWith({ x: 60, y: 40 })
+  })
+
+  it("reclamps and commits the position when expanded content changes its size", () => {
+    const props = createProps({
+      expanded: false,
+      position: { x: 180, y: 100 },
+    })
+    const { rerender } = render(<DraggableModuleOutline {...props} />)
+    const outline = screen.getByLabelText("简历模块大纲")
+    vi.spyOn(outline, "getBoundingClientRect").mockReturnValue({
+      width: 100,
+      height: 140,
+    } as DOMRect)
+
+    rerender(<DraggableModuleOutline {...props} expanded />)
+
+    expect(outline).toHaveStyle({ left: "180px", top: "60px" })
+    expect(props.onPositionCommit).toHaveBeenLastCalledWith({ x: 180, y: 60 })
+  })
+
+  it("reclamps the last moved position on pointer cancel after bounds shrink", () => {
+    const props = createProps()
+    const { rerender } = render(<DraggableModuleOutline {...props} />)
+    const outline = screen.getByLabelText("简历模块大纲")
+    const handle = screen.getByTestId("module-outline-drag-handle")
+    mockOutlineSize(outline)
+    mockPointerCapture(handle)
+
+    fireEvent.pointerDown(handle, { pointerId: 9, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(handle, { pointerId: 9, clientX: 180, clientY: 150 })
+    rerender(
+      <DraggableModuleOutline
+        {...props}
+        bounds={{ width: 160, height: 120 }}
+      />,
+    )
+    fireEvent.pointerCancel(handle, { pointerId: 9 })
+
+    expect(props.onPositionCommit).toHaveBeenCalledTimes(1)
+    expect(props.onPositionCommit).toHaveBeenCalledWith({ x: 60, y: 40 })
+  })
+
+  it("ignores non-primary pointer downs", () => {
+    const props = createProps()
+    render(<DraggableModuleOutline {...props} />)
+    const outline = screen.getByLabelText("简历模块大纲")
+    const handle = screen.getByTestId("module-outline-drag-handle")
+    mockOutlineSize(outline)
+    const capture = mockPointerCapture(handle)
+
+    fireEvent.pointerDown(handle, {
+      pointerId: 7,
+      button: 1,
+      clientX: 10,
+      clientY: 10,
+    })
+    fireEvent.pointerMove(handle, { pointerId: 7, clientX: 100, clientY: 100 })
+    fireEvent.pointerUp(handle, { pointerId: 7, clientX: 100, clientY: 100 })
+
+    expect(props.onPositionCommit).not.toHaveBeenCalled()
+    expect(capture.setPointerCapture).not.toHaveBeenCalled()
   })
 
   it("marks the floating outline as module-interaction-only", () => {
