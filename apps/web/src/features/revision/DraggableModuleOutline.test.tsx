@@ -217,6 +217,63 @@ describe("DraggableModuleOutline", () => {
     expect(capture.releasePointerCapture).toHaveBeenCalledWith(9)
   })
 
+  it("clamps the initial position when a drag ends without moving", () => {
+    const props = createProps({ position: { x: 500, y: 400 } })
+    render(<DraggableModuleOutline {...props} />)
+    const outline = screen.getByLabelText("简历模块大纲")
+    const handle = screen.getByTestId("module-outline-drag-handle")
+    mockOutlineSize(outline)
+    mockPointerCapture(handle)
+
+    fireEvent.pointerDown(handle, { pointerId: 7, clientX: 10, clientY: 10 })
+    fireEvent.pointerUp(handle, { pointerId: 7, clientX: 10, clientY: 10 })
+
+    expect(props.onPositionCommit).toHaveBeenCalledTimes(1)
+    expect(props.onPositionCommit).toHaveBeenCalledWith({ x: 200, y: 120 })
+  })
+
+  it("commits the pointer up coordinates after the last move", () => {
+    const props = createProps()
+    render(<DraggableModuleOutline {...props} />)
+    const outline = screen.getByLabelText("简历模块大纲")
+    const handle = screen.getByTestId("module-outline-drag-handle")
+    mockOutlineSize(outline)
+    mockPointerCapture(handle)
+
+    fireEvent.pointerDown(handle, { pointerId: 7, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(handle, { pointerId: 7, clientX: 30, clientY: 40 })
+    fireEvent.pointerUp(handle, { pointerId: 7, clientX: 80, clientY: 90 })
+
+    expect(props.onPositionCommit).toHaveBeenCalledTimes(1)
+    expect(props.onPositionCommit).toHaveBeenCalledWith({ x: 90, y: 110 })
+  })
+
+  it("ignores additional pointer downs until the active drag finishes", () => {
+    const props = createProps()
+    render(<DraggableModuleOutline {...props} />)
+    const outline = screen.getByLabelText("简历模块大纲")
+    const handle = screen.getByTestId("module-outline-drag-handle")
+    mockOutlineSize(outline)
+    const capture = mockPointerCapture(handle)
+
+    fireEvent.pointerDown(handle, { pointerId: 7, clientX: 10, clientY: 10 })
+    fireEvent.pointerDown(handle, { pointerId: 9, clientX: 100, clientY: 100 })
+    fireEvent.pointerMove(handle, { pointerId: 9, clientX: 200, clientY: 180 })
+    fireEvent.pointerUp(handle, { pointerId: 9, clientX: 200, clientY: 180 })
+
+    expect(props.onPositionCommit).not.toHaveBeenCalled()
+
+    fireEvent.pointerMove(handle, { pointerId: 7, clientX: 50, clientY: 60 })
+    fireEvent.pointerUp(handle, { pointerId: 7, clientX: 50, clientY: 60 })
+
+    expect(props.onPositionCommit).toHaveBeenCalledTimes(1)
+    expect(props.onPositionCommit).toHaveBeenCalledWith({ x: 60, y: 80 })
+    expect(capture.setPointerCapture).toHaveBeenCalledTimes(1)
+    expect(capture.setPointerCapture).toHaveBeenCalledWith(7)
+    expect(capture.releasePointerCapture).toHaveBeenCalledTimes(1)
+    expect(capture.releasePointerCapture).toHaveBeenCalledWith(7)
+  })
+
   it("syncs changed position props while idle", () => {
     const props = createProps()
     const { rerender } = render(<DraggableModuleOutline {...props} />)

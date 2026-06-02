@@ -27,7 +27,6 @@ type DragState = {
   pointerId: number
   start: Position
   origin: Position
-  latest: Position
 }
 
 export function draftCanvasSaveStatusLabel(status: DraftCanvasSaveStatus) {
@@ -68,11 +67,12 @@ export function DraggableModuleOutline({
   }
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragStateRef.current) return
+
     const dragState = {
       pointerId: event.pointerId,
       start: { x: event.clientX, y: event.clientY },
       origin: temporaryPosition,
-      latest: temporaryPosition,
     }
     dragStateRef.current = dragState
     event.currentTarget.setPointerCapture?.(event.pointerId)
@@ -86,7 +86,6 @@ export function DraggableModuleOutline({
       x: dragState.origin.x + event.clientX - dragState.start.x,
       y: dragState.origin.y + event.clientY - dragState.start.y,
     })
-    dragState.latest = nextPosition
     setTemporaryPosition(nextPosition)
   }
 
@@ -97,8 +96,13 @@ export function DraggableModuleOutline({
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture?.(event.pointerId)
     }
+    const finalPosition = clampPosition({
+      x: dragState.origin.x + event.clientX - dragState.start.x,
+      y: dragState.origin.y + event.clientY - dragState.start.y,
+    })
     dragStateRef.current = null
-    onPositionCommit(dragState.latest)
+    setTemporaryPosition(finalPosition)
+    onPositionCommit(finalPosition)
   }
 
   return (
