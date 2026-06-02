@@ -137,6 +137,9 @@ describe("ModuleInteractionLayer", () => {
     )
     expect(styles).toContain('.td-module-interaction-region[data-state="active"]')
     expect(styles).toContain('.td-module-interaction-region[data-state="hovered"]')
+    expect(styles).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)\s*{\s*\.td-module-interaction-region\s*{\s*transition:\s*none;\s*}\s*}/,
+    )
     expect(styles).not.toContain(".td-source-resume-canvas [data-module-id]")
   })
 })
