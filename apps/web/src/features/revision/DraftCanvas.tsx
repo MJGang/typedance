@@ -1,15 +1,31 @@
-import { useMemo, useRef, useState } from "react"
-import { ChevronDown, ListTree } from "lucide-react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react"
 import type { ModuleAnchor, SourceResumeCanvas } from "@typedance/contracts"
-import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
 import type { ResumeDocJson, ResumeEditorChange } from "../workspace/editor"
 import {
   ResumeRichTextEditor,
   type ResumeRichTextEditorHandle,
 } from "../workspace/components/ResumeRichTextEditor"
+import {
+  DraggableModuleOutline,
+  type DraftCanvasSaveStatus,
+} from "./DraggableModuleOutline"
+import { ModuleInteractionLayer } from "./ModuleInteractionLayer"
+import {
+  buildModuleVisualRegions,
+  getDefaultModuleOutlinePosition,
+  loadModuleOutlinePreferences,
+  saveModuleOutlinePreferences,
+  type ModuleVisualRegion,
+} from "./moduleInteractions"
 
-export type DraftCanvasSaveStatus = "idle" | "saving" | "saved" | "error"
+export type { DraftCanvasSaveStatus } from "./DraggableModuleOutline"
 
 type DraftCanvasProps = {
   canvas: SourceResumeCanvas
@@ -18,91 +34,231 @@ type DraftCanvasProps = {
   saveStatus: DraftCanvasSaveStatus
 }
 
-function saveStatusLabel(status: DraftCanvasSaveStatus) {
-  if (status === "saving") return "正在保存"
-  if (status === "saved") return "已保存"
-  if (status === "error") return "保存失败"
-  return ""
+type Position = { x: number; y: number }
+type Size = { width: number; height: number }
+
+function sameSize(left: Size, right: Size) {
+  return left.width === right.width && left.height === right.height
 }
 
-export function DraftCanvas({ canvas, onChange, onRetrySave, saveStatus }: DraftCanvasProps) {
+function getElementSize(element: HTMLElement): Size {
+  const rect = element.getBoundingClientRect()
+  return {
+    width: element.clientWidth || rect.width,
+    height: element.clientHeight || rect.height,
+  }
+}
+
+function requestMeasureFrame(callback: FrameRequestCallback): number {
+  if (typeof window.requestAnimationFrame === "function") {
+    return window.requestAnimationFrame(callback)
+  }
+  return window.setTimeout(() => callback(performance.now()), 0)
+}
+
+function cancelMeasureFrame(frameId: number) {
+  if (typeof window.cancelAnimationFrame === "function") {
+    window.cancelAnimationFrame(frameId)
+    return
+  }
+  window.clearTimeout(frameId)
+}
+
+function DraftCanvasWorkspace({
+  canvas,
+  onChange,
+  onRetrySave,
+  saveStatus,
+}: DraftCanvasProps) {
   const editorRef = useRef<ResumeRichTextEditorHandle>(null)
-  const [outlineOpen, setOutlineOpen] = useState(true)
+  const canvasRootRef = useRef<HTMLDivElement>(null)
+  const frameRef = useRef<number | null>(null)
   const anchors = useMemo(
     () => [...canvas.module_anchors].sort((left, right) => left.order - right.order),
     [canvas.module_anchors],
   )
+  const initialPreferences = useMemo(
+    () => loadModuleOutlinePreferences(canvas.document_id),
+    [canvas.document_id],
+  )
+  const [activeModuleId, setActiveModuleId] = useState<string | null>(null)
+  const [hoveredModuleId, setHoveredModuleId] = useState<string | null>(null)
+  const [outlineVisible, setOutlineVisible] = useState(initialPreferences?.visible ?? true)
+  const [outlineExpanded, setOutlineExpanded] = useState(initialPreferences?.expanded ?? true)
+  const [outlinePosition, setOutlinePosition] = useState<Position | null>(
+    initialPreferences?.position ?? null,
+  )
+  const outlinePositionRef = useRef(outlinePosition)
+  const [outlineBounds, setOutlineBounds] = useState<Size>({ width: 0, height: 0 })
+  const [regions, setRegions] = useState<ModuleVisualRegion[]>([])
+  outlinePositionRef.current = outlinePosition
 
-  const scrollToAnchor = (anchor: ModuleAnchor) => {
+  const scheduleMeasure = useCallback(() => {
+    if (frameRef.current !== null) return
+
+    frameRef.current = requestMeasureFrame(() => {
+      frameRef.current = null
+      const root = canvasRootRef.current
+      if (!root) return
+
+      const rootRect = root.getBoundingClientRect()
+      const nextBounds = getElementSize(root)
+      setOutlineBounds((currentBounds) => (
+        sameSize(currentBounds, nextBounds) ? currentBounds : nextBounds
+      ))
+
+      const nodes = [...root.querySelectorAll<HTMLElement>("[data-canvas-node-id]")]
+        .map((node) => {
+          const rect = node.getBoundingClientRect()
+          return {
+            canvasNodeId: node.dataset.canvasNodeId ?? "",
+            rect: {
+              top: rect.top - rootRect.top,
+              bottom: rect.bottom - rootRect.top,
+              left: rect.left - rootRect.left,
+              right: rect.right - rootRect.left,
+            },
+          }
+        })
+        .filter((node) => node.canvasNodeId)
+      const gaps = [...root.querySelectorAll<HTMLElement>(".rm-pagination-gap")]
+        .map((gap) => {
+          const rect = gap.getBoundingClientRect()
+          return {
+            top: rect.top - rootRect.top,
+            bottom: rect.bottom - rootRect.top,
+          }
+        })
+
+      setRegions(buildModuleVisualRegions({ anchors, nodes, gaps }))
+
+      if (
+        outlinePositionRef.current === null
+        && nextBounds.width > 0
+        && nextBounds.height > 0
+      ) {
+        const outline = root.querySelector<HTMLElement>("[aria-label='简历模块大纲']")
+        if (outline) {
+          setOutlinePosition(getDefaultModuleOutlinePosition(nextBounds, getElementSize(outline)))
+        }
+      }
+    })
+  }, [anchors])
+
+  useEffect(() => {
+    const root = canvasRootRef.current
+    if (!root) return
+
+    const viewport = root.querySelector<HTMLElement>(".td-editor-print-wrapper")
+    const prosemirror = root.querySelector<HTMLElement>(".ProseMirror")
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(scheduleMeasure)
+
+    resizeObserver?.observe(root)
+    if (viewport) {
+      resizeObserver?.observe(viewport)
+      viewport.addEventListener("scroll", scheduleMeasure, { passive: true })
+    }
+    if (prosemirror) resizeObserver?.observe(prosemirror)
+    scheduleMeasure()
+
+    return () => {
+      resizeObserver?.disconnect()
+      viewport?.removeEventListener("scroll", scheduleMeasure)
+      if (frameRef.current !== null) {
+        cancelMeasureFrame(frameRef.current)
+        frameRef.current = null
+      }
+    }
+  }, [scheduleMeasure])
+
+  useEffect(() => {
+    scheduleMeasure()
+  }, [canvas.doc_json, outlineExpanded, outlineVisible, scheduleMeasure])
+
+  useEffect(() => {
+    if (outlinePosition === null) return
+    saveModuleOutlinePreferences(canvas.document_id, {
+      visible: outlineVisible,
+      expanded: outlineExpanded,
+      position: outlinePosition,
+    })
+  }, [
+    canvas.document_id,
+    outlineExpanded,
+    outlinePosition,
+    outlineVisible,
+  ])
+
+  const handleEditorChange = useCallback((change: ResumeEditorChange) => {
+    onChange(change)
+    scheduleMeasure()
+  }, [onChange, scheduleMeasure])
+
+  const scrollToAnchor = useCallback((anchor: ModuleAnchor) => {
+    setActiveModuleId(anchor.module_id)
     const firstNodeId = anchor.canvas_node_ids[0]
-    if (firstNodeId) editorRef.current?.scrollToCanvasNode(firstNodeId)
-  }
+    if (firstNodeId) {
+      editorRef.current?.scrollToCanvasNode(firstNodeId, { topOffset: 16 })
+    }
+    scheduleMeasure()
+  }, [scheduleMeasure])
+
+  const handlePointerOver = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const target = event.target
+    if (!(target instanceof Element)) {
+      setHoveredModuleId(null)
+      return
+    }
+
+    const moduleNode = target.closest<HTMLElement>("[data-module-id]")
+    const moduleId = moduleNode && event.currentTarget.contains(moduleNode)
+      ? moduleNode.dataset.moduleId
+      : undefined
+    setHoveredModuleId(moduleId || null)
+  }, [])
 
   return (
-    <div className="relative min-h-0">
-      <aside
-        aria-label="简历模块大纲"
-        className="absolute right-3 top-12 z-20 w-52 border border-border bg-background/95 shadow-sm backdrop-blur"
-      >
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="w-full justify-between rounded-none"
-          aria-expanded={outlineOpen}
-          aria-label={outlineOpen ? "折叠模块大纲" : "展开模块大纲"}
-          onClick={() => setOutlineOpen((value) => !value)}
-        >
-          <span className="inline-flex items-center gap-2">
-            <ListTree className="size-4" />
-            模块大纲
-          </span>
-          <ChevronDown className={cn("size-4 transition-transform duration-150", outlineOpen && "rotate-180")} />
-        </Button>
-        <div
-          className={cn(
-            "flex min-h-5 items-center justify-between gap-2 border-t border-border px-2 py-1 text-xs text-muted-foreground",
-            saveStatus === "error" && "text-destructive",
-          )}
-        >
-          <span aria-live="polite">{saveStatusLabel(saveStatus)}</span>
-          {saveStatus === "error" && onRetrySave ? (
-            <Button type="button" variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={onRetrySave}>
-              重试保存
-            </Button>
-          ) : null}
-        </div>
-        {outlineOpen ? (
-          <div className="max-h-80 overflow-y-auto border-t border-border p-1">
-            {anchors.length === 0 ? (
-              <p className="px-2 py-2 text-xs text-muted-foreground">暂无可用模块大纲。</p>
-            ) : (
-              anchors.map((anchor) => (
-                <Button
-                  key={anchor.module_id}
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    "h-auto w-full justify-start whitespace-normal py-1.5 pl-2 text-left text-xs",
-                  )}
-                  onClick={() => scrollToAnchor(anchor)}
-                >
-                  {anchor.title}
-                </Button>
-              ))
-            )}
-          </div>
-        ) : null}
-      </aside>
-      <div className="td-source-resume-canvas">
-        <ResumeRichTextEditor
-          ref={editorRef}
-          ariaLabel="原始简历编辑区"
-          docJson={canvas.doc_json as ResumeDocJson}
-          onChange={onChange}
+    <div
+      ref={canvasRootRef}
+      className="td-source-resume-canvas relative min-h-0"
+      onPointerOver={handlePointerOver}
+      onPointerLeave={() => setHoveredModuleId(null)}
+    >
+      <ResumeRichTextEditor
+        ref={editorRef}
+        ariaLabel="原始简历编辑区"
+        docJson={canvas.doc_json as ResumeDocJson}
+        moduleOutlineVisible={outlineVisible}
+        onChange={handleEditorChange}
+        onModuleOutlineVisibleChange={setOutlineVisible}
+        onSourceCanvasModuleChange={setActiveModuleId}
+      />
+      <ModuleInteractionLayer
+        regions={regions}
+        activeModuleId={activeModuleId}
+        hoveredModuleId={hoveredModuleId}
+      />
+      {outlineVisible ? (
+        <DraggableModuleOutline
+          anchors={anchors}
+          activeModuleId={activeModuleId}
+          expanded={outlineExpanded}
+          position={outlinePosition ?? { x: 0, y: 0 }}
+          bounds={outlineBounds}
+          saveStatus={saveStatus}
+          onRetrySave={onRetrySave}
+          onExpandedChange={setOutlineExpanded}
+          onPositionCommit={setOutlinePosition}
+          onActivateModule={setActiveModuleId}
+          onScrollToAnchor={scrollToAnchor}
         />
-      </div>
+      ) : null}
     </div>
   )
+}
+
+export function DraftCanvas(props: DraftCanvasProps) {
+  return <DraftCanvasWorkspace key={props.canvas.document_id} {...props} />
 }
