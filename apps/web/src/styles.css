@@ -1564,20 +1564,35 @@ textarea {
   background-color: var(--background) !important;
 }
 
-.td-source-resume-canvas [data-module-id] {
+.td-module-interaction-layer {
+  pointer-events: none;
+}
+
+.td-module-interaction-region {
   border-radius: 4px;
   transition:
     outline-color 150ms ease,
     background-color 150ms ease;
 }
 
-.td-source-resume-canvas [data-module-id]:hover {
-  outline: 1px solid rgb(59 130 246 / 45%);
-  background-color: rgb(59 130 246 / 6%);
+.td-module-interaction-region[data-state="active"] {
+  outline: 1px solid rgb(59 130 246 / 55%);
+  background-color: rgb(59 130 246 / 9%);
+}
+
+.td-module-interaction-region[data-state="hovered"] {
+  outline: 1px solid rgb(59 130 246 / 35%);
+  background-color: rgb(59 130 246 / 3%);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .td-source-resume-canvas [data-module-id] {
+  .td-module-interaction-region {
     transition: none;
+  }
+}
+
+@media print {
+  .td-module-interaction-only {
+    display: none !important;
   }
 }
