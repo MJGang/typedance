@@ -1564,6 +1564,10 @@ textarea {
   background-color: var(--background) !important;
 }
 
+.td-source-resume-canvas .td-rich-editor {
+  height: clamp(32rem, 72svh, 56rem);
+}
+
 .td-module-interaction-layer {
   z-index: 1;
   pointer-events: none;
