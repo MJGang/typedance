@@ -924,8 +924,18 @@ textarea {
 }
 
 .td-resume-drag-handle-floating[data-dragging="true"],
-.td-resume-drag-handle-floating[style*="visibility: hidden"] {
+.td-resume-drag-handle-floating.td-resume-drag-handle-suppressed {
   transition: none;
+}
+
+.td-resume-drag-handle-floating:not(.td-resume-drag-handle-suppressed) {
+  visibility: visible !important;
+}
+
+.td-resume-drag-handle-floating.td-resume-drag-handle-suppressed {
+  visibility: hidden !important;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .td-drag-handle-shell {
@@ -1603,9 +1613,15 @@ textarea {
 }
 
 .td-source-resume-canvas .td-rich-editor {
+  align-items: stretch;
   height: auto;
   min-height: 100%;
   overflow: visible;
+}
+
+.td-source-resume-canvas .td-rich-editor-toolbar {
+  width: 100%;
+  max-width: none;
 }
 
 .td-source-resume-canvas,

@@ -726,7 +726,7 @@ export function RevisionWorkspacePage() {
             data-testid="revision-draft-panel"
             className="td-source-resume-canvas-viewport min-h-0 min-w-0 flex-1 overflow-auto px-0 pb-4 pt-0"
           >
-            <div className="mx-auto w-[60rem] max-w-none">
+            <div className="w-full min-w-[56rem] max-w-none">
               {sourceCanvas ? (
                 <DraftCanvas
                   canvas={sourceCanvas}

@@ -10,6 +10,7 @@ import {
   BlockStyle,
   getDragHandleBlockPresentation,
   getDragHandleBlockType,
+  isPointerWithinDragHandleBlock,
   ResumeRichTextEditor,
   setToolbarTextBlock,
   type ResumeRichTextEditorHandle,
@@ -135,6 +136,17 @@ describe("ResumeRichTextEditor toolbar", () => {
     })
 
     editor.destroy()
+  })
+
+  it("only shows the floating drag handle when the pointer is near the actual block", () => {
+    const rect = { top: 120, bottom: 144, height: 24 }
+
+    expect(isPointerWithinDragHandleBlock({ clientY: 116 }, rect)).toBe(true)
+    expect(isPointerWithinDragHandleBlock({ clientY: 144 }, rect)).toBe(true)
+    expect(isPointerWithinDragHandleBlock({ clientY: 80 }, rect)).toBe(false)
+    expect(isPointerWithinDragHandleBlock({ clientY: 180 }, rect)).toBe(false)
+    expect(isPointerWithinDragHandleBlock(null, rect)).toBe(false)
+    expect(isPointerWithinDragHandleBlock({ clientY: 128 }, { top: 120, bottom: 120, height: 0 })).toBe(false)
   })
 
   it("renders source canvas attributes on paragraph nodes", () => {

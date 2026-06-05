@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react"
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type PointerEvent } from "react"
 import { Extension, Mark, type Editor } from "@tiptap/core"
 import { Markdown } from "@tiptap/markdown"
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
@@ -127,6 +127,7 @@ const BLOCK_OPTIONS: Array<{ value: ToolbarBlock; label: string; icon: typeof Ty
 
 const BLOCK_STYLE_NODE_TYPES = ["paragraph", "heading", "listItem"] as const
 const DEFAULT_LINE_HEIGHT: ToolbarLineHeight = "default"
+const DRAG_HANDLE_BLOCK_HIT_SLOP = 4
 const MAX_INDENT = 8
 
 type DragHandleBlockPresentation = {
@@ -181,6 +182,21 @@ export function getDragHandleBlockType(node: ProseMirrorNode | null, editor?: Ed
   if (node.type.name === "listItem") return "bulletList"
 
   return "paragraph"
+}
+
+export function isPointerWithinDragHandleBlock(
+  pointer: { clientY: number } | null,
+  rect: Pick<DOMRectReadOnly, "top" | "bottom" | "height"> | null,
+) {
+  if (!pointer || !rect || rect.height <= 0) return false
+  return pointer.clientY >= rect.top - DRAG_HANDLE_BLOCK_HIT_SLOP
+    && pointer.clientY <= rect.bottom + DRAG_HANDLE_BLOCK_HIT_SLOP
+}
+
+function getDragHandleNodeElement(editor: Editor, pos: number) {
+  if (pos < 0) return null
+  const nodeDom = editor.view.nodeDOM(pos)
+  return nodeDom instanceof HTMLElement ? nodeDom : null
 }
 
 function ResumeDragHandleChrome({ block }: { block: ToolbarBlock }) {
@@ -581,8 +597,37 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
     const onSourceCanvasModuleChangeRef = useRef(onSourceCanvasModuleChange)
     onSourceCanvasModuleChangeRef.current = onSourceCanvasModuleChange
     const [dragHandleBlock, setDragHandleBlock] = useState<ToolbarBlock>("paragraph")
+    const [dragHandleVisible, setDragHandleVisible] = useState(false)
+    const latestDragHandlePointerRef = useRef<{ clientY: number } | null>(null)
+    const handleRichEditorPointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
+      latestDragHandlePointerRef.current = { clientY: event.clientY }
+      const target = event.target
+      if (
+        target instanceof Element
+        && !target.closest(".td-editor-print-wrapper")
+        && !target.closest(".td-drag-handle-shell")
+      ) {
+        setDragHandleVisible(false)
+      }
+    }, [])
+    const handleRichEditorPointerLeave = useCallback(() => {
+      latestDragHandlePointerRef.current = null
+      setDragHandleVisible(false)
+    }, [])
     const handleDragHandleNodeChange = useCallback(({ editor, node, pos }: { editor: Editor; node: ProseMirrorNode | null; pos: number }) => {
-      setDragHandleBlock(getDragHandleBlockType(node, editor, pos))
+      if (!node) {
+        setDragHandleVisible(false)
+        return
+      }
+      const nodeElement = getDragHandleNodeElement(editor, pos)
+      const isVisible = isPointerWithinDragHandleBlock(
+        latestDragHandlePointerRef.current,
+        nodeElement?.getBoundingClientRect() ?? null,
+      )
+      setDragHandleVisible(isVisible)
+      if (isVisible) {
+        setDragHandleBlock(getDragHandleBlockType(node, editor, pos))
+      }
     }, [])
 
     const editor = useEditor({
@@ -755,7 +800,11 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
     const decreaseIndent = () => updateCurrentBlockStyle({ indent: Math.max(0, toolbarState.indent - 1) })
 
     return (
-      <div className="td-rich-editor">
+      <div
+        className="td-rich-editor"
+        onPointerMove={handleRichEditorPointerMove}
+        onPointerLeave={handleRichEditorPointerLeave}
+      >
         {editable && (
           <div className="td-rich-editor-toolbar" role="toolbar" aria-label="简历格式工具栏">
             <ToolbarGroup>
@@ -923,7 +972,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         {editable && (
           <DragHandle
             editor={editor}
-            className="drag-handle td-resume-drag-handle-floating"
+            className={`drag-handle td-resume-drag-handle-floating${dragHandleVisible ? "" : " td-resume-drag-handle-suppressed"}`}
             onNodeChange={handleDragHandleNodeChange}
           >
             <ResumeDragHandleChrome block={dragHandleBlock} />

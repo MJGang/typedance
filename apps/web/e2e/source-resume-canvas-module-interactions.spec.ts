@@ -205,6 +205,36 @@ async function getOutlinePosition(page: Page) {
   }))
 }
 
+test("stretches the source resume toolbar across the draft panel on wide screens", async ({ page }) => {
+  await page.setViewportSize({ width: 1750, height: 912 })
+  await installWorkspaceRoutes(page)
+  await page.goto("/packs/resume/workspaces/doc_long")
+
+  await expect(page.getByRole("heading", { name: "doc_long 多页简历" })).toBeVisible()
+  const toolbarGeometry = await page.locator(".td-source-resume-canvas .td-rich-editor-toolbar").evaluate((toolbar) => {
+    const draftPanel = toolbar.closest('[data-testid="revision-draft-panel"]')
+    const canvas = toolbar.closest(".td-source-resume-canvas")
+    if (!(draftPanel instanceof HTMLElement) || !(canvas instanceof HTMLElement)) return null
+    const toolbarRect = toolbar.getBoundingClientRect()
+    const draftPanelRect = draftPanel.getBoundingClientRect()
+    const canvasRect = canvas.getBoundingClientRect()
+    return {
+      canvasWidth: canvasRect.width,
+      leftOffset: toolbarRect.left - draftPanelRect.left,
+      panelWidth: draftPanel.clientWidth,
+      panelScrollWidth: draftPanel.scrollWidth,
+      toolbarWidth: toolbarRect.width,
+    }
+  })
+  expect(toolbarGeometry).not.toBeNull()
+  if (!toolbarGeometry) throw new Error("Expected source canvas toolbar geometry")
+  expect(toolbarGeometry.leftOffset).toBeGreaterThanOrEqual(0)
+  expect(toolbarGeometry.leftOffset).toBeLessThanOrEqual(1)
+  expect(toolbarGeometry.canvasWidth).toBeGreaterThanOrEqual(toolbarGeometry.panelWidth - 1)
+  expect(toolbarGeometry.panelScrollWidth).toBeLessThanOrEqual(toolbarGeometry.panelWidth + 1)
+  expect(toolbarGeometry.toolbarWidth).toBeGreaterThanOrEqual(toolbarGeometry.panelWidth - 1)
+})
+
 test("keeps multi-page module interactions visible, draggable, and workspace-scoped", async ({ page }) => {
   await page.setViewportSize({ width: 1126, height: 912 })
   await installWorkspaceRoutes(page)
@@ -240,7 +270,7 @@ test("keeps multi-page module interactions visible, draggable, and workspace-sco
     clientHeight: element.clientHeight,
     scrollHeight: element.scrollHeight,
   }))
-  expect(draftPanelOverflow.scrollWidth).toBeGreaterThanOrEqual(960)
+  expect(draftPanelOverflow.scrollWidth).toBeGreaterThanOrEqual(896)
   expect(draftPanelOverflow.scrollWidth).toBeGreaterThan(draftPanelOverflow.clientWidth)
   expect(draftPanelOverflow.scrollHeight).toBeGreaterThan(draftPanelOverflow.clientHeight)
   const toolbarGeometry = await page.getByRole("toolbar", { name: "简历格式工具栏" }).evaluate((toolbar) => {
@@ -319,11 +349,19 @@ test("keeps multi-page module interactions visible, draggable, and workspace-sco
     if (!(pageNode instanceof HTMLElement)) return 0
     return pageNode.getBoundingClientRect().left - element.getBoundingClientRect().left
   })
-  expect(printWrapperLeftGutter).toBeGreaterThanOrEqual(60)
+  expect(printWrapperLeftGutter).toBeGreaterThanOrEqual(48)
+  const blankPoint = await page.locator(".td-source-resume-canvas .td-rich-editor-content > .ProseMirror").evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    return { x: rect.left + 24, y: rect.top + 24 }
+  })
+  await page.mouse.move(blankPoint.x, blankPoint.y)
+  await page.waitForTimeout(200)
+  await expect(page.locator(".td-resume-drag-handle-floating")).toHaveClass(/td-resume-drag-handle-suppressed/)
   const workParagraphNode = page.locator("[data-canvas-node-id='work_0']")
   await workParagraphNode.scrollIntoViewIfNeeded()
   await workParagraphNode.hover({ force: true })
   await page.waitForSelector('[data-testid="resume-drag-handle"]', { state: "attached" })
+  await expect(page.locator(".td-resume-drag-handle-floating")).not.toHaveClass(/td-resume-drag-handle-suppressed/)
   await page.waitForTimeout(200)
   const canvasCursorStyles = await page.evaluate(() => {
     const content = document.querySelector(".td-source-resume-canvas .td-rich-editor-content")
