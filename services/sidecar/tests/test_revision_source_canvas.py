@@ -2,6 +2,7 @@ from typedance_sidecar.models import utc_now
 from typedance_sidecar.markdown_doc_json import TiptapMarkdownDocJsonConverter
 from typedance_sidecar.revision_models import DocumentModule, ParsedBlock, SourceDocument
 from typedance_sidecar.revision_source_canvas import SourceResumeCanvasBuilder
+from typedance_sidecar.source_canvas_doc_json import annotate_source_doc_json
 
 
 def test_builder_preserves_original_blocks_and_canvas_node_ids():
@@ -67,6 +68,66 @@ def test_builder_preserves_original_blocks_and_canvas_node_ids():
     assert canvas.node_map[2].text == "负责订单系统重构"
     assert canvas.node_map[2].module_id == "mod_work"
     assert canvas.module_anchors[0].canvas_node_ids == ["node_block_2", "node_block_3"]
+
+
+def test_annotates_nested_list_items_with_canvas_node_ids():
+    now = utc_now()
+    source = SourceDocument(
+        id="src_md",
+        document_id="doc_1",
+        source_type="old_resume",
+        title="旧简历",
+        raw_text="一级\n二级",
+        parse_status="recognized",
+        created_at=now,
+    )
+    doc_json = {
+        "type": "doc",
+        "content": [
+            {
+                "type": "bulletList",
+                "content": [
+                    {
+                        "type": "listItem",
+                        "content": [
+                            {
+                                "type": "paragraph",
+                                "content": [{"type": "text", "text": "一级"}],
+                            },
+                            {
+                                "type": "bulletList",
+                                "content": [
+                                    {
+                                        "type": "listItem",
+                                        "content": [
+                                            {
+                                                "type": "paragraph",
+                                                "content": [
+                                                    {"type": "text", "text": "二级"}
+                                                ],
+                                            }
+                                        ],
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+    annotated, node_map, source_hash = annotate_source_doc_json(doc_json, source)
+
+    outer_item = annotated["content"][0]["content"][0]
+    inner_item = outer_item["content"][1]["content"][0]
+    assert outer_item["attrs"]["canvasNodeId"] == "node_src_md_0001"
+    assert inner_item["attrs"]["canvasNodeId"] == "node_src_md_0002"
+    assert [node.node_type for node in node_map] == ["list_item", "list_item"]
+    assert [node.text for node in node_map] == ["一级二级", "二级"]
+    assert source_hash.startswith("sha256:")
+    assert "attrs" not in doc_json["content"][0]["content"][0]
+    assert "attrs" not in doc_json["content"][0]["content"][0]["content"][1]["content"][0]
 
 
 def test_builder_includes_adjacent_heading_before_module_body():
