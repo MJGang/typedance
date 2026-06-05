@@ -12,6 +12,9 @@ class MarkdownDocJsonError(RuntimeError):
 
 
 class MarkdownDocJsonConverter(Protocol):
+    def convert_markdown(self, markdown: str) -> dict[str, Any]:
+        ...
+
     def convert_blocks(
         self,
         blocks: list[dict[str, Any]],
@@ -37,10 +40,37 @@ class TiptapMarkdownDocJsonConverter:
     ) -> dict[str, list[dict[str, Any]]]:
         if not blocks:
             return {}
+
+        decoded = self._run_cli({"blocks": blocks})
+        converted_blocks = decoded.get("blocks")
+        if not isinstance(converted_blocks, list):
+            raise MarkdownDocJsonError("Markdown converter returned no blocks")
+
+        result: dict[str, list[dict[str, Any]]] = {}
+        for item in converted_blocks:
+            if not isinstance(item, dict):
+                continue
+            block_id = item.get("id")
+            nodes = item.get("nodes")
+            if not isinstance(block_id, str) or not isinstance(nodes, list):
+                continue
+            result[block_id] = [node for node in nodes if isinstance(node, dict)]
+        return result
+
+    def convert_markdown(self, markdown: str) -> dict[str, Any]:
+        decoded = self._run_cli({"markdown": markdown})
+        doc_json = decoded.get("docJson")
+        if not isinstance(doc_json, dict):
+            raise MarkdownDocJsonError("Markdown converter returned invalid docJson")
+        if doc_json.get("type") != "doc":
+            raise MarkdownDocJsonError("Markdown converter returned non-doc docJson")
+        return doc_json
+
+    def _run_cli(self, payload_value: dict[str, Any]) -> dict[str, Any]:
         if not self.cli_path.exists():
             raise MarkdownDocJsonError(f"Markdown converter CLI not found: {self.cli_path}")
 
-        payload = json.dumps({"blocks": blocks}, ensure_ascii=False)
+        payload = json.dumps(payload_value, ensure_ascii=False)
         try:
             completed = subprocess.run(
                 [self.node_executable, str(self.cli_path)],
@@ -65,20 +95,9 @@ class TiptapMarkdownDocJsonConverter:
         except json.JSONDecodeError as exc:
             raise MarkdownDocJsonError("Markdown converter returned invalid JSON") from exc
 
-        converted_blocks = decoded.get("blocks")
-        if not isinstance(converted_blocks, list):
-            raise MarkdownDocJsonError("Markdown converter returned no blocks")
-
-        result: dict[str, list[dict[str, Any]]] = {}
-        for item in converted_blocks:
-            if not isinstance(item, dict):
-                continue
-            block_id = item.get("id")
-            nodes = item.get("nodes")
-            if not isinstance(block_id, str) or not isinstance(nodes, list):
-                continue
-            result[block_id] = [node for node in nodes if isinstance(node, dict)]
-        return result
+        if not isinstance(decoded, dict):
+            raise MarkdownDocJsonError("Markdown converter returned invalid payload")
+        return decoded
 
 
 def _default_cli_path() -> Path:

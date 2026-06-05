@@ -1,4 +1,5 @@
 from typedance_sidecar.models import utc_now
+from typedance_sidecar.markdown_doc_json import TiptapMarkdownDocJsonConverter
 from typedance_sidecar.revision_models import DocumentModule, ParsedBlock, SourceDocument
 from typedance_sidecar.revision_source_canvas import SourceResumeCanvasBuilder
 
@@ -300,6 +301,25 @@ def test_builder_renders_markdown_heading_bold_and_divider_syntax():
     ]
     assert divider["type"] == "horizontalRule"
     assert divider["attrs"]["canvasNodeId"] == "node_block_rule"
+
+
+def test_markdown_converter_converts_complete_markdown_document():
+    converter = TiptapMarkdownDocJsonConverter()
+
+    doc_json = converter.convert_markdown("## 项目经历\n\n- **架构**: Monorepo")
+
+    assert doc_json["type"] == "doc"
+    heading = doc_json["content"][0]
+    list_node = doc_json["content"][1]
+    list_paragraph = list_node["content"][0]["content"][0]
+
+    assert heading["type"] == "heading"
+    assert heading["content"][0]["text"] == "项目经历"
+    assert list_node["type"] == "bulletList"
+    assert list_paragraph["content"] == [
+        {"type": "text", "text": "架构", "marks": [{"type": "bold"}]},
+        {"type": "text", "text": ": Monorepo"},
+    ]
 
 
 def test_builder_filters_module_anchors_to_current_source_blocks():
