@@ -9,6 +9,7 @@ export const resumePackPaths = {
   resumes: `${RESUME_PACK_BASE_PATH}/resumes`,
   resume: (resumeId: string) => `${RESUME_PACK_BASE_PATH}/resumes/${resumeId}`,
   templates: `${RESUME_PACK_BASE_PATH}/templates`,
+  template: (templateId: string) => `${RESUME_PACK_BASE_PATH}/templates/${encodeURIComponent(templateId)}`,
   settings: `${RESUME_PACK_BASE_PATH}/settings`,
 } as const
 
@@ -41,7 +42,7 @@ export const resumePackNavigation: ResumePackNavItem[] = [
     label: "模板",
     path: resumePackPaths.templates,
     icon: LayoutTemplate,
-    isActive: (pathname) => pathname === resumePackPaths.templates,
+    isActive: (pathname) => pathname === resumePackPaths.templates || pathname.startsWith(`${resumePackPaths.templates}/`),
   },
   {
     id: "settings",

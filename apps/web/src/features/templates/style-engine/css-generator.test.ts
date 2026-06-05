@@ -9,9 +9,9 @@ describe("generateWorkspaceCSS", () => {
     })
 
     expect(css).toContain(".rm-with-pagination ul {\n  list-style-type: disc;")
-    expect(css).toContain(".rm-with-pagination ul li p {\n  color: #111111;")
+    expect(css).toContain(".rm-with-pagination ul li, .rm-with-pagination ul li p {\n  color: #111111;")
     expect(css).toContain(".rm-with-pagination ol {\n  list-style-type: decimal;")
-    expect(css).toContain(".rm-with-pagination ol li p {\n  color: #222222;")
+    expect(css).toContain(".rm-with-pagination ol li, .rm-with-pagination ol li p {\n  color: #222222;")
     expect(css).not.toContain(".rm-with-pagination ul, .rm-with-pagination li")
     expect(css).not.toContain(".rm-with-pagination ol, .rm-with-pagination li")
   })

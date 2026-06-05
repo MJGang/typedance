@@ -1,13 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, RotateCcw } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import type { UiLanguage } from "../../workspace/types"
 import type { ResumeDocJson } from "../../workspace/editor"
@@ -33,9 +26,16 @@ type TemplateDetailProps = {
   onBack: () => void
   onThemeChange: (themeId: string) => void
   onStyleChange: (style: TemplateStyleConfig) => void
+  onResetTheme?: () => void
   onSampleChange: (sample: TemplateSampleContent) => void
   onSaveSample: () => void
   sampleStatus: string
+  styleStatus: string
+}
+
+type TemplateStatusTextProps = {
+  status: string
+  className: string
 }
 
 const VALID_BLOCKS: BlockType[] = [
@@ -47,6 +47,35 @@ const VALID_BLOCKS: BlockType[] = [
   "orderedList",
 ]
 
+export function TemplateStatusText({ status, className }: TemplateStatusTextProps) {
+  const isPending = status.includes("正在")
+  const [dotCount, setDotCount] = useState(1)
+
+  useEffect(() => {
+    if (!isPending) {
+      setDotCount(1)
+      return undefined
+    }
+
+    const timer = window.setInterval(() => {
+      setDotCount((current) => current >= 3 ? 1 : current + 1)
+    }, 420)
+
+    return () => window.clearInterval(timer)
+  }, [isPending])
+
+  return (
+    <p aria-live="polite" className={className}>
+      {status}
+      {isPending && (
+        <span aria-hidden="true" className="inline-block w-4 text-left">
+          {".".repeat(dotCount)}
+        </span>
+      )}
+    </p>
+  )
+}
+
 export function TemplateDetail({
   theme,
   themes,
@@ -55,7 +84,9 @@ export function TemplateDetail({
   onBack,
   onThemeChange,
   onStyleChange,
+  onResetTheme,
   sampleStatus,
+  styleStatus,
 }: TemplateDetailProps) {
   const [activeBlock, setActiveBlock] = useState<BlockType>("paragraph")
   const [sampleDoc, setSampleDoc] = useState<ResumeDocJson>(sample.doc_json as ResumeDocJson)
@@ -83,33 +114,26 @@ export function TemplateDetail({
     <section className="grid gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <Breadcrumb className="mb-3">
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <button type="button" className="text-muted-foreground hover:text-foreground" onClick={onBack}>
-                  主题库
-                </button>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage className="max-w-64 truncate">{theme.title}</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-          <Button type="button" variant="ghost" className="mb-3 -ml-2" onClick={onBack}>
-            <ArrowLeft data-icon="inline-start" />
-            返回主题库
-          </Button>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <Button type="button" variant="ghost" size="icon-sm" className="-ml-2" onClick={onBack} aria-label="返回主题库">
+              <ArrowLeft />
+            </Button>
             <h2 className="m-0 text-xl font-semibold tracking-normal">{theme.title}</h2>
             <Badge variant={theme.source === "default" ? "default" : "secondary"}>
               {theme.source === "default" ? "官方默认" : "我的主题"}
             </Badge>
+            {onResetTheme && (
+              <Button type="button" variant="outline" size="sm" onClick={onResetTheme}>
+                <RotateCcw data-icon="inline-start" />
+                重置
+              </Button>
+            )}
           </div>
+          <TemplateStatusText status={styleStatus} className="m-0 text-xs text-muted-foreground" />
         </div>
       </div>
 
-      <div className="grid min-h-[calc(100svh-14rem)] gap-4 xl:grid-cols-[minmax(520px,1fr)_minmax(320px,380px)]">
+      <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(520px,1fr)_minmax(320px,380px)]">
         <div className="grid min-h-0 gap-3 rounded-lg border border-border bg-card p-3 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
             <div>

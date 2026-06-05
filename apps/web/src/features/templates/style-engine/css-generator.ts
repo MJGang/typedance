@@ -81,8 +81,8 @@ const ELEMENT_MAP: Record<string, string[]> = {
 };
 
 const LIST_TEXT_ELEMENT_MAP: Record<string, string[]> = {
-  bulletList: ["ul li p"],
-  orderedList: ["ol li p"],
+  bulletList: ["ul li", "ul li p"],
+  orderedList: ["ol li", "ol li p"],
 };
 
 /**

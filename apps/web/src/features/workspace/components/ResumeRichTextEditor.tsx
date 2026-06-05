@@ -9,6 +9,7 @@ import StarterKit from "@tiptap/starter-kit"
 import DragHandle from "@tiptap/extension-drag-handle-react"
 import { PaginationPlus, PAGE_SIZES } from "tiptap-pagination-plus"
 import { Bold, Columns3, Eraser, GripVertical, Heading1, Heading2, Heading3, Italic, List, ListOrdered, ListTree, Type, Underline } from "lucide-react"
+import { markdownToResumeDocJson } from "@typedance/resume-markdown"
 import { Column, Columns, type ColumnsCount, type ColumnsGap } from "@typedance/tiptap-layout"
 
 import { Button } from "@/components/ui/button"
@@ -83,7 +84,6 @@ type ToolbarState = {
   isColumns: boolean
   inlineColor: string
   inlineBackgroundColor: string | null
-  inlineFontSize: string
   textAlign: ToolbarAlignment
   lineHeight: ToolbarLineHeight
   orderedListStyle: ToolbarOrderedListStyle
@@ -107,7 +107,6 @@ const inactiveToolbarState: ToolbarState = {
   isColumns: false,
   inlineColor: DEFAULT_TEXT_COLOR,
   inlineBackgroundColor: null,
-  inlineFontSize: "",
   textAlign: "left",
   lineHeight: "default",
   orderedListStyle: "decimal",
@@ -115,8 +114,6 @@ const inactiveToolbarState: ToolbarState = {
   indent: 0,
   activeBlock: "paragraph",
 }
-
-const INLINE_FONT_SIZES = ["12px", "13px", "14px", "15px", "16px", "19px", "22px", "24px", "29px", "32px", "40px", "48px"]
 
 const BLOCK_OPTIONS: Array<{ value: ToolbarBlock; label: string; icon: typeof Type }> = [
   { value: "paragraph", label: "正文", icon: Type },
@@ -126,6 +123,7 @@ const BLOCK_OPTIONS: Array<{ value: ToolbarBlock; label: string; icon: typeof Ty
 ]
 
 const BLOCK_STYLE_NODE_TYPES = ["paragraph", "heading", "listItem"] as const
+const SOURCE_CANVAS_ATTR_NODE_TYPES = [...BLOCK_STYLE_NODE_TYPES, "horizontalRule"] as const
 const DEFAULT_LINE_HEIGHT: ToolbarLineHeight = "default"
 const DRAG_HANDLE_BLOCK_HIT_SLOP = 4
 const DRAG_HANDLE_TEXT_LINE_HIT_SLOP = 2
@@ -357,6 +355,11 @@ export const BlockStyle = Extension.create({
               return Number.isFinite(marginLeft) ? Math.max(0, Math.round(marginLeft / 24)) : 0
             },
           },
+        },
+      },
+      {
+        types: [...SOURCE_CANVAS_ATTR_NODE_TYPES],
+        attributes: {
           canvasNodeId: {
             default: null,
             parseHTML: (element: HTMLElement) => element.getAttribute("data-canvas-node-id"),
@@ -470,7 +473,8 @@ const PasteMarkdown = Extension.create({
               return false
             }
 
-            editor.commands.insertContent(text, { contentType: "markdown" })
+            const doc = markdownToResumeDocJson(text)
+            editor.commands.insertContent(doc.content ?? [])
             return true
           },
         },
@@ -766,9 +770,6 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
             inlineBackgroundColor: typeof editor.getAttributes("inlineStyle").backgroundColor === "string"
               ? editor.getAttributes("inlineStyle").backgroundColor
               : null,
-            inlineFontSize: typeof editor.getAttributes("inlineStyle").fontSize === "string"
-              ? editor.getAttributes("inlineStyle").fontSize
-              : "",
             textAlign: getActiveTextAlign(editor),
             lineHeight: getActiveLineHeight(editor),
             orderedListStyle: getActiveListStyle(editor, "orderedList") === "lower-alpha"
@@ -870,14 +871,6 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                     setToolbarTextBlock(editor, block)
                   }
                 }}
-              />
-              <ToolbarSelect
-                ariaLabel="字号"
-                value={toolbarState.inlineFontSize || "15px"}
-                options={INLINE_FONT_SIZES.map((size) => ({ value: size, label: size }))}
-                disabled={!editor || !canEditParagraphStyle}
-                className="td-toolbar-font-size-trigger"
-                onChange={(fontSize) => editor?.chain().focus().setMark("inlineStyle", { fontSize }).run()}
               />
               <ToolbarIconButton
                 label="加粗"

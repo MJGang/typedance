@@ -41,6 +41,7 @@ describe("ResumeRichTextEditor toolbar", () => {
     expect(screen.getByRole("button", { name: "正文与标题" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "正文与标题" }).querySelector(".lucide-type")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "正文与标题" }).querySelector(".lucide-pilcrow")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "字号" })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "下划线" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "行高调整" }).querySelector(".lucide-list-collapse")).toBeInTheDocument()
     expect(screen.getAllByRole("separator")).toHaveLength(4)
@@ -170,6 +171,28 @@ describe("ResumeRichTextEditor toolbar", () => {
     expect(screen.getByText("Source paragraph")).toHaveAttribute("data-canvas-node-id", "node_1")
     expect(screen.getByText("Source paragraph")).toHaveAttribute("data-source-block-id", "block_1")
     expect(screen.getByText("Source paragraph")).toHaveAttribute("data-module-id", "mod_1")
+  })
+
+  it("renders source canvas attributes on horizontal rule nodes", () => {
+    render(
+      <TooltipProvider>
+        <ResumeRichTextEditor
+          ariaLabel="Resume text"
+          docJson={{
+            type: "doc",
+            content: [{
+              type: "horizontalRule",
+              attrs: { canvasNodeId: "node_rule", sourceBlockId: "block_rule" },
+            }],
+          }}
+          onChange={() => {}}
+        />
+      </TooltipProvider>,
+    )
+
+    const rule = document.querySelector("hr")
+    expect(rule).toHaveAttribute("data-canvas-node-id", "node_rule")
+    expect(rule).toHaveAttribute("data-source-block-id", "block_rule")
   })
 
   it("notifies the source canvas module at the selection anchor without a block type listener", () => {

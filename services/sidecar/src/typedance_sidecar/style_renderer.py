@@ -74,7 +74,13 @@ def generate_list_structure_css(block_name: str, style: dict) -> str:
 
 
 def generate_list_text_css(block_name: str, style: dict) -> str:
-    return generate_block_css(f"{block_name}Text", _pick_style(style, TEXT_STYLE_KEYS))
+    css = generate_block_css(f"{block_name}Text", _pick_style(style, TEXT_STYLE_KEYS))
+    if not css:
+        return ""
+    return css.replace(
+        f".td-resume-{block_name}Text",
+        f".td-resume-{block_name}Item, .td-resume-{block_name}Text",
+    )
 
 
 def generate_full_css(blocks: dict[str, dict]) -> str:

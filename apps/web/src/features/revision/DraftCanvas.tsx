@@ -7,6 +7,8 @@ import {
 } from "react"
 import type { ModuleAnchor, SourceResumeCanvas } from "@typedance/contracts"
 import type { ResumeDocJson, ResumeEditorChange } from "../workspace/editor"
+import { defaultClassicA4Style } from "../templates/data"
+import { generateWorkspaceCSS } from "../templates/style-engine/css-generator"
 import {
   ResumeRichTextEditor,
   type ResumeRichTextEditorHandle,
@@ -32,6 +34,11 @@ type DraftCanvasProps = {
 
 type Position = { x: number; y: number }
 type Size = { width: number; height: number }
+
+const SOURCE_CANVAS_CLASSIC_CSS = generateWorkspaceCSS(
+  defaultClassicA4Style.blocks ?? {},
+  ".td-source-resume-canvas .rm-with-pagination",
+)
 
 function sameSize(left: Size, right: Size) {
   return left.width === right.width && left.height === right.height
@@ -186,6 +193,7 @@ function DraftCanvasWorkspace({
       <ResumeRichTextEditor
         ref={editorRef}
         ariaLabel="原始简历编辑区"
+        cssText={SOURCE_CANVAS_CLASSIC_CSS}
         docJson={canvas.doc_json as ResumeDocJson}
         moduleOutlineVisible={outlineVisible}
         onChange={handleEditorChange}

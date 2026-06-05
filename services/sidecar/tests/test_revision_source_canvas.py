@@ -197,7 +197,7 @@ def test_builder_does_not_include_adjacent_heading_before_explicit_module_headin
     ]
 
 
-def test_builder_preserves_original_list_block_text_in_doc_json():
+def test_builder_renders_markdown_list_syntax_but_keeps_original_source_text():
     now = utc_now()
     source = SourceDocument(
         id="src_1",
@@ -225,8 +225,81 @@ def test_builder_preserves_original_list_block_text_in_doc_json():
     )
 
     paragraph = canvas.doc_json["content"][0]["content"][0]["content"][0]
-    assert paragraph["content"][0]["text"] == "- 负责订单系统重构"
+    assert paragraph["content"][0]["text"] == "负责订单系统重构"
     assert canvas.node_map[0].text == "- 负责订单系统重构"
+
+
+def test_builder_renders_markdown_heading_bold_and_divider_syntax():
+    now = utc_now()
+    source = SourceDocument(
+        id="src_1",
+        document_id="doc_1",
+        source_type="old_resume",
+        title="旧简历",
+        raw_text="## 核心能力\n- **前端架构**: Vue\n---",
+        parse_status="parsed",
+        created_at=now,
+    )
+    blocks = [
+        ParsedBlock(
+            id="block_heading",
+            source_document_id=source.id,
+            type="heading",
+            text="## 核心能力",
+            order=0,
+            source_span={"line": 1},
+        ),
+        ParsedBlock(
+            id="block_list",
+            source_document_id=source.id,
+            type="list",
+            text="- **前端架构**: Vue",
+            order=1,
+            source_span={"line": 2},
+        ),
+        ParsedBlock(
+            id="block_rule",
+            source_document_id=source.id,
+            type="paragraph",
+            text="---",
+            order=2,
+            source_span={"line": 3},
+        ),
+    ]
+    module = DocumentModule(
+        id="mod_skills",
+        draft_id="draft_1",
+        pack_id="resume",
+        type="CoreSkills",
+        title="核心能力",
+        order=1,
+        visibility="visible",
+        status="needs_review",
+        data={},
+        created_at=now,
+        updated_at=now,
+    )
+
+    canvas = SourceResumeCanvasBuilder().build(
+        source=source,
+        parsed_blocks=blocks,
+        modules=[module],
+        module_source_refs={"mod_skills": ["block_heading", "block_list"]},
+    )
+
+    heading = canvas.doc_json["content"][0]
+    list_paragraph = canvas.doc_json["content"][1]["content"][0]["content"][0]
+    divider = canvas.doc_json["content"][2]
+
+    assert heading["type"] == "heading"
+    assert heading["attrs"]["canvasNodeId"] == "node_block_heading"
+    assert heading["content"][0]["text"] == "核心能力"
+    assert list_paragraph["content"] == [
+        {"type": "text", "text": "前端架构", "marks": [{"type": "bold"}]},
+        {"type": "text", "text": ": Vue"},
+    ]
+    assert divider["type"] == "horizontalRule"
+    assert divider["attrs"]["canvasNodeId"] == "node_block_rule"
 
 
 def test_builder_filters_module_anchors_to_current_source_blocks():

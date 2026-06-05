@@ -170,6 +170,38 @@ React、TypeScript、Node.js
     assert heading_node.module_id == skills_anchor.module_id
 
 
+def test_import_flow_renders_markdown_source_canvas_syntax(tmp_path):
+    repo = make_repository(tmp_path)
+    document, _source, run = seed_import_run(
+        repo,
+        raw_text="""
+张三
+
+## 核心能力
+- **前端架构**: Vue
+---
+""",
+    )
+
+    RevisionImportFlowService(repo).run_import_reconstruct(document.id, run.id)
+
+    workspace = WorkspaceService(repo).get_workspace_view(document.id)
+    assert workspace.source_resume_canvas is not None
+    nodes = workspace.source_resume_canvas.doc_json["content"]
+
+    heading = next(node for node in nodes if node["type"] == "heading" and node.get("content"))
+    bullet = next(node for node in nodes if node["type"] == "bulletList")
+    divider = next(node for node in nodes if node["type"] == "horizontalRule")
+
+    assert heading["content"][0]["text"] == "核心能力"
+    paragraph = bullet["content"][0]["content"][0]
+    assert paragraph["content"] == [
+        {"type": "text", "text": "前端架构", "marks": [{"type": "bold"}]},
+        {"type": "text", "text": ": Vue"},
+    ]
+    assert divider["attrs"]["canvasNodeId"]
+
+
 def test_import_flow_rejects_multiple_sources(tmp_path):
     repo = make_repository(tmp_path)
     document, source, run = seed_import_run(repo)

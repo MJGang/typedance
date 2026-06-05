@@ -17,6 +17,7 @@ export const router = createBrowserRouter([
       { path: "/packs/resume/resumes", element: <ResumeProductsPage /> },
       { path: "/packs/resume/resumes/:id", element: <WorkspacePage /> },
       { path: "/packs/resume/templates", element: <TemplateLibrary /> },
+      { path: "/packs/resume/templates/:templateId", element: <TemplateLibrary /> },
       { path: "/packs/resume/settings", element: <SettingsPage /> },
     ],
   },

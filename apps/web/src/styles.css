@@ -550,10 +550,6 @@ textarea {
   background: var(--td-toolbar-hover-bg);
 }
 
-.td-rich-editor-toolbar .td-toolbar-font-size-trigger {
-  min-width: 4.25rem;
-}
-
 .td-toolbar-select-content {
   width: 5.75rem;
   border-radius: 1rem;
@@ -1316,33 +1312,31 @@ textarea {
   background: transparent;
 }
 
-.td-template-paper h1 {
+.td-template-paper :where(h1) {
   margin: 0 0 0.5rem;
   font-size: 1.5rem;
 }
 
-.td-template-paper h2 {
+.td-template-paper :where(h2) {
   margin: 1rem 0 0.45rem;
   color: #174ea6;
   font-size: 0.9rem;
   text-transform: uppercase;
 }
 
-.td-template-paper h3 {
+.td-template-paper :where(h3) {
   margin: 0.75rem 0 0.35rem;
   color: #174ea6;
   font-size: 0.8rem;
 }
 
-.td-template-paper p,
-.td-template-paper li {
+.td-template-paper :where(p, li) {
   color: #374151;
   font-size: 0.78rem;
   line-height: 1.5;
 }
 
-.td-template-paper ul,
-.td-template-paper ol {
+.td-template-paper :where(ul, ol) {
   margin: 0;
   padding-left: 1.1rem;
 }
@@ -1358,14 +1352,14 @@ textarea {
   word-wrap: break-word;
 }
 
-.td-resume-preview-inner h1 {
+.td-resume-preview-inner :where(h1) {
   margin: 0 0 2px;
   font-size: 7px;
   font-weight: 700;
   color: #1a1a1a;
 }
 
-.td-resume-preview-inner h2 {
+.td-resume-preview-inner :where(h2) {
   margin: 4px 0 1px;
   font-size: 5.5px;
   font-weight: 600;
@@ -1373,27 +1367,26 @@ textarea {
   text-transform: uppercase;
 }
 
-.td-resume-preview-inner h3 {
+.td-resume-preview-inner :where(h3) {
   margin: 3px 0 1px;
   font-size: 5px;
   font-weight: 600;
   color: #1e3a8a;
 }
 
-.td-resume-preview-inner p {
+.td-resume-preview-inner :where(p) {
   margin: 0 0 2px;
   font-size: 5px;
   line-height: 1.35;
   color: #374151;
 }
 
-.td-resume-preview-inner ul,
-.td-resume-preview-inner ol {
+.td-resume-preview-inner :where(ul, ol) {
   margin: 0 0 2px;
   padding-left: 8px;
 }
 
-.td-resume-preview-inner li {
+.td-resume-preview-inner :where(li) {
   font-size: 5px;
   line-height: 1.3;
   color: #374151;

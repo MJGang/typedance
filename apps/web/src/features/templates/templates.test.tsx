@@ -1,9 +1,11 @@
 import "@testing-library/jest-dom/vitest"
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
-import { MemoryRouter } from "react-router-dom"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
+import { saveTemplateStyle } from "@/api"
 import { TemplateLibrary } from "./components/TemplateLibrary"
+import { TemplateStatusText } from "./components/TemplateDetail"
 import { ThemeSelector } from "./components/style-panel/ThemeSelector"
 import { builtInSamples, defaultClassicA4Style } from "./data"
 
@@ -34,14 +36,31 @@ describe("TemplateLibrary", () => {
   })
 
   afterEach(() => {
+    vi.clearAllMocks()
     cleanup()
   })
 
-  function renderThemeLibrary() {
+  function LocationProbe() {
+    const location = useLocation()
+    return <span data-testid="template-location">{location.pathname}</span>
+  }
+
+  function renderThemeLibrary(initialPath = "/packs/resume/templates") {
+    const templateLibraryRoute = (
+      <div>
+        <LocationProbe />
+        <TemplateLibrary uiLanguage="zh-CN" targetLanguage="zh-CN" />
+      </div>
+    )
+
     return render(
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[initialPath]}>
         <TooltipProvider>
-          <TemplateLibrary uiLanguage="zh-CN" targetLanguage="zh-CN" />
+          <Routes>
+            {["/packs/resume/templates", "/packs/resume/templates/:templateId"].map((path) => (
+              <Route key={path} path={path} element={templateLibraryRoute} />
+            ))}
+          </Routes>
         </TooltipProvider>
       </MemoryRouter>,
     )
@@ -81,7 +100,8 @@ describe("TemplateLibrary", () => {
     renderThemeLibrary()
     expect(await screen.findByRole("heading", { name: "主题库" })).toBeInTheDocument()
     clickButtonText(/经典 A4/)
-    expect(screen.getByText("返回主题库")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "返回主题库" })).toBeInTheDocument()
+    expect(screen.getByTestId("template-location")).toHaveTextContent("/packs/resume/templates/classic-a4")
     expect(screen.getByLabelText("主题演示简历预览")).toBeInTheDocument()
     expect(screen.getByText("主题样式")).toBeInTheDocument()
     expect(screen.getByRole("radio", { name: "标题1" })).toBeInTheDocument()
@@ -90,6 +110,45 @@ describe("TemplateLibrary", () => {
     expect(screen.queryByRole("radio", { name: "一级标题" })).not.toBeInTheDocument()
 
     expect(screen.getByRole("combobox", { name: "选择主题" })).toHaveTextContent("经典 A4")
+  })
+
+  it("opens the official classic theme from the route id and resets it", async () => {
+    renderThemeLibrary("/packs/resume/templates/classic-a4")
+
+    expect(await screen.findByRole("button", { name: "返回主题库" })).toBeInTheDocument()
+    expect(screen.getByTestId("template-location")).toHaveTextContent("/packs/resume/templates/classic-a4")
+
+    clickButtonText("重置")
+
+    await waitFor(() => {
+      expect(saveTemplateStyle).toHaveBeenCalledWith(expect.objectContaining({
+        template_id: "classic-a4",
+        preset: "classic",
+        blocks: defaultClassicA4Style.blocks,
+      }))
+    })
+    expect(await screen.findByText("主题已重置为官方默认")).toBeInTheDocument()
+  })
+
+  it("animates pending style status dots", () => {
+    vi.useFakeTimers()
+    try {
+      render(<TemplateStatusText status="主题正在保存" className="" />)
+
+      expect(screen.getByText((_, element) => element?.tagName === "P" && element.textContent === "主题正在保存.")).toBeInTheDocument()
+
+      act(() => {
+        vi.advanceTimersByTime(420)
+      })
+      expect(screen.getByText((_, element) => element?.tagName === "P" && element.textContent === "主题正在保存..")).toBeInTheDocument()
+
+      act(() => {
+        vi.advanceTimersByTime(420)
+      })
+      expect(screen.getByText((_, element) => element?.tagName === "P" && element.textContent === "主题正在保存...")).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("filters custom and default themes", async () => {

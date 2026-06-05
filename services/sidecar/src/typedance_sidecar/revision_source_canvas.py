@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from .models import utc_now
+from .markdown_doc_json import MarkdownDocJsonConverter, TiptapMarkdownDocJsonConverter
 from .revision_models import (
     DocumentModule,
     ModuleAnchor,
@@ -12,6 +13,9 @@ from .revision_models import (
 
 
 class SourceResumeCanvasBuilder:
+    def __init__(self, markdown_converter: MarkdownDocJsonConverter | None = None) -> None:
+        self.markdown_converter = markdown_converter or TiptapMarkdownDocJsonConverter()
+
     def build(
         self,
         *,
@@ -30,13 +34,30 @@ class SourceResumeCanvasBuilder:
             module_source_refs,
         )
         module_by_block = self._module_by_block(enhanced_module_source_refs)
+        attrs_by_block: dict[str, dict[str, object]] = {}
+        conversion_blocks: list[dict[str, object]] = []
+        for block in sorted_blocks:
+            attrs = self._doc_attrs(block, self._canvas_node_id(block.id), module_by_block.get(block.id))
+            attrs_by_block[block.id] = attrs
+            conversion_blocks.append(
+                {
+                    "id": block.id,
+                    "text": block.text,
+                    "fallbackType": self._fallback_type(block),
+                    "attrs": attrs,
+                }
+            )
+        converted_nodes = self.markdown_converter.convert_blocks(conversion_blocks)
         doc_nodes = []
         node_map = []
 
         for block in sorted_blocks:
             canvas_node_id = self._canvas_node_id(block.id)
             module_id = module_by_block.get(block.id)
-            doc_nodes.append(self._doc_node(block, canvas_node_id, module_id))
+            doc_nodes.extend(
+                converted_nodes.get(block.id)
+                or [self._doc_node(block, attrs_by_block[block.id])]
+            )
             node_map.append(
                 SourceResumeCanvasNode(
                     canvas_node_id=canvas_node_id,
@@ -107,16 +128,8 @@ class SourceResumeCanvasBuilder:
     def _doc_node(
         self,
         block: ParsedBlock,
-        canvas_node_id: str,
-        module_id: str | None,
+        attrs: dict[str, object],
     ) -> dict[str, object]:
-        attrs: dict[str, object] = {
-            "canvasNodeId": canvas_node_id,
-            "sourceBlockId": block.id,
-        }
-        if module_id:
-            attrs["moduleId"] = module_id
-
         if block.type == "heading":
             return {
                 "type": "heading",
@@ -151,6 +164,27 @@ class SourceResumeCanvasBuilder:
             "attrs": attrs,
             "content": [{"type": "text", "text": block.text}],
         }
+
+    def _doc_attrs(
+        self,
+        block: ParsedBlock,
+        canvas_node_id: str,
+        module_id: str | None,
+    ) -> dict[str, object]:
+        attrs: dict[str, object] = {
+            "canvasNodeId": canvas_node_id,
+            "sourceBlockId": block.id,
+        }
+        if module_id:
+            attrs["moduleId"] = module_id
+        return attrs
+
+    def _fallback_type(self, block: ParsedBlock) -> str:
+        if block.type == "heading":
+            return "heading"
+        if block.type == "list":
+            return "list"
+        return "paragraph"
 
     def _node_type(self, block: ParsedBlock) -> str:
         if block.type == "heading":

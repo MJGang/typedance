@@ -31,7 +31,7 @@ function renderSiteLayoutAt(pathname: string) {
     <MemoryRouter initialEntries={[pathname]}>
       <Routes>
         <Route element={<SiteLayout />}>
-          <Route path="/packs/resume/workspaces/:documentId" element={<ChromeContextProbe />} />
+          <Route path="*" element={<ChromeContextProbe />} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -76,7 +76,7 @@ describe("App", () => {
   })
 
   it("marks resume pack entries active on nested pages", () => {
-    renderSidebarAt("/packs/resume/templates")
+    renderSidebarAt("/packs/resume/templates/classic-a4")
 
     expect(screen.getByRole("link", { name: "工作台" })).not.toHaveAttribute("data-active")
     expect(screen.getByRole("link", { name: "模板" })).toHaveAttribute("data-active", "true")
@@ -121,5 +121,17 @@ describe("App", () => {
     expect(reviewToggle).toHaveAttribute("aria-pressed", "false")
     expect(reviewToggle).toHaveAttribute("data-panel-state", "hollow")
     expect(screen.getByTestId("review-panel-state")).toHaveTextContent("hidden")
+  })
+
+  it("does not render breadcrumbs in the site chrome", () => {
+    renderSiteLayoutAt("/packs/resume/templates")
+
+    expect(screen.queryByLabelText("breadcrumb")).not.toBeInTheDocument()
+  })
+
+  it("does not render breadcrumbs on nested resume pack pages", () => {
+    renderSiteLayoutAt("/packs/resume/templates/classic-a4")
+
+    expect(screen.queryByLabelText("breadcrumb")).not.toBeInTheDocument()
   })
 });

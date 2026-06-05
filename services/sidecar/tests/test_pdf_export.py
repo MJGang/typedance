@@ -177,7 +177,7 @@ def test_rendered_ordered_list_items_keep_ordered_list_class():
     html = render_resume_html(resume)
 
     assert '<ol class="td-resume-orderedList">' in html
-    assert '<li><p class="td-resume-paragraph td-resume-orderedListText">负责简历工作台闭环体验</p></li>' in html
+    assert '<li class="td-resume-orderedListItem"><p class="td-resume-paragraph td-resume-orderedListText">负责简历工作台闭环体验</p></li>' in html
 
 
 def test_rendered_inline_style_marks_are_preserved():
@@ -313,7 +313,7 @@ def test_list_style_css_splits_structure_and_text_overrides():
     html = render_resume_html(resume, style)
 
     assert ".td-resume-bulletList {\n  list-style-type: disc;\n  padding-left: 20px;\n}" in html
-    assert ".td-resume-bulletListText {\n  font-size: 12px;\n  background-color: #eeeeee;\n}" in html
+    assert ".td-resume-bulletListItem, .td-resume-bulletListText {\n  font-size: 12px;\n  background-color: #eeeeee;\n}" in html
 
 
 def test_unknown_doc_nodes_fallback_to_styled_paragraph():

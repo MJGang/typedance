@@ -1,24 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { useNavigate, useParams } from "react-router-dom"
 import { deleteTemplateStyle, getTemplateSample, listTemplateStyles, saveTemplateSample, saveTemplateStyle } from "@/api"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { PreviewShowcaseCard } from "@/components/preview-showcase-card"
 import { Input } from "@/components/ui/input"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { FilePlus2, Pencil, Plus, Trash2 } from "lucide-react"
+import { resumePackPaths } from "../../resume-pack/routes"
 import type { TargetLanguage, UiLanguage } from "../../workspace/types"
 import { builtInSamples, defaultClassicA4Style, templateRegistry } from "../data"
 import type { TemplateSampleContent, TemplateStyleConfig } from "../types"
 import { TemplatePreview } from "./TemplatePreview"
-import { TemplateDetail, type ThemeDetailItem } from "./TemplateDetail"
+import { TemplateDetail, TemplateStatusText, type ThemeDetailItem } from "./TemplateDetail"
 
 type TemplateLibraryProps = {
   uiLanguage?: UiLanguage
@@ -41,13 +35,25 @@ function fallbackThemeName(theme: TemplateStyleConfig, index: number) {
   return theme.name?.trim() || `自定义主题 ${index + 1}`
 }
 
+function upsertTemplateStyle(
+  styles: TemplateStyleConfig[],
+  nextStyle: TemplateStyleConfig,
+) {
+  const exists = styles.some((style) => style.template_id === nextStyle.template_id)
+  return exists
+    ? styles.map((style) => style.template_id === nextStyle.template_id ? nextStyle : style)
+    : [nextStyle, ...styles]
+}
+
 export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN" }: TemplateLibraryProps) {
+  const { templateId } = useParams<{ templateId?: string }>()
+  const navigate = useNavigate()
   const [filter, setFilter] = useState<ThemeFilter>("all")
   const [sample, setSample] = useState<TemplateSampleContent>(builtInSamples["sample-tech-zh"])
   const [sampleStatus, setSampleStatus] = useState("使用内置演示简历")
   const [savedStyles, setSavedStyles] = useState<TemplateStyleConfig[]>([])
+  const [stylesLoaded, setStylesLoaded] = useState(false)
   const [styleStatus, setStyleStatus] = useState("主题已同步")
-  const [selectedThemeId, setSelectedThemeId] = useState<string | null>(null)
   const [editingThemeId, setEditingThemeId] = useState<string | null>(null)
 
   const defaultTemplate = templateRegistry[0]
@@ -67,10 +73,15 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
   }, [sampleId])
 
   useEffect(() => {
+    setStylesLoaded(false)
     void listTemplateStyles()
-      .then(setSavedStyles)
+      .then((styles) => {
+        setSavedStyles(styles)
+        setStylesLoaded(true)
+      })
       .catch(() => {
         setSavedStyles([])
+        setStylesLoaded(true)
         setStyleStatus("当前展示内置主题")
       })
   }, [])
@@ -117,17 +128,26 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
   }, [filter, themes])
 
   const selectedTheme = useMemo(
-    () => themes.find((theme) => theme.id === selectedThemeId) ?? null,
-    [selectedThemeId, themes],
+    () => themes.find((theme) => theme.id === templateId) ?? null,
+    [templateId, themes],
   )
 
+  useEffect(() => {
+    if (templateId && stylesLoaded && !selectedTheme) {
+      navigate(resumePackPaths.templates, { replace: true })
+    }
+  }, [navigate, selectedTheme, stylesLoaded, templateId])
+
+  const openTheme = useCallback((themeId: string) => {
+    navigate(resumePackPaths.template(themeId))
+  }, [navigate])
+
+  const closeTheme = useCallback(() => {
+    navigate(resumePackPaths.templates)
+  }, [navigate])
+
   const handleStyleChange = useCallback((nextStyle: TemplateStyleConfig) => {
-    setSavedStyles((current) => {
-      const exists = current.some((style) => style.template_id === nextStyle.template_id)
-      return exists
-        ? current.map((style) => style.template_id === nextStyle.template_id ? nextStyle : style)
-        : [nextStyle, ...current]
-    })
+    setSavedStyles((current) => upsertTemplateStyle(current, nextStyle))
     setStyleStatus("主题正在保存")
   }, [])
 
@@ -147,11 +167,27 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
     try {
       const saved = await saveTemplateStyle(nextStyle)
       setSavedStyles((current) => current.map((style) => style.template_id === nextStyle.template_id ? saved : style))
-      setSelectedThemeId(saved.template_id)
+      openTheme(saved.template_id)
       setStyleStatus("主题已创建")
     } catch {
       setSavedStyles((current) => current.filter((style) => style.template_id !== nextStyle.template_id))
       setStyleStatus("主题创建失败，请稍后重试")
+    }
+  }, [openTheme, savedStyles])
+
+  const handleResetClassicTheme = useCallback(async () => {
+    const previousStyles = savedStyles
+    const nextStyle = defaultClassicA4Style
+
+    setSavedStyles((current) => upsertTemplateStyle(current, nextStyle))
+    setStyleStatus("主题正在重置")
+    try {
+      const saved = await saveTemplateStyle(nextStyle)
+      setSavedStyles((current) => upsertTemplateStyle(current, saved))
+      setStyleStatus("主题已重置为官方默认")
+    } catch {
+      setSavedStyles(previousStyles)
+      setStyleStatus("主题重置失败，请稍后重试")
     }
   }, [savedStyles])
 
@@ -184,13 +220,13 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
     setStyleStatus("主题正在删除")
     try {
       await deleteTemplateStyle(theme.id)
-      if (selectedThemeId === theme.id) setSelectedThemeId(null)
+      if (templateId === theme.id) closeTheme()
       setStyleStatus("主题已删除")
     } catch {
       setSavedStyles(previousStyles)
       setStyleStatus("主题删除失败，请稍后重试")
     }
-  }, [savedStyles, selectedThemeId])
+  }, [closeTheme, savedStyles, templateId])
 
   const handleSampleChange = useCallback((nextSample: TemplateSampleContent) => {
     setSample(nextSample)
@@ -204,39 +240,40 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
   }, [visibleSample])
 
   if (selectedTheme) {
+    const canResetTheme = selectedTheme.source === "default" && selectedTheme.id === defaultClassicA4Style.template_id
+
     return (
-      <main className="min-h-[calc(100svh-3rem)] bg-background p-4 md:p-6">
+      <main className="min-h-svh bg-background p-4 md:p-6">
         <TemplateDetail
           theme={selectedTheme}
           themes={themes}
           sample={visibleSample}
           uiLanguage={uiLanguage}
-          onBack={() => setSelectedThemeId(null)}
-          onThemeChange={setSelectedThemeId}
+          onBack={closeTheme}
+          onThemeChange={openTheme}
           onStyleChange={handleStyleChange}
+          onResetTheme={canResetTheme ? handleResetClassicTheme : undefined}
           onSampleChange={handleSampleChange}
           onSaveSample={handleSaveSample}
           sampleStatus={sampleStatus}
+          styleStatus={styleStatus}
         />
       </main>
     )
   }
 
+  if (templateId && !stylesLoaded) {
+    return (
+      <main className="min-h-svh bg-background p-4 md:p-6">
+        <p className="m-0 text-sm text-muted-foreground" aria-live="polite">主题正在加载</p>
+      </main>
+    )
+  }
+
   return (
-    <main className="min-h-[calc(100svh-3rem)] bg-background p-4 md:p-6">
+    <main className="min-h-svh bg-background p-4 md:p-6">
       <header className="mb-5 grid gap-4">
         <div className="min-w-0">
-          <Breadcrumb className="mb-3">
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink href="/">首页</BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>主题库</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
           <h1 className="m-0 mt-1 text-2xl font-semibold tracking-normal">主题库</h1>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <ToggleGroup type="single" value={filter} onValueChange={(value) => value && setFilter(value as ThemeFilter)} aria-label="主题筛选">
@@ -292,16 +329,16 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
               <button
                 type="button"
                 className="inline-flex max-w-full cursor-pointer items-center justify-center gap-1 rounded-sm outline-none hover:text-primary focus-visible:ring-3 focus-visible:ring-ring/50"
-                onClick={() => theme.source === "custom" ? setEditingThemeId(theme.id) : setSelectedThemeId(theme.id)}
+                onClick={() => theme.source === "custom" ? setEditingThemeId(theme.id) : openTheme(theme.id)}
               >
                 <span className="truncate">{theme.title}</span>
                 {theme.source === "custom" && <Pencil className="size-3.5 shrink-0" />}
               </button>
             )}
-            onClick={() => setSelectedThemeId(theme.id)}
+            onClick={() => openTheme(theme.id)}
             preview={<TemplatePreview sample={visibleSample} styleConfig={theme.styleConfig} />}
             floatingActions={
-              <Button type="button" size="sm" onClick={() => setSelectedThemeId(theme.id)}>
+              <Button type="button" size="sm" onClick={() => openTheme(theme.id)}>
                 编辑主题
               </Button>
             }
@@ -343,7 +380,7 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
         )}
       </section>
 
-      <p aria-live="polite" className="mt-4 text-xs text-muted-foreground">{styleStatus}</p>
+      <TemplateStatusText status={styleStatus} className="mt-4 text-xs text-muted-foreground" />
     </main>
   )
 }

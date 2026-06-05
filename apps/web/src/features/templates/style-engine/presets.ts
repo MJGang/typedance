@@ -1,15 +1,16 @@
 import type { BlockStyle, BlockType } from "./types";
+import { VUE_DOC_FONT_STACK } from "./fonts";
 
 export type StylePreset = Record<BlockType, BlockStyle>;
 
 export const CLASSIC_A4_PRESETS: Record<string, StylePreset> = {
   classic: {
-    heading1: { fontSize: "24px", fontWeight: 700, color: "#1a1a1a", textAlign: "center", marginBottom: "8px", fontFamily: "Georgia, serif" },
-    heading2: { fontSize: "14px", fontWeight: 600, color: "#1e3a8a", marginBottom: "8px", borderBottom: { style: "solid", width: "1.5px", color: "#1e3a8a" } },
-    heading3: { fontSize: "11px", fontWeight: 600, color: "#1f2937", marginBottom: "4px" },
-    paragraph: { fontSize: "10px", lineHeight: 1.5, color: "#334155", marginBottom: "4px" },
-    bulletList: { listStyleType: "disc", paddingLeft: "20px" },
-    orderedList: { listStyleType: "decimal", paddingLeft: "20px" },
+    heading1: { fontFamily: VUE_DOC_FONT_STACK, fontSize: "34px", fontWeight: 600, lineHeight: 1.3, color: "#213547", textAlign: "left", marginBottom: "28px" },
+    heading2: { fontFamily: VUE_DOC_FONT_STACK, fontSize: "24px", fontWeight: 600, lineHeight: 1.5, color: "#213547", marginTop: "30px", marginBottom: "14px" },
+    heading3: { fontFamily: VUE_DOC_FONT_STACK, fontSize: "19px", fontWeight: 600, lineHeight: 1.5, color: "#213547", marginTop: "22px", marginBottom: "10px" },
+    paragraph: { fontFamily: VUE_DOC_FONT_STACK, fontSize: "16px", lineHeight: 1.62, color: "#213547", marginBottom: "12px" },
+    bulletList: { fontFamily: VUE_DOC_FONT_STACK, fontSize: "16px", lineHeight: 1.62, color: "#213547", listStyleType: "disc", paddingLeft: "24px", marginTop: "6px", marginBottom: "12px" },
+    orderedList: { fontFamily: VUE_DOC_FONT_STACK, fontSize: "16px", lineHeight: 1.62, color: "#213547", listStyleType: "decimal", paddingLeft: "24px", marginTop: "6px", marginBottom: "12px" },
   },
   modern: {
     heading1: { fontSize: "26px", fontWeight: 600, color: "#0f172a", textAlign: "center", marginBottom: "10px", letterSpacing: "1px" },

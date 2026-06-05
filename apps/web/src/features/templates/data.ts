@@ -3,6 +3,7 @@ import type {
   TemplateSampleContent,
   TemplateStyleConfig,
 } from "./types"
+import { CLASSIC_A4_PRESETS } from "./style-engine/presets"
 
 export const templateRegistry: ResumeTemplateDefinition[] = [
   {
@@ -121,14 +122,7 @@ export const builtInSamples: Record<string, TemplateSampleContent> = {
 export const defaultClassicA4Style: TemplateStyleConfig = {
   template_id: "classic-a4",
   preset: "classic",
-  blocks: {
-    heading1: { fontSize: "24px", fontWeight: 700, color: "#1a1a1a", textAlign: "center", marginBottom: "8px" },
-    heading2: { fontSize: "14px", fontWeight: 600, color: "#1e3a8a", marginBottom: "8px", borderBottom: { style: "solid", width: "1.5px", color: "#1e3a8a" } },
-    heading3: { fontSize: "11px", fontWeight: 600, color: "#1f2937", marginBottom: "4px" },
-    paragraph: { fontSize: "10px", lineHeight: 1.5, color: "#334155", marginBottom: "4px" },
-    bulletList: { listStyleType: "disc", paddingLeft: "20px" },
-    orderedList: { listStyleType: "decimal", paddingLeft: "20px" },
-  },
-  updated_at: "2026-05-11T00:00:00.000Z",
+  blocks: CLASSIC_A4_PRESETS.classic,
+  updated_at: "2026-06-05T00:00:00.000Z",
 }
 

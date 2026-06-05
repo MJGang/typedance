@@ -275,7 +275,7 @@ def _render_block(node: object, parent_list_class: str | None = None) -> str:
             )
             for child in children
         )
-        return f"<li>{body}</li>" if body else ""
+        return f"<li class=\"{cls}Item\">{body}</li>" if body else ""
 
     body = "".join(_render_inline(child) for child in children)
     return f"<p class=\"td-resume-paragraph\">{body}</p>" if body else ""

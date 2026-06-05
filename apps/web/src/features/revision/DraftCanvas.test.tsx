@@ -17,6 +17,7 @@ type MockEditorProps = {
     }>
   }
   moduleOutlineVisible?: boolean
+  cssText?: string
   onChange: (change: { plainText: string; docJson: { type: "doc" } }) => void
   onModuleOutlineVisibleChange?: (visible: boolean) => void
   onSourceCanvasModuleChange?: (moduleId: string | null) => void
@@ -193,6 +194,15 @@ afterEach(() => {
 })
 
 describe("DraftCanvas", () => {
+  it("applies the classic template typography to the source canvas editor", () => {
+    render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
+
+    expect(editorMocks.props?.cssText).toContain(".td-source-resume-canvas .rm-with-pagination p")
+    expect(editorMocks.props?.cssText).toContain('font-family: Quotes, -apple-system')
+    expect(editorMocks.props?.cssText).toContain("font-size: 16px;")
+    expect(editorMocks.props?.cssText).toContain("line-height: 1.62;")
+  })
+
   it("activates an outline item and scrolls below the toolbar when clicked", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
 

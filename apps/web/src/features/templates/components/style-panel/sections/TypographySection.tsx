@@ -9,8 +9,8 @@ import { COMMON_FONTS } from "../../../style-engine/fonts";
 type Props = { value: BlockStyle; onChange: (v: BlockStyle) => void };
 
 const DEFAULT_VALUE = "__default";
-const FONT_SIZE_OPTIONS = ["10px", "11px", "12px", "13px", "14px", "15px", "16px", "18px", "20px", "24px", "28px", "32px"];
-const LINE_HEIGHT_OPTIONS = ["1", "1.15", "1.3", "1.5", "1.75", "2", "2.5"];
+const FONT_SIZE_OPTIONS = ["10px", "11px", "12px", "13px", "14px", "15px", "16px", "18px", "19px", "20px", "24px", "28px", "32px", "34px"];
+const LINE_HEIGHT_OPTIONS = ["1", "1.15", "1.3", "1.5", "1.62", "1.75", "2", "2.5"];
 const FONT_WEIGHT_OPTIONS: Array<{ value: "400" | "500" | "600" | "700"; label: string }> = [
   { value: "400", label: "常规" },
   { value: "500", label: "中粗" },

@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { Editor } from "@tiptap/core"
-import { Markdown } from "@tiptap/markdown"
-import StarterKit from "@tiptap/starter-kit"
+import { markdownToResumeDocJson } from "@typedance/resume-markdown"
 import { looksLikeMarkdown, makeResumeDocFromText, resumeDocToPlainText } from "./editor"
 import type { ResumeDocJson } from "./editor"
 
@@ -71,20 +69,12 @@ describe("resume editor document utilities", () => {
     expect(looksLikeMarkdown("Alice Chen\nFull-stack Engineer\nReact TypeScript Local-first Apps")).toBe(false)
   })
 
-  it("lets Tiptap convert Markdown resume content into document JSON", () => {
-    const editor = new Editor({
-      extensions: [StarterKit, Markdown],
-    })
-
-    editor.commands.setContent("# Alice\n\n## Experience\n\n- Built TypeDance", { contentType: "markdown" })
-
-    const doc = editor.getJSON()
+  it("uses the shared Markdown converter for resume content document JSON", () => {
+    const doc = markdownToResumeDocJson("# Alice\n\n## Experience\n\n- Built TypeDance")
     expect(doc.type).toBe("doc")
     expect(doc.content?.[0]).toMatchObject({ type: "heading", attrs: { level: 1 } })
     expect(doc.content?.[1]).toMatchObject({ type: "heading", attrs: { level: 2 } })
     expect(doc.content?.[2]).toMatchObject({ type: "bulletList" })
     expect(resumeDocToPlainText(doc as ResumeDocJson)).toBe("Alice\n\nExperience\n\nBuilt TypeDance")
-
-    editor.destroy()
   })
 })
