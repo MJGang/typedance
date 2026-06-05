@@ -4,7 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type PointerEvent as ReactPointerEvent,
 } from "react"
 import type { ModuleAnchor, SourceResumeCanvas } from "@typedance/contracts"
 import type { ResumeDocJson, ResumeEditorChange } from "../workspace/editor"
@@ -16,13 +15,10 @@ import {
   DraggableModuleOutline,
   type DraftCanvasSaveStatus,
 } from "./DraggableModuleOutline"
-import { ModuleInteractionLayer } from "./ModuleInteractionLayer"
 import {
-  buildModuleVisualRegions,
   getDefaultModuleOutlinePosition,
   loadModuleOutlinePreferences,
   saveModuleOutlinePreferences,
-  type ModuleVisualRegion,
 } from "./moduleInteractions"
 
 export type { DraftCanvasSaveStatus } from "./DraggableModuleOutline"
@@ -47,6 +43,10 @@ function getElementSize(element: HTMLElement): Size {
     width: element.clientWidth || rect.width,
     height: element.clientHeight || rect.height,
   }
+}
+
+function getSourceCanvasViewport(root: HTMLElement): HTMLElement | null {
+  return root.closest<HTMLElement>(".td-source-resume-canvas-viewport")
 }
 
 function requestMeasureFrame(callback: FrameRequestCallback): number {
@@ -82,7 +82,6 @@ function DraftCanvasWorkspace({
     [canvas.document_id],
   )
   const [activeModuleId, setActiveModuleId] = useState<string | null>(null)
-  const [hoveredModuleId, setHoveredModuleId] = useState<string | null>(null)
   const [outlineVisible, setOutlineVisible] = useState(initialPreferences?.visible ?? true)
   const [outlineExpanded, setOutlineExpanded] = useState(initialPreferences?.expanded ?? true)
   const [outlinePosition, setOutlinePosition] = useState<Position | null>(
@@ -90,7 +89,6 @@ function DraftCanvasWorkspace({
   )
   const outlinePositionRef = useRef(outlinePosition)
   const [outlineBounds, setOutlineBounds] = useState<Size>({ width: 0, height: 0 })
-  const [regions, setRegions] = useState<ModuleVisualRegion[]>([])
   outlinePositionRef.current = outlinePosition
 
   const scheduleMeasure = useCallback(() => {
@@ -101,36 +99,11 @@ function DraftCanvasWorkspace({
       const root = canvasRootRef.current
       if (!root) return
 
-      const rootRect = root.getBoundingClientRect()
-      const nextBounds = getElementSize(root)
+      const viewport = getSourceCanvasViewport(root)
+      const nextBounds = getElementSize(viewport ?? root)
       setOutlineBounds((currentBounds) => (
         sameSize(currentBounds, nextBounds) ? currentBounds : nextBounds
       ))
-
-      const nodes = [...root.querySelectorAll<HTMLElement>("[data-canvas-node-id]")]
-        .map((node) => {
-          const rect = node.getBoundingClientRect()
-          return {
-            canvasNodeId: node.dataset.canvasNodeId ?? "",
-            rect: {
-              top: rect.top - rootRect.top,
-              bottom: rect.bottom - rootRect.top,
-              left: rect.left - rootRect.left,
-              right: rect.right - rootRect.left,
-            },
-          }
-        })
-        .filter((node) => node.canvasNodeId)
-      const gaps = [...root.querySelectorAll<HTMLElement>(".rm-pagination-gap")]
-        .map((gap) => {
-          const rect = gap.getBoundingClientRect()
-          return {
-            top: rect.top - rootRect.top,
-            bottom: rect.bottom - rootRect.top,
-          }
-        })
-
-      setRegions(buildModuleVisualRegions({ anchors, nodes, gaps }))
 
       if (
         outlinePositionRef.current === null
@@ -143,13 +116,13 @@ function DraftCanvasWorkspace({
         }
       }
     })
-  }, [anchors])
+  }, [])
 
   useEffect(() => {
     const root = canvasRootRef.current
     if (!root) return
 
-    const viewport = root.querySelector<HTMLElement>(".td-editor-print-wrapper")
+    const viewport = getSourceCanvasViewport(root)
     const prosemirror = root.querySelector<HTMLElement>(".ProseMirror")
     const resizeObserver = typeof ResizeObserver === "undefined"
       ? null
@@ -205,26 +178,10 @@ function DraftCanvasWorkspace({
     scheduleMeasure()
   }, [scheduleMeasure])
 
-  const handlePointerOver = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const target = event.target
-    if (!(target instanceof Element)) {
-      setHoveredModuleId(null)
-      return
-    }
-
-    const moduleNode = target.closest<HTMLElement>("[data-module-id]")
-    const moduleId = moduleNode && event.currentTarget.contains(moduleNode)
-      ? moduleNode.dataset.moduleId
-      : undefined
-    setHoveredModuleId(moduleId || null)
-  }, [])
-
   return (
     <div
       ref={canvasRootRef}
       className="td-source-resume-canvas relative min-h-0"
-      onPointerOver={handlePointerOver}
-      onPointerLeave={() => setHoveredModuleId(null)}
     >
       <ResumeRichTextEditor
         ref={editorRef}
@@ -234,11 +191,6 @@ function DraftCanvasWorkspace({
         onChange={handleEditorChange}
         onModuleOutlineVisibleChange={setOutlineVisible}
         onSourceCanvasModuleChange={setActiveModuleId}
-      />
-      <ModuleInteractionLayer
-        regions={regions}
-        activeModuleId={activeModuleId}
-        hoveredModuleId={hoveredModuleId}
       />
       {outlineVisible ? (
         <DraggableModuleOutline

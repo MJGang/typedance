@@ -1,8 +1,9 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useOutletContext } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { SiteLayout, type RevisionWorkspaceChromeContext } from "./components/SiteLayout";
 import { SiteSidebar } from "./components/SiteSidebar";
 import { SidebarProvider } from "./components/ui/sidebar";
 import { TooltipProvider } from "./components/ui/tooltip";
@@ -16,6 +17,24 @@ function renderSidebarAt(pathname: string) {
         </MemoryRouter>
       </SidebarProvider>
     </TooltipProvider>,
+  )
+}
+
+function ChromeContextProbe() {
+  const context = useOutletContext<RevisionWorkspaceChromeContext>()
+
+  return <span data-testid="review-panel-state">{context.reviewPanelVisible ? "visible" : "hidden"}</span>
+}
+
+function renderSiteLayoutAt(pathname: string) {
+  render(
+    <MemoryRouter initialEntries={[pathname]}>
+      <Routes>
+        <Route element={<SiteLayout />}>
+          <Route path="/packs/resume/workspaces/:documentId" element={<ChromeContextProbe />} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
   )
 }
 
@@ -61,5 +80,46 @@ describe("App", () => {
 
     expect(screen.getByRole("link", { name: "工作台" })).not.toHaveAttribute("data-active")
     expect(screen.getByRole("link", { name: "模板" })).toHaveAttribute("data-active", "true")
+  })
+
+  it("shows filled and hollow states for workspace panel toggles", () => {
+    renderSiteLayoutAt("/packs/resume/workspaces/doc_1")
+
+    const sidebarToggle = screen.getByTestId("site-left-sidebar-toggle")
+    const reviewToggle = screen.getByTestId("site-review-panel-toggle")
+    const themeToggle = screen.getByTestId("site-theme-toggle")
+    const separator = screen.getByTestId("site-chrome-control-separator")
+
+    expect(
+      themeToggle.compareDocumentPosition(separator) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      separator.compareDocumentPosition(sidebarToggle) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      sidebarToggle.compareDocumentPosition(reviewToggle) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+
+    expect(sidebarToggle).toHaveAttribute("aria-label", "隐藏左侧导航")
+    expect(sidebarToggle).toHaveAttribute("aria-pressed", "true")
+    expect(sidebarToggle).toHaveAttribute("data-panel-state", "filled")
+    expect(screen.queryByTestId("site-left-sidebar-hidden-dot")).not.toBeInTheDocument()
+    expect(reviewToggle).toHaveAttribute("aria-label", "隐藏评审栏")
+    expect(reviewToggle).toHaveAttribute("aria-pressed", "true")
+    expect(reviewToggle).toHaveAttribute("data-panel-state", "filled")
+    expect(screen.getByTestId("review-panel-state")).toHaveTextContent("visible")
+
+    fireEvent.click(sidebarToggle)
+    expect(sidebarToggle).toHaveAttribute("aria-label", "显示左侧导航")
+    expect(sidebarToggle).toHaveAttribute("aria-pressed", "false")
+    expect(sidebarToggle).toHaveAttribute("data-panel-state", "hollow")
+    expect(screen.getByTestId("site-left-sidebar-hidden-dot")).toBeInTheDocument()
+    expect(document.querySelector('[data-slot="sidebar"]')).toHaveAttribute("data-collapsible", "offcanvas")
+
+    fireEvent.click(reviewToggle)
+    expect(reviewToggle).toHaveAttribute("aria-label", "显示评审栏")
+    expect(reviewToggle).toHaveAttribute("aria-pressed", "false")
+    expect(reviewToggle).toHaveAttribute("data-panel-state", "hollow")
+    expect(screen.getByTestId("review-panel-state")).toHaveTextContent("hidden")
   })
 });

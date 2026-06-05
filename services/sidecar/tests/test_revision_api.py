@@ -326,6 +326,40 @@ def test_revision_api_returns_workspace_and_renders_draft(revision_client):
     assert accepted.json()["status"] == "accepted"
 
 
+def test_revision_api_updates_document_title(revision_client):
+    client, tmp_path = revision_client
+    seed_workspace(tmp_path)
+    previous = repo_for(tmp_path).get_document("doc_1")
+
+    response = client.patch("/documents/doc_1", json={"title": "  前端负责人简历  "})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["title"] == "前端负责人简历"
+    assert payload["current_draft_id"] == "draft_1"
+    assert payload["updated_at"] >= previous.updated_at
+    assert repo_for(tmp_path).get_document("doc_1").title == "前端负责人简历"
+
+
+@pytest.mark.parametrize("title", ["", "   "])
+def test_revision_api_rejects_blank_document_title(revision_client, title):
+    client, tmp_path = revision_client
+    seed_workspace(tmp_path)
+
+    response = client.patch("/documents/doc_1", json={"title": title})
+
+    assert response.status_code == 422
+    assert repo_for(tmp_path).get_document("doc_1").title == "张三的简历"
+
+
+def test_revision_api_returns_404_when_updating_missing_document(revision_client):
+    client, _tmp_path = revision_client
+
+    response = client.patch("/documents/doc_missing", json={"title": "新标题"})
+
+    assert response.status_code == 404
+
+
 def test_revision_api_saves_source_resume_canvas_document(revision_client):
     client, tmp_path = revision_client
     seed_workspace(tmp_path)

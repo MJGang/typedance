@@ -44,7 +44,7 @@
 
 :root {
   color-scheme: light;
-  --background: oklch(1 0 0);
+  --background: #fbf8f3;
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -52,15 +52,15 @@
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
+  --secondary: #f3eadf;
   --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
+  --muted: #f3eadf;
   --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
+  --accent: #eee0cf;
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  --border: #e6dacb;
+  --input: #e6dacb;
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.809 0.105 251.813);
   --chart-2: oklch(0.623 0.214 259.815);
@@ -68,14 +68,15 @@
   --chart-4: oklch(0.488 0.243 264.376);
   --chart-5: oklch(0.424 0.199 265.638);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
+  --sidebar: #f9f2e7;
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent: #efe3d2;
   --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-border: var(--border);
   --sidebar-ring: oklch(0.708 0 0);
+  --td-control-hover: #e8d6bf;
   --td-surface-2: #f0f3f7;
   --td-border-strong: #b9c3d1;
   --td-quiet: #6f7c8d;
@@ -117,6 +118,7 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --td-control-hover: var(--muted);
   --td-surface-2: #202733;
   --td-border-strong: #465467;
   --td-quiet: #93a0b2;
@@ -428,7 +430,7 @@ textarea {
 }
 
 .td-rich-editor-toolbar {
-  --td-toolbar-hover-bg: var(--muted);
+  --td-toolbar-hover-bg: var(--td-control-hover);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -916,21 +918,57 @@ textarea {
 }
 
 /* 拖拽 handle 样式 */
-.td-drag-handle {
-  width: 20px;
-  height: 24px;
+.td-resume-drag-handle-floating {
+  transition: left 0.12s cubic-bezier(0.2, 0, 0, 1), top 0.12s cubic-bezier(0.2, 0, 0, 1);
+  will-change: left, top;
+}
+
+.td-resume-drag-handle-floating[data-dragging="true"],
+.td-resume-drag-handle-floating[style*="visibility: hidden"] {
+  transition: none;
+}
+
+.td-drag-handle-shell {
   cursor: grab;
   display: flex;
   align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  color: var(--muted-foreground);
-  transition: background 0.15s, color 0.15s;
+  gap: 2px;
+  color: var(--primary);
+  transform: translate(-2px, 1px);
 }
 
+.td-drag-handle {
+  min-width: 40px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, var(--primary));
+  background: var(--background);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--foreground) 8%, transparent);
+  color: color-mix(in srgb, var(--primary) 92%, #2563eb);
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, color 0.15s;
+}
+
+.td-drag-handle-kind-icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.2;
+}
+
+.td-drag-handle-grip-icon {
+  width: 12px;
+  height: 14px;
+  color: color-mix(in srgb, var(--primary) 46%, var(--muted-foreground));
+}
+
+.td-drag-handle-shell:hover .td-drag-handle,
 .td-drag-handle:hover {
   background: var(--accent);
-  color: var(--foreground);
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
+  box-shadow: 0 2px 5px color-mix(in srgb, var(--foreground) 12%, transparent);
 }
 
 
@@ -1565,35 +1603,70 @@ textarea {
 }
 
 .td-source-resume-canvas .td-rich-editor {
-  height: clamp(32rem, 72svh, 56rem);
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
 }
 
-.td-module-interaction-layer {
-  z-index: 1;
-  pointer-events: none;
+.td-source-resume-canvas,
+.td-source-resume-canvas *,
+.td-source-resume-canvas .td-rich-editor-content,
+.td-source-resume-canvas .td-rich-editor-content *,
+.td-source-resume-canvas .td-editor-print-wrapper,
+.td-source-resume-canvas .rm-with-pagination,
+.td-source-resume-canvas .rm-with-pagination .page,
+.td-source-resume-canvas .rm-with-pagination .page *,
+.td-source-resume-canvas .td-rich-editor-content > .ProseMirror,
+.td-source-resume-canvas .td-rich-editor-content > .ProseMirror * {
+  cursor: text;
 }
 
-.td-module-interaction-region {
-  border-radius: 4px;
-  transition:
-    outline-color 150ms ease,
-    background-color 150ms ease;
+.td-source-resume-canvas button,
+.td-source-resume-canvas [role="button"],
+.td-source-resume-canvas .td-rich-editor-toolbar,
+.td-source-resume-canvas .td-rich-editor-toolbar * {
+  cursor: pointer;
 }
 
-.td-module-interaction-region[data-state="active"] {
-  outline: 1px solid rgb(59 130 246 / 55%);
-  background-color: rgb(59 130 246 / 9%);
+.td-source-resume-canvas .td-resume-drag-handle-floating,
+.td-source-resume-canvas .td-resume-drag-handle-floating *,
+.td-source-resume-canvas .td-drag-handle-shell,
+.td-source-resume-canvas .td-drag-handle-shell * {
+  cursor: grab;
 }
 
-.td-module-interaction-region[data-state="hovered"] {
-  outline: 1px solid rgb(59 130 246 / 35%);
-  background-color: rgb(59 130 246 / 3%);
+body.td-source-canvas-cursor-text,
+body.td-source-canvas-cursor-text * {
+  cursor: text !important;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .td-module-interaction-region {
-    transition: none;
-  }
+body.td-source-canvas-cursor-text a,
+body.td-source-canvas-cursor-text button,
+body.td-source-canvas-cursor-text [role="button"],
+body.td-source-canvas-cursor-text .td-rich-editor-toolbar,
+body.td-source-canvas-cursor-text .td-rich-editor-toolbar * {
+  cursor: pointer !important;
+}
+
+body.td-source-canvas-cursor-text .td-resume-drag-handle-floating,
+body.td-source-canvas-cursor-text .td-resume-drag-handle-floating *,
+body.td-source-canvas-cursor-text .td-drag-handle-shell,
+body.td-source-canvas-cursor-text .td-drag-handle-shell * {
+  cursor: grab !important;
+}
+
+.td-source-resume-canvas .td-rich-editor-content > .ProseMirror,
+.td-source-resume-canvas .td-rich-editor-content > .ProseMirror *,
+.td-source-resume-canvas .rm-with-pagination .page,
+.td-source-resume-canvas .rm-with-pagination .page * {
+  cursor: text !important;
+}
+
+.td-source-resume-canvas .td-editor-print-wrapper {
+  width: 100%;
+  flex: 0 0 auto;
+  overflow: visible;
+  scrollbar-gutter: auto;
 }
 
 @media print {

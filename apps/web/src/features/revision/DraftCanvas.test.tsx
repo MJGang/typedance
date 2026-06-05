@@ -128,6 +128,7 @@ const canvas: SourceResumeCanvas = {
 }
 
 let rootSize = { width: 600, height: 500 }
+let sourceViewportSize: { width: number; height: number } | null = null
 
 function rect({
   left,
@@ -159,7 +160,11 @@ beforeEach(() => {
   editorMocks.props = null
   editorMocks.scrollToCanvasNode.mockReset()
   rootSize = { width: 600, height: 500 }
+  sourceViewportSize = null
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    if (this.classList.contains("td-source-resume-canvas-viewport") && sourceViewportSize) {
+      return rect({ left: 40, top: 90, ...sourceViewportSize })
+    }
     if (this.classList.contains("td-source-resume-canvas")) {
       return rect({ left: 50, top: 100, ...rootSize })
     }
@@ -216,21 +221,25 @@ describe("DraftCanvas", () => {
     )
   })
 
-  it("hides the outline from the toolbar without clearing the active module layer", async () => {
+  it("hides the outline from the toolbar without adding canvas highlight layers", async () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
 
     act(() => editorMocks.props?.onSourceCanvasModuleChange?.("mod_1"))
-    await waitFor(() => {
-      expect(screen.getAllByTestId("module-region-mod_1")).toHaveLength(2)
-    })
+    expect(screen.queryByTestId("module-region-mod_1")).not.toBeInTheDocument()
 
     act(() => editorMocks.props?.onModuleOutlineVisibleChange?.(false))
 
     expect(screen.queryByLabelText("简历模块大纲")).not.toBeInTheDocument()
-    expect(screen.getAllByTestId("module-region-mod_1")).toHaveLength(2)
+    expect(screen.queryByTestId("module-region-mod_1")).not.toBeInTheDocument()
+
+    act(() => editorMocks.props?.onModuleOutlineVisibleChange?.(true))
+    expect(screen.getByRole("button", { name: "项目经历" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    )
   })
 
-  it("keeps active state when another module is hovered", async () => {
+  it("keeps active outline state without highlighting hovered canvas content", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
 
     act(() => editorMocks.props?.onSourceCanvasModuleChange?.("mod_1"))
@@ -243,12 +252,7 @@ describe("DraftCanvas", () => {
     expect(screen.getByRole("button", { name: "教育经历" })).not.toHaveAttribute(
       "aria-current",
     )
-    await waitFor(() => {
-      expect(screen.getByTestId("module-region-mod_2")).toHaveAttribute(
-        "data-state",
-        "hovered",
-      )
-    })
+    expect(screen.queryByTestId("module-region-mod_2")).not.toBeInTheDocument()
   })
 
   it("supports collapsing the module outline and persists the preference", async () => {
@@ -337,6 +341,23 @@ describe("DraftCanvas", () => {
     })
   })
 
+  it("uses the source canvas viewport size for the default outline position", async () => {
+    sourceViewportSize = { width: 400, height: 300 }
+
+    render(
+      <div className="td-source-resume-canvas-viewport">
+        <DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />
+      </div>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("简历模块大纲")).toHaveStyle({
+        left: "180px",
+        top: "48px",
+      })
+    })
+  })
+
   it("reclamps the persisted outline position after the canvas shrinks", async () => {
     localStorage.setItem(moduleOutlineStorageKey("doc_1"), JSON.stringify({
       visible: true,
@@ -373,6 +394,7 @@ describe("DraftCanvas", () => {
     })
     act(() => editorMocks.props?.onSourceCanvasModuleChange?.("mod_1"))
     fireEvent.pointerOver(screen.getByTestId("canvas-node-mod_2"))
+    expect(screen.queryByTestId("module-region-mod_2")).not.toBeInTheDocument()
     const handle = screen.getByTestId("module-outline-drag-handle")
     Object.assign(handle, {
       setPointerCapture: vi.fn(),
@@ -391,7 +413,7 @@ describe("DraftCanvas", () => {
 
     expect(onChange).toHaveBeenCalledWith({ plainText: "原始正文", docJson })
     expect(JSON.stringify(onChange.mock.calls[onChange.mock.calls.length - 1]?.[0].docJson)).not.toMatch(
-      /activeModuleId|hoveredModuleId|outline|position/,
+      /activeModuleId|outline|position/,
     )
   })
 

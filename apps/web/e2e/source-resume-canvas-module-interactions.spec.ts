@@ -134,7 +134,23 @@ function buildLongWorkspace(documentId: string): WorkspaceView {
     },
     modules: [],
     claims: [],
-    issues: [],
+    issues: Array.from({ length: 18 }, (_, index) => ({
+      id: `issue_${index}`,
+      run_id: `run_${documentId}`,
+      document_id: documentId,
+      draft_id: `draft_${documentId}`,
+      module_id: "mod_work",
+      type: "missing_result",
+      severity: index % 3 === 0 ? "blocking" : "warning",
+      title: `第 ${index + 1} 个评审问题`,
+      message: "这条问题说明较长，用来模拟评审栏内容超过当前工作区高度后的滚动表现。",
+      reason: "评审栏应固定在工作区高度内，并通过自身纵向滚动承载长内容。",
+      actions: [],
+      status: "open",
+      created_by_agent: "ResumeReviewer",
+      evidence_link_ids: [],
+      created_at: NOW,
+    })),
     proposals: [],
     evidence: [],
     source_summaries: [],
@@ -190,42 +206,217 @@ async function getOutlinePosition(page: Page) {
 }
 
 test("keeps multi-page module interactions visible, draggable, and workspace-scoped", async ({ page }) => {
+  await page.setViewportSize({ width: 1126, height: 912 })
   await installWorkspaceRoutes(page)
   await page.goto("/packs/resume/workspaces/doc_long")
 
   await expect(page.getByRole("heading", { name: "doc_long 多页简历" })).toBeVisible()
+  const backgroundColors = await page.evaluate(() => {
+    const sidebar = document.querySelector('[data-slot="sidebar-inner"]')
+    const workspace = document.querySelector('[data-testid="revision-workspace-grid"]')?.parentElement
+    const pageNode = document.querySelector(".td-rich-editor-content > .ProseMirror")
+    if (!(sidebar instanceof HTMLElement) || !(workspace instanceof HTMLElement) || !(pageNode instanceof HTMLElement)) return null
+    return {
+      sidebar: getComputedStyle(sidebar).backgroundColor,
+      workspace: getComputedStyle(workspace).backgroundColor,
+      page: getComputedStyle(pageNode).backgroundColor,
+    }
+  })
+  expect(backgroundColors).toEqual({
+    sidebar: "rgb(249, 242, 231)",
+    workspace: "rgb(251, 248, 243)",
+    page: "rgb(255, 255, 255)",
+  })
   const gaps = page.locator(".rm-pagination-gap")
   await expect.poll(() => gaps.count()).toBeGreaterThanOrEqual(2)
+  const workspaceGridOverflow = await page.getByTestId("revision-workspace-grid").evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+  }))
+  expect(workspaceGridOverflow.scrollWidth).toBeLessThanOrEqual(workspaceGridOverflow.clientWidth + 1)
+  const draftPanelOverflow = await page.getByTestId("revision-draft-panel").evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }))
+  expect(draftPanelOverflow.scrollWidth).toBeGreaterThanOrEqual(960)
+  expect(draftPanelOverflow.scrollWidth).toBeGreaterThan(draftPanelOverflow.clientWidth)
+  expect(draftPanelOverflow.scrollHeight).toBeGreaterThan(draftPanelOverflow.clientHeight)
+  const toolbarGeometry = await page.getByRole("toolbar", { name: "简历格式工具栏" }).evaluate((toolbar) => {
+    const draftPanel = toolbar.closest('[data-testid="revision-draft-panel"]')
+    if (!(draftPanel instanceof HTMLElement)) return null
+    const toolbarRect = toolbar.getBoundingClientRect()
+    const draftPanelRect = draftPanel.getBoundingClientRect()
+    return {
+      leftOffset: toolbarRect.left - draftPanelRect.left,
+      topOffset: toolbarRect.top - draftPanelRect.top,
+      width: toolbarRect.width,
+      panelWidth: draftPanel.clientWidth,
+    }
+  })
+  expect(toolbarGeometry).not.toBeNull()
+  if (!toolbarGeometry) throw new Error("Expected source canvas toolbar geometry")
+  expect(toolbarGeometry.leftOffset).toBeGreaterThanOrEqual(0)
+  expect(toolbarGeometry.leftOffset).toBeLessThanOrEqual(1)
+  expect(toolbarGeometry.topOffset).toBeGreaterThanOrEqual(0)
+  expect(toolbarGeometry.topOffset).toBeLessThanOrEqual(1)
+  expect(toolbarGeometry.width).toBeGreaterThanOrEqual(toolbarGeometry.panelWidth)
+  const reviewActionsGeometry = await page.getByTestId("revision-review-actions").evaluate((actions) => {
+    const reviewPanel = actions.closest('[data-testid="revision-review-panel"]')
+    if (!(reviewPanel instanceof HTMLElement)) return null
+    const actionsRect = actions.getBoundingClientRect()
+    const reviewPanelRect = reviewPanel.getBoundingClientRect()
+    return {
+      topOffset: actionsRect.top - reviewPanelRect.top,
+      leftOffset: actionsRect.left - reviewPanelRect.left,
+    }
+  })
+  expect(reviewActionsGeometry).not.toBeNull()
+  if (!reviewActionsGeometry) throw new Error("Expected review action toolbar geometry")
+  expect(reviewActionsGeometry.topOffset).toBeGreaterThanOrEqual(16)
+  expect(reviewActionsGeometry.topOffset).toBeLessThanOrEqual(17)
+  expect(reviewActionsGeometry.leftOffset).toBeGreaterThanOrEqual(16)
+  expect(reviewActionsGeometry.leftOffset).toBeLessThanOrEqual(17)
+  const blockTrigger = page.locator(".td-toolbar-block-trigger").first()
+  const blockTriggerBackgroundBeforeHover = await blockTrigger.evaluate((element) => getComputedStyle(element).backgroundColor)
+  await blockTrigger.hover()
+  await page.waitForTimeout(200)
+  const blockTriggerBackgroundAfterHover = await blockTrigger.evaluate((element) => getComputedStyle(element).backgroundColor)
+  expect(blockTriggerBackgroundBeforeHover).not.toBe(blockTriggerBackgroundAfterHover)
+  const hoverRgb = blockTriggerBackgroundAfterHover.match(/\d+/g)?.map(Number)
+  expect(hoverRgb).toBeDefined()
+  if (!hoverRgb) throw new Error("Expected toolbar hover background rgb value")
+  expect(hoverRgb[0]).toBeGreaterThan(hoverRgb[2])
+  expect(hoverRgb[1]).toBeGreaterThan(hoverRgb[2])
+  expect(hoverRgb[2]).toBeLessThan(205)
+  const panelBounds = await page.evaluate(() => {
+    const draftPanel = document.querySelector('[data-testid="revision-draft-panel"]')
+    const reviewPanel = document.querySelector('[data-testid="revision-review-panel"]')
+    if (!(draftPanel instanceof HTMLElement) || !(reviewPanel instanceof HTMLElement)) return null
+    const draftRect = draftPanel.getBoundingClientRect()
+    const reviewRect = reviewPanel.getBoundingClientRect()
+    return {
+      draftBottom: draftRect.bottom,
+      reviewBottom: reviewRect.bottom,
+      viewportHeight: window.innerHeight,
+    }
+  })
+  expect(panelBounds).not.toBeNull()
+  if (!panelBounds) throw new Error("Expected fixed workspace panel geometry")
+  expect(panelBounds.draftBottom).toBeLessThanOrEqual(panelBounds.viewportHeight + 1)
+  expect(panelBounds.reviewBottom).toBeLessThanOrEqual(panelBounds.viewportHeight + 1)
+  const printWrapperOverflow = await page.locator(".td-editor-print-wrapper").evaluate((element) => ({
+    clientWidth: element.clientWidth,
+    scrollWidth: element.scrollWidth,
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }))
+  expect(printWrapperOverflow.scrollWidth).toBeLessThanOrEqual(printWrapperOverflow.clientWidth + 1)
+  expect(printWrapperOverflow.scrollHeight).toBeLessThanOrEqual(printWrapperOverflow.clientHeight + 1)
+  const printWrapperLeftGutter = await page.locator(".td-editor-print-wrapper").evaluate((element) => {
+    const pageNode = element.querySelector(".ProseMirror")
+    if (!(pageNode instanceof HTMLElement)) return 0
+    return pageNode.getBoundingClientRect().left - element.getBoundingClientRect().left
+  })
+  expect(printWrapperLeftGutter).toBeGreaterThanOrEqual(60)
+  const workParagraphNode = page.locator("[data-canvas-node-id='work_0']")
+  await workParagraphNode.scrollIntoViewIfNeeded()
+  await workParagraphNode.hover({ force: true })
+  await page.waitForSelector('[data-testid="resume-drag-handle"]', { state: "attached" })
+  await page.waitForTimeout(200)
+  const canvasCursorStyles = await page.evaluate(() => {
+    const content = document.querySelector(".td-source-resume-canvas .td-rich-editor-content")
+    const draftPanel = document.querySelector('[data-testid="revision-draft-panel"]')
+    const wrapper = document.querySelector(".td-source-resume-canvas .td-editor-print-wrapper")
+    const pageNode = document.querySelector(".td-source-resume-canvas .td-rich-editor-content > .ProseMirror")
+    const textNode = document.querySelector("[data-canvas-node-id='work_0']")
+    if (
+      !(content instanceof HTMLElement)
+      || !(draftPanel instanceof HTMLElement)
+      || !(wrapper instanceof HTMLElement)
+      || !(pageNode instanceof HTMLElement)
+      || !(textNode instanceof HTMLElement)
+    ) return null
+    const textRect = textNode.getBoundingClientRect()
+    const textCenterY = textRect.top + textRect.height / 2
+    const pageShell = textNode.closest(".page") ?? pageNode
+    const pageShellRect = pageShell instanceof HTMLElement ? pageShell.getBoundingClientRect() : pageNode.getBoundingClientRect()
+    const draftPanelRect = draftPanel.getBoundingClientRect()
+    const blankX = Math.min(
+      Math.max(pageShellRect.left + 24, draftPanelRect.left + 8),
+      Math.min(pageShellRect.right - 8, draftPanelRect.right - 8),
+    )
+    const blankY = Math.min(
+      Math.max(textCenterY, draftPanelRect.top + 8),
+      Math.min(pageShellRect.bottom - 8, draftPanelRect.bottom - 8),
+    )
+    const blankElement = document.elementFromPoint(blankX, blankY)
+    return {
+      cursorClassActive: document.body.classList.contains("td-source-canvas-cursor-text"),
+      content: getComputedStyle(content).cursor,
+      wrapper: getComputedStyle(wrapper).cursor,
+      page: getComputedStyle(pageNode).cursor,
+      pageShell: pageShell instanceof HTMLElement ? getComputedStyle(pageShell).cursor : "",
+      pageBlank: blankElement instanceof HTMLElement ? getComputedStyle(blankElement).cursor : "",
+      textNode: getComputedStyle(textNode).cursor,
+    }
+  })
+  expect(canvasCursorStyles).toEqual({
+    cursorClassActive: true,
+    content: "text",
+    wrapper: "text",
+    page: "text",
+    pageShell: "text",
+    pageBlank: "text",
+    textNode: "text",
+  })
+  const dragHandleTransition = await page.locator(".td-resume-drag-handle-floating").evaluate((element) => ({
+    property: getComputedStyle(element).transitionProperty,
+    duration: getComputedStyle(element).transitionDuration,
+  }))
+  expect(dragHandleTransition.property).toContain("left")
+  expect(dragHandleTransition.property).toContain("top")
+  expect(dragHandleTransition.duration).toContain("0.12s")
+  const dragHandleGeometry = await workParagraphNode.evaluate((node) => {
+    const handle = document.querySelector('[data-testid="resume-drag-handle"] .td-drag-handle')
+    if (!(node instanceof HTMLElement) || !(handle instanceof HTMLElement)) return null
+    const nodeRect = node.getBoundingClientRect()
+    const handleRect = handle.getBoundingClientRect()
+    const lineHeight = parseFloat(getComputedStyle(node).lineHeight) || nodeRect.height
+    return {
+      gap: nodeRect.left - handleRect.right,
+      centerDelta: (handleRect.top + handleRect.height / 2) - (nodeRect.top + lineHeight / 2),
+    }
+  })
+  expect(dragHandleGeometry).not.toBeNull()
+  if (!dragHandleGeometry) throw new Error("Expected drag handle geometry")
+  expect(dragHandleGeometry.gap).toBeGreaterThanOrEqual(1.5)
+  expect(dragHandleGeometry.gap).toBeLessThanOrEqual(2.5)
+  expect(Math.abs(dragHandleGeometry.centerDelta)).toBeLessThanOrEqual(1)
 
   const workItem = page.getByRole("button", { name: "工作经历" })
   await workItem.click()
   await expect(workItem).toHaveAttribute("data-active", "true")
-  const workRegions = page.getByTestId("module-region-mod_work")
-  await expect.poll(() => workRegions.count()).toBeGreaterThanOrEqual(2)
-  expect(await workRegions.evaluateAll((regions) => {
-    const paginationGaps = [...document.querySelectorAll(".rm-pagination-gap")]
-    return regions.every((region) => {
-      const regionRect = region.getBoundingClientRect()
-      return paginationGaps.every((gap) => {
-        const gapRect = gap.getBoundingClientRect()
-        return regionRect.bottom <= gapRect.top || regionRect.top >= gapRect.bottom
-      })
-    })
-  })).toBe(true)
+  await expect(page.getByTestId("module-region-mod_work")).toHaveCount(0)
 
-  const viewport = page.locator(".td-editor-print-wrapper")
+  const viewport = page.getByTestId("revision-draft-panel")
   const beforeScrollTop = await viewport.evaluate((element) => element.scrollTop)
   const projectItem = page.getByRole("button", { name: "项目经历" })
   await projectItem.click()
   await expect(projectItem).toHaveAttribute("data-active", "true")
   await expect.poll(() => viewport.evaluate((element) => element.scrollTop)).toBeGreaterThan(beforeScrollTop)
-  const projectOffset = await page.locator("[data-canvas-node-id='project_title']").evaluate((node) => {
-    const viewportNode = node.closest(".td-editor-print-wrapper")
+  const getProjectOffset = () => page.locator("[data-canvas-node-id='project_title']").evaluate((node) => {
+    const viewportNode = node.closest(".td-source-resume-canvas-viewport")
     if (!(viewportNode instanceof HTMLElement)) return -1
     return node.getBoundingClientRect().top - viewportNode.getBoundingClientRect().top
   })
+  const projectOffset = await getProjectOffset()
   expect(projectOffset).toBeGreaterThanOrEqual(8)
-  expect(projectOffset).toBeLessThanOrEqual(24)
+  await expect.poll(getProjectOffset).toBeLessThanOrEqual(48)
+
+  await viewport.evaluate((element) => element.scrollTo({ top: 0, left: 0 }))
+  await expect.poll(() => viewport.evaluate((element) => element.scrollTop)).toBe(0)
 
   const outline = page.getByLabel("简历模块大纲")
   const canvas = page.locator(".td-source-resume-canvas")
@@ -237,10 +428,12 @@ test("keeps multi-page module interactions visible, draggable, and workspace-sco
   if (!handleBox || !canvasBox) throw new Error("Expected draggable outline geometry")
   await page.mouse.move(handleBox.x + 24, handleBox.y + 16)
   await page.mouse.down()
-  await page.mouse.move(canvasBox.x + 48, canvasBox.y + canvasBox.height - 80, { steps: 4 })
+  await page.mouse.move(canvasBox.x + 120, canvasBox.y + 120, { steps: 4 })
   await page.mouse.up()
 
   const draggedPosition = await getOutlinePosition(page)
+  expect(draggedPosition.left).toBeLessThan(240)
+  expect(draggedPosition.top).toBeLessThan(180)
   const outlineBox = await outline.boundingBox()
   expect(outlineBox).not.toBeNull()
   if (!outlineBox) throw new Error("Expected outline geometry")
@@ -263,10 +456,10 @@ test("keeps multi-page module interactions visible, draggable, and workspace-sco
   const otherWorkItem = page.getByRole("button", { name: "工作经历" })
   await otherWorkItem.click()
   await expect(otherWorkItem).toHaveAttribute("data-active", "true")
-  await expect.poll(() => page.getByTestId("module-region-mod_work").count()).toBeGreaterThanOrEqual(2)
+  await expect(page.getByTestId("module-region-mod_work")).toHaveCount(0)
   await page.getByRole("button", { name: "模块大纲", exact: true }).click()
   await expect(outline).not.toBeVisible()
-  await expect.poll(() => page.getByTestId("module-region-mod_work").count()).toBeGreaterThanOrEqual(2)
+  await expect(page.getByTestId("module-region-mod_work")).toHaveCount(0)
   await page.getByRole("button", { name: "模块大纲", exact: true }).click()
   await expect(page.getByLabel("简历模块大纲")).toBeVisible()
 })

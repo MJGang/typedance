@@ -1,47 +1,16 @@
-import type { ModuleAnchor } from "@typedance/contracts"
-
-export type ModuleVisualRegion = {
-  moduleId: string
-  pageIndex: number
-  top: number
-  left: number
-  width: number
-  height: number
-}
-
 export type PersistedModuleOutlinePreferences = {
   visible: boolean
   expanded: boolean
   position: { x: number; y: number }
 }
 
-export type ModuleLayoutRect = {
-  top: number
-  bottom: number
-  left: number
-  right: number
-}
-
 type Position = { x: number; y: number }
 type Size = { width: number; height: number }
-type PaginationGap = { top: number; bottom: number }
-type ModuleLayoutNode = { canvasNodeId: string; rect: ModuleLayoutRect }
 
 const MODULE_OUTLINE_STORAGE_PREFIX = "typedance:revision-workspace:module-outline:"
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value)
-}
-
-function isValidRect(rect: ModuleLayoutRect): boolean {
-  return (
-    isFiniteNumber(rect.top)
-    && isFiniteNumber(rect.bottom)
-    && isFiniteNumber(rect.left)
-    && isFiniteNumber(rect.right)
-    && rect.bottom > rect.top
-    && rect.right > rect.left
-  )
 }
 
 function isModuleOutlinePreferences(value: unknown): value is PersistedModuleOutlinePreferences {
@@ -66,30 +35,6 @@ function finiteNonNegative(value: number): number {
 
 function finiteCoordinate(value: number): number {
   return Number.isFinite(value) ? value : 0
-}
-
-function normalizePaginationGaps(gaps: PaginationGap[]): PaginationGap[] {
-  const sortedGaps = gaps
-    .filter((gap) => (
-      isFiniteNumber(gap.top)
-      && isFiniteNumber(gap.bottom)
-      && gap.bottom > gap.top
-    ))
-    .map((gap) => ({ ...gap }))
-    .sort((left, right) => left.top - right.top || left.bottom - right.bottom)
-
-  const normalizedGaps: PaginationGap[] = []
-  for (const gap of sortedGaps) {
-    const previousGap = normalizedGaps[normalizedGaps.length - 1]
-    if (!previousGap || gap.top > previousGap.bottom) {
-      normalizedGaps.push(gap)
-      continue
-    }
-
-    previousGap.bottom = Math.max(previousGap.bottom, gap.bottom)
-  }
-
-  return normalizedGaps
 }
 
 export function moduleOutlineStorageKey(documentId: string): string {
@@ -167,94 +112,4 @@ export function getDefaultModuleOutlinePosition(
     viewportSize,
     outlineSize,
   )
-}
-
-function splitRectAcrossGaps(
-  rect: ModuleLayoutRect,
-  gaps: PaginationGap[],
-): Array<{ pageIndex: number; top: number; bottom: number }> {
-  const fragments: Array<{ pageIndex: number; top: number; bottom: number }> = []
-  let fragmentTop = rect.top
-  let pageIndex = 0
-
-  for (const gap of gaps) {
-    if (rect.bottom <= gap.top) break
-    if (fragmentTop >= gap.bottom) {
-      pageIndex += 1
-      continue
-    }
-
-    if (fragmentTop < gap.top) {
-      fragments.push({
-        pageIndex,
-        top: fragmentTop,
-        bottom: Math.min(rect.bottom, gap.top),
-      })
-    }
-
-    fragmentTop = Math.max(fragmentTop, gap.bottom)
-    pageIndex += 1
-    if (fragmentTop >= rect.bottom) break
-  }
-
-  if (fragmentTop < rect.bottom) {
-    fragments.push({ pageIndex, top: fragmentTop, bottom: rect.bottom })
-  }
-
-  return fragments
-}
-
-export function buildModuleVisualRegions({
-  anchors,
-  nodes,
-  gaps,
-}: {
-  anchors: ModuleAnchor[]
-  nodes: ModuleLayoutNode[]
-  gaps: PaginationGap[]
-}): ModuleVisualRegion[] {
-  const sortedAnchors = anchors
-    .map((anchor, inputIndex) => ({ anchor, inputIndex }))
-    .sort((left, right) => left.anchor.order - right.anchor.order || left.inputIndex - right.inputIndex)
-  const normalizedGaps = normalizePaginationGaps(gaps)
-  const rectsByNodeId = new Map(nodes.map((node) => [node.canvasNodeId, node.rect]))
-  const moduleOrder = new Map<string, number>()
-  const regions = new Map<string, ModuleVisualRegion>()
-
-  for (const [anchorIndex, { anchor }] of sortedAnchors.entries()) {
-    if (!moduleOrder.has(anchor.module_id)) moduleOrder.set(anchor.module_id, anchorIndex)
-
-    for (const canvasNodeId of anchor.canvas_node_ids) {
-      const rect = rectsByNodeId.get(canvasNodeId)
-      if (!rect || !isValidRect(rect)) continue
-
-      for (const fragment of splitRectAcrossGaps(rect, normalizedGaps)) {
-        const key = `${anchor.module_id}\u0000${fragment.pageIndex}`
-        const existingRegion = regions.get(key)
-        if (!existingRegion) {
-          regions.set(key, {
-            moduleId: anchor.module_id,
-            pageIndex: fragment.pageIndex,
-            top: fragment.top,
-            left: rect.left,
-            width: rect.right - rect.left,
-            height: fragment.bottom - fragment.top,
-          })
-          continue
-        }
-
-        const right = Math.max(existingRegion.left + existingRegion.width, rect.right)
-        const bottom = Math.max(existingRegion.top + existingRegion.height, fragment.bottom)
-        existingRegion.top = Math.min(existingRegion.top, fragment.top)
-        existingRegion.left = Math.min(existingRegion.left, rect.left)
-        existingRegion.width = right - existingRegion.left
-        existingRegion.height = bottom - existingRegion.top
-      }
-    }
-  }
-
-  return [...regions.values()].sort((left, right) => (
-    (moduleOrder.get(left.moduleId) ?? 0) - (moduleOrder.get(right.moduleId) ?? 0)
-    || left.pageIndex - right.pageIndex
-  ))
 }

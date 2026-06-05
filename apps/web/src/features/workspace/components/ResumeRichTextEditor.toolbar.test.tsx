@@ -8,6 +8,8 @@ import { beforeAll, describe, expect, it, vi } from "vitest"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import {
   BlockStyle,
+  getDragHandleBlockPresentation,
+  getDragHandleBlockType,
   ResumeRichTextEditor,
   setToolbarTextBlock,
   type ResumeRichTextEditorHandle,
@@ -36,6 +38,8 @@ describe("ResumeRichTextEditor toolbar", () => {
     )
 
     expect(screen.getByRole("button", { name: "正文与标题" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "正文与标题" }).querySelector(".lucide-type")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "正文与标题" }).querySelector(".lucide-pilcrow")).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "下划线" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "行高调整" }).querySelector(".lucide-list-collapse")).toBeInTheDocument()
     expect(screen.getAllByRole("separator")).toHaveLength(4)
@@ -65,6 +69,72 @@ describe("ResumeRichTextEditor toolbar", () => {
     fireEvent.click(button)
 
     expect(onModuleOutlineVisibleChange).toHaveBeenCalledWith(false)
+  })
+
+  it("renders a paragraph block type icon in the floating drag handle by default", () => {
+    render(
+      <TooltipProvider>
+        <ResumeRichTextEditor
+          ariaLabel="Resume text"
+          docJson={{ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "正文" }] }] }}
+          onChange={() => {}}
+        />
+      </TooltipProvider>,
+    )
+
+    const dragHandle = screen.getByTestId("resume-drag-handle")
+
+    expect(dragHandle).toHaveAttribute("data-block-type", "paragraph")
+    expect(dragHandle.querySelector(".lucide-type")).toBeInTheDocument()
+    expect(dragHandle.querySelector(".lucide-grip-vertical")).toBeInTheDocument()
+  })
+
+  it("maps floating drag handle block types to icons", () => {
+    const editor = new Editor({
+      extensions: [StarterKit, BlockStyle],
+      content: {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "正文" }] },
+          { type: "heading", attrs: { level: 3 }, content: [{ type: "text", text: "小标题" }] },
+          {
+            type: "bulletList",
+            content: [{
+              type: "listItem",
+              content: [{ type: "paragraph", content: [{ type: "text", text: "列表" }] }],
+            }],
+          },
+          {
+            type: "orderedList",
+            content: [{
+              type: "listItem",
+              content: [{ type: "paragraph", content: [{ type: "text", text: "编号" }] }],
+            }],
+          },
+        ],
+      },
+    })
+
+    expect(getDragHandleBlockType(editor.state.doc.child(0), editor, 0)).toBe("paragraph")
+    expect(getDragHandleBlockPresentation("paragraph").iconClassName).toBe("lucide-type")
+
+    expect(getDragHandleBlockType(editor.state.doc.child(1), editor, 4)).toBe("heading3")
+    expect(getDragHandleBlockPresentation("heading3")).toMatchObject({
+      iconClassName: "lucide-heading-3",
+    })
+    expect(getDragHandleBlockPresentation("heading3")).not.toHaveProperty("showCollapseAffordance")
+
+    expect(getDragHandleBlockType(editor.state.doc.child(2), editor, 9)).toBe("bulletList")
+    expect(getDragHandleBlockPresentation("bulletList")).toMatchObject({
+      iconClassName: "lucide-list",
+    })
+
+    expect(getDragHandleBlockType(editor.state.doc.child(3), editor, 17)).toBe("orderedList")
+    expect(getDragHandleBlockPresentation("orderedList")).toMatchObject({
+      iconClassName: "lucide-list-ordered",
+    })
+
+    editor.destroy()
   })
 
   it("renders source canvas attributes on paragraph nodes", () => {
@@ -252,7 +322,49 @@ describe("ResumeRichTextEditor toolbar", () => {
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" })
   })
 
-  it("scrolls a source canvas node within the editor viewport with a top offset", () => {
+  it("scrolls a source canvas node within the source canvas viewport with a top offset", () => {
+    const ref = createRef<ResumeRichTextEditorHandle>()
+
+    render(
+      <TooltipProvider>
+        <div className="td-source-resume-canvas-viewport">
+          <ResumeRichTextEditor
+            ref={ref}
+            ariaLabel="Resume text"
+            docJson={{
+              type: "doc",
+              content: [{
+                type: "paragraph",
+                attrs: { canvasNodeId: "node_1" },
+                content: [{ type: "text", text: "Work experience" }],
+              }],
+            }}
+            onChange={() => {}}
+          />
+        </div>
+      </TooltipProvider>,
+    )
+
+    const canvasNode = screen.getByText("Work experience")
+    const sourceViewport = canvasNode.closest(".td-source-resume-canvas-viewport")
+    const printWrapper = canvasNode.closest(".td-editor-print-wrapper")
+    const sourceScrollTo = vi.fn()
+    const printScrollTo = vi.fn()
+    expect(sourceViewport).toBeInstanceOf(HTMLElement)
+    expect(printWrapper).toBeInstanceOf(HTMLElement)
+    Object.defineProperty(sourceViewport, "scrollTop", { configurable: true, value: 120 })
+    Object.defineProperty(sourceViewport, "scrollTo", { configurable: true, value: sourceScrollTo })
+    Object.defineProperty(printWrapper, "scrollTo", { configurable: true, value: printScrollTo })
+    vi.spyOn(sourceViewport as HTMLElement, "getBoundingClientRect").mockReturnValue({ top: 100 } as DOMRect)
+    vi.spyOn(canvasNode, "getBoundingClientRect").mockReturnValue({ top: 460 } as DOMRect)
+
+    ref.current?.scrollToCanvasNode("node_1", { topOffset: 24 })
+
+    expect(sourceScrollTo).toHaveBeenCalledWith({ top: 456, behavior: "smooth" })
+    expect(printScrollTo).not.toHaveBeenCalled()
+  })
+
+  it("falls back to the editor print wrapper when no source viewport is present", () => {
     const ref = createRef<ResumeRichTextEditorHandle>()
 
     render(

@@ -172,6 +172,32 @@ describe("revision api", () => {
     expect(view.available_actions[0].action_type).toBe("accept_proposal")
   })
 
+  it("updates a revision document title", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      id: "doc_1",
+      pack_id: "resume",
+      title: "前端负责人简历",
+      status: "active",
+      target_language: "zh-CN",
+      current_draft_id: "draft_1",
+      created_at: "2026-05-21T08:00:00.000Z",
+      updated_at: "2026-05-21T08:05:00.000Z",
+    }))))
+
+    const { updateRevisionDocument } = await import("./api")
+    const document = await updateRevisionDocument("doc_1", { title: "前端负责人简历" })
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:4317/documents/doc_1",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "前端负责人简历" }),
+      },
+    )
+    expect(document.title).toBe("前端负责人简历")
+  })
+
   it("renders a revision draft with a profile", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       id: "render_1",

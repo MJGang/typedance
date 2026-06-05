@@ -142,6 +142,22 @@ export async function listRevisionDocuments(): Promise<DocumentListItem[]> {
   )
 }
 
+export async function updateRevisionDocument(
+  documentId: string,
+  data: Pick<RevisionDocument, "title">,
+): Promise<RevisionDocument> {
+  const response = await fetch(`${baseUrl}/documents/${documentId}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(data),
+  })
+  return parseTemplateResponse(
+    response,
+    (value) => documentSchema.parse(value),
+    "Failed to update revision document",
+  )
+}
+
 export async function getRevisionWorkspaceView(documentId: string): Promise<WorkspaceView> {
   const response = await fetch(`${baseUrl}/documents/${documentId}/workspace-view`)
   return parseTemplateResponse(

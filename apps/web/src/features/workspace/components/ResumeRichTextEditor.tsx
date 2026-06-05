@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react"
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react"
 import { Extension, Mark, type Editor } from "@tiptap/core"
 import { Markdown } from "@tiptap/markdown"
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
@@ -8,7 +8,7 @@ import type { JSONContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import DragHandle from "@tiptap/extension-drag-handle-react"
 import { PaginationPlus, PAGE_SIZES } from "tiptap-pagination-plus"
-import { Bold, Columns3, Eraser, GripVertical, Heading1, Heading2, Heading3, Italic, ListTree, Pilcrow, Underline } from "lucide-react"
+import { Bold, Columns3, Eraser, GripVertical, Heading1, Heading2, Heading3, Italic, List, ListOrdered, ListTree, Type, Underline } from "lucide-react"
 import { Column, Columns, type ColumnsCount, type ColumnsGap } from "@typedance/tiptap-layout"
 
 import { Button } from "@/components/ui/button"
@@ -118,8 +118,8 @@ const inactiveToolbarState: ToolbarState = {
 
 const INLINE_FONT_SIZES = ["12px", "13px", "14px", "15px", "16px", "19px", "22px", "24px", "29px", "32px", "40px", "48px"]
 
-const BLOCK_OPTIONS: Array<{ value: ToolbarBlock; label: string; icon: typeof Pilcrow }> = [
-  { value: "paragraph", label: "正文", icon: Pilcrow },
+const BLOCK_OPTIONS: Array<{ value: ToolbarBlock; label: string; icon: typeof Type }> = [
+  { value: "paragraph", label: "正文", icon: Type },
   { value: "heading1", label: "标题1", icon: Heading1 },
   { value: "heading2", label: "标题2", icon: Heading2 },
   { value: "heading3", label: "标题3", icon: Heading3 },
@@ -128,6 +128,80 @@ const BLOCK_OPTIONS: Array<{ value: ToolbarBlock; label: string; icon: typeof Pi
 const BLOCK_STYLE_NODE_TYPES = ["paragraph", "heading", "listItem"] as const
 const DEFAULT_LINE_HEIGHT: ToolbarLineHeight = "default"
 const MAX_INDENT = 8
+
+type DragHandleBlockPresentation = {
+  label: string
+  icon: typeof Type
+  iconClassName: string
+}
+
+const DRAG_HANDLE_BLOCK_PRESENTATIONS: Record<ToolbarBlock, DragHandleBlockPresentation> = {
+  paragraph: { label: "正文", icon: Type, iconClassName: "lucide-type" },
+  heading1: { label: "标题1", icon: Heading1, iconClassName: "lucide-heading-1" },
+  heading2: { label: "标题2", icon: Heading2, iconClassName: "lucide-heading-2" },
+  heading3: { label: "标题3", icon: Heading3, iconClassName: "lucide-heading-3" },
+  bulletList: { label: "无序列表", icon: List, iconClassName: "lucide-list" },
+  orderedList: { label: "有序列表", icon: ListOrdered, iconClassName: "lucide-list-ordered" },
+  columns: { label: "分栏", icon: Columns3, iconClassName: "lucide-columns-3" },
+}
+
+export function getDragHandleBlockPresentation(block: ToolbarBlock): DragHandleBlockPresentation {
+  return DRAG_HANDLE_BLOCK_PRESENTATIONS[block]
+}
+
+function getListAncestorBlockType(editor: Editor | undefined, pos: number): "bulletList" | "orderedList" | null {
+  if (!editor || pos < 0) return null
+
+  const resolvedPos = Math.min(Math.max(pos + 1, 0), editor.state.doc.content.size)
+  const $pos = editor.state.doc.resolve(resolvedPos)
+
+  for (let depth = $pos.depth; depth >= 0; depth -= 1) {
+    const nodeType = $pos.node(depth).type.name
+    if (nodeType === "bulletList" || nodeType === "orderedList") return nodeType
+  }
+
+  return null
+}
+
+export function getDragHandleBlockType(node: ProseMirrorNode | null, editor?: Editor, pos = -1): ToolbarBlock {
+  if (!node) return "paragraph"
+
+  if (node.type.name === "bulletList") return "bulletList"
+  if (node.type.name === "orderedList") return "orderedList"
+
+  const listAncestor = getListAncestorBlockType(editor, pos)
+  if (listAncestor) return listAncestor
+
+  if (node.type.name === "heading") {
+    const level = node.attrs.level === 1 || node.attrs.level === 2 || node.attrs.level === 3 ? node.attrs.level : 1
+    return `heading${level}` as "heading1" | "heading2" | "heading3"
+  }
+
+  if (node.type.name === "columns") return "columns"
+  if (node.type.name === "listItem") return "bulletList"
+
+  return "paragraph"
+}
+
+function ResumeDragHandleChrome({ block }: { block: ToolbarBlock }) {
+  const presentation = getDragHandleBlockPresentation(block)
+  const Icon = presentation.icon
+
+  return (
+    <div
+      className="td-drag-handle-shell"
+      data-block-type={block}
+      data-testid="resume-drag-handle"
+      aria-label={`拖拽${presentation.label}块`}
+      title={`拖拽${presentation.label}块`}
+    >
+      <span className="td-drag-handle">
+        <Icon className="td-drag-handle-kind-icon" />
+        <GripVertical className="td-drag-handle-grip-icon" />
+      </span>
+    </div>
+  )
+}
 
 function inlineStyleToCss(attrs: Record<string, unknown>): string {
   const rules: string[] = []
@@ -356,7 +430,7 @@ type ToolbarSelectProps<T extends string> = {
   ariaLabel: string
   tooltipLabel?: string
   value: T
-  options: Array<{ value: T; label: string; icon?: typeof Pilcrow }>
+  options: Array<{ value: T; label: string; icon?: typeof Type }>
   disabled?: boolean
   className?: string
   onChange: (value: T) => void
@@ -506,6 +580,10 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
     onSelectionUpdateRef.current = onSelectionUpdate
     const onSourceCanvasModuleChangeRef = useRef(onSourceCanvasModuleChange)
     onSourceCanvasModuleChangeRef.current = onSourceCanvasModuleChange
+    const [dragHandleBlock, setDragHandleBlock] = useState<ToolbarBlock>("paragraph")
+    const handleDragHandleNodeChange = useCallback(({ editor, node, pos }: { editor: Editor; node: ProseMirrorNode | null; pos: number }) => {
+      setDragHandleBlock(getDragHandleBlockType(node, editor, pos))
+    }, [])
 
     const editor = useEditor({
       extensions: [
@@ -637,7 +715,8 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
           if (canvasNode instanceof HTMLElement && canvasNode.getAttribute("data-canvas-node-id") === canvasNodeId) {
             const behavior = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
             if (options?.topOffset !== undefined) {
-              const viewport = canvasNode.closest(".td-editor-print-wrapper")
+              const viewport = canvasNode.closest(".td-source-resume-canvas-viewport")
+                ?? canvasNode.closest(".td-editor-print-wrapper")
               if (!(viewport instanceof HTMLElement)) return
               const targetRect = canvasNode.getBoundingClientRect()
               const viewportRect = viewport.getBoundingClientRect()
@@ -842,10 +921,12 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         )}
         <style>{cssText}</style>
         {editable && (
-          <DragHandle editor={editor}>
-            <div className="td-drag-handle">
-              <GripVertical className="h-4 w-4" />
-            </div>
+          <DragHandle
+            editor={editor}
+            className="drag-handle td-resume-drag-handle-floating"
+            onNodeChange={handleDragHandleNodeChange}
+          >
+            <ResumeDragHandleChrome block={dragHandleBlock} />
           </DragHandle>
         )}
         <div className="td-editor-print-wrapper">

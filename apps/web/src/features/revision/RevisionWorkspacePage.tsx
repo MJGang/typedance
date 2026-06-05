@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useNavigate, useParams } from "react-router-dom"
-import { AlertCircle, ArrowLeft, BriefcaseBusiness, Check, Download, Loader2, RefreshCcw, Send, ShieldCheck, X } from "lucide-react"
+import { useNavigate, useOutletContext, useParams } from "react-router-dom"
+import { AlertCircle, ArrowLeft, BriefcaseBusiness, Check, Download, Loader2, Pencil, RefreshCcw, Send, ShieldCheck, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
@@ -12,12 +13,14 @@ import {
   getRevisionWorkspaceView,
   rejectRevisionProposal,
   runRevisionQualityReview,
+  updateRevisionDocument,
 } from "@/api"
 import { resumePackPaths } from "../resume-pack/routes"
 import { DraftCanvas } from "./DraftCanvas"
 import { ExportGateModal } from "./ExportGateModal"
 import { OpportunityCalibrationModal } from "./OpportunityCalibrationModal"
 import { useSourceCanvasAutosave } from "./useSourceCanvasAutosave"
+import type { RevisionWorkspaceChromeContext } from "@/components/SiteLayout"
 import type {
   ContextualAction,
   DocumentClaim,
@@ -35,7 +38,7 @@ type LoadState =
   | { status: "loaded"; workspace: WorkspaceView }
   | { status: "error"; message: string }
 
-type MobilePanel = "draft" | "review"
+const SOURCE_CANVAS_TEXT_CURSOR_CLASS = "td-source-canvas-cursor-text"
 
 function qualityLabel(status?: string) {
   if (status === "blocked") return "阻塞"
@@ -326,11 +329,20 @@ export function RevisionWorkspacePage() {
   const [exportOpen, setExportOpen] = useState(false)
   const [selectedIssueId, setSelectedIssueId] = useState<string | undefined>()
   const [issueContextInput, setIssueContextInput] = useState("")
-  const [mobilePanel, setMobilePanel] = useState<MobilePanel>("review")
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState("")
+  const [titleSaveError, setTitleSaveError] = useState<string | null>(null)
+  const [isSavingTitle, setIsSavingTitle] = useState(false)
+  const chromeContext = useOutletContext<Partial<RevisionWorkspaceChromeContext> | undefined>()
+  const reviewPanelVisible = chromeContext?.reviewPanelVisible ?? true
   const mountedRef = useRef(false)
   const currentDocumentIdRef = useRef(documentId)
   const latestSavedCanvasRef = useRef<SourceResumeCanvas | null>(null)
   const loadRequestEpochRef = useRef(0)
+  const draftPanelRef = useRef<HTMLDivElement>(null)
+  const titleInputRef = useRef<HTMLInputElement>(null)
+  const cancelTitleEditRef = useRef(false)
+  const titleSaveInFlightRef = useRef(false)
   currentDocumentIdRef.current = documentId
 
   useEffect(() => {
@@ -489,6 +501,110 @@ export function RevisionWorkspacePage() {
     }
   }, [loadWorkspace, workspace])
 
+  const startTitleEditing = useCallback(() => {
+    if (!workspace || isSavingTitle) return
+    cancelTitleEditRef.current = false
+    setTitleDraft(workspace.document.title)
+    setTitleSaveError(null)
+    setEditingTitle(true)
+  }, [isSavingTitle, workspace])
+
+  const cancelTitleEditing = useCallback(() => {
+    cancelTitleEditRef.current = true
+    setTitleDraft(workspace?.document.title ?? "")
+    setTitleSaveError(null)
+    setEditingTitle(false)
+  }, [workspace])
+
+  const commitTitleEditing = useCallback(async () => {
+    if (!workspace) return
+    if (cancelTitleEditRef.current) {
+      cancelTitleEditRef.current = false
+      return
+    }
+    if (titleSaveInFlightRef.current) return
+
+    const trimmed = titleDraft.trim()
+    if (!trimmed || trimmed === workspace.document.title) {
+      setTitleDraft(workspace.document.title)
+      setTitleSaveError(null)
+      setEditingTitle(false)
+      return
+    }
+
+    titleSaveInFlightRef.current = true
+    setIsSavingTitle(true)
+    setTitleSaveError(null)
+
+    try {
+      const updatedDocument = await updateRevisionDocument(workspace.document.id, { title: trimmed })
+      if (!mountedRef.current || currentDocumentIdRef.current !== updatedDocument.id) return
+      setState((currentState) => {
+        if (currentState.status !== "loaded" || currentState.workspace.document.id !== updatedDocument.id) {
+          return currentState
+        }
+        return {
+          status: "loaded",
+          workspace: {
+            ...currentState.workspace,
+            document: updatedDocument,
+          },
+        }
+      })
+      setTitleDraft(updatedDocument.title)
+      setEditingTitle(false)
+    } catch {
+      setTitleSaveError("标题保存失败，请稍后重试。")
+      setEditingTitle(true)
+      requestAnimationFrame(() => {
+        titleInputRef.current?.focus()
+        titleInputRef.current?.select()
+      })
+    } finally {
+      titleSaveInFlightRef.current = false
+      setIsSavingTitle(false)
+    }
+  }, [titleDraft, workspace])
+
+  useEffect(() => {
+    if (!editingTitle) return
+    titleInputRef.current?.focus()
+    titleInputRef.current?.select()
+  }, [editingTitle])
+
+  useEffect(() => {
+    const syncSourceCanvasCursor = (event: PointerEvent) => {
+      const panel = draftPanelRef.current
+      if (!panel) {
+        document.body.classList.remove(SOURCE_CANVAS_TEXT_CURSOR_CLASS)
+        return
+      }
+
+      const rect = panel.getBoundingClientRect()
+      const insideDraftPanel = (
+        event.clientX >= rect.left
+        && event.clientX <= rect.right
+        && event.clientY >= rect.top
+        && event.clientY <= rect.bottom
+      )
+      document.body.classList.toggle(SOURCE_CANVAS_TEXT_CURSOR_CLASS, insideDraftPanel)
+    }
+    const clearSourceCanvasCursor = () => {
+      document.body.classList.remove(SOURCE_CANVAS_TEXT_CURSOR_CLASS)
+    }
+
+    document.addEventListener("pointermove", syncSourceCanvasCursor, true)
+    document.addEventListener("pointerdown", syncSourceCanvasCursor, true)
+    window.addEventListener("blur", clearSourceCanvasCursor)
+
+    return () => {
+      document.removeEventListener("pointermove", syncSourceCanvasCursor, true)
+      document.removeEventListener("pointerdown", syncSourceCanvasCursor, true)
+      window.removeEventListener("blur", clearSourceCanvasCursor)
+      clearSourceCanvasCursor()
+    }
+  }, [])
+
   const handleSubmitIssueContext = useCallback(async () => {
     const userIntent = issueContextInput.trim()
     if (!workspace?.current_draft || !selectedIssue || !userIntent) return
@@ -546,116 +662,130 @@ export function RevisionWorkspacePage() {
   const globalActions = documentLevelActions(workspace.available_actions)
 
   return (
-    <div className="flex min-h-[calc(100svh-3rem)] flex-col bg-background">
-      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-        <Button variant="ghost" size="icon" aria-label="返回工作台" onClick={() => navigate(resumePackPaths.workspaces)}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-semibold">{workspace.document.title}</h1>
-          <p className="truncate text-xs text-muted-foreground">{workspace.run_status?.status ?? "未运行"}</p>
-        </div>
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleQualityReview}
-            disabled={!workspace.current_draft || actingActionId === "quality_review"}
-          >
-            {actingActionId === "quality_review" ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <ShieldCheck className="mr-2 h-4 w-4" />
-            )}
-            质量检查
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setOpportunityOpen(true)}
-            disabled={!workspace.current_draft}
-          >
-            <BriefcaseBusiness className="mr-2 h-4 w-4" />
-            岗位校准
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => setExportOpen(true)}
-            disabled={!workspace.current_draft}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            导出
-          </Button>
-          <span className={`rounded-md border px-2 py-1 text-xs ${qualityClass(workspace.quality_gate?.status)}`}>
-            {qualityLabel(workspace.quality_gate?.status)}
-          </span>
-        </div>
-      </header>
-
-      <div className="border-b border-border px-4 py-2 lg:hidden">
-        <div className="grid grid-cols-2 gap-1 rounded-md border border-border bg-muted/35 p-1">
-          <Button
-            type="button"
-            size="sm"
-            variant={mobilePanel === "draft" ? "default" : "ghost"}
-            aria-pressed={mobilePanel === "draft"}
-            data-testid="revision-mobile-draft-tab"
-            className="w-full"
-            onClick={() => setMobilePanel("draft")}
-          >
-            草稿
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={mobilePanel === "review" ? "default" : "ghost"}
-            aria-pressed={mobilePanel === "review"}
-            data-testid="revision-mobile-review-tab"
-            className="w-full"
-            onClick={() => setMobilePanel("review")}
-          >
-            问题处理
-          </Button>
-        </div>
-      </div>
-
-      <main className="grid min-h-0 flex-1 grid-cols-1 overflow-auto lg:grid-cols-[minmax(0,1fr)_360px]">
+    <div className="flex h-[calc(100svh-3rem)] min-h-0 flex-col overflow-hidden bg-background">
+      <main
+        data-testid="revision-workspace-grid"
+        className={cn(
+          "grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_360px] overflow-hidden",
+          !reviewPanelVisible && "grid-cols-[minmax(0,1fr)]",
+        )}
+      >
         <section
-          data-testid="revision-draft-panel"
+          data-testid="revision-draft-column"
           className={cn(
-            "min-w-0 border-b border-border p-4 lg:border-b-0 lg:border-r",
-            mobilePanel !== "draft" && "hidden lg:block",
+            "flex min-h-0 min-w-0 flex-col overflow-hidden",
+            reviewPanelVisible && "border-r border-border",
           )}
         >
-          <div className="mx-auto max-w-3xl">
-            <div className="mb-3">
-              <div>
-                <p className="text-xs text-muted-foreground">原始简历</p>
-                <h2 className="text-base font-semibold">可编辑 A4 画布</h2>
-              </div>
+          <header className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
+            <Button variant="ghost" size="icon" aria-label="返回工作台" onClick={() => navigate(resumePackPaths.workspaces)}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div className="min-w-0 flex-1">
+              {editingTitle ? (
+                <div className="max-w-xl">
+                  <Input
+                    ref={titleInputRef}
+                    aria-label="工作台标题"
+                    className="h-8 rounded-md bg-background px-2 text-sm font-semibold"
+                    value={titleDraft}
+                    disabled={isSavingTitle}
+                    onChange={(event) => setTitleDraft(event.target.value)}
+                    onBlur={() => void commitTitleEditing()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault()
+                        event.currentTarget.blur()
+                      }
+                      if (event.key === "Escape") {
+                        event.preventDefault()
+                        cancelTitleEditing()
+                      }
+                    }}
+                  />
+                  {titleSaveError ? <p className="mt-1 text-xs text-destructive">{titleSaveError}</p> : null}
+                </div>
+              ) : (
+                <h1 className="min-w-0">
+                  <button
+                    type="button"
+                    data-testid="revision-workspace-title-button"
+                    title="编辑标题"
+                    className="group flex max-w-full items-center gap-1.5 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={startTitleEditing}
+                  >
+                    <span className="truncate text-sm font-semibold">{workspace.document.title}</span>
+                    <Pencil className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+                  </button>
+                </h1>
+              )}
             </div>
-            {sourceCanvas ? (
-              <DraftCanvas
-                canvas={sourceCanvas}
-                onChange={handleCanvasChange}
-                onRetrySave={retryCanvasSave}
-                saveStatus={canvasSaveStatus}
-              />
-            ) : (
-              <div className="rounded-md border border-border bg-muted/30 p-4">
-                <p className="text-sm font-medium">原始画布尚未生成</p>
-              </div>
-            )}
+          </header>
+          <div
+            ref={draftPanelRef}
+            data-testid="revision-draft-panel"
+            className="td-source-resume-canvas-viewport min-h-0 min-w-0 flex-1 overflow-auto px-0 pb-4 pt-0"
+          >
+            <div className="mx-auto w-[60rem] max-w-none">
+              {sourceCanvas ? (
+                <DraftCanvas
+                  canvas={sourceCanvas}
+                  onChange={handleCanvasChange}
+                  onRetrySave={retryCanvasSave}
+                  saveStatus={canvasSaveStatus}
+                />
+              ) : (
+                <div className="rounded-md border border-border bg-muted/30 p-4">
+                  <p className="text-sm font-medium">原始画布尚未生成</p>
+                </div>
+              )}
+            </div>
           </div>
         </section>
 
         <aside
           data-testid="revision-review-panel"
           className={cn(
-            "min-w-0 space-y-5 p-4",
-            mobilePanel !== "review" && "hidden lg:block",
+            "min-h-0 min-w-0 space-y-5 overflow-y-auto p-4",
+            !reviewPanelVisible && "hidden",
           )}
         >
+          <section data-testid="revision-review-actions" className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleQualityReview}
+              disabled={!workspace.current_draft || actingActionId === "quality_review"}
+            >
+              {actingActionId === "quality_review" ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <ShieldCheck className="mr-2 h-4 w-4" />
+              )}
+              质量检查
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setOpportunityOpen(true)}
+              disabled={!workspace.current_draft}
+            >
+              <BriefcaseBusiness className="mr-2 h-4 w-4" />
+              岗位校准
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => setExportOpen(true)}
+              disabled={!workspace.current_draft}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              导出
+            </Button>
+            <span className={`rounded-md border px-2 py-1 text-xs ${qualityClass(workspace.quality_gate?.status)}`}>
+              {qualityLabel(workspace.quality_gate?.status)}
+            </span>
+          </section>
+
           <section>
             <p className="mb-2 text-xs font-medium text-muted-foreground">引导</p>
             <div className="rounded-md border border-border p-3">

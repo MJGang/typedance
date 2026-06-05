@@ -63,6 +63,18 @@ class CreateDocumentRequest(BaseModel):
     ] = "base_resume"
 
 
+class UpdateDocumentRequest(BaseModel):
+    title: str = Field(min_length=1)
+
+    @field_validator("title", mode="after")
+    @classmethod
+    def validate_title(cls, title: str) -> str:
+        trimmed = title.strip()
+        if not trimmed:
+            raise ValueError("title must not be blank")
+        return trimmed
+
+
 class CreateSourceRequest(BaseModel):
     source_type: Literal[
         "old_resume",
@@ -203,6 +215,18 @@ def create_revision_router(
         repo: RevisionRepository = Depends(repository),
     ) -> Document:
         return require_document(repo, document_id)
+
+    @router.patch("/documents/{document_id}", response_model=Document)
+    def update_document(
+        document_id: str,
+        payload: UpdateDocumentRequest,
+        repo: RevisionRepository = Depends(repository),
+    ) -> Document:
+        document = require_document(repo, document_id)
+        return repo.save_document(document.model_copy(update={
+            "title": payload.title,
+            "updated_at": utc_now(),
+        }))
 
     @router.post("/documents/{document_id}/sources", response_model=SourceDocument, status_code=201)
     def create_source(

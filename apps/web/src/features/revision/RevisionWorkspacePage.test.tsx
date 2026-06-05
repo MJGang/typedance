@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest"
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom"
+import { MemoryRouter, Outlet, Route, Routes, useNavigate } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { WorkspaceView } from "@typedance/contracts"
 import { RevisionWorkspacePage } from "./RevisionWorkspacePage"
@@ -16,6 +16,7 @@ const apiMocks = vi.hoisted(() => ({
   calibrateRevisionOpportunity: vi.fn(),
   exportRevisionDraftPdf: vi.fn(),
   saveSourceResumeCanvas: vi.fn(),
+  updateRevisionDocument: vi.fn(),
 }))
 
 const draftCanvasMocks = vi.hoisted(() => ({
@@ -33,6 +34,7 @@ vi.mock("@/api", () => ({
   calibrateRevisionOpportunity: (...args: unknown[]) => apiMocks.calibrateRevisionOpportunity(...args),
   exportRevisionDraftPdf: (...args: unknown[]) => apiMocks.exportRevisionDraftPdf(...args),
   saveSourceResumeCanvas: (...args: unknown[]) => apiMocks.saveSourceResumeCanvas(...args),
+  updateRevisionDocument: (...args: unknown[]) => apiMocks.updateRevisionDocument(...args),
 }))
 
 function canvasText(docJson: unknown): string {
@@ -304,6 +306,18 @@ function renderPage() {
   )
 }
 
+function renderPageWithReviewPanelVisible(reviewPanelVisible: boolean) {
+  return render(
+    <MemoryRouter initialEntries={["/packs/resume/workspaces/doc_1"]}>
+      <Routes>
+        <Route element={<Outlet context={{ reviewPanelVisible, setReviewPanelVisible: vi.fn() }} />}>
+          <Route path="/packs/resume/workspaces/:documentId" element={<RevisionWorkspacePage />} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
 function RouteSwitch() {
   const navigate = useNavigate()
   return <button type="button" onClick={() => navigate("/packs/resume/workspaces/doc_2")}>切换文档</button>
@@ -368,6 +382,7 @@ describe("RevisionWorkspacePage", () => {
     apiMocks.calibrateRevisionOpportunity.mockReset()
     apiMocks.exportRevisionDraftPdf.mockReset()
     apiMocks.saveSourceResumeCanvas.mockReset()
+    apiMocks.updateRevisionDocument.mockReset()
     draftCanvasMocks.render.mockReset()
     apiMocks.getRevisionWorkspaceView.mockResolvedValue(workspace)
     apiMocks.acceptRevisionProposal.mockResolvedValue({ id: "prop_1", status: "applied" })
@@ -376,6 +391,11 @@ describe("RevisionWorkspacePage", () => {
     apiMocks.calibrateRevisionOpportunity.mockResolvedValue({ document: { id: "doc_1" } })
     apiMocks.exportRevisionDraftPdf.mockResolvedValue({ fileName: "resume.pdf", reviewStatus: "forced_with_risk" })
     apiMocks.saveSourceResumeCanvas.mockResolvedValue(workspace.source_resume_canvas)
+    apiMocks.updateRevisionDocument.mockResolvedValue({
+      ...workspace.document,
+      title: "前端负责人简历",
+      updated_at: "2026-05-21T08:05:00.000Z",
+    })
   })
 
   it("loads and renders the workspace view", async () => {
@@ -383,10 +403,57 @@ describe("RevisionWorkspacePage", () => {
 
     expect(screen.getByText("加载工作台")).toBeInTheDocument()
     expect(await screen.findByRole("heading", { name: "张三的简历" })).toBeInTheDocument()
+    expect(screen.queryByText("completed")).not.toBeInTheDocument()
     expect(screen.getByText("还有 1 个问题建议处理后再导出。")).toBeInTheDocument()
     expect(screen.getByText("负责核心链路重构。")).toBeInTheDocument()
     expect(screen.getAllByText("缺少结果").length).toBeGreaterThan(0)
     expect(screen.getAllByText("改成结果导向表达").length).toBeGreaterThan(0)
+    const reviewPanel = screen.getByTestId("revision-review-panel")
+    const reviewActions = within(reviewPanel).getByTestId("revision-review-actions")
+    expect(within(reviewActions).getByRole("button", { name: "质量检查" })).toBeInTheDocument()
+    expect(within(reviewActions).getByRole("button", { name: "岗位校准" })).toBeInTheDocument()
+    expect(within(reviewActions).getByRole("button", { name: "导出" })).toBeInTheDocument()
+    expect(within(reviewActions).getByText("待处理")).toBeInTheDocument()
+    expect(reviewActions.compareDocumentPosition(within(reviewPanel).getByText("引导")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it("edits the workspace title inline", async () => {
+    renderPage()
+
+    const titleButton = await screen.findByTestId("revision-workspace-title-button")
+    expect(within(titleButton).getByText("张三的简历")).toBeInTheDocument()
+
+    fireEvent.click(titleButton)
+    const titleInput = screen.getByLabelText("工作台标题")
+    expect(titleInput).toHaveValue("张三的简历")
+
+    fireEvent.change(titleInput, { target: { value: "前端负责人简历" } })
+    fireEvent.blur(titleInput)
+
+    await waitFor(() => {
+      expect(apiMocks.updateRevisionDocument).toHaveBeenCalledWith("doc_1", { title: "前端负责人简历" })
+    })
+    expect(await screen.findByRole("heading", { name: "前端负责人简历" })).toBeInTheDocument()
+  })
+
+  it("cancels or ignores invalid workspace title edits", async () => {
+    renderPage()
+
+    fireEvent.click(await screen.findByTestId("revision-workspace-title-button"))
+    let titleInput = screen.getByLabelText("工作台标题")
+    fireEvent.change(titleInput, { target: { value: "   " } })
+    fireEvent.blur(titleInput)
+
+    expect(apiMocks.updateRevisionDocument).not.toHaveBeenCalled()
+    expect(await screen.findByRole("heading", { name: "张三的简历" })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId("revision-workspace-title-button"))
+    titleInput = screen.getByLabelText("工作台标题")
+    fireEvent.change(titleInput, { target: { value: "不会保存的标题" } })
+    fireEvent.keyDown(titleInput, { key: "Escape" })
+
+    expect(apiMocks.updateRevisionDocument).not.toHaveBeenCalled()
+    expect(await screen.findByRole("heading", { name: "张三的简历" })).toBeInTheDocument()
   })
 
   it("renders the source resume canvas instead of iframe preview", async () => {
@@ -414,7 +481,7 @@ describe("RevisionWorkspacePage", () => {
       expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledTimes(1)
       expect(apiMocks.saveSourceResumeCanvas).toHaveBeenCalledWith("doc_1", expect.objectContaining({ type: "doc" }))
       expect(JSON.stringify(apiMocks.saveSourceResumeCanvas.mock.calls[0]?.[1])).not.toMatch(
-        /activeModuleId|hoveredModuleId|outline|position/,
+        /activeModuleId|outline|position/,
       )
       expect(screen.getByText("已保存")).toBeInTheDocument()
     } finally {
@@ -802,25 +869,41 @@ describe("RevisionWorkspacePage", () => {
     await waitFor(() => expect(apiMocks.getRevisionWorkspaceView).toHaveBeenCalledTimes(2))
   })
 
-  it("switches compact workspace panels without dropping review context", async () => {
+  it("keeps draft and review columns visible on compact viewports", async () => {
     renderPage()
 
+    const workspaceGrid = await screen.findByTestId("revision-workspace-grid")
     const draftPanel = await screen.findByTestId("revision-draft-panel")
     const reviewPanel = screen.getByTestId("revision-review-panel")
     const issueButton = await screen.findByTestId("revision-issue-issue_1")
 
     fireEvent.click(issueButton)
 
-    expect(draftPanel).toHaveClass("hidden")
+    expect(workspaceGrid).toHaveClass("grid-cols-[minmax(0,1fr)_360px]")
+    expect(screen.queryByTestId("revision-mobile-draft-tab")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("revision-mobile-review-tab")).not.toBeInTheDocument()
+    expect(draftPanel).not.toHaveClass("hidden")
     expect(reviewPanel).not.toHaveClass("hidden")
+    expect(screen.getByTestId("revision-issue-issue_1")).toHaveAttribute("aria-pressed", "true")
+  })
 
-    fireEvent.click(screen.getByTestId("revision-mobile-draft-tab"))
+  it("removes the review column when the chrome review panel is hidden", async () => {
+    renderPageWithReviewPanelVisible(false)
+
+    const workspaceGrid = await screen.findByTestId("revision-workspace-grid")
+    const draftPanel = screen.getByTestId("revision-draft-panel")
+    const reviewPanel = screen.getByTestId("revision-review-panel")
+
+    expect(workspaceGrid).toHaveClass("grid-cols-[minmax(0,1fr)]")
+    expect(workspaceGrid).not.toHaveClass("grid-cols-[minmax(0,1fr)_360px]")
+    expect(workspaceGrid).toHaveClass("overflow-hidden")
+    expect(draftPanel).toHaveClass("overflow-auto")
+    expect(draftPanel).toHaveClass("pt-0")
+    expect(draftPanel).toHaveClass("px-0")
+    expect(reviewPanel).toHaveClass("overflow-y-auto")
     expect(draftPanel).not.toHaveClass("hidden")
     expect(reviewPanel).toHaveClass("hidden")
-
-    fireEvent.click(screen.getByTestId("revision-mobile-review-tab"))
-    expect(reviewPanel).not.toHaveClass("hidden")
-    expect(draftPanel).toHaveClass("hidden")
-    expect(screen.getByTestId("revision-issue-issue_1")).toHaveAttribute("aria-pressed", "true")
+    expect(screen.queryByTestId("revision-mobile-draft-tab")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("revision-mobile-review-tab")).not.toBeInTheDocument()
   })
 })
