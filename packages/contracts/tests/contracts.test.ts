@@ -147,10 +147,14 @@ describe("revision document schemas", () => {
       id: "src_1",
       document_id: "doc_1",
       source_type: "old_resume",
-      title: "旧简历.pdf",
-      mime_type: "application/pdf",
-      raw_text: "项目经历...",
-      parse_status: "parsed",
+      title: "旧简历.md",
+      mime_type: "text/markdown",
+      raw_text: "## 项目经历",
+      parse_status: "initialized",
+      metadata: {
+        import_extension: "md",
+        initializer_adapter: "markdown",
+      },
       created_at: "2026-05-21T08:00:00.000Z",
     });
 
@@ -165,6 +169,8 @@ describe("revision document schemas", () => {
     });
 
     expect(source.source_type).toBe("old_resume");
+    expect(source.parse_status).toBe("initialized");
+    expect(source.metadata.initializer_adapter).toBe("markdown");
     expect(block.text).toContain("订单系统");
   });
 });
@@ -266,6 +272,8 @@ describe("revision run and workspace schemas", () => {
       id: "canvas_1",
       document_id: "doc_1",
       old_resume_source_id: "src_old_resume",
+      version: 1,
+      source_snapshot_hash: "sha256:source-canvas-hash",
       doc_json: {
         type: "doc",
         content: [
@@ -302,6 +310,8 @@ describe("revision run and workspace schemas", () => {
       updated_at: "2026-05-28T08:00:00.000Z",
     });
 
+    expect(canvas.version).toBe(1);
+    expect(canvas.source_snapshot_hash).toBe("sha256:source-canvas-hash");
     expect(canvas.node_map[0].canvas_node_id).toBe("node_1");
     expect(canvas.module_anchors[0].canvas_node_ids).toEqual(["node_1"]);
   });
@@ -312,8 +322,10 @@ describe("revision run and workspace schemas", () => {
       document_id: "doc_1",
       pack_id: "resume",
       run_type: "import_reconstruct",
-      status: "completed",
+      status: "recognizing",
       source_document_ids: ["src_1"],
+      input_source_canvas_id: "canvas_1",
+      input_source_canvas_version: 1,
       target_draft_id: "draft_1",
       created_at: "2026-05-21T08:00:00.000Z",
       updated_at: "2026-05-21T08:00:00.000Z",
@@ -387,6 +399,8 @@ describe("revision run and workspace schemas", () => {
         id: "canvas_1",
         document_id: "doc_1",
         old_resume_source_id: "src_old_resume",
+        version: 1,
+        source_snapshot_hash: "sha256:source-canvas-hash",
         doc_json: { type: "doc", content: [] },
         node_map: [],
         module_anchors: [],
@@ -411,6 +425,8 @@ describe("revision run and workspace schemas", () => {
       available_actions: [],
     });
 
+    expect(run.input_source_canvas_id).toBe("canvas_1");
+    expect(run.input_source_canvas_version).toBe(1);
     expect(workspace.current_draft?.id).toBe(draft.id);
     expect(workspace.source_resume_canvas?.id).toBe("canvas_1");
     expect(artifact.review_status).toBe("passed");

@@ -20,7 +20,14 @@ export const sourceDocumentSchema = z.object({
   original_uri: z.string().optional(),
   raw_text: z.string().optional(),
   file_path: z.string().optional(),
-  parse_status: z.enum(["pending", "parsed", "failed"]),
+  parse_status: z.enum([
+    "pending",
+    "initialized",
+    "recognizing",
+    "recognized",
+    "recognition_failed",
+  ]),
+  metadata: z.record(z.unknown()).default({}),
   created_at: isoDateTimeSchema,
 });
 

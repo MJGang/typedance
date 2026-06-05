@@ -15,6 +15,7 @@ export const revisionRunTypeSchema = z.enum([
 export const revisionRunStatusSchema = z.enum([
   "created",
   "parsing",
+  "recognizing",
   "understanding",
   "planning",
   "generating",
@@ -26,6 +27,7 @@ export const revisionRunStatusSchema = z.enum([
   "failed_retryable",
   "failed_final",
   "canceled",
+  "stale",
 ]);
 
 export const revisionRunSchema = z.object({
@@ -35,6 +37,8 @@ export const revisionRunSchema = z.object({
   run_type: revisionRunTypeSchema,
   status: revisionRunStatusSchema,
   source_document_ids: z.array(z.string()).default([]),
+  input_source_canvas_id: z.string().optional(),
+  input_source_canvas_version: z.number().int().positive().optional(),
   base_draft_id: z.string().optional(),
   target_draft_id: z.string().optional(),
   user_intent: z.string().optional(),

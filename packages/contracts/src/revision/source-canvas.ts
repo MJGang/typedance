@@ -6,6 +6,7 @@ export const sourceResumeCanvasNodeTypeSchema = z.enum([
   "paragraph",
   "list_item",
   "table_cell",
+  "divider",
   "unknown",
 ]);
 
@@ -29,6 +30,8 @@ export const sourceResumeCanvasSchema = z.object({
   id: z.string().min(1),
   document_id: z.string().min(1),
   old_resume_source_id: z.string().min(1),
+  version: z.number().int().positive(),
+  source_snapshot_hash: z.string().min(1),
   doc_json: z.record(z.unknown()),
   node_map: z.array(sourceResumeCanvasNodeSchema).default([]),
   module_anchors: z.array(moduleAnchorSchema).default([]),

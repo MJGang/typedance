@@ -15,7 +15,13 @@ SourceType = Literal[
     "work_summary",
     "external_context",
 ]
-ParseStatus = Literal["pending", "parsed", "failed"]
+ParseStatus = Literal[
+    "pending",
+    "initialized",
+    "recognizing",
+    "recognized",
+    "recognition_failed",
+]
 ModuleVisibility = Literal["visible", "hidden"]
 ModuleStatus = Literal["clean", "needs_review", "needs_confirmation", "weak", "hidden"]
 ClaimConfidence = Literal["supported", "user_confirmed", "inferred", "unsupported"]
@@ -27,6 +33,7 @@ RiskLevel = Literal["low", "medium", "high"]
 RevisionRunStatus = Literal[
     "created",
     "parsing",
+    "recognizing",
     "understanding",
     "planning",
     "generating",
@@ -38,6 +45,7 @@ RevisionRunStatus = Literal[
     "failed_retryable",
     "failed_final",
     "canceled",
+    "stale",
 ]
 RevisionRunType = Literal[
     "import_reconstruct",
@@ -87,6 +95,7 @@ class SourceDocument(BaseModel):
     raw_text: str | None = None
     file_path: str | None = None
     parse_status: ParseStatus
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: str
 
 
@@ -100,7 +109,14 @@ class ParsedBlock(BaseModel):
     source_span: dict[str, Any] = Field(default_factory=dict)
 
 
-SourceCanvasNodeType = Literal["heading", "paragraph", "list_item", "table_cell", "unknown"]
+SourceCanvasNodeType = Literal[
+    "heading",
+    "paragraph",
+    "list_item",
+    "table_cell",
+    "divider",
+    "unknown",
+]
 
 
 class SourceResumeCanvasNode(BaseModel):
@@ -123,6 +139,8 @@ class SourceResumeCanvas(BaseModel):
     id: str = Field(min_length=1)
     document_id: str = Field(min_length=1)
     old_resume_source_id: str = Field(min_length=1)
+    version: int = Field(default=1, ge=1)
+    source_snapshot_hash: str = Field(min_length=1)
     doc_json: dict[str, Any]
     node_map: list[SourceResumeCanvasNode] = Field(default_factory=list)
     module_anchors: list[ModuleAnchor] = Field(default_factory=list)
@@ -193,6 +211,8 @@ class RevisionRun(BaseModel):
     run_type: RevisionRunType
     status: RevisionRunStatus
     source_document_ids: list[str] = Field(default_factory=list)
+    input_source_canvas_id: str | None = None
+    input_source_canvas_version: int | None = Field(default=None, ge=1)
     base_draft_id: str | None = None
     target_draft_id: str | None = None
     user_intent: str | None = None
