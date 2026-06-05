@@ -184,7 +184,7 @@ class RevisionOpportunityCalibrationService:
             )
             self.repository.save_parsed_block(block)
             blocks.append(block)
-        self.repository.save_source_document(source.model_copy(update={"parse_status": "parsed"}))
+        self.repository.save_source_document(source.model_copy(update={"parse_status": "recognized"}))
         return blocks
 
     def _create_variant_draft(

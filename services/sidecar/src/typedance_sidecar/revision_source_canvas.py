@@ -10,6 +10,7 @@ from .revision_models import (
     SourceResumeCanvas,
     SourceResumeCanvasNode,
 )
+from .source_canvas_doc_json import source_canvas_hash
 
 
 class SourceResumeCanvasBuilder:
@@ -69,11 +70,14 @@ class SourceResumeCanvasBuilder:
                 )
             )
 
+        doc_json = {"type": "doc", "content": doc_nodes}
         return SourceResumeCanvas(
             id=f"canvas_{uuid4().hex}",
             document_id=source.document_id,
             old_resume_source_id=source.id,
-            doc_json={"type": "doc", "content": doc_nodes},
+            version=1,
+            source_snapshot_hash=source_canvas_hash(doc_json),
+            doc_json=doc_json,
             node_map=node_map,
             module_anchors=self._module_anchors(
                 modules,
@@ -93,24 +97,27 @@ class SourceResumeCanvasBuilder:
     ) -> SourceResumeCanvas:
         now = utc_now()
         node_id = "node_blank_start"
+        doc_json = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "heading",
+                    "attrs": {
+                        "level": 1,
+                        "canvasNodeId": node_id,
+                        "sourceBlockId": source_id,
+                    },
+                    "content": [{"type": "text", "text": title}],
+                }
+            ],
+        }
         return SourceResumeCanvas(
             id=f"canvas_{uuid4().hex}",
             document_id=document_id,
             old_resume_source_id=source_id,
-            doc_json={
-                "type": "doc",
-                "content": [
-                    {
-                        "type": "heading",
-                        "attrs": {
-                            "level": 1,
-                            "canvasNodeId": node_id,
-                            "sourceBlockId": source_id,
-                        },
-                        "content": [{"type": "text", "text": title}],
-                    }
-                ],
-            },
+            version=1,
+            source_snapshot_hash=source_canvas_hash(doc_json),
+            doc_json=doc_json,
             node_map=[
                 SourceResumeCanvasNode(
                     canvas_node_id=node_id,

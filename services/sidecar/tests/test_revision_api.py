@@ -52,7 +52,7 @@ def seed_workspace(tmp_path) -> RevisionRepository:
             source_type="old_resume",
             title="旧简历",
             raw_text="负责订单系统重构",
-            parse_status="parsed",
+            parse_status="recognized",
             created_at=now,
         )
     )
@@ -61,6 +61,8 @@ def seed_workspace(tmp_path) -> RevisionRepository:
             id="canvas_1",
             document_id=document.id,
             old_resume_source_id=source.id,
+            version=1,
+            source_snapshot_hash="sha256:seed",
             doc_json={"type": "doc", "content": []},
             node_map=[
                 {

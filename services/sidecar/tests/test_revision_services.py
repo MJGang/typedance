@@ -56,7 +56,7 @@ def seed_revision_workspace(repo: RevisionRepository) -> dict[str, object]:
             source_type="old_resume",
             title="旧简历",
             raw_text="负责订单系统重构",
-            parse_status="parsed",
+            parse_status="recognized",
             created_at=now,
         )
     )
@@ -65,6 +65,8 @@ def seed_revision_workspace(repo: RevisionRepository) -> dict[str, object]:
             id="canvas_1",
             document_id=document.id,
             old_resume_source_id=source.id,
+            version=1,
+            source_snapshot_hash="sha256:seed",
             doc_json={"type": "doc", "content": [{"type": "paragraph"}]},
             node_map=[
                 {
@@ -245,7 +247,7 @@ def test_source_service_stores_sources_and_parsed_blocks(tmp_path):
             source_type="pasted_text",
             title="粘贴内容",
             raw_text="项目经历：订单系统",
-            parse_status="parsed",
+            parse_status="recognized",
             created_at=now,
         )
     )

@@ -62,7 +62,7 @@ class LegacyResumeAdapterService:
             title="旧编辑器简历",
             mime_type="application/vnd.typedance.legacy-resume",
             raw_text=resume.plain_text_snapshot or "\n".join(resume_lines_for_pdf(resume)),
-            parse_status="parsed",
+            parse_status="recognized",
             created_at=now,
         )
         self.revision_repository.save_source_document(source)

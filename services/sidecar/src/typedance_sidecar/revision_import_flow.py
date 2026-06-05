@@ -236,7 +236,7 @@ class RevisionImportFlowService:
                 source_blocks.append(block)
 
             if source_blocks:
-                self.repository.save_source_document(source.model_copy(update={"parse_status": "parsed"}))
+                self.repository.save_source_document(source.model_copy(update={"parse_status": "recognized"}))
             self.repository.save_agent_step(
                 parser_step.model_copy(
                     update={"output_refs": [f"ParsedBlock:{block.id}" for block in source_blocks]}

@@ -1,3 +1,5 @@
+import json
+
 from typedance_sidecar.db import connect
 from typedance_sidecar.revision_models import (
     AgentStep,
@@ -20,7 +22,7 @@ from typedance_sidecar.revision_models import (
     UserConfirmation,
     utc_now,
 )
-from typedance_sidecar.revision_repository import RevisionRepository
+from typedance_sidecar.revision_repository import RevisionRepository, migrate_revision_payloads
 
 
 REVISION_TABLES = {
@@ -79,6 +81,8 @@ def test_repository_saves_source_resume_canvas(tmp_path):
         id="canvas_1",
         document_id="doc_1",
         old_resume_source_id="src_1",
+        version=1,
+        source_snapshot_hash="sha256:seed",
         doc_json={
             "type": "doc",
             "content": [
@@ -116,6 +120,87 @@ def test_repository_saves_source_resume_canvas(tmp_path):
     assert repo.get_source_resume_canvas("doc_1") == canvas
 
 
+def test_migrates_legacy_revision_payloads_before_model_validation(tmp_path):
+    connection = connect(tmp_path / "typedance.sqlite")
+    now = utc_now()
+    legacy_source = {
+        "id": "src_legacy",
+        "document_id": "doc_legacy",
+        "source_type": "old_resume",
+        "title": "旧来源",
+        "raw_text": "项目经历",
+        "parse_status": "parsed",
+        "created_at": now,
+    }
+    legacy_canvas = {
+        "id": "canvas_legacy",
+        "document_id": "doc_legacy",
+        "old_resume_source_id": "src_legacy",
+        "doc_json": {"type": "doc", "content": []},
+        "node_map": [],
+        "module_anchors": [],
+        "created_at": now,
+        "updated_at": now,
+    }
+    connection.execute(
+        """
+        INSERT INTO source_documents (id, document_id, payload, schema_version, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        ("src_legacy", "doc_legacy", json.dumps(legacy_source, ensure_ascii=False), "0.1.0", now, now),
+    )
+    connection.execute(
+        """
+        INSERT INTO source_resume_canvases (id, document_id, payload, schema_version, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        ("canvas_legacy", "doc_legacy", json.dumps(legacy_canvas, ensure_ascii=False), "0.1.0", now, now),
+    )
+    connection.commit()
+
+    migrate_revision_payloads(connection)
+    repo = RevisionRepository(connection)
+
+    source = repo.list_source_documents("doc_legacy")[0]
+    canvas = repo.get_source_resume_canvas("doc_legacy")
+    assert source.parse_status == "recognized"
+    assert source.metadata == {}
+    assert canvas is not None
+    assert canvas.version == 1
+    assert canvas.source_snapshot_hash.startswith("sha256:")
+
+
+def test_migrates_invalid_legacy_source_canvas_doc_json(tmp_path):
+    connection = connect(tmp_path / "typedance.sqlite")
+    now = utc_now()
+    legacy_canvas = {
+        "id": "canvas_invalid",
+        "document_id": "doc_invalid",
+        "old_resume_source_id": "src_invalid",
+        "doc_json": None,
+        "node_map": [],
+        "module_anchors": [],
+        "created_at": now,
+        "updated_at": now,
+    }
+    connection.execute(
+        """
+        INSERT INTO source_resume_canvases (id, document_id, payload, schema_version, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        ("canvas_invalid", "doc_invalid", json.dumps(legacy_canvas, ensure_ascii=False), "0.1.0", now, now),
+    )
+    connection.commit()
+
+    migrate_revision_payloads(connection)
+    canvas = RevisionRepository(connection).get_source_resume_canvas("doc_invalid")
+
+    assert canvas is not None
+    assert canvas.doc_json == {"type": "doc", "content": []}
+    assert canvas.version == 1
+    assert canvas.source_snapshot_hash.startswith("sha256:")
+
+
 def test_connect_creates_revision_tables(tmp_path):
     connection = connect(tmp_path / "typedance.sqlite")
     rows = connection.execute(
@@ -148,7 +233,7 @@ def test_revision_repository_roundtrips_core_objects(tmp_path):
             source_type="old_resume",
             title="旧简历",
             raw_text="项目经历：订单系统重构",
-            parse_status="parsed",
+            parse_status="recognized",
             created_at=now,
         )
     )

@@ -22,6 +22,7 @@ from .revision_models import (
     SourceResumeCanvas,
     UserConfirmation,
 )
+from .source_canvas_doc_json import source_canvas_hash
 
 SCHEMA_VERSION = "0.1.0"
 
@@ -192,6 +193,55 @@ REVISION_TABLE_DEFINITIONS = [
     """,
 ]
 
+
+def migrate_revision_payloads(connection: sqlite3.Connection) -> None:
+    _normalize_source_document_payloads(connection)
+    _normalize_source_resume_canvas_payloads(connection)
+    connection.commit()
+
+
+def _normalize_source_document_payloads(connection: sqlite3.Connection) -> None:
+    rows = connection.execute("SELECT id, payload FROM source_documents").fetchall()
+    for row in rows:
+        payload = json.loads(row["payload"])
+        changed = False
+        if payload.get("parse_status") == "parsed":
+            payload["parse_status"] = "recognized"
+            changed = True
+        elif payload.get("parse_status") == "failed":
+            payload["parse_status"] = "recognition_failed"
+            changed = True
+        if "metadata" not in payload or not isinstance(payload["metadata"], dict):
+            payload["metadata"] = {}
+            changed = True
+        if changed:
+            connection.execute(
+                "UPDATE source_documents SET payload = ? WHERE id = ?",
+                (json.dumps(payload, ensure_ascii=False), row["id"]),
+            )
+
+
+def _normalize_source_resume_canvas_payloads(connection: sqlite3.Connection) -> None:
+    rows = connection.execute("SELECT id, payload FROM source_resume_canvases").fetchall()
+    for row in rows:
+        payload = json.loads(row["payload"])
+        changed = False
+        doc_json = payload.get("doc_json")
+        if not isinstance(doc_json, dict):
+            doc_json = {"type": "doc", "content": []}
+            payload["doc_json"] = doc_json
+            changed = True
+        if not isinstance(payload.get("version"), int) or payload.get("version") < 1:
+            payload["version"] = 1
+            changed = True
+        if not isinstance(payload.get("source_snapshot_hash"), str) or not payload["source_snapshot_hash"]:
+            payload["source_snapshot_hash"] = source_canvas_hash(doc_json)
+            changed = True
+        if changed:
+            connection.execute(
+                "UPDATE source_resume_canvases SET payload = ? WHERE id = ?",
+                (json.dumps(payload, ensure_ascii=False), row["id"]),
+            )
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 

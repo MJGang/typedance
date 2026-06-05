@@ -200,7 +200,7 @@ class RevisionBlankGuidedFlowService:
                 self.repository.save_parsed_block(block)
                 parsed_blocks.append(block)
 
-            self.repository.save_source_document(source.model_copy(update={"parse_status": "parsed"}))
+            self.repository.save_source_document(source.model_copy(update={"parse_status": "recognized"}))
 
         return parsed_blocks
 

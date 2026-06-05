@@ -41,7 +41,7 @@ def seed_issue_action_workspace(repo: RevisionRepository) -> None:
             source_type="old_resume",
             title="旧简历",
             raw_text="负责订单系统重构",
-            parse_status="parsed",
+            parse_status="recognized",
             created_at=now,
         )
     )

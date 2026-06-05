@@ -65,7 +65,7 @@ def seed_guardrail_workspace(repo: RevisionRepository, *, claim_type: str = "res
             source_type="pasted_text",
             title="用户材料",
             raw_text="主导订单系统重构",
-            parse_status="parsed",
+            parse_status="recognized",
             created_at=now,
         )
     )

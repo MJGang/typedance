@@ -11,7 +11,7 @@ def test_builder_preserves_original_blocks_and_canvas_node_ids():
         source_type="old_resume",
         title="旧简历",
         raw_text="张三\n工作经历\n负责订单系统重构",
-        parse_status="parsed",
+        parse_status="recognized",
         created_at=now,
     )
     blocks = [
@@ -76,7 +76,7 @@ def test_builder_includes_adjacent_heading_before_module_body():
         source_type="old_resume",
         title="旧简历",
         raw_text="张三\n工作经历\n负责订单系统重构",
-        parse_status="parsed",
+        parse_status="recognized",
         created_at=now,
     )
     blocks = [
@@ -141,7 +141,7 @@ def test_builder_does_not_include_adjacent_heading_before_explicit_module_headin
         source_type="old_resume",
         title="旧简历",
         raw_text="工作经历\n项目经历\n负责订单系统重构",
-        parse_status="parsed",
+        parse_status="recognized",
         created_at=now,
     )
     blocks = [
@@ -205,7 +205,7 @@ def test_builder_renders_markdown_list_syntax_but_keeps_original_source_text():
         source_type="old_resume",
         title="旧简历",
         raw_text="- 负责订单系统重构",
-        parse_status="parsed",
+        parse_status="recognized",
         created_at=now,
     )
     block = ParsedBlock(
@@ -237,7 +237,7 @@ def test_builder_renders_markdown_heading_bold_and_divider_syntax():
         source_type="old_resume",
         title="旧简历",
         raw_text="## 核心能力\n- **前端架构**: Vue\n---",
-        parse_status="parsed",
+        parse_status="recognized",
         created_at=now,
     )
     blocks = [
@@ -310,7 +310,7 @@ def test_builder_filters_module_anchors_to_current_source_blocks():
         source_type="old_resume",
         title="旧简历",
         raw_text="工作经历",
-        parse_status="parsed",
+        parse_status="recognized",
         created_at=now,
     )
     block = ParsedBlock(

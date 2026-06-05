@@ -228,6 +228,8 @@ describe("revision api", () => {
       id: "canvas_1",
       document_id: "doc_1",
       old_resume_source_id: "src_old",
+      version: 1,
+      source_snapshot_hash: "sha256:seed",
       doc_json: {
         type: "doc",
         content: [{ type: "paragraph", content: [{ type: "text", text: "更新正文" }] }],
@@ -313,7 +315,7 @@ describe("revision api", () => {
         title: "旧简历",
         mime_type: "text/plain",
         raw_text: "项目经历\n负责订单系统重构",
-        parse_status: "parsed",
+        parse_status: "recognized",
         created_at: "2026-05-21T08:00:00.000Z",
       },
       {
@@ -526,7 +528,7 @@ describe("revision api", () => {
         title: "空白引导信息",
         mime_type: "text/plain",
         raw_text: "姓名: 张三\n目标方向: 前端工程师",
-        parse_status: "parsed",
+        parse_status: "recognized",
         created_at: "2026-05-21T08:00:00.000Z",
       },
       {
@@ -649,7 +651,7 @@ describe("revision api", () => {
         title: "前端岗位",
         mime_type: "text/plain",
         raw_text: "要求：React、TypeScript",
-        parse_status: "parsed",
+        parse_status: "recognized",
         created_at: "2026-05-21T08:00:00.000Z",
       },
       {

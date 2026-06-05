@@ -81,7 +81,7 @@ def test_import_flow_generates_workspace_objects(tmp_path):
 
     parsed_source = repo.list_source_documents(document.id)[0]
     assert parsed_source.id == source.id
-    assert parsed_source.parse_status == "parsed"
+    assert parsed_source.parse_status == "recognized"
     assert [block.type for block in repo.list_parsed_blocks(source.id)][:3] == [
         "paragraph",
         "contact",

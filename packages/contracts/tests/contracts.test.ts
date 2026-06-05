@@ -171,6 +171,14 @@ describe("revision document schemas", () => {
     expect(source.source_type).toBe("old_resume");
     expect(source.parse_status).toBe("initialized");
     expect(source.metadata.initializer_adapter).toBe("markdown");
+    expect(sourceDocumentSchema.parse({
+      id: "src_without_metadata",
+      document_id: "doc_1",
+      source_type: "old_resume",
+      title: "旧简历.txt",
+      parse_status: "pending",
+      created_at: "2026-05-21T08:00:00.000Z",
+    }).metadata).toEqual({});
     expect(block.text).toContain("订单系统");
   });
 });
@@ -292,7 +300,7 @@ describe("revision run and workspace schemas", () => {
         {
           canvas_node_id: "node_1",
           source_block_id: "block_1",
-          node_type: "paragraph",
+          node_type: "divider",
           text: "负责订单系统重构",
           source_span: { line: 1 },
           module_id: "mod_1",
@@ -312,8 +320,39 @@ describe("revision run and workspace schemas", () => {
 
     expect(canvas.version).toBe(1);
     expect(canvas.source_snapshot_hash).toBe("sha256:source-canvas-hash");
+    expect(canvas.node_map[0].node_type).toBe("divider");
     expect(canvas.node_map[0].canvas_node_id).toBe("node_1");
     expect(canvas.module_anchors[0].canvas_node_ids).toEqual(["node_1"]);
+    expect(() =>
+      sourceResumeCanvasSchema.parse({
+        ...canvas,
+        version: 0,
+      })
+    ).toThrow();
+    expect(() =>
+      sourceResumeCanvasSchema.parse({
+        ...canvas,
+        source_snapshot_hash: "",
+      })
+    ).toThrow();
+  });
+
+  it("accepts stale revision runs for outdated source canvas recognition", () => {
+    const run = revisionRunSchema.parse({
+      id: "run_stale",
+      document_id: "doc_1",
+      pack_id: "resume",
+      run_type: "import_reconstruct",
+      status: "stale",
+      source_document_ids: ["src_1"],
+      input_source_canvas_id: "canvas_1",
+      input_source_canvas_version: 1,
+      created_at: "2026-05-21T08:00:00.000Z",
+      updated_at: "2026-05-21T08:00:00.000Z",
+    });
+
+    expect(run.status).toBe("stale");
+    expect(run.input_source_canvas_version).toBe(1);
   });
 
   it("validates run, draft, render projection, export artifact, and workspace view", () => {

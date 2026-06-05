@@ -228,7 +228,7 @@ const workspace: WorkspaceView = {
       document_id: "doc_1",
       source_type: "old_resume",
       title: "旧简历粘贴",
-      parse_status: "parsed",
+      parse_status: "recognized",
       created_at: "2026-05-21T08:00:00.000Z",
     },
   ],
@@ -236,6 +236,8 @@ const workspace: WorkspaceView = {
     id: "canvas_1",
     document_id: "doc_1",
     old_resume_source_id: "src_1",
+    version: 1,
+    source_snapshot_hash: "sha256:seed",
     doc_json: {
       type: "doc",
       content: [

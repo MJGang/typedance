@@ -77,6 +77,8 @@ const canvas: SourceResumeCanvas = {
   id: "canvas_1",
   document_id: "doc_1",
   old_resume_source_id: "src_1",
+  version: 1,
+  source_snapshot_hash: "sha256:seed",
   doc_json: {
     type: "doc",
     content: [

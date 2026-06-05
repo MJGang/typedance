@@ -66,6 +66,8 @@ function buildLongWorkspace(documentId: string): WorkspaceView {
     id: `canvas_${documentId}`,
     document_id: documentId,
     old_resume_source_id: `source_${documentId}`,
+    version: 1,
+    source_snapshot_hash: "sha256:seed",
     doc_json: {
       type: "doc",
       content: nodes,
