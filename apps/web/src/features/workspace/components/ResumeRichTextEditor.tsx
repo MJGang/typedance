@@ -128,12 +128,20 @@ const BLOCK_OPTIONS: Array<{ value: ToolbarBlock; label: string; icon: typeof Ty
 const BLOCK_STYLE_NODE_TYPES = ["paragraph", "heading", "listItem"] as const
 const DEFAULT_LINE_HEIGHT: ToolbarLineHeight = "default"
 const DRAG_HANDLE_BLOCK_HIT_SLOP = 4
+const DRAG_HANDLE_TEXT_LINE_HIT_SLOP = 2
+const DRAG_HANDLE_LEFT_GUTTER = 64
+const DRAG_HANDLE_RIGHT_SLOP = 8
 const MAX_INDENT = 8
 
 type DragHandleBlockPresentation = {
   label: string
   icon: typeof Type
   iconClassName: string
+}
+
+type DragHandleCandidate = {
+  block: ToolbarBlock
+  element: HTMLElement | null
 }
 
 const DRAG_HANDLE_BLOCK_PRESENTATIONS: Record<ToolbarBlock, DragHandleBlockPresentation> = {
@@ -191,6 +199,35 @@ export function isPointerWithinDragHandleBlock(
   if (!pointer || !rect || rect.height <= 0) return false
   return pointer.clientY >= rect.top - DRAG_HANDLE_BLOCK_HIT_SLOP
     && pointer.clientY <= rect.bottom + DRAG_HANDLE_BLOCK_HIT_SLOP
+}
+
+function getDragHandleTextLineRects(element: HTMLElement) {
+  const rects: DOMRect[] = []
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+  let textNode = walker.nextNode()
+  while (textNode) {
+    if (textNode.textContent?.trim()) {
+      const range = document.createRange()
+      range.selectNodeContents(textNode)
+      rects.push(...Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0))
+      range.detach()
+    }
+    textNode = walker.nextNode()
+  }
+  return rects.length > 0 ? rects : [element.getBoundingClientRect()]
+}
+
+export function isPointerWithinDragHandleTextLine(pointer: { clientX: number; clientY: number } | null, element: HTMLElement | null) {
+  if (!pointer || !element) return false
+  const elementRect = element.getBoundingClientRect()
+  if (elementRect.width <= 0 || elementRect.height <= 0) return false
+
+  return getDragHandleTextLineRects(element).some((rect) => (
+    pointer.clientY >= rect.top - DRAG_HANDLE_TEXT_LINE_HIT_SLOP
+    && pointer.clientY <= rect.bottom + DRAG_HANDLE_TEXT_LINE_HIT_SLOP
+    && pointer.clientX >= elementRect.left - DRAG_HANDLE_LEFT_GUTTER
+    && pointer.clientX <= rect.right + DRAG_HANDLE_RIGHT_SLOP
+  ))
 }
 
 function getDragHandleNodeElement(editor: Editor, pos: number) {
@@ -598,9 +635,22 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
     onSourceCanvasModuleChangeRef.current = onSourceCanvasModuleChange
     const [dragHandleBlock, setDragHandleBlock] = useState<ToolbarBlock>("paragraph")
     const [dragHandleVisible, setDragHandleVisible] = useState(false)
-    const latestDragHandlePointerRef = useRef<{ clientY: number } | null>(null)
+    const latestDragHandlePointerRef = useRef<{ clientX: number; clientY: number } | null>(null)
+    const dragHandleCandidateRef = useRef<DragHandleCandidate | null>(null)
+    const syncDragHandleVisibility = useCallback((pointer: { clientX: number; clientY: number } | null) => {
+      const candidate = dragHandleCandidateRef.current
+      const isVisible = isPointerWithinDragHandleTextLine(
+        pointer,
+        candidate?.element ?? null,
+      )
+      setDragHandleVisible(isVisible)
+      if (isVisible && candidate) {
+        setDragHandleBlock(candidate.block)
+      }
+    }, [])
     const handleRichEditorPointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
-      latestDragHandlePointerRef.current = { clientY: event.clientY }
+      const pointer = { clientX: event.clientX, clientY: event.clientY }
+      latestDragHandlePointerRef.current = pointer
       const target = event.target
       if (
         target instanceof Element
@@ -608,27 +658,27 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         && !target.closest(".td-drag-handle-shell")
       ) {
         setDragHandleVisible(false)
+        return
       }
-    }, [])
+      syncDragHandleVisibility(pointer)
+    }, [syncDragHandleVisibility])
     const handleRichEditorPointerLeave = useCallback(() => {
       latestDragHandlePointerRef.current = null
       setDragHandleVisible(false)
     }, [])
     const handleDragHandleNodeChange = useCallback(({ editor, node, pos }: { editor: Editor; node: ProseMirrorNode | null; pos: number }) => {
       if (!node) {
+        dragHandleCandidateRef.current = null
         setDragHandleVisible(false)
         return
       }
       const nodeElement = getDragHandleNodeElement(editor, pos)
-      const isVisible = isPointerWithinDragHandleBlock(
-        latestDragHandlePointerRef.current,
-        nodeElement?.getBoundingClientRect() ?? null,
-      )
-      setDragHandleVisible(isVisible)
-      if (isVisible) {
-        setDragHandleBlock(getDragHandleBlockType(node, editor, pos))
+      dragHandleCandidateRef.current = {
+        block: getDragHandleBlockType(node, editor, pos),
+        element: nodeElement,
       }
-    }, [])
+      syncDragHandleVisibility(latestDragHandlePointerRef.current)
+    }, [syncDragHandleVisibility])
 
     const editor = useEditor({
       extensions: [

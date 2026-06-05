@@ -363,6 +363,26 @@ test("keeps multi-page module interactions visible, draggable, and workspace-sco
   await page.waitForSelector('[data-testid="resume-drag-handle"]', { state: "attached" })
   await expect(page.locator(".td-resume-drag-handle-floating")).not.toHaveClass(/td-resume-drag-handle-suppressed/)
   await page.waitForTimeout(200)
+  await page.mouse.move(blankPoint.x, blankPoint.y)
+  await page.waitForTimeout(200)
+  await expect(page.locator(".td-resume-drag-handle-floating")).toHaveClass(/td-resume-drag-handle-suppressed/)
+  await workParagraphNode.hover({ force: true })
+  await expect(page.locator(".td-resume-drag-handle-floating")).not.toHaveClass(/td-resume-drag-handle-suppressed/)
+  const nextWorkParagraphNode = page.locator("[data-canvas-node-id='work_1']")
+  await nextWorkParagraphNode.hover({ force: true })
+  await expect(page.locator(".td-resume-drag-handle-floating")).not.toHaveClass(/td-resume-drag-handle-suppressed/)
+  const getNextDragHandleCenterDelta = () => nextWorkParagraphNode.evaluate((node) => {
+    const handle = document.querySelector('[data-testid="resume-drag-handle"] .td-drag-handle')
+    if (!(node instanceof HTMLElement) || !(handle instanceof HTMLElement)) return Number.POSITIVE_INFINITY
+    const nodeRect = node.getBoundingClientRect()
+    const handleRect = handle.getBoundingClientRect()
+    const lineHeight = parseFloat(getComputedStyle(node).lineHeight) || nodeRect.height
+    return Math.abs((handleRect.top + handleRect.height / 2) - (nodeRect.top + lineHeight / 2))
+  })
+  await expect.poll(getNextDragHandleCenterDelta).toBeLessThanOrEqual(1)
+  await workParagraphNode.hover({ force: true })
+  await expect(page.locator(".td-resume-drag-handle-floating")).not.toHaveClass(/td-resume-drag-handle-suppressed/)
+  await page.waitForTimeout(200)
   const canvasCursorStyles = await page.evaluate(() => {
     const content = document.querySelector(".td-source-resume-canvas .td-rich-editor-content")
     const draftPanel = document.querySelector('[data-testid="revision-draft-panel"]')
