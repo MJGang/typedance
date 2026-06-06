@@ -18,8 +18,12 @@ MARKDOWN_MIME_TYPES = {"text/markdown", "text/x-markdown"}
 MARKDOWN_EXTENSIONS = {".md", ".markdown"}
 TEXT_DOCUMENT_MIME_TYPES = {"application/pdf", "application/msword"}
 TEXT_DOCUMENT_EXTENSIONS = {".pdf", ".doc"}
+TEXT_FILE_EXTENSIONS = {".txt"}
+KNOWN_SOURCE_EXTENSIONS = (
+    MARKDOWN_EXTENSIONS | TEXT_DOCUMENT_EXTENSIONS | TEXT_FILE_EXTENSIONS
+)
 MARKDOWN_SYNTAX_RE = re.compile(
-    r"^\s{0,3}(?:#{1,6}\s+\S|[-*+]\s+\S|\d+\.\s+\S|>\s+\S|```|\|.+\|)\s*$"
+    r"^\s{0,3}(?:#{1,6}\s+\S.*|[-*+]\s+\S.*|\d+\.\s+\S.*|>\s+\S.*|```|\|.+\|)\s*$"
 )
 
 
@@ -66,6 +70,10 @@ class SourceCanvasInitializer:
             return False
         if extension in TEXT_DOCUMENT_EXTENSIONS:
             return False
+        if extension in TEXT_FILE_EXTENSIONS:
+            return False
+        if mime_type == "text/plain" and extension not in KNOWN_SOURCE_EXTENSIONS:
+            return self._looks_like_markdown(raw_text)
         if mime_type or extension:
             return False
         return self._looks_like_markdown(raw_text)
@@ -76,14 +84,17 @@ class SourceCanvasInitializer:
             source.original_uri,
             source.title,
         ]
+        fallback_extension = ""
         for candidate in candidates:
             if not candidate:
                 continue
             normalized = candidate.split("?", maxsplit=1)[0].split("#", maxsplit=1)[0]
             suffix = Path(normalized).suffix.lower()
-            if suffix:
+            if suffix in KNOWN_SOURCE_EXTENSIONS:
                 return suffix
-        return ""
+            if suffix and not fallback_extension:
+                fallback_extension = suffix
+        return fallback_extension
 
     def _looks_like_markdown(self, raw_text: str) -> bool:
         for line in raw_text.splitlines():

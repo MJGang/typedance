@@ -13,14 +13,18 @@ def make_source(
     raw_text: str | None,
     mime_type: str | None = None,
     original_uri: str | None = None,
+    file_path: str | None = None,
+    title: str = "旧简历",
+    source_type: str = "uploaded_file",
 ) -> SourceDocument:
     return SourceDocument(
         id="src_init",
         document_id="doc_init",
-        source_type="uploaded_file",
-        title="旧简历",
+        source_type=source_type,
+        title=title,
         mime_type=mime_type,
         original_uri=original_uri,
+        file_path=file_path,
         raw_text=raw_text,
         parse_status="pending",
         created_at=utc_now(),
@@ -58,6 +62,86 @@ def test_initializes_markdown_canvas_with_nested_list_structure():
     ]
     assert canvas.node_map[0].text == "项目经历"
     assert canvas.node_map[2].text == "初始化 source canvas"
+
+
+def test_detects_untyped_markdown_canvas_with_nested_list_structure():
+    source = make_source(
+        raw_text="## 项目经历\n\n- TypeDance\n  - 初始化 source canvas",
+    )
+
+    canvas = SourceCanvasInitializer().initialize(source)
+
+    heading = canvas.doc_json["content"][0]
+    list_node = canvas.doc_json["content"][1]
+    outer_item = list_node["content"][0]
+    inner_list = outer_item["content"][1]
+
+    assert heading["type"] == "heading"
+    assert list_node["type"] == "bulletList"
+    assert outer_item["type"] == "listItem"
+    assert inner_list["type"] == "bulletList"
+    assert inner_list["content"][0]["type"] == "listItem"
+
+
+def test_detects_pasted_text_plain_markdown_with_nested_list_structure():
+    source = make_source(
+        raw_text="## 项目经历\n\n- TypeDance\n  - 初始化 source canvas",
+        mime_type="text/plain",
+        source_type="old_resume",
+    )
+
+    canvas = SourceCanvasInitializer().initialize(source)
+
+    heading = canvas.doc_json["content"][0]
+    list_node = canvas.doc_json["content"][1]
+    outer_item = list_node["content"][0]
+
+    assert heading["type"] == "heading"
+    assert list_node["type"] == "bulletList"
+    assert outer_item["content"][1]["type"] == "bulletList"
+
+
+def test_prefers_known_markdown_extension_over_earlier_unknown_extension():
+    source = make_source(
+        raw_text="## 项目经历\n\n- TypeDance",
+        file_path="cache.tmp",
+        original_uri="resume.md",
+    )
+
+    canvas = SourceCanvasInitializer().initialize(source)
+
+    assert [node["type"] for node in canvas.doc_json["content"]] == [
+        "heading",
+        "bulletList",
+    ]
+
+
+def test_initializes_txt_markdown_like_text_with_text_adapter():
+    source = make_source(
+        raw_text="## 项目经历\n\n- TypeDance",
+        mime_type="text/plain",
+        original_uri="resume.txt",
+    )
+
+    canvas = SourceCanvasInitializer().initialize(source)
+
+    assert [node["type"] for node in canvas.doc_json["content"]] == [
+        "paragraph",
+        "paragraph",
+    ]
+
+
+@pytest.mark.parametrize(
+    "raw_text",
+    [
+        "## 项目经历",
+        "- TypeDance",
+        "1. 负责优化",
+        "> 求职目标",
+    ],
+)
+def test_detects_common_multichar_markdown_syntax(raw_text: str):
+    assert SourceCanvasInitializer()._looks_like_markdown(raw_text)
 
 
 def test_initializes_txt_canvas_from_non_empty_lines():
