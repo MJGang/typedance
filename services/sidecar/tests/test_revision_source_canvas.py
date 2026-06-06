@@ -1,7 +1,14 @@
 from typedance_sidecar.models import utc_now
 from typedance_sidecar.markdown_doc_json import TiptapMarkdownDocJsonConverter
-from typedance_sidecar.revision_models import DocumentModule, ParsedBlock, SourceDocument
+from typedance_sidecar.revision_models import (
+    DocumentModule,
+    ParsedBlock,
+    SourceDocument,
+    SourceResumeCanvas,
+    SourceResumeCanvasNode,
+)
 from typedance_sidecar.revision_source_canvas import SourceResumeCanvasBuilder
+from typedance_sidecar.source_canvas_anchor_mapper import SourceCanvasAnchorMapper
 from typedance_sidecar.source_canvas_doc_json import annotate_source_doc_json
 
 
@@ -68,6 +75,76 @@ def test_builder_preserves_original_blocks_and_canvas_node_ids():
     assert canvas.node_map[2].text == "负责订单系统重构"
     assert canvas.node_map[2].module_id == "mod_work"
     assert canvas.module_anchors[0].canvas_node_ids == ["node_block_2", "node_block_3"]
+
+
+def test_anchor_mapper_maps_parsed_blocks_to_existing_canvas_nodes():
+    now = utc_now()
+    canvas = SourceResumeCanvas(
+        id="canvas_1",
+        document_id="doc_1",
+        old_resume_source_id="src_1",
+        version=1,
+        source_snapshot_hash="sha256:source",
+        doc_json={"type": "doc", "content": []},
+        node_map=[
+            SourceResumeCanvasNode(
+                canvas_node_id="node_heading",
+                node_type="heading",
+                text="工作经历",
+                source_block_id="src_1_0001",
+            ),
+            SourceResumeCanvasNode(
+                canvas_node_id="node_body",
+                node_type="paragraph",
+                text="负责订单系统重构",
+                source_block_id="src_1_0002",
+            ),
+        ],
+        module_anchors=[],
+        created_at=now,
+        updated_at=now,
+    )
+    blocks = [
+        ParsedBlock(
+            id="block_heading",
+            source_document_id="src_1",
+            type="heading",
+            text="工作经历",
+            order=0,
+            source_span={"line": 1},
+        ),
+        ParsedBlock(
+            id="block_body",
+            source_document_id="src_1",
+            type="paragraph",
+            text="- 负责订单系统重构",
+            order=1,
+            source_span={"line": 2},
+        ),
+    ]
+    module = DocumentModule(
+        id="mod_work",
+        draft_id="draft_1",
+        pack_id="resume",
+        type="WorkExperience",
+        title="工作经历",
+        order=1,
+        visibility="visible",
+        status="needs_review",
+        data={},
+        created_at=now,
+        updated_at=now,
+    )
+
+    updated = SourceCanvasAnchorMapper().apply_module_anchors(
+        canvas=canvas,
+        modules=[module],
+        parsed_blocks=blocks,
+        module_source_refs={"mod_work": ["block_heading", "block_body"]},
+    )
+
+    assert updated.module_anchors[0].canvas_node_ids == ["node_heading", "node_body"]
+    assert [node.module_id for node in updated.node_map] == ["mod_work", "mod_work"]
 
 
 def test_annotates_nested_list_items_with_canvas_node_ids():

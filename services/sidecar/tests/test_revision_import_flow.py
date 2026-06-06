@@ -142,6 +142,7 @@ def test_import_flow_generates_workspace_objects(tmp_path):
     assert any(ref.startswith("DocumentModule:") for ref in structurer_steps[0].output_refs)
     assert any(ref.startswith("DocumentClaim:") for ref in structurer_steps[0].output_refs)
     assert not any(step.agent_name == "BuildSourceCanvas" for step in steps)
+    assert any(step.agent_name == "MapSourceCanvasAnchors" for step in steps)
 
     workspace = WorkspaceService(repo).get_workspace_view(document.id)
     assert workspace.current_draft is not None
@@ -153,7 +154,8 @@ def test_import_flow_generates_workspace_objects(tmp_path):
     assert workspace.source_resume_canvas.old_resume_source_id == source.id
     assert workspace.source_resume_canvas.doc_json["type"] == "doc"
     assert workspace.source_resume_canvas.node_map
-    assert workspace.source_resume_canvas.module_anchors == []
+    assert workspace.source_resume_canvas.module_anchors
+    assert any(node.module_id for node in workspace.source_resume_canvas.node_map)
     assert {module.type for module in workspace.modules} >= {
         "BasicInfo",
         "WorkExperience",

@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+import re
+
+from .models import utc_now
+from .revision_models import DocumentModule, ModuleAnchor, ParsedBlock, SourceResumeCanvas
+
+
+MARKDOWN_HEADING_RE = re.compile(r"^\s*#{1,6}\s+(.+?)\s*#*\s*$")
+
+
+class SourceCanvasAnchorMapper:
+    def apply_module_anchors(
+        self,
+        *,
+        canvas: SourceResumeCanvas,
+        modules: list[DocumentModule],
+        parsed_blocks: list[ParsedBlock],
+        module_source_refs: dict[str, list[str]],
+    ) -> SourceResumeCanvas:
+        node_by_block = self._node_by_block_text(canvas, parsed_blocks)
+        module_by_node_id: dict[str, str] = {}
+        anchors: list[ModuleAnchor] = []
+
+        for module in sorted(
+            (item for item in modules if item.visibility == "visible"),
+            key=lambda item: item.order,
+        ):
+            node_ids: list[str] = []
+            for block_id in module_source_refs.get(module.id, []):
+                node_id = node_by_block.get(block_id)
+                if node_id is None or node_id in node_ids:
+                    continue
+                node_ids.append(node_id)
+                module_by_node_id[node_id] = module.id
+            if node_ids:
+                anchors.append(
+                    ModuleAnchor(
+                        module_id=module.id,
+                        canvas_node_ids=node_ids,
+                        title=module.title,
+                        order=module.order,
+                    )
+                )
+
+        return canvas.model_copy(
+            update={
+                "node_map": [
+                    node.model_copy(
+                        update={"module_id": module_by_node_id.get(node.canvas_node_id)}
+                    )
+                    for node in canvas.node_map
+                ],
+                "module_anchors": anchors,
+                "updated_at": utc_now(),
+            }
+        )
+
+    def _node_by_block_text(
+        self,
+        canvas: SourceResumeCanvas,
+        parsed_blocks: list[ParsedBlock],
+    ) -> dict[str, str]:
+        available_nodes = list(canvas.node_map)
+        node_by_block: dict[str, str] = {}
+
+        for block in sorted(parsed_blocks, key=lambda item: item.order):
+            block_text = self._normalize_text(block.text)
+            if not block_text:
+                continue
+            for index, node in enumerate(available_nodes):
+                if self._normalize_text(node.text) != block_text:
+                    continue
+                node_by_block[block.id] = node.canvas_node_id
+                del available_nodes[index]
+                break
+
+        return node_by_block
+
+    def _normalize_text(self, text: str) -> str:
+        heading_match = MARKDOWN_HEADING_RE.match(text)
+        normalized = heading_match.group(1) if heading_match else text
+        normalized = normalized.strip().lstrip("-*•·").strip()
+        normalized = normalized.replace("**", "").replace("__", "")
+        return re.sub(r"\s+", "", normalized)

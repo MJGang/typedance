@@ -31,6 +31,7 @@ from .revision_models import (
 )
 from .revision_repository import RevisionRepository
 from .revision_services import RenderService, RevisionServiceError
+from .source_canvas_anchor_mapper import SourceCanvasAnchorMapper
 from .source_section_rules import SECTION_ALIASES
 
 
@@ -146,6 +147,28 @@ class RevisionImportFlowService:
         }
         for module in modules:
             self.repository.save_document_module(module)
+
+        current_canvas = self.repository.get_source_resume_canvas(document.id)
+        if current_canvas is None:
+            raise RevisionServiceError("Source resume canvas is not initialized")
+        if current_canvas.version != run.input_source_canvas_version:
+            stale_run = run.model_copy(
+                update={
+                    "status": "stale",
+                    "output_summary": "源画布已更新，需要重新识别。",
+                    "updated_at": utc_now(),
+                }
+            )
+            self.repository.save_revision_run(stale_run)
+            return stale_run
+        updated_canvas = SourceCanvasAnchorMapper().apply_module_anchors(
+            canvas=current_canvas,
+            modules=modules,
+            parsed_blocks=parsed_blocks,
+            module_source_refs=module_source_refs,
+        )
+        self.repository.save_source_resume_canvas(updated_canvas)
+        self._save_step(run.id, "MapSourceCanvasAnchors")
 
         claims = self._build_claims_from_structured_output(draft, structured_output, module_id_by_temp)
         for claim in claims:
