@@ -279,7 +279,7 @@ class RevisionRepository:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self.connection = connection
 
-    def _save(self, table: str, model: BaseModel, extra_columns: dict[str, str | None]) -> None:
+    def _save_without_commit(self, table: str, model: BaseModel, extra_columns: dict[str, str | None]) -> None:
         columns = ["id", *extra_columns.keys(), "payload", "schema_version", "created_at", "updated_at"]
         values = [
             getattr(model, "id"),
@@ -303,6 +303,9 @@ class RevisionRepository:
             """,
             values,
         )
+
+    def _save(self, table: str, model: BaseModel, extra_columns: dict[str, str | None]) -> None:
+        self._save_without_commit(table, model, extra_columns)
         self.connection.commit()
 
     def _get(self, table: str, model_type: type[ModelT], entity_id: str) -> ModelT | None:
@@ -358,6 +361,20 @@ class RevisionRepository:
     def save_source_resume_canvas(self, canvas: SourceResumeCanvas) -> SourceResumeCanvas:
         self._save("source_resume_canvases", canvas, {"document_id": canvas.document_id})
         return canvas
+
+    def save_initialized_source_resume_canvas(
+        self,
+        source: SourceDocument,
+        canvas: SourceResumeCanvas,
+    ) -> SourceDocument:
+        try:
+            self._save_without_commit("source_documents", source, {"document_id": source.document_id})
+            self._save_without_commit("source_resume_canvases", canvas, {"document_id": canvas.document_id})
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return source
 
     def get_source_resume_canvas(self, document_id: str) -> SourceResumeCanvas | None:
         canvases = self._list("source_resume_canvases", SourceResumeCanvas, "document_id", document_id)

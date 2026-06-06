@@ -50,6 +50,7 @@ RepositoryDependency = Callable[[], RevisionRepository]
 ExportDirDependency = Callable[[], Path]
 SourceDirDependency = Callable[[], Path]
 MAX_IMPORT_FILE_BYTES = 20 * 1024 * 1024
+CANVAS_SOURCE_TYPES = {"old_resume", "uploaded_file", "pasted_text"}
 
 
 class CreateDocumentRequest(BaseModel):
@@ -204,9 +205,7 @@ def create_revision_router(
                 },
             }
         )
-        repo.save_source_document(initialized_source)
-        repo.save_source_resume_canvas(canvas)
-        return initialized_source
+        return repo.save_initialized_source_resume_canvas(initialized_source, canvas)
 
     @router.post("/documents", response_model=Document, status_code=201)
     def create_document(
@@ -268,6 +267,8 @@ def create_revision_router(
             metadata={},
             created_at=utc_now(),
         )
+        if payload.source_type not in CANVAS_SOURCE_TYPES:
+            return SourceService(repo).save_source(source)
         return save_initialized_source(repo, source)
 
     @router.post("/documents/{document_id}/sources/import-file", response_model=SourceDocument, status_code=201)
@@ -572,13 +573,23 @@ def _safe_upload_filename(filename: str) -> str:
 
 
 def _initializer_adapter_name(source: SourceDocument) -> str:
-    suffix = Path(source.title).suffix.lower().lstrip(".")
-    mime_type = (source.mime_type or "").lower()
+    suffix = _source_extension(source)
+    mime_type = (source.mime_type or "").split(";", maxsplit=1)[0].strip().lower()
     if suffix in {"md", "markdown"} or mime_type in {"text/markdown", "text/x-markdown"}:
         return "markdown"
-    if suffix == "docx":
+    if suffix == "docx" or mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
         return "docx"
     return "text"
+
+
+def _source_extension(source: SourceDocument) -> str:
+    for candidate in (source.file_path, source.original_uri, source.title):
+        if not candidate:
+            continue
+        suffix = Path(candidate.split("?", maxsplit=1)[0].split("#", maxsplit=1)[0]).suffix
+        if suffix:
+            return suffix.lower().lstrip(".")
+    return ""
 
 
 def _save_import_source_file(base_dir: Path, document_id: str, filename: str, data: bytes) -> Path:

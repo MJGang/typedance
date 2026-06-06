@@ -1,4 +1,5 @@
 import json
+import sqlite3
 
 from typedance_sidecar.db import connect
 from typedance_sidecar.revision_models import (
@@ -118,6 +119,42 @@ def test_repository_saves_source_resume_canvas(tmp_path):
     repo.save_source_resume_canvas(canvas)
 
     assert repo.get_source_resume_canvas("doc_1") == canvas
+
+
+def test_repository_rolls_back_initialized_source_when_canvas_save_fails(tmp_path):
+    repo = make_repository(tmp_path)
+    now = utc_now()
+    source = SourceDocument(
+        id="src_atomic",
+        document_id="doc_atomic",
+        source_type="old_resume",
+        title="旧简历",
+        raw_text="项目经历",
+        parse_status="initialized",
+        created_at=now,
+    )
+    canvas = SourceResumeCanvas(
+        id="canvas_atomic",
+        document_id="doc_atomic",
+        old_resume_source_id=source.id,
+        version=1,
+        source_snapshot_hash="sha256:atomic",
+        doc_json={"type": "doc", "content": []},
+        node_map=[],
+        module_anchors=[],
+        created_at=now,
+        updated_at=now,
+    ).model_copy(update={"document_id": None})
+
+    try:
+        repo.save_initialized_source_resume_canvas(source, canvas)
+    except sqlite3.IntegrityError:
+        pass
+    else:
+        raise AssertionError("expected canvas save to fail")
+
+    assert repo.list_source_documents("doc_atomic") == []
+    assert repo.get_source_resume_canvas("doc_atomic") is None
 
 
 def test_migrates_legacy_revision_payloads_before_model_validation(tmp_path):

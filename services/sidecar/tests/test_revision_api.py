@@ -227,13 +227,14 @@ def test_revision_api_creates_document_source_and_run(revision_client):
             "source_type": "pasted_text",
             "title": "粘贴旧简历",
             "raw_text": "## 项目经历\n\n- **订单系统**: 重构",
-            "mime_type": "text/markdown",
+            "mime_type": "text/markdown; charset=utf-8",
         },
     )
     assert created_source.status_code == 201
     source = created_source.json()
     assert source["document_id"] == document["id"]
     assert source["parse_status"] == "initialized"
+    assert source["metadata"]["initializer_adapter"] == "markdown"
     assert client.get(f"/documents/{document['id']}/sources").json()[0]["id"] == source["id"]
 
     workspace_after_source = client.get(f"/documents/{document['id']}/workspace-view").json()
@@ -497,6 +498,7 @@ def test_revision_api_runs_blank_guided_generation(revision_client):
         },
     )
     source = created_source.json()
+    assert source["parse_status"] == "pending"
 
     created_run = client.post(
         f"/documents/{document['id']}/revision-runs",
@@ -514,6 +516,9 @@ def test_revision_api_runs_blank_guided_generation(revision_client):
 
     workspace = client.get(f"/documents/{document['id']}/workspace-view").json()
     assert workspace["current_draft"]["id"] == run["target_draft_id"]
+    canvas = workspace["source_resume_canvas"]
+    assert canvas["old_resume_source_id"] == source["id"]
+    assert canvas["doc_json"]["content"][0]["content"][0]["text"] == "新简历"
     assert {module["type"] for module in workspace["modules"]} >= {
         "BasicInfo",
         "JobIntent",
