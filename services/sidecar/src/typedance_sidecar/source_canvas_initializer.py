@@ -16,6 +16,8 @@ class SourceCanvasInitializationError(RuntimeError):
 
 MARKDOWN_MIME_TYPES = {"text/markdown", "text/x-markdown"}
 MARKDOWN_EXTENSIONS = {".md", ".markdown"}
+TEXT_DOCUMENT_MIME_TYPES = {"application/pdf", "application/msword"}
+TEXT_DOCUMENT_EXTENSIONS = {".pdf", ".doc"}
 MARKDOWN_SYNTAX_RE = re.compile(
     r"^\s{0,3}(?:#{1,6}\s+\S|[-*+]\s+\S|\d+\.\s+\S|>\s+\S|```|\|.+\|)\s*$"
 )
@@ -55,10 +57,17 @@ class SourceCanvasInitializer:
 
     def _uses_markdown_adapter(self, source: SourceDocument, raw_text: str) -> bool:
         mime_type = (source.mime_type or "").split(";", maxsplit=1)[0].strip().lower()
+        extension = self._source_extension(source)
         if mime_type in MARKDOWN_MIME_TYPES:
             return True
-        if self._source_extension(source) in MARKDOWN_EXTENSIONS:
+        if extension in MARKDOWN_EXTENSIONS:
             return True
+        if mime_type in TEXT_DOCUMENT_MIME_TYPES:
+            return False
+        if extension in TEXT_DOCUMENT_EXTENSIONS:
+            return False
+        if mime_type or extension:
+            return False
         return self._looks_like_markdown(raw_text)
 
     def _source_extension(self, source: SourceDocument) -> str:

@@ -82,24 +82,53 @@ def test_initializes_txt_canvas_from_non_empty_lines():
     ]
 
 
-@pytest.mark.parametrize("extension", ["pdf", "doc"])
-def test_initializes_pdf_and_doc_raw_text_with_text_adapter(extension: str):
+@pytest.mark.parametrize(
+    ("mime_type", "original_uri", "raw_text", "expected_text"),
+    [
+        (
+            "application/pdf",
+            "resume.pdf",
+            "项目经历\n\n- 负责支付系统优化",
+            "- 负责支付系统优化",
+        ),
+        (
+            "application/msword",
+            "resume.doc",
+            "项目经历\n\n1. 负责支付系统优化",
+            "1. 负责支付系统优化",
+        ),
+    ],
+)
+def test_initializes_pdf_and_doc_raw_text_with_text_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+    mime_type: str,
+    original_uri: str,
+    raw_text: str,
+    expected_text: str,
+):
+    monkeypatch.setattr(
+        SourceCanvasInitializer,
+        "_looks_like_markdown",
+        lambda self, raw_text: True,
+    )
     source = make_source(
-        raw_text="项目经历\nTypeDance\n负责源画布初始化",
-        mime_type=f"application/{extension}",
-        original_uri=f"resume.{extension}",
+        raw_text=raw_text,
+        mime_type=mime_type,
+        original_uri=original_uri,
     )
 
     canvas = SourceCanvasInitializer().initialize(source)
 
-    first_node = canvas.doc_json["content"][0]
-    assert first_node["type"] == "heading"
-    assert first_node["attrs"]["level"] == 2
+    assert [node["type"] for node in canvas.doc_json["content"]] == [
+        "heading",
+        "paragraph",
+    ]
+    assert canvas.doc_json["content"][0]["attrs"]["level"] == 2
+    assert canvas.doc_json["content"][1]["content"][0]["text"] == expected_text
     assert canvas.node_map[0].text == "项目经历"
     assert [node.text for node in canvas.node_map] == [
         "项目经历",
-        "TypeDance",
-        "负责源画布初始化",
+        expected_text,
     ]
 
 
