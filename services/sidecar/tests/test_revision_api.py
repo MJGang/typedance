@@ -226,13 +226,22 @@ def test_revision_api_creates_document_source_and_run(revision_client):
         json={
             "source_type": "pasted_text",
             "title": "粘贴旧简历",
-            "raw_text": "项目经历：订单系统重构",
+            "raw_text": "## 项目经历\n\n- **订单系统**: 重构",
+            "mime_type": "text/markdown",
         },
     )
     assert created_source.status_code == 201
     source = created_source.json()
     assert source["document_id"] == document["id"]
+    assert source["parse_status"] == "initialized"
     assert client.get(f"/documents/{document['id']}/sources").json()[0]["id"] == source["id"]
+
+    workspace_after_source = client.get(f"/documents/{document['id']}/workspace-view").json()
+    canvas = workspace_after_source["source_resume_canvas"]
+    assert canvas["old_resume_source_id"] == source["id"]
+    assert canvas["doc_json"]["content"][0]["type"] == "heading"
+    assert canvas["version"] == 1
+    assert workspace_after_source["current_draft"] is None
 
     created_run = client.post(
         f"/documents/{document['id']}/revision-runs",
@@ -291,6 +300,10 @@ def test_revision_api_creates_uploaded_resume_source(revision_client, monkeypatc
     assert source["original_uri"] == "resume.md"
     assert source["raw_text"] == "extracted from resume.md: # resume import"
     assert source["file_path"].endswith("resume.md")
+    assert source["parse_status"] == "initialized"
+    assert source["metadata"]["import_extension"] == "md"
+    workspace = client.get(f"/documents/{document['id']}/workspace-view").json()
+    assert workspace["source_resume_canvas"]["old_resume_source_id"] == source["id"]
     assert (tmp_path / "files" / "sources" / document["id"] / "resume.md").read_bytes() == b"# resume import"
 
 

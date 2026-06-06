@@ -43,6 +43,7 @@ from .revision_services import (
     SourceService,
     WorkspaceService,
 )
+from .source_canvas_initializer import SourceCanvasInitializationError, SourceCanvasInitializer
 
 
 RepositoryDependency = Callable[[], RevisionRepository]
@@ -188,6 +189,25 @@ def create_revision_router(
     def path_header_value(path: Path) -> str:
         return quote(str(path), safe=":/\\")
 
+    def save_initialized_source(repo: RevisionRepository, source: SourceDocument) -> SourceDocument:
+        try:
+            canvas = SourceCanvasInitializer().initialize(source)
+        except SourceCanvasInitializationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        initialized_source = source.model_copy(
+            update={
+                "parse_status": "initialized",
+                "metadata": {
+                    **source.metadata,
+                    "initializer_adapter": _initializer_adapter_name(source),
+                },
+            }
+        )
+        repo.save_source_document(initialized_source)
+        repo.save_source_resume_canvas(canvas)
+        return initialized_source
+
     @router.post("/documents", response_model=Document, status_code=201)
     def create_document(
         payload: CreateDocumentRequest,
@@ -245,9 +265,10 @@ def create_revision_router(
             raw_text=payload.raw_text,
             file_path=payload.file_path,
             parse_status="pending",
+            metadata={},
             created_at=utc_now(),
         )
-        return SourceService(repo).save_source(source)
+        return save_initialized_source(repo, source)
 
     @router.post("/documents/{document_id}/sources/import-file", response_model=SourceDocument, status_code=201)
     async def create_import_file_source(
@@ -272,6 +293,7 @@ def create_revision_router(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         file_path = _save_import_source_file(source_dir(), document_id, filename, data)
+        extension = Path(filename).suffix.lower().lstrip(".")
         source = SourceDocument(
             id=f"src_{uuid4().hex}",
             document_id=document_id,
@@ -282,9 +304,16 @@ def create_revision_router(
             raw_text=raw_text,
             file_path=str(file_path),
             parse_status="pending",
+            metadata={
+                "import_extension": extension,
+                "import_filename": filename,
+                "extraction_adapter": "sharepoint-to-text"
+                if extension in {"pdf", "docx", "doc"}
+                else "text-decode",
+            },
             created_at=utc_now(),
         )
-        return SourceService(repo).save_source(source)
+        return save_initialized_source(repo, source)
 
     @router.get("/documents/{document_id}/sources", response_model=list[SourceDocument])
     def list_sources(
@@ -540,6 +569,16 @@ def _safe_upload_filename(filename: str) -> str:
     name = Path(filename).name.strip() or "resume"
     safe = "".join(char if char.isalnum() or char in {" ", ".", "-", "_"} else "_" for char in name)
     return safe.strip(" .") or "resume"
+
+
+def _initializer_adapter_name(source: SourceDocument) -> str:
+    suffix = Path(source.title).suffix.lower().lstrip(".")
+    mime_type = (source.mime_type or "").lower()
+    if suffix in {"md", "markdown"} or mime_type in {"text/markdown", "text/x-markdown"}:
+        return "markdown"
+    if suffix == "docx":
+        return "docx"
+    return "text"
 
 
 def _save_import_source_file(base_dir: Path, document_id: str, filename: str, data: bytes) -> Path:
