@@ -385,6 +385,9 @@ def test_workspace_service_saves_source_resume_canvas_document(tmp_path):
     assert saved.id == canvas.id
     assert saved.document_id == canvas.document_id
     assert saved.old_resume_source_id == canvas.old_resume_source_id
+    assert saved.version == canvas.version + 1
+    assert saved.source_snapshot_hash.startswith("sha256:")
+    assert saved.source_snapshot_hash != canvas.source_snapshot_hash
     assert saved.doc_json == next_doc_json
     assert len(saved.node_map) == 1
     assert saved.node_map[0].canvas_node_id == "node_1"

@@ -25,6 +25,7 @@ from .revision_models import (
 )
 from .revision_render_projection import DraftProjectionBuilder
 from .revision_repository import RevisionRepository
+from .source_canvas_doc_json import source_canvas_hash
 
 
 OPEN_ISSUE_STATUSES = {"open", "needs_user_input"}
@@ -379,6 +380,8 @@ class WorkspaceService:
         ]
         saved = canvas.model_copy(
             update={
+                "version": canvas.version + 1,
+                "source_snapshot_hash": source_canvas_hash(doc_json),
                 "doc_json": doc_json,
                 "node_map": node_map,
                 "module_anchors": self._sync_source_resume_canvas_module_anchors(

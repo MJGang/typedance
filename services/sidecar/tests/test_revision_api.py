@@ -62,7 +62,7 @@ def seed_workspace(tmp_path) -> RevisionRepository:
             document_id=document.id,
             old_resume_source_id=source.id,
             version=1,
-            source_snapshot_hash="sha256:seed",
+            source_snapshot_hash="sha256:old",
             doc_json={"type": "doc", "content": []},
             node_map=[
                 {
@@ -399,6 +399,9 @@ def test_revision_api_saves_source_resume_canvas_document(revision_client):
     assert response.status_code == 200
     payload = response.json()
     assert payload["id"] == "canvas_1"
+    assert payload["version"] == 2
+    assert payload["source_snapshot_hash"].startswith("sha256:")
+    assert payload["source_snapshot_hash"] != "sha256:old"
     assert payload["doc_json"]["content"][0]["content"][0]["text"] == "用户编辑后的旧简历正文"
     assert payload["node_map"][0]["canvas_node_id"] == "node_1"
     assert payload["node_map"][0]["text"] == payload["doc_json"]["content"][0]["content"][0]["text"]
