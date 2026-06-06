@@ -54,6 +54,21 @@ def write_minimal_docx(path: Path, document_xml: str) -> Path:
     return path
 
 
+def write_docx_without_document_xml(path: Path) -> Path:
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("[Content_Types].xml", "")
+    return path
+
+
+def make_docx_source(docx_path: Path) -> SourceDocument:
+    return make_source(
+        raw_text=None,
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        original_uri="resume.docx",
+        file_path=str(docx_path),
+    )
+
+
 def test_initializes_markdown_canvas_with_nested_list_structure():
     source = make_source(
         raw_text="## 项目经历\n\n- TypeDance\n  - 初始化 source canvas",
@@ -365,6 +380,80 @@ def test_initializer_rejects_docx_without_saved_file_path():
         match="DOCX source has no saved file path",
     ):
         SourceCanvasInitializer().initialize(source)
+
+
+def test_initializer_wraps_missing_docx_file(tmp_path: Path):
+    source = make_docx_source(tmp_path / "missing.docx")
+
+    with pytest.raises(
+        SourceCanvasInitializationError,
+        match="Failed to read DOCX source",
+    ):
+        SourceCanvasInitializer().initialize(source)
+
+
+def test_initializer_wraps_bad_zip_docx(tmp_path: Path):
+    docx_path = tmp_path / "bad.docx"
+    docx_path.write_text("not a zip", encoding="utf-8")
+    source = make_docx_source(docx_path)
+
+    with pytest.raises(
+        SourceCanvasInitializationError,
+        match="Failed to read DOCX source",
+    ):
+        SourceCanvasInitializer().initialize(source)
+
+
+def test_initializer_wraps_docx_missing_document_xml(tmp_path: Path):
+    source = make_docx_source(write_docx_without_document_xml(tmp_path / "missing_xml.docx"))
+
+    with pytest.raises(
+        SourceCanvasInitializationError,
+        match="DOCX source is missing word/document.xml",
+    ):
+        SourceCanvasInitializer().initialize(source)
+
+
+def test_initializer_wraps_malformed_docx_document_xml(tmp_path: Path):
+    docx_path = write_minimal_docx(
+        tmp_path / "malformed.docx",
+        """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+""",
+    )
+    source = make_docx_source(docx_path)
+
+    with pytest.raises(
+        SourceCanvasInitializationError,
+        match="DOCX source has invalid document.xml",
+    ):
+        SourceCanvasInitializer().initialize(source)
+
+
+def test_initializer_parses_strict_namespace_docx_heading(tmp_path: Path):
+    docx_path = write_minimal_docx(
+        tmp_path / "strict.docx",
+        """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://purl.oclc.org/ooxml/wordprocessingml/main">
+  <w:body>
+    <w:p>
+      <w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+      <w:r><w:t>项目经历</w:t></w:r>
+    </w:p>
+  </w:body>
+</w:document>
+""",
+    )
+    source = make_docx_source(docx_path)
+
+    canvas = SourceCanvasInitializer().initialize(source)
+
+    heading = canvas.doc_json["content"][0]
+    assert heading["type"] == "heading"
+    assert heading["attrs"]["level"] == 2
+    assert heading["content"][0]["text"] == "项目经历"
+    assert [node.node_type for node in canvas.node_map] == ["heading"]
 
 
 def test_rejects_empty_source_content():

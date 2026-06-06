@@ -6,7 +6,7 @@ from uuid import uuid4
 from .markdown_doc_json import MarkdownDocJsonConverter, TiptapMarkdownDocJsonConverter
 from .models import utc_now
 from .revision_models import SourceDocument, SourceResumeCanvas
-from .source_canvas_docx import DocxSourceCanvasAdapter
+from .source_canvas_docx import DocxSourceCanvasAdapter, DocxSourceCanvasError
 from .source_canvas_doc_json import annotate_source_doc_json
 from .source_section_rules import SECTION_ALIASES
 
@@ -45,7 +45,10 @@ class SourceCanvasInitializer:
         if self._uses_docx_adapter(source):
             if not source.file_path:
                 raise SourceCanvasInitializationError("DOCX source has no saved file path")
-            doc_json = self.docx_adapter.to_doc_json(Path(source.file_path))
+            try:
+                doc_json = self.docx_adapter.to_doc_json(Path(source.file_path))
+            except DocxSourceCanvasError as exc:
+                raise SourceCanvasInitializationError(str(exc)) from exc
         else:
             raw_text = source.raw_text or ""
             if not raw_text.strip():
