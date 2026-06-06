@@ -256,6 +256,8 @@ class RevisionImportFlowService:
         parse_status: ParseStatus,
     ) -> None:
         for source in self._selected_sources(document_id, source_ids):
+            if parse_status == "recognition_failed" and source.parse_status != "recognizing":
+                continue
             self.repository.save_source_document(source.model_copy(update={"parse_status": parse_status}))
 
     def _invoke_parser_agent(

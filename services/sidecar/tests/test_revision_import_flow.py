@@ -21,7 +21,12 @@ def make_repository(tmp_path) -> RevisionRepository:
     return RevisionRepository(connect(tmp_path / "typedance.sqlite"))
 
 
-def seed_import_run(repo: RevisionRepository, raw_text: str | None = None) -> tuple[Document, SourceDocument, RevisionRun]:
+def seed_import_run(
+    repo: RevisionRepository,
+    raw_text: str | None = None,
+    *,
+    create_canvas: bool = True,
+) -> tuple[Document, SourceDocument, RevisionRun]:
     now = utc_now()
     document = repo.save_document(
         Document(
@@ -61,7 +66,7 @@ Vue3、TypeScript、FastAPI、Playwright
             created_at=now,
         )
     )
-    canvas = repo.save_source_resume_canvas(_source_canvas_for(source, now))
+    canvas = repo.save_source_resume_canvas(_source_canvas_for(source, now)) if create_canvas else None
     run = repo.save_revision_run(
         RevisionRun(
             id="run_import",
@@ -70,8 +75,8 @@ Vue3、TypeScript、FastAPI、Playwright
             run_type="import_reconstruct",
             status="recognizing",
             source_document_ids=[source.id],
-            input_source_canvas_id=canvas.id,
-            input_source_canvas_version=canvas.version,
+            input_source_canvas_id=canvas.id if canvas else "canvas_missing",
+            input_source_canvas_version=canvas.version if canvas else 1,
             user_intent="导入旧简历并形成可审阅草稿",
             created_at=now,
             updated_at=now,
@@ -263,7 +268,20 @@ def test_import_flow_rejects_multiple_sources(tmp_path):
     assert failed_run is not None
     assert failed_run.status == "failed_retryable"
     failed_sources = repo.list_source_documents(document.id)
-    assert {source.parse_status for source in failed_sources} == {"recognition_failed"}
+    assert {source.parse_status for source in failed_sources} == {"pending"}
+
+
+def test_import_flow_missing_canvas_does_not_mark_source_failed(tmp_path):
+    repo = make_repository(tmp_path)
+    document, source, run = seed_import_run(repo, create_canvas=False)
+
+    with pytest.raises(RevisionServiceError, match="Source resume canvas is not initialized"):
+        RevisionImportFlowService(repo).run_import_reconstruct(document.id, run.id)
+
+    failed_run = repo.get_revision_run(run.id)
+    assert failed_run is not None
+    assert failed_run.status == "failed_retryable"
+    assert repo.list_source_documents(document.id)[0].parse_status == source.parse_status
 
 
 def test_import_flow_marks_stale_when_source_canvas_version_changes(tmp_path):
