@@ -3,9 +3,18 @@ import pytest
 from typedance_sidecar.db import connect
 from typedance_sidecar.models import utc_now
 from typedance_sidecar.revision_import_flow import RevisionImportFlowService
-from typedance_sidecar.revision_models import Document, RevisionRun, SourceDocument
+from typedance_sidecar.revision_models import (
+    Document,
+    RevisionRun,
+    SourceDocument,
+    SourceResumeCanvas,
+)
 from typedance_sidecar.revision_repository import RevisionRepository
 from typedance_sidecar.revision_services import RevisionServiceError, WorkspaceService
+from typedance_sidecar.source_canvas_initializer import (
+    SourceCanvasInitializationError,
+    SourceCanvasInitializer,
+)
 
 
 def make_repository(tmp_path) -> RevisionRepository:
@@ -52,20 +61,49 @@ Vue3、TypeScript、FastAPI、Playwright
             created_at=now,
         )
     )
+    canvas = repo.save_source_resume_canvas(_source_canvas_for(source, now))
     run = repo.save_revision_run(
         RevisionRun(
             id="run_import",
             document_id=document.id,
             pack_id=document.pack_id,
             run_type="import_reconstruct",
-            status="created",
+            status="recognizing",
             source_document_ids=[source.id],
+            input_source_canvas_id=canvas.id,
+            input_source_canvas_version=canvas.version,
             user_intent="导入旧简历并形成可审阅草稿",
             created_at=now,
             updated_at=now,
         )
     )
     return document, source, run
+
+
+def _source_canvas_for(source: SourceDocument, now: str) -> SourceResumeCanvas:
+    try:
+        canvas = SourceCanvasInitializer().initialize(source)
+    except SourceCanvasInitializationError:
+        canvas = SourceResumeCanvas(
+            id="canvas_import",
+            document_id=source.document_id,
+            old_resume_source_id=source.id,
+            version=1,
+            source_snapshot_hash="sha256:empty",
+            doc_json={"type": "doc", "content": []},
+            node_map=[],
+            module_anchors=[],
+            created_at=now,
+            updated_at=now,
+        )
+    return canvas.model_copy(
+        update={
+            "id": "canvas_import",
+            "version": 1,
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
 
 
 def test_import_flow_generates_workspace_objects(tmp_path):
@@ -98,7 +136,7 @@ def test_import_flow_generates_workspace_objects(tmp_path):
     assert any(ref.startswith("ParsedBlock:") for ref in structurer_steps[0].input_refs)
     assert any(ref.startswith("DocumentModule:") for ref in structurer_steps[0].output_refs)
     assert any(ref.startswith("DocumentClaim:") for ref in structurer_steps[0].output_refs)
-    assert any(step.agent_name == "BuildSourceCanvas" for step in steps)
+    assert not any(step.agent_name == "BuildSourceCanvas" for step in steps)
 
     workspace = WorkspaceService(repo).get_workspace_view(document.id)
     assert workspace.current_draft is not None
@@ -106,10 +144,11 @@ def test_import_flow_generates_workspace_objects(tmp_path):
     assert workspace.render_projection is not None
     assert workspace.render_projection.draft_id == workspace.current_draft.id
     assert workspace.source_resume_canvas is not None
+    assert workspace.source_resume_canvas.id == "canvas_import"
     assert workspace.source_resume_canvas.old_resume_source_id == source.id
     assert workspace.source_resume_canvas.doc_json["type"] == "doc"
     assert workspace.source_resume_canvas.node_map
-    assert workspace.source_resume_canvas.module_anchors
+    assert workspace.source_resume_canvas.module_anchors == []
     assert {module.type for module in workspace.modules} >= {
         "BasicInfo",
         "WorkExperience",
@@ -135,6 +174,8 @@ def test_import_flow_rejects_empty_sources(tmp_path):
     failed_run = repo.get_revision_run(run.id)
     assert failed_run is not None
     assert failed_run.status == "failed_retryable"
+    failed_source = repo.list_source_documents(document.id)[0]
+    assert failed_source.parse_status == "recognition_failed"
 
 
 def test_import_flow_recognizes_common_career_skills_heading(tmp_path):
@@ -154,20 +195,14 @@ React、TypeScript、Node.js
     workspace = WorkspaceService(repo).get_workspace_view(document.id)
     assert workspace.source_resume_canvas is not None
     assert any(module.type == "CoreSkills" for module in workspace.modules)
-    assert any(anchor.title == "专业技能" for anchor in workspace.source_resume_canvas.module_anchors)
-    skills_anchor = next(
-        anchor
-        for anchor in workspace.source_resume_canvas.module_anchors
-        if anchor.title == "专业技能"
-    )
     heading_node = next(
         node
         for node in workspace.source_resume_canvas.node_map
-        if node.canvas_node_id == skills_anchor.canvas_node_ids[0]
+        if node.text == "职业技能"
     )
     assert heading_node.text == "职业技能"
     assert heading_node.node_type == "heading"
-    assert heading_node.module_id == skills_anchor.module_id
+    assert heading_node.module_id is None
 
 
 def test_import_flow_renders_markdown_source_canvas_syntax(tmp_path):
@@ -227,6 +262,31 @@ def test_import_flow_rejects_multiple_sources(tmp_path):
     failed_run = repo.get_revision_run(run.id)
     assert failed_run is not None
     assert failed_run.status == "failed_retryable"
+    failed_sources = repo.list_source_documents(document.id)
+    assert {source.parse_status for source in failed_sources} == {"recognition_failed"}
+
+
+def test_import_flow_marks_stale_when_source_canvas_version_changes(tmp_path):
+    repo = make_repository(tmp_path)
+    document, source, run = seed_import_run(repo)
+    canvas = repo.get_source_resume_canvas(document.id)
+    assert canvas is not None
+    repo.save_source_resume_canvas(
+        canvas.model_copy(
+            update={
+                "version": canvas.version + 1,
+                "source_snapshot_hash": "sha256:updated",
+                "updated_at": utc_now(),
+            }
+        )
+    )
+
+    stale_run = RevisionImportFlowService(repo).run_import_reconstruct(document.id, run.id)
+
+    assert stale_run.status == "stale"
+    assert stale_run.output_summary == "源画布已更新，需要重新识别。"
+    assert repo.list_draft_versions(document.id) == []
+    assert repo.list_source_documents(document.id)[0].parse_status == source.parse_status
 
 
 def test_import_flow_surfaces_parser_runtime_failure(tmp_path):
@@ -249,6 +309,7 @@ def test_import_flow_surfaces_parser_runtime_failure(tmp_path):
     assert failed_run.output_summary == "parser model timeout"
     assert steps[-1].agent_name == "SourceParser"
     assert steps[-1].status == "failed_model"
+    assert repo.list_source_documents(document.id)[0].parse_status == "recognition_failed"
 
 
 def test_import_flow_surfaces_structurer_runtime_failure(tmp_path):
@@ -271,3 +332,4 @@ def test_import_flow_surfaces_structurer_runtime_failure(tmp_path):
     assert failed_run.output_summary == "structurer model timeout"
     assert steps[-1].agent_name == "ResumeStructurer"
     assert steps[-1].status == "failed_model"
+    assert repo.list_source_documents(document.id)[0].parse_status == "recognition_failed"

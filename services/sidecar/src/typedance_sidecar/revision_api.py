@@ -4,7 +4,7 @@ from typing import Any, Literal
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -207,6 +207,16 @@ def create_revision_router(
         )
         return repo.save_initialized_source_resume_canvas(initialized_source, canvas)
 
+    def _run_import_reconstruct_background(
+        repo: RevisionRepository,
+        document_id: str,
+        run_id: str,
+    ) -> None:
+        try:
+            RevisionImportFlowService(repo).run_import_reconstruct(document_id, run_id)
+        except RevisionServiceError:
+            return
+
     @router.post("/documents", response_model=Document, status_code=201)
     def create_document(
         payload: CreateDocumentRequest,
@@ -335,17 +345,28 @@ def create_revision_router(
     def create_revision_run(
         document_id: str,
         payload: CreateRevisionRunRequest,
+        background_tasks: BackgroundTasks,
         repo: RevisionRepository = Depends(repository),
     ) -> RevisionRun:
         document = require_document(repo, document_id)
+        source_canvas = (
+            repo.get_source_resume_canvas(document_id)
+            if payload.run_type == "import_reconstruct"
+            else None
+        )
+        if payload.run_type == "import_reconstruct" and source_canvas is None:
+            raise HTTPException(status_code=400, detail="Source resume canvas is not initialized")
+
         now = utc_now()
         run = RevisionRun(
             id=f"run_{uuid4().hex}",
             document_id=document_id,
             pack_id=document.pack_id,
             run_type=payload.run_type,
-            status="created",
+            status="recognizing" if payload.run_type == "import_reconstruct" else "created",
             source_document_ids=payload.source_document_ids,
+            input_source_canvas_id=source_canvas.id if source_canvas else None,
+            input_source_canvas_version=source_canvas.version if source_canvas else None,
             base_draft_id=payload.base_draft_id,
             user_intent=payload.user_intent,
             selected_module_id=payload.selected_module_id,
@@ -357,7 +378,13 @@ def create_revision_router(
         saved_run = repo.save_revision_run(run)
         try:
             if saved_run.run_type == "import_reconstruct":
-                return RevisionImportFlowService(repo).run_import_reconstruct(document_id, saved_run.id)
+                background_tasks.add_task(
+                    _run_import_reconstruct_background,
+                    repo,
+                    document_id,
+                    saved_run.id,
+                )
+                return saved_run
             if saved_run.run_type == "blank_guided_generate":
                 return RevisionBlankGuidedFlowService(repo).run_blank_guided_generate(document_id, saved_run.id)
             if saved_run.run_type == "quality_review":

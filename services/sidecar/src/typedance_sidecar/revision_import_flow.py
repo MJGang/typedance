@@ -22,6 +22,7 @@ from .revision_models import (
     DocumentModule,
     DraftVersion,
     EvidenceLink,
+    ParseStatus,
     ParsedBlock,
     RevisionIssue,
     RevisionProposal,
@@ -30,7 +31,6 @@ from .revision_models import (
 )
 from .revision_repository import RevisionRepository
 from .revision_services import RenderService, RevisionServiceError
-from .revision_source_canvas import SourceResumeCanvasBuilder
 from .source_section_rules import SECTION_ALIASES
 
 
@@ -73,8 +73,10 @@ class RevisionImportFlowService:
         try:
             return self._run(document, run)
         except AgentRuntimeError as exc:
+            self._mark_sources(document.id, run.source_document_ids, "recognition_failed")
             raise RevisionServiceError(exc.message) from exc
         except RevisionServiceError as exc:
+            self._mark_sources(document.id, run.source_document_ids, "recognition_failed")
             self.repository.save_revision_run(
                 run.model_copy(
                     update={
@@ -93,6 +95,26 @@ class RevisionImportFlowService:
         if len(sources) > 1:
             raise RevisionServiceError("Import flow requires exactly one source")
 
+        source_canvas = self.repository.get_source_resume_canvas(document.id)
+        if source_canvas is None:
+            raise RevisionServiceError("Source resume canvas is not initialized")
+        if (
+            run.input_source_canvas_id != source_canvas.id
+            or run.input_source_canvas_version != source_canvas.version
+        ):
+            stale_run = run.model_copy(
+                update={
+                    "status": "stale",
+                    "output_summary": "源画布已更新，需要重新识别。",
+                    "updated_at": utc_now(),
+                }
+            )
+            self.repository.save_revision_run(stale_run)
+            return stale_run
+
+        recognizing_source = sources[0].model_copy(update={"parse_status": "recognizing"})
+        self.repository.save_source_document(recognizing_source)
+        sources = [recognizing_source]
         parsed_blocks = self._parse_sources(run, sources)
         if not parsed_blocks:
             raise RevisionServiceError("Import source has no text")
@@ -124,15 +146,6 @@ class RevisionImportFlowService:
         }
         for module in modules:
             self.repository.save_document_module(module)
-
-        source_canvas = SourceResumeCanvasBuilder().build(
-            source=sources[0],
-            parsed_blocks=parsed_blocks,
-            modules=modules,
-            module_source_refs=module_source_refs,
-        )
-        self.repository.save_source_resume_canvas(source_canvas)
-        self._save_step(run.id, "BuildSourceCanvas")
 
         claims = self._build_claims_from_structured_output(draft, structured_output, module_id_by_temp)
         for claim in claims:
@@ -188,6 +201,7 @@ class RevisionImportFlowService:
         )
         self.repository.save_revision_run(completed_run)
         self.repository.save_document(updated_document)
+        self.repository.save_source_document(sources[0].model_copy(update={"parse_status": "recognized"}))
         self.repository.save_draft_version(
             updated_draft.model_copy(
                 update={
@@ -227,8 +241,6 @@ class RevisionImportFlowService:
                 parsed_blocks.append(block)
                 source_blocks.append(block)
 
-            if source_blocks:
-                self.repository.save_source_document(source.model_copy(update={"parse_status": "recognized"}))
             self.repository.save_agent_step(
                 parser_step.model_copy(
                     update={"output_refs": [f"ParsedBlock:{block.id}" for block in source_blocks]}
@@ -236,6 +248,15 @@ class RevisionImportFlowService:
             )
 
         return parsed_blocks
+
+    def _mark_sources(
+        self,
+        document_id: str,
+        source_ids: list[str],
+        parse_status: ParseStatus,
+    ) -> None:
+        for source in self._selected_sources(document_id, source_ids):
+            self.repository.save_source_document(source.model_copy(update={"parse_status": parse_status}))
 
     def _invoke_parser_agent(
         self,
