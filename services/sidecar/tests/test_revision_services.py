@@ -29,6 +29,7 @@ from typedance_sidecar.revision_services import (
     SourceService,
     WorkspaceService,
 )
+from typedance_sidecar.source_canvas_doc_json import source_canvas_hash
 
 
 def make_repository(tmp_path) -> RevisionRepository:
@@ -386,7 +387,7 @@ def test_workspace_service_saves_source_resume_canvas_document(tmp_path):
     assert saved.document_id == canvas.document_id
     assert saved.old_resume_source_id == canvas.old_resume_source_id
     assert saved.version == canvas.version + 1
-    assert saved.source_snapshot_hash.startswith("sha256:")
+    assert saved.source_snapshot_hash == source_canvas_hash(next_doc_json)
     assert saved.source_snapshot_hash != canvas.source_snapshot_hash
     assert saved.doc_json == next_doc_json
     assert len(saved.node_map) == 1
@@ -399,6 +400,23 @@ def test_workspace_service_saves_source_resume_canvas_document(tmp_path):
     assert saved.created_at == canvas.created_at
     assert saved.updated_at != canvas.updated_at
     assert repo.get_source_resume_canvas("doc_1") == saved
+
+    resaved_doc_json = {
+        "type": "doc",
+        "content": [
+            {
+                "type": "paragraph",
+                "attrs": {"canvasNodeId": "node_1", "moduleId": "mod_1"},
+                "content": [{"type": "text", "text": "第二次更新后的旧简历正文"}],
+            }
+        ],
+    }
+    resaved = WorkspaceService(repo).save_source_resume_canvas_document("doc_1", resaved_doc_json)
+
+    assert resaved.version == saved.version + 1
+    assert resaved.source_snapshot_hash == source_canvas_hash(resaved_doc_json)
+    assert resaved.source_snapshot_hash != saved.source_snapshot_hash
+    assert resaved.doc_json == resaved_doc_json
 
 
 def test_workspace_service_removes_stale_source_resume_canvas_references(tmp_path):
