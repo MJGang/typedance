@@ -56,6 +56,11 @@ def annotate_source_doc_json(
             )
         )
 
+    def has_anchorable_content(node: dict[str, Any]) -> bool:
+        if node.get("type") not in {"paragraph", "listItem"}:
+            return True
+        return bool(_extract_text(node).strip())
+
     def visit(value: Any, *, inside_list_item: bool = False) -> None:
         if isinstance(value, list):
             for item in value:
@@ -69,13 +74,15 @@ def annotate_source_doc_json(
         is_list_item = node_type == "listItem"
         should_annotate = node_type in _LOCATABLE_NODE_TYPES and not (
             node_type == "paragraph" and inside_list_item
-        )
+        ) and has_anchorable_content(value)
         if should_annotate:
             annotate_node(value)
 
         next_inside_list_item = inside_list_item or is_list_item
-        for child in value.get("content") or []:
-            visit(child, inside_list_item=next_inside_list_item)
+        content = value.get("content")
+        if isinstance(content, list):
+            for child in content:
+                visit(child, inside_list_item=next_inside_list_item)
 
     visit(annotated)
     return annotated, node_map, source_canvas_hash(annotated)
@@ -88,7 +95,8 @@ def _extract_text(value: Any) -> str:
         return ""
 
     text = value.get("text")
-    content_text = _extract_text(value.get("content") or [])
+    content = value.get("content")
+    content_text = _extract_text(content) if isinstance(content, list) else ""
     if isinstance(text, str):
         return text + content_text
     return content_text

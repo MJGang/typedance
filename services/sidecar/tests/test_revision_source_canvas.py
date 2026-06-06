@@ -132,6 +132,50 @@ def test_annotates_nested_list_items_with_canvas_node_ids():
     assert "attrs" not in doc_json["content"][0]["content"][0]["content"][1]["content"][0]
 
 
+def test_annotate_skips_malformed_and_empty_source_nodes_without_consuming_ids():
+    now = utc_now()
+    source = SourceDocument(
+        id="src_edge",
+        document_id="doc_1",
+        source_type="old_resume",
+        title="旧简历",
+        raw_text="有效段落",
+        parse_status="recognized",
+        created_at=now,
+    )
+    doc_json = {
+        "type": "doc",
+        "content": [
+            {"type": "paragraph", "content": 1},
+            {"type": "paragraph", "content": []},
+            {
+                "type": "bulletList",
+                "content": [
+                    {
+                        "type": "listItem",
+                        "content": [],
+                    }
+                ],
+            },
+            {
+                "type": "paragraph",
+                "content": [{"type": "text", "text": "有效段落"}],
+            },
+        ],
+    }
+
+    annotated, node_map, _source_hash = annotate_source_doc_json(doc_json, source)
+
+    assert len(node_map) == 1
+    assert "attrs" not in annotated["content"][0]
+    assert "attrs" not in annotated["content"][1]
+    assert "attrs" not in annotated["content"][2]["content"][0]
+    assert annotated["content"][3]["attrs"]["canvasNodeId"] == "node_src_edge_0001"
+    assert node_map[0].source_block_id == "src_edge_0001"
+    assert node_map[0].source_span["node_index"] == 1
+    assert node_map[0].text == "有效段落"
+
+
 def test_builder_includes_adjacent_heading_before_module_body():
     now = utc_now()
     source = SourceDocument(
