@@ -31,6 +31,7 @@ from .revision_models import (
 from .revision_repository import RevisionRepository
 from .revision_services import RenderService, RevisionServiceError
 from .revision_source_canvas import SourceResumeCanvasBuilder
+from .source_section_rules import SECTION_ALIASES
 
 
 CONTACT_EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
@@ -38,15 +39,6 @@ CONTACT_PHONE_RE = re.compile(r"(?:\+?86[- ]?)?1[3-9]\d{9}")
 DATE_RANGE_RE = re.compile(r"\d{4}[./-]\d{1,2}\s*[-至~]\s*(?:\d{4}[./-]\d{1,2}|至今|现在)")
 METRIC_RE = re.compile(r"\d|%|％|倍|万|千|百|人|次|元|小时|天|周|月")
 MARKDOWN_HEADING_RE = re.compile(r"^\s*#{1,6}\s+(.+?)\s*#*\s*$")
-
-SECTION_ALIASES: list[tuple[tuple[str, ...], str, str]] = [
-    (("工作经历", "工作经验", "实习经历", "任职经历"), "WorkExperience", "工作经历"),
-    (("项目经历", "项目经验", "项目"), "ProjectExperience", "项目经历"),
-    (("核心能力", "专业技能", "相关技能", "技能", "技能清单"), "CoreSkills", "专业技能"),
-    (("教育经历", "教育背景", "学历"), "Education", "教育经历"),
-    (("自我评价", "个人评价", "个人总结"), "SelfEvaluation", "自我评价"),
-    (("求职意向", "职业意向"), "JobIntent", "求职意向"),
-]
 
 
 @dataclass
