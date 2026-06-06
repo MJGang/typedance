@@ -147,6 +147,165 @@ def test_anchor_mapper_maps_parsed_blocks_to_existing_canvas_nodes():
     assert [node.module_id for node in updated.node_map] == ["mod_work", "mod_work"]
 
 
+def test_anchor_mapper_keeps_canvas_node_owned_by_first_visible_module():
+    now = utc_now()
+    canvas = SourceResumeCanvas(
+        id="canvas_1",
+        document_id="doc_1",
+        old_resume_source_id="src_1",
+        version=1,
+        source_snapshot_hash="sha256:source",
+        doc_json={"type": "doc", "content": []},
+        node_map=[
+            SourceResumeCanvasNode(
+                canvas_node_id="node_shared",
+                node_type="paragraph",
+                text="负责订单系统重构",
+                source_block_id="src_1_0001",
+            ),
+        ],
+        module_anchors=[],
+        created_at=now,
+        updated_at=now,
+    )
+    blocks = [
+        ParsedBlock(
+            id="block_shared",
+            source_document_id="src_1",
+            type="paragraph",
+            text="负责订单系统重构",
+            order=0,
+            source_span={"line": 1},
+        ),
+    ]
+    first_module = DocumentModule(
+        id="mod_work",
+        draft_id="draft_1",
+        pack_id="resume",
+        type="WorkExperience",
+        title="工作经历",
+        order=1,
+        visibility="visible",
+        status="needs_review",
+        data={},
+        created_at=now,
+        updated_at=now,
+    )
+    second_module = first_module.model_copy(
+        update={
+            "id": "mod_project",
+            "type": "ProjectExperience",
+            "title": "项目经历",
+            "order": 2,
+        }
+    )
+
+    updated = SourceCanvasAnchorMapper().apply_module_anchors(
+        canvas=canvas,
+        modules=[second_module, first_module],
+        parsed_blocks=blocks,
+        module_source_refs={
+            "mod_work": ["block_shared"],
+            "mod_project": ["block_shared"],
+        },
+    )
+
+    assert [anchor.module_id for anchor in updated.module_anchors] == ["mod_work"]
+    assert updated.node_map[0].module_id == "mod_work"
+
+
+def test_anchor_mapper_normalizes_markdown_list_and_quote_markers():
+    now = utc_now()
+    canvas = SourceResumeCanvas(
+        id="canvas_1",
+        document_id="doc_1",
+        old_resume_source_id="src_1",
+        version=1,
+        source_snapshot_hash="sha256:source",
+        doc_json={"type": "doc", "content": []},
+        node_map=[
+            SourceResumeCanvasNode(
+                canvas_node_id="node_plus",
+                node_type="list_item",
+                text="项目A",
+                source_block_id="src_1_0001",
+            ),
+            SourceResumeCanvasNode(
+                canvas_node_id="node_ordered",
+                node_type="list_item",
+                text="项目B",
+                source_block_id="src_1_0002",
+            ),
+            SourceResumeCanvasNode(
+                canvas_node_id="node_quote",
+                node_type="paragraph",
+                text="项目C",
+                source_block_id="src_1_0003",
+            ),
+        ],
+        module_anchors=[],
+        created_at=now,
+        updated_at=now,
+    )
+    blocks = [
+        ParsedBlock(
+            id="block_plus",
+            source_document_id="src_1",
+            type="list",
+            text="+ 项目A",
+            order=0,
+            source_span={"line": 1},
+        ),
+        ParsedBlock(
+            id="block_ordered",
+            source_document_id="src_1",
+            type="list",
+            text="1. 项目B",
+            order=1,
+            source_span={"line": 2},
+        ),
+        ParsedBlock(
+            id="block_quote",
+            source_document_id="src_1",
+            type="paragraph",
+            text="> 项目C",
+            order=2,
+            source_span={"line": 3},
+        ),
+    ]
+    module = DocumentModule(
+        id="mod_project",
+        draft_id="draft_1",
+        pack_id="resume",
+        type="ProjectExperience",
+        title="项目经历",
+        order=1,
+        visibility="visible",
+        status="needs_review",
+        data={},
+        created_at=now,
+        updated_at=now,
+    )
+
+    updated = SourceCanvasAnchorMapper().apply_module_anchors(
+        canvas=canvas,
+        modules=[module],
+        parsed_blocks=blocks,
+        module_source_refs={"mod_project": ["block_plus", "block_ordered", "block_quote"]},
+    )
+
+    assert updated.module_anchors[0].canvas_node_ids == [
+        "node_plus",
+        "node_ordered",
+        "node_quote",
+    ]
+    assert [node.module_id for node in updated.node_map] == [
+        "mod_project",
+        "mod_project",
+        "mod_project",
+    ]
+
+
 def test_annotates_nested_list_items_with_canvas_node_ids():
     now = utc_now()
     source = SourceDocument(

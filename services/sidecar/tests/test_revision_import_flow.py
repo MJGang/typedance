@@ -2,6 +2,7 @@ import pytest
 
 from typedance_sidecar.db import connect
 from typedance_sidecar.models import utc_now
+from typedance_sidecar.resume_structurer_runner import RuleBasedResumeStructurerRunner
 from typedance_sidecar.revision_import_flow import RevisionImportFlowService
 from typedance_sidecar.revision_models import (
     Document,
@@ -307,6 +308,43 @@ def test_import_flow_marks_stale_when_source_canvas_version_changes(tmp_path):
     assert stale_run.output_summary == "源画布已更新，需要重新识别。"
     assert repo.list_draft_versions(document.id) == []
     assert repo.list_source_documents(document.id)[0].parse_status == source.parse_status
+
+
+def test_import_flow_late_stale_does_not_save_workspace_objects(tmp_path):
+    repo = make_repository(tmp_path)
+    document, source, run = seed_import_run(repo)
+    rule_structurer = RuleBasedResumeStructurerRunner()
+
+    def bump_canvas_version(_context, request):
+        canvas = repo.get_source_resume_canvas(document.id)
+        assert canvas is not None
+        repo.save_source_resume_canvas(
+            canvas.model_copy(
+                update={
+                    "version": canvas.version + 1,
+                    "source_snapshot_hash": "sha256:late-updated",
+                    "updated_at": utc_now(),
+                }
+            )
+        )
+        return rule_structurer(_context, request)
+
+    stale_run = RevisionImportFlowService(
+        repo,
+        structurer_runner=bump_canvas_version,
+    ).run_import_reconstruct(document.id, run.id)
+
+    stored_run = repo.get_revision_run(run.id)
+    canvas = repo.get_source_resume_canvas(document.id)
+    assert stored_run is not None
+    assert stale_run.status == "stale"
+    assert stored_run.status == "stale"
+    assert repo.list_draft_versions(document.id) == []
+    assert canvas is not None
+    assert canvas.module_anchors == []
+    assert not any(node.module_id for node in canvas.node_map)
+    assert repo.connection.execute("SELECT COUNT(*) FROM document_modules").fetchone()[0] == 0
+    assert repo.list_source_documents(document.id)[0].parse_status != "recognition_failed"
 
 
 def test_import_flow_surfaces_parser_runtime_failure(tmp_path):

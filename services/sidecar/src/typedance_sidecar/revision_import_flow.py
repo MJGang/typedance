@@ -120,17 +120,15 @@ class RevisionImportFlowService:
         if not parsed_blocks:
             raise RevisionServiceError("Import source has no text")
         now = utc_now()
-        draft = self.repository.save_draft_version(
-            DraftVersion(
-                id=f"draft_{uuid4().hex}",
-                document_id=document.id,
-                run_id=run.id,
-                pack_id=document.pack_id,
-                status="in_review",
-                summary="基于旧简历生成的结构化草稿",
-                created_at=now,
-                updated_at=now,
-            )
+        draft = DraftVersion(
+            id=f"draft_{uuid4().hex}",
+            document_id=document.id,
+            run_id=run.id,
+            pack_id=document.pack_id,
+            status="in_review",
+            summary="基于旧简历生成的结构化草稿",
+            created_at=now,
+            updated_at=now,
         )
 
         structured_output, structurer_step = self._invoke_structurer_agent(
@@ -145,8 +143,6 @@ class RevisionImportFlowService:
             saved.id: module.source_block_refs
             for module, saved in zip(structured_output.modules, modules, strict=False)
         }
-        for module in modules:
-            self.repository.save_document_module(module)
 
         current_canvas = self.repository.get_source_resume_canvas(document.id)
         if current_canvas is None:
@@ -161,6 +157,9 @@ class RevisionImportFlowService:
             )
             self.repository.save_revision_run(stale_run)
             return stale_run
+        self.repository.save_draft_version(draft)
+        for module in modules:
+            self.repository.save_document_module(module)
         updated_canvas = SourceCanvasAnchorMapper().apply_module_anchors(
             canvas=current_canvas,
             modules=modules,

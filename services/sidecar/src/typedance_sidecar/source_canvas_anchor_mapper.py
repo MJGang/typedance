@@ -7,6 +7,8 @@ from .revision_models import DocumentModule, ModuleAnchor, ParsedBlock, SourceRe
 
 
 MARKDOWN_HEADING_RE = re.compile(r"^\s*#{1,6}\s+(.+?)\s*#*\s*$")
+MARKDOWN_QUOTE_RE = re.compile(r"^\s*>+\s*")
+MARKDOWN_LIST_MARKER_RE = re.compile(r"^\s*(?:[-*+•·]|\d+[.)])\s+")
 
 
 class SourceCanvasAnchorMapper:
@@ -21,6 +23,7 @@ class SourceCanvasAnchorMapper:
         node_by_block = self._node_by_block_text(canvas, parsed_blocks)
         module_by_node_id: dict[str, str] = {}
         anchors: list[ModuleAnchor] = []
+        owned_node_ids: set[str] = set()
 
         for module in sorted(
             (item for item in modules if item.visibility == "visible"),
@@ -29,9 +32,10 @@ class SourceCanvasAnchorMapper:
             node_ids: list[str] = []
             for block_id in module_source_refs.get(module.id, []):
                 node_id = node_by_block.get(block_id)
-                if node_id is None or node_id in node_ids:
+                if node_id is None or node_id in node_ids or node_id in owned_node_ids:
                     continue
                 node_ids.append(node_id)
+                owned_node_ids.add(node_id)
                 module_by_node_id[node_id] = module.id
             if node_ids:
                 anchors.append(
@@ -80,6 +84,7 @@ class SourceCanvasAnchorMapper:
     def _normalize_text(self, text: str) -> str:
         heading_match = MARKDOWN_HEADING_RE.match(text)
         normalized = heading_match.group(1) if heading_match else text
-        normalized = normalized.strip().lstrip("-*•·").strip()
+        normalized = MARKDOWN_QUOTE_RE.sub("", normalized)
+        normalized = MARKDOWN_LIST_MARKER_RE.sub("", normalized)
         normalized = normalized.replace("**", "").replace("__", "")
         return re.sub(r"\s+", "", normalized)
