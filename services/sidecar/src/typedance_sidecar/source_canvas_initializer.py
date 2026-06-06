@@ -6,6 +6,7 @@ from uuid import uuid4
 from .markdown_doc_json import MarkdownDocJsonConverter, TiptapMarkdownDocJsonConverter
 from .models import utc_now
 from .revision_models import SourceDocument, SourceResumeCanvas
+from .source_canvas_docx import DocxSourceCanvasAdapter
 from .source_canvas_doc_json import annotate_source_doc_json
 from .source_section_rules import SECTION_ALIASES
 
@@ -16,11 +17,15 @@ class SourceCanvasInitializationError(RuntimeError):
 
 MARKDOWN_MIME_TYPES = {"text/markdown", "text/x-markdown"}
 MARKDOWN_EXTENSIONS = {".md", ".markdown"}
+DOCX_MIME_TYPES = {
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+DOCX_EXTENSIONS = {".docx"}
 TEXT_DOCUMENT_MIME_TYPES = {"application/pdf", "application/msword"}
 TEXT_DOCUMENT_EXTENSIONS = {".pdf", ".doc"}
 TEXT_FILE_EXTENSIONS = {".txt"}
 KNOWN_SOURCE_EXTENSIONS = (
-    MARKDOWN_EXTENSIONS | TEXT_DOCUMENT_EXTENSIONS | TEXT_FILE_EXTENSIONS
+    MARKDOWN_EXTENSIONS | DOCX_EXTENSIONS | TEXT_DOCUMENT_EXTENSIONS | TEXT_FILE_EXTENSIONS
 )
 MARKDOWN_SYNTAX_RE = re.compile(
     r"^\s{0,3}(?:#{1,6}\s+\S.*|[-*+]\s+\S.*|\d+\.\s+\S.*|>\s+\S.*|```|\|.+\|)\s*$"
@@ -28,18 +33,28 @@ MARKDOWN_SYNTAX_RE = re.compile(
 
 
 class SourceCanvasInitializer:
-    def __init__(self, markdown_converter: MarkdownDocJsonConverter | None = None) -> None:
+    def __init__(
+        self,
+        markdown_converter: MarkdownDocJsonConverter | None = None,
+        docx_adapter: DocxSourceCanvasAdapter | None = None,
+    ) -> None:
         self.markdown_converter = markdown_converter or TiptapMarkdownDocJsonConverter()
+        self.docx_adapter = docx_adapter or DocxSourceCanvasAdapter()
 
     def initialize(self, source: SourceDocument) -> SourceResumeCanvas:
-        raw_text = source.raw_text or ""
-        if not raw_text.strip():
-            raise SourceCanvasInitializationError("Import source has no readable content")
-
-        if self._uses_markdown_adapter(source, raw_text):
-            doc_json = self.markdown_converter.convert_markdown(raw_text)
+        if self._uses_docx_adapter(source):
+            if not source.file_path:
+                raise SourceCanvasInitializationError("DOCX source has no saved file path")
+            doc_json = self.docx_adapter.to_doc_json(Path(source.file_path))
         else:
-            doc_json = self._text_doc_json(raw_text)
+            raw_text = source.raw_text or ""
+            if not raw_text.strip():
+                raise SourceCanvasInitializationError("Import source has no readable content")
+
+            if self._uses_markdown_adapter(source, raw_text):
+                doc_json = self.markdown_converter.convert_markdown(raw_text)
+            else:
+                doc_json = self._text_doc_json(raw_text)
 
         annotated_doc_json, node_map, source_snapshot_hash = annotate_source_doc_json(
             doc_json,
@@ -59,6 +74,11 @@ class SourceCanvasInitializer:
             updated_at=now,
         )
 
+    def _uses_docx_adapter(self, source: SourceDocument) -> bool:
+        mime_type = (source.mime_type or "").split(";", maxsplit=1)[0].strip().lower()
+        extension = self._source_extension(source)
+        return mime_type in DOCX_MIME_TYPES or extension in DOCX_EXTENSIONS
+
     def _uses_markdown_adapter(self, source: SourceDocument, raw_text: str) -> bool:
         mime_type = (source.mime_type or "").split(";", maxsplit=1)[0].strip().lower()
         extension = self._source_extension(source)
@@ -66,6 +86,10 @@ class SourceCanvasInitializer:
             return True
         if extension in MARKDOWN_EXTENSIONS:
             return True
+        if mime_type in DOCX_MIME_TYPES:
+            return False
+        if extension in DOCX_EXTENSIONS:
+            return False
         if mime_type in TEXT_DOCUMENT_MIME_TYPES:
             return False
         if extension in TEXT_DOCUMENT_EXTENSIONS:
