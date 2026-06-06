@@ -258,7 +258,7 @@ def test_revision_api_creates_document_source_and_run(revision_client):
     assert run["pack_id"] == "resume"
     assert run["input_source_canvas_id"] == canvas["id"]
     assert run["input_source_canvas_version"] == canvas["version"]
-    assert run["status"] in {"recognizing", "completed"}
+    assert run["status"] == "recognizing"
     assert client.get(f"/revision-runs/{run['id']}").json()["id"] == run["id"]
 
     workspace = client.get(f"/documents/{document['id']}/workspace-view").json()

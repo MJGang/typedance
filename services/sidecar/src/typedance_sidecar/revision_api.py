@@ -208,10 +208,11 @@ def create_revision_router(
         return repo.save_initialized_source_resume_canvas(initialized_source, canvas)
 
     def _run_import_reconstruct_background(
-        repo: RevisionRepository,
+        repository_dependency: RepositoryDependency,
         document_id: str,
         run_id: str,
     ) -> None:
+        repo = repository_dependency()
         try:
             RevisionImportFlowService(repo).run_import_reconstruct(document_id, run_id)
         except RevisionServiceError:
@@ -380,7 +381,7 @@ def create_revision_router(
             if saved_run.run_type == "import_reconstruct":
                 background_tasks.add_task(
                     _run_import_reconstruct_background,
-                    repo,
+                    repository_dependency,
                     document_id,
                     saved_run.id,
                 )
