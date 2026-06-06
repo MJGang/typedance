@@ -18,7 +18,7 @@ from .revision_models import (
 )
 from .revision_repository import RevisionRepository
 from .revision_services import RenderService, RevisionServiceError
-from .revision_source_canvas import SourceResumeCanvasBuilder
+from .revision_source_canvas import BlankSourceResumeCanvasBuilder
 
 
 FIELD_ALIASES = {
@@ -134,13 +134,13 @@ class RevisionBlankGuidedFlowService:
         projection = RenderService(self.repository).build_projection_for_draft(updated_draft.id)
         if self.repository.get_source_resume_canvas(document.id) is None:
             self.repository.save_source_resume_canvas(
-                SourceResumeCanvasBuilder().blank(
+                BlankSourceResumeCanvasBuilder().blank(
                     document_id=document.id,
                     source_id=sources[0].id,
                     title=document.title,
                 )
             )
-            self._save_step(run.id, "BuildSourceCanvas")
+            self._save_step(run.id, "BuildBlankSourceCanvas")
         self._save_step(run.id, "RenderProjection")
 
         completed_run = run.model_copy(

@@ -77,6 +77,9 @@ def test_blank_guided_flow_generates_initial_workspace(tmp_path):
     assert workspace.render_projection is not None
     assert workspace.source_resume_canvas is not None
     assert workspace.source_resume_canvas.doc_json["type"] == "doc"
+    assert workspace.source_resume_canvas.doc_json["content"][0]["type"] == "heading"
+    steps = repo.list_agent_steps(run.id)
+    assert any(step.agent_name == "BuildBlankSourceCanvas" for step in steps)
     assert {module.type for module in workspace.modules} >= {
         "BasicInfo",
         "JobIntent",
