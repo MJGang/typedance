@@ -124,6 +124,8 @@ def test_annotates_nested_list_items_with_canvas_node_ids():
     assert outer_item["attrs"]["canvasNodeId"] == "node_src_md_0001"
     assert inner_item["attrs"]["canvasNodeId"] == "node_src_md_0002"
     assert [node.node_type for node in node_map] == ["list_item", "list_item"]
+    assert node_map[0].source_span["node_index"] == 1
+    assert node_map[1].source_span["node_index"] == 2
     assert [node.text for node in node_map] == ["一级二级", "二级"]
     assert source_hash.startswith("sha256:")
     assert "attrs" not in doc_json["content"][0]["content"][0]

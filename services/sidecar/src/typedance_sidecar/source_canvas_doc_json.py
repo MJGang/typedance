@@ -37,7 +37,6 @@ def annotate_source_doc_json(
 
     def annotate_node(node: dict[str, Any]) -> None:
         node_number = len(node_map) + 1
-        node_index = len(node_map)
         source_block_id = f"{source.id}_{node_number:04d}"
         canvas_node_id = f"node_{source_block_id}"
         attrs = dict(node.get("attrs") or {})
@@ -52,7 +51,7 @@ def annotate_source_doc_json(
                 source_block_id=source_block_id,
                 source_span={
                     "source_document_id": source.id,
-                    "node_index": node_index,
+                    "node_index": node_number,
                 },
             )
         )
