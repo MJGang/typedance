@@ -392,10 +392,51 @@ def test_initializer_wraps_missing_docx_file(tmp_path: Path):
         SourceCanvasInitializer().initialize(source)
 
 
+def test_initializer_wraps_docx_directory_read_error(tmp_path: Path):
+    source = make_docx_source(tmp_path)
+
+    with pytest.raises(
+        SourceCanvasInitializationError,
+        match="Failed to read DOCX source",
+    ):
+        SourceCanvasInitializer().initialize(source)
+
+
 def test_initializer_wraps_bad_zip_docx(tmp_path: Path):
     docx_path = tmp_path / "bad.docx"
     docx_path.write_text("not a zip", encoding="utf-8")
     source = make_docx_source(docx_path)
+
+    with pytest.raises(
+        SourceCanvasInitializationError,
+        match="Failed to read DOCX source",
+    ):
+        SourceCanvasInitializer().initialize(source)
+
+
+def test_initializer_wraps_docx_runtime_error_while_reading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    docx_path = write_minimal_docx(
+        tmp_path / "encrypted_entry.docx",
+        """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>项目经历</w:t></w:r></w:p>
+  </w:body>
+</w:document>
+""",
+    )
+    source = make_docx_source(docx_path)
+
+    def raise_runtime_error(
+        _archive: zipfile.ZipFile,
+        _name: str,
+        _pwd: bytes | None = None,
+    ) -> bytes:
+        raise RuntimeError("encrypted zip entry")
+
+    monkeypatch.setattr(zipfile.ZipFile, "read", raise_runtime_error)
 
     with pytest.raises(
         SourceCanvasInitializationError,

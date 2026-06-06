@@ -26,7 +26,9 @@ class DocxSourceCanvasAdapter:
                     raise DocxSourceCanvasError(
                         "DOCX source is missing word/document.xml"
                     ) from exc
-        except (FileNotFoundError, zipfile.BadZipFile) as exc:
+        except DocxSourceCanvasError:
+            raise
+        except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
             raise DocxSourceCanvasError(f"Failed to read DOCX source: {exc}") from exc
 
         try:
