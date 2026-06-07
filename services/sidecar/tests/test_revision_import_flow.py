@@ -142,7 +142,9 @@ def test_import_flow_generates_workspace_objects(tmp_path):
     assert any(ref.startswith("ParsedBlock:") for ref in structurer_steps[0].input_refs)
     assert any(ref.startswith("DocumentModule:") for ref in structurer_steps[0].output_refs)
     assert any(ref.startswith("DocumentClaim:") for ref in structurer_steps[0].output_refs)
-    assert any(step.agent_name == "MapSourceCanvasAnchors" for step in steps)
+    agent_names = [step.agent_name for step in steps]
+    assert "MapSourceCanvasAnchors" in agent_names
+    assert "BuildSourceCanvas" not in agent_names
 
     workspace = WorkspaceService(repo).get_workspace_view(document.id)
     assert workspace.current_draft is not None
