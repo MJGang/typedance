@@ -8,7 +8,7 @@ import type { JSONContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import DragHandle from "@tiptap/extension-drag-handle-react"
 import { PaginationPlus, PAGE_SIZES } from "tiptap-pagination-plus"
-import { Bold, Columns3, Eraser, GripVertical, Heading1, Heading2, Heading3, Italic, List, ListOrdered, ListTree, Type, Underline } from "lucide-react"
+import { Bold, Columns3, Eraser, GripVertical, Hash, Heading1, Heading2, Heading3, Italic, List, ListOrdered, ListTree, Type, Underline } from "lucide-react"
 import { Column, Columns, type ColumnsCount, type ColumnsGap } from "@typedance/tiptap-layout"
 
 import { Button } from "@/components/ui/button"
@@ -34,7 +34,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { looksLikeMarkdown } from "../editor"
 import type { ResumeDocJson, ResumeEditorChange } from "../editor"
 
-type MarginConfig = {
+export type MarginConfig = {
   top: number
   bottom: number
   left: number
@@ -51,6 +51,8 @@ type ResumeRichTextEditorProps = {
   cssText?: string
   marginConfig?: MarginConfig
   onMarginChange?: (margins: MarginConfig) => void
+  pageMarginGuidesVisible?: boolean
+  onPageMarginGuidesVisibleChange?: (visible: boolean) => void
   moduleOutlineVisible?: boolean
   onModuleOutlineVisibleChange?: (visible: boolean) => void
 }
@@ -68,6 +70,7 @@ export type ResumeRichTextEditorHandle = {
   unsetColumns: () => void
   setTextSelection: (selection: { anchor: number; head: number }) => void
   scrollToCanvasNode: (canvasNodeId: string, options?: { topOffset?: number }) => void
+  updatePageMargins: (margins: MarginConfig) => void
 }
 
 type ToolbarState = {
@@ -259,6 +262,11 @@ function ResumeDragHandleChrome({ block }: { block: ToolbarBlock }) {
       </span>
     </div>
   )
+}
+
+function updateEditorPageMargins(editor: Editor, margins: MarginConfig) {
+  editor.commands.updateMargins(margins)
+  editor.view.dispatch(editor.state.tr.setMeta("td-page-margins", margins))
 }
 
 function inlineStyleToCss(attrs: Record<string, unknown>): string {
@@ -636,6 +644,8 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       editable = true,
       cssText = "",
       marginConfig,
+      pageMarginGuidesVisible = false,
+      onPageMarginGuidesVisibleChange,
       moduleOutlineVisible = false,
       onModuleOutlineVisibleChange,
     },
@@ -837,6 +847,10 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
           }
         }
       },
+      updatePageMargins: (margins) => {
+        if (!editor || editor.isDestroyed) return
+        updateEditorPageMargins(editor, margins)
+      },
     }), [editor])
 
     useEffect(() => {
@@ -850,6 +864,17 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         editor.commands.setContent(docJson as unknown as JSONContent, { emitUpdate: false })
       }
     }, [docJson, editor, editable])
+
+    useEffect(() => {
+      if (!editor || editor.isDestroyed || !marginConfig) return
+      updateEditorPageMargins(editor, marginConfig)
+    }, [
+      editor,
+      marginConfig?.bottom,
+      marginConfig?.left,
+      marginConfig?.right,
+      marginConfig?.top,
+    ])
 
     const canEditParagraphStyle = toolbarState.activeBlock === "paragraph"
     const canEditBlockStyle = Boolean(editor) && toolbarState.activeBlock !== "columns"
@@ -1006,6 +1031,19 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                 </PopoverContent>
               </Popover>
             </ToolbarGroup>
+            {onPageMarginGuidesVisibleChange && (
+              <>
+                <ToolbarVerticalSeparator />
+                <ToolbarGroup>
+                  <ToolbarIconButton
+                    label="页面边距辅助线"
+                    icon={Hash}
+                    isActive={pageMarginGuidesVisible}
+                    onClick={() => onPageMarginGuidesVisibleChange(!pageMarginGuidesVisible)}
+                  />
+                </ToolbarGroup>
+              </>
+            )}
             {onModuleOutlineVisibleChange && (
               <>
                 <ToolbarVerticalSeparator />

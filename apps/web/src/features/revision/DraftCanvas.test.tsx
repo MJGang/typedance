@@ -17,15 +17,24 @@ type MockEditorProps = {
     }>
   }
   moduleOutlineVisible?: boolean
+  pageMarginGuidesVisible?: boolean
   cssText?: string
+  marginConfig?: {
+    top: number
+    bottom: number
+    left: number
+    right: number
+  }
   onChange: (change: { plainText: string; docJson: { type: "doc" } }) => void
   onModuleOutlineVisibleChange?: (visible: boolean) => void
+  onPageMarginGuidesVisibleChange?: (visible: boolean) => void
   onSourceCanvasModuleChange?: (moduleId: string | null) => void
 }
 
 const editorMocks = vi.hoisted(() => ({
   props: null as MockEditorProps | null,
   scrollToCanvasNode: vi.fn(),
+  updatePageMargins: vi.fn(),
 }))
 
 const OriginalPointerEvent = globalThis.PointerEvent
@@ -51,21 +60,24 @@ vi.mock("../workspace/components/ResumeRichTextEditor", () => ({
       unsetColumns: vi.fn(),
       setTextSelection: vi.fn(),
       scrollToCanvasNode: editorMocks.scrollToCanvasNode,
+      updatePageMargins: editorMocks.updatePageMargins,
     }))
 
     return (
       <div className="td-editor-print-wrapper">
-        <div className="ProseMirror">
-          {props.docJson.content?.map((node) => (
-            <p
-              key={node.attrs?.canvasNodeId}
-              data-canvas-node-id={node.attrs?.canvasNodeId}
-              data-module-id={node.attrs?.moduleId}
-              data-testid={`canvas-node-${node.attrs?.moduleId}`}
-            >
-              {node.content?.[0]?.text}
-            </p>
-          ))}
+        <div className="ProseMirror rm-with-pagination">
+          <div className="page">
+            {props.docJson.content?.map((node) => (
+              <p
+                key={node.attrs?.canvasNodeId}
+                data-canvas-node-id={node.attrs?.canvasNodeId}
+                data-module-id={node.attrs?.moduleId}
+                data-testid={`canvas-node-${node.attrs?.moduleId}`}
+              >
+                {node.content?.[0]?.text}
+              </p>
+            ))}
+          </div>
           <div className="rm-pagination-gap" />
         </div>
       </div>
@@ -132,6 +144,7 @@ const canvas: SourceResumeCanvas = {
 
 let rootSize = { width: 600, height: 500 }
 let sourceViewportSize: { width: number; height: number } | null = null
+let paginationPageSize = { width: 794, height: 1123 }
 
 function rect({
   left,
@@ -162,8 +175,10 @@ beforeEach(() => {
   localStorage.clear()
   editorMocks.props = null
   editorMocks.scrollToCanvasNode.mockReset()
+  editorMocks.updatePageMargins.mockReset()
   rootSize = { width: 600, height: 500 }
   sourceViewportSize = null
+  paginationPageSize = { width: 794, height: 1123 }
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     if (this.classList.contains("td-source-resume-canvas-viewport") && sourceViewportSize) {
       return rect({ left: 40, top: 90, ...sourceViewportSize })
@@ -173,6 +188,12 @@ beforeEach(() => {
     }
     if (this.getAttribute("aria-label") === "简历模块大纲") {
       return rect({ left: 0, top: 0, width: 208, height: 160 })
+    }
+    if (this.classList.contains("page")) {
+      return rect({ left: 80, top: 140, ...paginationPageSize })
+    }
+    if (this.classList.contains("rm-with-pagination")) {
+      return rect({ left: 80, top: 140, width: 794, height: 2200 })
     }
     if (this.dataset.canvasNodeId === "node_project") {
       return rect({ left: 90, top: 160, width: 460, height: 100 })
@@ -195,6 +216,10 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+function showPageMarginGuides() {
+  act(() => editorMocks.props?.onPageMarginGuidesVisibleChange?.(true))
+}
+
 describe("DraftCanvas", () => {
   it("applies the classic template typography to the source canvas editor", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
@@ -203,6 +228,122 @@ describe("DraftCanvas", () => {
     expect(editorMocks.props?.cssText).toContain('font-family: Quotes, -apple-system')
     expect(editorMocks.props?.cssText).toContain("font-size: 16px;")
     expect(editorMocks.props?.cssText).toContain("line-height: 1.62;")
+  })
+
+  it("shows draggable page margin guides with px labels", () => {
+    render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
+
+    expect(editorMocks.props?.marginConfig).toEqual({
+      top: 76,
+      bottom: 76,
+      left: 50,
+      right: 50,
+    })
+    expect(editorMocks.props?.pageMarginGuidesVisible).toBe(false)
+    expect(screen.queryByRole("group", { name: "页面边距辅助线" })).not.toBeInTheDocument()
+
+    showPageMarginGuides()
+
+    expect(editorMocks.props?.pageMarginGuidesVisible).toBe(true)
+    expect(screen.getByRole("button", { name: "拖拽上边距，当前 76px" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "拖拽下边距，当前 76px" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "拖拽左边距，当前 50px" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "拖拽右边距，当前 50px" })).toBeInTheDocument()
+    const topGuide = screen.getByTestId("page-margin-guide-top")
+    expect(topGuide).toHaveClass("cursor-ns-resize")
+    expect(screen.getByTestId("page-margin-guide-bottom")).toHaveClass("cursor-ns-resize")
+    expect(screen.getByTestId("page-margin-guide-left")).toHaveClass("cursor-ew-resize")
+    expect(screen.getByTestId("page-margin-guide-right")).toHaveClass("cursor-ew-resize")
+
+    fireEvent.pointerEnter(topGuide)
+    expect(topGuide).toHaveClass("z-30")
+    expect(screen.getByTestId("page-margin-guide-left")).toHaveClass("z-10")
+    expect(screen.getByTestId("page-margin-guide-right")).toHaveClass("z-10")
+    expect(topGuide.getAttribute("style")).toContain("linear-gradient(to bottom")
+    expect(topGuide.getAttribute("style")).toContain("transparent 100%")
+    expect(topGuide.className).not.toContain("border")
+    fireEvent.pointerLeave(topGuide)
+    expect(topGuide).toHaveClass("z-10")
+    expect(topGuide.getAttribute("style")).not.toContain("linear-gradient")
+  })
+
+  it("measures the A4 page from the paginated editor when pagination decorations have no box", () => {
+    paginationPageSize = { width: 0, height: 0 }
+
+    render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
+    showPageMarginGuides()
+
+    expect(screen.getByRole("group", { name: "页面边距辅助线" })).toHaveStyle({
+      left: "30px",
+      top: "40px",
+      width: "794px",
+      height: "1123px",
+    })
+    expect(screen.getByRole("button", { name: "拖拽左边距，当前 50px" })).toBeInTheDocument()
+  })
+
+  it("updates page margins while dragging a guide without submitting editor content", async () => {
+    const onChange = vi.fn()
+    render(<DraftCanvas canvas={canvas} onChange={onChange} saveStatus="idle" />)
+    showPageMarginGuides()
+    const leftGuide = screen.getByRole("button", { name: "拖拽左边距，当前 50px" })
+    Object.assign(leftGuide, {
+      setPointerCapture: vi.fn(),
+      releasePointerCapture: vi.fn(),
+      hasPointerCapture: vi.fn(() => true),
+    })
+
+    fireEvent.pointerDown(leftGuide, { pointerId: 11, clientX: 100, clientY: 220 })
+    expect(leftGuide).toHaveAttribute("data-dragging", "true")
+    expect(leftGuide.getAttribute("style")).toContain("linear-gradient(to right")
+    expect(leftGuide.getAttribute("style")).toContain("rgba(224, 242, 254, 0.9)")
+    expect(leftGuide.getAttribute("style")).toContain("transparent 100%")
+    expect(leftGuide.className).not.toContain("border")
+
+    fireEvent.pointerMove(leftGuide, { pointerId: 11, clientX: 120, clientY: 220 })
+    fireEvent.pointerUp(leftGuide, { pointerId: 11, clientX: 120, clientY: 220 })
+
+    expect(screen.getByRole("button", { name: "拖拽左边距，当前 70px" })).toBeInTheDocument()
+    expect(leftGuide).not.toHaveAttribute("data-dragging")
+    expect(leftGuide.getAttribute("style")).not.toContain("linear-gradient")
+    expect(editorMocks.updatePageMargins).toHaveBeenLastCalledWith({
+      top: 76,
+      bottom: 76,
+      left: 70,
+      right: 50,
+    })
+    expect(onChange).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(localStorage.getItem("typedance:revision-workspace:page-margins:doc_1")).toBe(JSON.stringify({
+        top: 76,
+        bottom: 76,
+        left: 70,
+        right: 50,
+      }))
+    })
+  })
+
+  it("raises the active margin guide above crossing guides while dragging", () => {
+    render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
+    showPageMarginGuides()
+    const topGuide = screen.getByTestId("page-margin-guide-top")
+    Object.assign(topGuide, {
+      setPointerCapture: vi.fn(),
+      releasePointerCapture: vi.fn(),
+      hasPointerCapture: vi.fn(() => true),
+    })
+
+    fireEvent.pointerDown(topGuide, { pointerId: 12, clientX: 260, clientY: 180 })
+
+    expect(topGuide).toHaveAttribute("data-dragging", "true")
+    expect(topGuide).toHaveClass("z-30")
+    expect(screen.getByTestId("page-margin-guide-left")).toHaveClass("z-10")
+    expect(screen.getByTestId("page-margin-guide-right")).toHaveClass("z-10")
+
+    fireEvent.pointerUp(topGuide, { pointerId: 12, clientX: 260, clientY: 180 })
+
+    expect(topGuide).not.toHaveAttribute("data-dragging")
+    expect(topGuide).toHaveClass("z-10")
   })
 
   it("activates an outline item and scrolls below the toolbar when clicked", () => {

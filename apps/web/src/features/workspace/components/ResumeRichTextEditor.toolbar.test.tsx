@@ -103,6 +103,30 @@ describe("ResumeRichTextEditor toolbar", () => {
     expect(onModuleOutlineVisibleChange).toHaveBeenCalledWith(false)
   })
 
+  it("renders a page margin guide toggle in the toolbar", () => {
+    const onPageMarginGuidesVisibleChange = vi.fn()
+
+    render(
+      <TooltipProvider>
+        <ResumeRichTextEditor
+          ariaLabel="Resume text"
+          docJson={{ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "正文" }] }] }}
+          onChange={() => {}}
+          pageMarginGuidesVisible
+          onPageMarginGuidesVisibleChange={onPageMarginGuidesVisibleChange}
+        />
+      </TooltipProvider>,
+    )
+
+    const button = screen.getByRole("button", { name: "页面边距辅助线" })
+    expect(button.querySelector(".lucide-hash")).toBeInTheDocument()
+    expect(button).toHaveAttribute("data-active", "true")
+
+    fireEvent.click(button)
+
+    expect(onPageMarginGuidesVisibleChange).toHaveBeenCalledWith(false)
+  })
+
   it("renders a paragraph block type icon in the floating drag handle by default", () => {
     render(
       <TooltipProvider>

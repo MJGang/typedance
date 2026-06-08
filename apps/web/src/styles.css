@@ -1664,6 +1664,16 @@ body.td-source-canvas-cursor-text .td-drag-handle-shell * {
   cursor: grab !important;
 }
 
+.td-source-resume-canvas .td-page-margin-guide-x-resize,
+.td-source-resume-canvas .td-page-margin-guide-x-resize * {
+  cursor: ew-resize !important;
+}
+
+.td-source-resume-canvas .td-page-margin-guide-y-resize,
+.td-source-resume-canvas .td-page-margin-guide-y-resize * {
+  cursor: ns-resize !important;
+}
+
 .td-source-resume-canvas .td-rich-editor-content > .ProseMirror,
 .td-source-resume-canvas .td-rich-editor-content > .ProseMirror *,
 .td-source-resume-canvas .rm-with-pagination .page,
