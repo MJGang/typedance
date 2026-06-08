@@ -295,7 +295,7 @@ describe("revision api", () => {
     expect(proposal.status).toBe("applied")
   })
 
-  it("imports an old resume through document source run and workspace view", async () => {
+  it("imports an old resume through document source run and opens a recognizing workspace view", async () => {
     const responses = [
       {
         id: "doc_import",
@@ -323,9 +323,8 @@ describe("revision api", () => {
         document_id: "doc_import",
         pack_id: "resume",
         run_type: "import_reconstruct",
-        status: "completed",
+        status: "recognizing",
         source_document_ids: ["src_import"],
-        target_draft_id: "draft_import",
         created_at: "2026-05-21T08:00:00.000Z",
         updated_at: "2026-05-21T08:00:00.000Z",
       },
@@ -336,19 +335,27 @@ describe("revision api", () => {
           title: "旧简历重构",
           status: "active",
           target_language: "zh-CN",
-          current_draft_id: "draft_import",
+          current_draft_id: null,
           created_at: "2026-05-21T08:00:00.000Z",
           updated_at: "2026-05-21T08:00:00.000Z",
         },
-        current_draft: {
-          id: "draft_import",
+        source_resume_canvas: {
+          id: "canvas_import",
           document_id: "doc_import",
-          run_id: "run_import",
-          pack_id: "resume",
-          status: "in_review",
-          summary: "基于旧简历生成的结构化草稿",
-          applied_proposal_ids: [],
-          unresolved_issue_ids: [],
+          old_resume_source_id: "src_import",
+          version: 1,
+          source_snapshot_hash: "sha256:import",
+          doc_json: {
+            type: "doc",
+            content: [
+              {
+                type: "paragraph",
+                content: [{ type: "text", text: "项目经历" }],
+              },
+            ],
+          },
+          node_map: [],
+          module_anchors: [],
           created_at: "2026-05-21T08:00:00.000Z",
           updated_at: "2026-05-21T08:00:00.000Z",
         },
@@ -358,7 +365,11 @@ describe("revision api", () => {
         proposals: [],
         evidence: [],
         source_summaries: [],
-        quality_gate: { status: "ready", blocking_issue_ids: [], warning_issue_ids: [] },
+        quality_gate: { status: "unknown", blocking_issue_ids: [], warning_issue_ids: [] },
+        run_status: {
+          run_id: "run_import",
+          status: "recognizing",
+        },
         available_actions: [],
       },
     ]
@@ -408,16 +419,22 @@ describe("revision api", () => {
       4,
       "http://127.0.0.1:4317/documents/doc_import/workspace-view",
     )
-    expect(workspace.document.current_draft_id).toBe("draft_import")
+    expect(workspace.document.current_draft_id).toBeUndefined()
+    expect(workspace.current_draft).toBeUndefined()
+    expect(workspace.source_resume_canvas?.id).toBe("canvas_import")
+    expect(workspace.run_status).toEqual({
+      run_id: "run_import",
+      status: "recognizing",
+    })
     expect(progressSteps).toEqual([
       "create_document",
       "save_source",
-      "run_import",
+      "start_recognition",
       "load_workspace",
     ])
   })
 
-  it("imports an old resume file through upload source run and workspace view", async () => {
+  it("imports an old resume file through upload source run and opens a recognizing workspace view", async () => {
     const responses = [
       {
         id: "doc_import",
@@ -447,9 +464,8 @@ describe("revision api", () => {
         document_id: "doc_import",
         pack_id: "resume",
         run_type: "import_reconstruct",
-        status: "completed",
+        status: "recognizing",
         source_document_ids: ["src_import"],
-        target_draft_id: "draft_import",
         created_at: "2026-05-21T08:00:00.000Z",
         updated_at: "2026-05-21T08:00:00.000Z",
       },
@@ -460,19 +476,27 @@ describe("revision api", () => {
           title: "旧简历重构",
           status: "active",
           target_language: "zh-CN",
-          current_draft_id: "draft_import",
+          current_draft_id: null,
           created_at: "2026-05-21T08:00:00.000Z",
           updated_at: "2026-05-21T08:00:00.000Z",
         },
-        current_draft: {
-          id: "draft_import",
+        source_resume_canvas: {
+          id: "canvas_import",
           document_id: "doc_import",
-          run_id: "run_import",
-          pack_id: "resume",
-          status: "in_review",
-          summary: "基于旧简历生成的结构化草稿",
-          applied_proposal_ids: [],
-          unresolved_issue_ids: [],
+          old_resume_source_id: "src_import",
+          version: 1,
+          source_snapshot_hash: "sha256:import",
+          doc_json: {
+            type: "doc",
+            content: [
+              {
+                type: "paragraph",
+                content: [{ type: "text", text: "项目经历" }],
+              },
+            ],
+          },
+          node_map: [],
+          module_anchors: [],
           created_at: "2026-05-21T08:00:00.000Z",
           updated_at: "2026-05-21T08:00:00.000Z",
         },
@@ -482,7 +506,11 @@ describe("revision api", () => {
         proposals: [],
         evidence: [],
         source_summaries: [],
-        quality_gate: { status: "ready", blocking_issue_ids: [], warning_issue_ids: [] },
+        quality_gate: { status: "unknown", blocking_issue_ids: [], warning_issue_ids: [] },
+        run_status: {
+          run_id: "run_import",
+          status: "recognizing",
+        },
         available_actions: [],
       },
     ]
@@ -491,10 +519,11 @@ describe("revision api", () => {
     const file = new File(["项目经历\n负责订单系统重构"], "resume.md", { type: "text/markdown" })
 
     const { importOldResume } = await import("./api")
+    const progressSteps: string[] = []
     const workspace = await importOldResume({
       title: "旧简历重构",
       file,
-    })
+    }, (step) => progressSteps.push(step))
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
@@ -505,7 +534,19 @@ describe("revision api", () => {
     const uploadBody = uploadInit.body
     expect(uploadBody).toBeInstanceOf(FormData)
     expect((uploadBody as FormData).get("file")).toBe(file)
-    expect(workspace.document.current_draft_id).toBe("draft_import")
+    expect(workspace.document.current_draft_id).toBeUndefined()
+    expect(workspace.current_draft).toBeUndefined()
+    expect(workspace.source_resume_canvas?.id).toBe("canvas_import")
+    expect(workspace.run_status).toEqual({
+      run_id: "run_import",
+      status: "recognizing",
+    })
+    expect(progressSteps).toEqual([
+      "create_document",
+      "save_source",
+      "start_recognition",
+      "load_workspace",
+    ])
   })
 
   it("starts a blank guided resume through manual source and workspace view", async () => {

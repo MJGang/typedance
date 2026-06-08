@@ -347,6 +347,49 @@ function workspaceForDocument(documentId: string, title: string): WorkspaceView 
   }
 }
 
+function sourceCanvasOnlyWorkspace(
+  status: NonNullable<WorkspaceView["run_status"]>["status"],
+  text: string,
+): WorkspaceView {
+  return {
+    ...workspace,
+    document: {
+      ...workspace.document,
+      current_draft_id: null,
+    },
+    current_draft: undefined,
+    modules: [],
+    claims: [],
+    issues: [],
+    proposals: [],
+    evidence: [],
+    source_resume_canvas: {
+      ...workspace.source_resume_canvas!,
+      doc_json: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text }],
+          },
+        ],
+      },
+      module_anchors: [],
+    },
+    quality_gate: {
+      status: "unknown",
+      blocking_issue_ids: [],
+      warning_issue_ids: [],
+    },
+    run_status: {
+      run_id: "run_import",
+      status,
+    },
+    coach_summary: undefined,
+    available_actions: [],
+  }
+}
+
 function savedCanvasWithLatestText() {
   return {
     ...workspace.source_resume_canvas!,
@@ -465,6 +508,35 @@ describe("RevisionWorkspacePage", () => {
     expect(screen.queryByTitle("结构化草稿预览")).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "折叠模块大纲" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "项目经历" })).toBeInTheDocument()
+  })
+
+  it("renders the source canvas and recognizing status before a draft exists", async () => {
+    apiMocks.getRevisionWorkspaceView.mockResolvedValue(sourceCanvasOnlyWorkspace(
+      "recognizing",
+      "后台识别中的原始画布",
+    ))
+
+    renderPage()
+
+    expect(await screen.findByText("后台识别中的原始画布")).toBeInTheDocument()
+    expect(screen.getByText("正在识别模块和建议")).toBeInTheDocument()
+    expect(draftCanvasMocks.render).toHaveBeenCalledWith("doc_1")
+    const reviewActions = screen.getByTestId("revision-review-actions")
+    expect(within(reviewActions).getByRole("button", { name: "质量检查" })).toBeDisabled()
+    expect(within(reviewActions).getByRole("button", { name: "岗位校准" })).toBeDisabled()
+    expect(within(reviewActions).getByRole("button", { name: "导出" })).toBeDisabled()
+  })
+
+  it("shows a stale source canvas recognition status", async () => {
+    apiMocks.getRevisionWorkspaceView.mockResolvedValue(sourceCanvasOnlyWorkspace(
+      "stale",
+      "更新后的原始画布",
+    ))
+
+    renderPage()
+
+    expect(await screen.findByText("更新后的原始画布")).toBeInTheDocument()
+    expect(screen.getByText("源画布已更新，需要重新识别")).toBeInTheDocument()
   })
 
   it("debounces source canvas autosave and announces success", async () => {

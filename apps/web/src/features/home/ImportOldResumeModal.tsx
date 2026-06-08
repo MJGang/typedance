@@ -20,9 +20,9 @@ const ACCEPTED_RESUME_FILE_TYPES = ".pdf,.doc,.docx,.md,.markdown,.txt"
 const SUPPORTED_RESUME_FILE_EXTENSIONS = new Set(["pdf", "doc", "docx", "md", "markdown", "txt"])
 const IMPORT_PROGRESS_LABELS: Record<ImportOldResumeProgressStep, string> = {
   create_document: "创建工作台",
-  save_source: "保存旧简历",
-  run_import: "解析原文、生成画布并识别模块",
-  load_workspace: "打开可编辑画布",
+  save_source: "生成原始画布",
+  start_recognition: "启动后台识别",
+  load_workspace: "打开工作台",
 }
 
 type ImportOldResumeModalProps = {

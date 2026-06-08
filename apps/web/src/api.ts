@@ -309,7 +309,7 @@ export type ImportOldResumeInput = {
 export type ImportOldResumeProgressStep =
   | "create_document"
   | "save_source"
-  | "run_import"
+  | "start_recognition"
   | "load_workspace"
 
 export async function importOldResume(
@@ -338,7 +338,7 @@ export async function importOldResume(
         raw_text: input.raw_text,
         mime_type: "text/plain",
       })
-  onProgress?.("run_import")
+  onProgress?.("start_recognition")
   await createRevisionRun(document.id, {
     run_type: "import_reconstruct",
     source_document_ids: [source.id],

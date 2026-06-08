@@ -121,7 +121,8 @@ describe("ImportOldResumeModal", () => {
         resolveImport = resolve
         onProgress?.("create_document")
         onProgress?.("save_source")
-        onProgress?.("run_import")
+        onProgress?.("start_recognition")
+        onProgress?.("load_workspace")
       }),
     )
     renderModal()
@@ -131,8 +132,11 @@ describe("ImportOldResumeModal", () => {
 
     expect(await screen.findByText("正在准备可编辑工作台")).toBeInTheDocument()
     expect(screen.getByText("创建工作台")).toBeInTheDocument()
-    expect(screen.getByText("保存旧简历")).toBeInTheDocument()
-    expect(screen.getByText("解析原文、生成画布并识别模块")).toBeInTheDocument()
+    expect(screen.getByText("生成原始画布")).toBeInTheDocument()
+    expect(screen.getByText("启动后台识别")).toBeInTheDocument()
+    expect(screen.getByText("打开工作台")).toBeInTheDocument()
+    expect(screen.queryByText("保存旧简历")).not.toBeInTheDocument()
+    expect(screen.queryByText("解析原文、生成画布并识别模块")).not.toBeInTheDocument()
 
     resolveImport({ document: { id: "doc_import" } })
     await waitFor(() => {

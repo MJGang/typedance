@@ -54,6 +54,12 @@ function qualityClass(status?: string) {
   return "border-border bg-muted text-muted-foreground"
 }
 
+function runStatusMessage(status?: string) {
+  if (status === "recognizing") return "正在识别模块和建议"
+  if (status === "stale") return "源画布已更新，需要重新识别"
+  return null
+}
+
 function targetMatches(action: ContextualAction, proposal: RevisionProposal) {
   const target = action.target
   if (!target) return false
@@ -660,6 +666,7 @@ export function RevisionWorkspacePage() {
 
   if (!workspace) return null
   const globalActions = documentLevelActions(workspace.available_actions)
+  const workspaceRunStatusMessage = runStatusMessage(workspace.run_status?.status)
 
   return (
     <div className="flex h-[calc(100svh-3rem)] min-h-0 flex-col overflow-hidden bg-background">
@@ -785,6 +792,15 @@ export function RevisionWorkspacePage() {
               {qualityLabel(workspace.quality_gate?.status)}
             </span>
           </section>
+
+          {workspaceRunStatusMessage ? (
+            <section>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">状态</p>
+              <div className="rounded-md border border-border bg-muted/30 p-3">
+                <p className="text-sm leading-6 text-muted-foreground">{workspaceRunStatusMessage}</p>
+              </div>
+            </section>
+          ) : null}
 
           <section>
             <p className="mb-2 text-xs font-medium text-muted-foreground">引导</p>
