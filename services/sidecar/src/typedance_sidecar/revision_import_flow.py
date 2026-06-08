@@ -28,6 +28,7 @@ from .revision_models import (
     RevisionProposal,
     RevisionRun,
     SourceDocument,
+    SourceResumeCanvas,
 )
 from .revision_repository import RevisionRepository
 from .revision_services import RenderService, RevisionServiceError
@@ -116,7 +117,7 @@ class RevisionImportFlowService:
         recognizing_source = sources[0].model_copy(update={"parse_status": "recognizing"})
         self.repository.save_source_document(recognizing_source)
         sources = [recognizing_source]
-        parsed_blocks = self._parse_sources(run, sources)
+        parsed_blocks = self._parse_sources(run, sources, source_canvas)
         if not parsed_blocks:
             raise RevisionServiceError("Import source has no text")
         now = utc_now()
@@ -242,10 +243,15 @@ class RevisionImportFlowService:
         selected_ids = set(source_ids)
         return [source for source in sources if source.id in selected_ids]
 
-    def _parse_sources(self, run: RevisionRun, sources: list[SourceDocument]) -> list[ParsedBlock]:
+    def _parse_sources(
+        self,
+        run: RevisionRun,
+        sources: list[SourceDocument],
+        source_canvas: SourceResumeCanvas,
+    ) -> list[ParsedBlock]:
         parsed_blocks: list[ParsedBlock] = []
         for source in sources:
-            parser_output, parser_step = self._invoke_parser_agent(run, source)
+            parser_output, parser_step = self._invoke_parser_agent(run, source, source_canvas)
             source_blocks: list[ParsedBlock] = []
             for block_draft in parser_output.blocks:
                 source_span = dict(block_draft.source_span)
@@ -286,6 +292,7 @@ class RevisionImportFlowService:
         self,
         run: RevisionRun,
         source: SourceDocument,
+        source_canvas: SourceResumeCanvas,
     ):
         runtime = AgentRuntime(
             self.repository,
@@ -294,11 +301,16 @@ class RevisionImportFlowService:
         context = build_agent_context(
             run,
             agent_name="SourceParser",
-            input_refs=[AgentInputRef(object_type="SourceDocument", object_id=source.id)],
+            input_refs=[
+                AgentInputRef(object_type="SourceDocument", object_id=source.id),
+                AgentInputRef(object_type="SourceResumeCanvas", object_id=source_canvas.id),
+            ],
         )
         request = ResumeParserRunRequest(
             source_document_id=source.id,
-            raw_text=source.raw_text,
+            source_canvas_id=source_canvas.id,
+            source_canvas_version=source_canvas.version,
+            source_canvas_doc_json=source_canvas.doc_json,
         )
 
         def runner(received_context):

@@ -1,3 +1,5 @@
+import json
+
 from typedance_sidecar.resume_agent_outputs import ParsedDocumentOutput
 from typedance_sidecar.resume_parser_runner import (
     LangChainResumeParserRunner,
@@ -8,6 +10,27 @@ from typedance_sidecar.resume_parser_runner import (
 )
 from typedance_sidecar.revision_agent_runtime import build_agent_context
 from typedance_sidecar.revision_models import RevisionRun
+
+
+def parser_request(content):
+    return ResumeParserRunRequest(
+        source_document_id="src_import",
+        source_canvas_id="canvas_import",
+        source_canvas_version=1,
+        source_canvas_doc_json={"type": "doc", "content": content},
+    )
+
+
+def paragraph(text: str):
+    return {"type": "paragraph", "content": [{"type": "text", "text": text}]}
+
+
+def heading(text: str):
+    return {
+        "type": "heading",
+        "attrs": {"level": 2},
+        "content": [{"type": "text", "text": text}],
+    }
 
 
 def test_rule_based_resume_parser_runner_returns_parsed_blocks():
@@ -23,9 +46,13 @@ def test_rule_based_resume_parser_runner_returns_parsed_blocks():
         ),
         agent_name="SourceParser",
     )
-    request = ResumeParserRunRequest(
-        source_document_id="src_import",
-        raw_text="张三\n电话：13800000000\n工作经历\n负责订单系统重构",
+    request = parser_request(
+        [
+            paragraph("张三"),
+            paragraph("电话：13800000000"),
+            heading("工作经历"),
+            paragraph("负责订单系统重构"),
+        ]
     )
 
     envelope = RuleBasedResumeParserRunner()(context, request)
@@ -55,15 +82,138 @@ def test_rule_based_resume_parser_runner_recognizes_career_skills_heading():
         ),
         agent_name="SourceParser",
     )
-    request = ResumeParserRunRequest(
-        source_document_id="src_import",
-        raw_text="职业技能",
-    )
+    request = parser_request([paragraph("职业技能")])
 
     envelope = RuleBasedResumeParserRunner()(context, request)
 
     payload = ParsedDocumentOutput.model_validate(envelope["payload"])
     assert payload.blocks[0].type == "heading"
+
+
+def test_rule_based_resume_parser_runner_preserves_nested_source_canvas_list_items():
+    context = build_agent_context(
+        RevisionRun(
+            id="run_import",
+            document_id="doc_import",
+            pack_id="resume",
+            run_type="import_reconstruct",
+            status="created",
+            created_at="2026-05-22T00:00:00.000Z",
+            updated_at="2026-05-22T00:00:00.000Z",
+        ),
+        agent_name="SourceParser",
+    )
+    request = parser_request(
+        [
+            {
+                "type": "bulletList",
+                "content": [
+                    {
+                        "type": "listItem",
+                        "attrs": {
+                            "canvasNodeId": "node_outer",
+                            "sourceBlockId": "src_import_0001",
+                        },
+                        "content": [
+                            paragraph("TypeDance"),
+                            {
+                                "type": "bulletList",
+                                "content": [
+                                    {
+                                        "type": "listItem",
+                                        "attrs": {
+                                            "canvasNodeId": "node_inner",
+                                            "sourceBlockId": "src_import_0002",
+                                        },
+                                        "content": [paragraph("初始化 source canvas")],
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            }
+        ]
+    )
+
+    envelope = RuleBasedResumeParserRunner()(context, request)
+
+    payload = ParsedDocumentOutput.model_validate(envelope["payload"])
+    assert [(block.type, block.text) for block in payload.blocks] == [
+        ("list", "TypeDance"),
+        ("list", "初始化 source canvas"),
+    ]
+    assert payload.blocks[0].source_span == {
+        "source_canvas_id": "canvas_import",
+        "source_canvas_version": 1,
+        "canvas_node_id": "node_outer",
+        "source_block_id": "src_import_0001",
+    }
+    assert payload.blocks[1].source_span["canvas_node_id"] == "node_inner"
+
+
+def test_rule_based_resume_parser_runner_recurses_inside_table_cells():
+    context = build_agent_context(
+        RevisionRun(
+            id="run_import",
+            document_id="doc_import",
+            pack_id="resume",
+            run_type="import_reconstruct",
+            status="created",
+            created_at="2026-05-22T00:00:00.000Z",
+            updated_at="2026-05-22T00:00:00.000Z",
+        ),
+        agent_name="SourceParser",
+    )
+    request = parser_request(
+        [
+            {
+                "type": "table",
+                "content": [
+                    {
+                        "type": "tableRow",
+                        "content": [
+                            {
+                                "type": "tableCell",
+                                "attrs": {
+                                    "canvasNodeId": "node_cell",
+                                    "sourceBlockId": "src_import_0001",
+                                },
+                                "content": [
+                                    paragraph("公司 A"),
+                                    heading("项目经历"),
+                                    {
+                                        "type": "bulletList",
+                                        "content": [
+                                            {
+                                                "type": "listItem",
+                                                "attrs": {
+                                                    "canvasNodeId": "node_cell_item",
+                                                    "sourceBlockId": "src_import_0002",
+                                                },
+                                                "content": [paragraph("负责平台重构")],
+                                            }
+                                        ],
+                                    },
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    )
+
+    envelope = RuleBasedResumeParserRunner()(context, request)
+
+    payload = ParsedDocumentOutput.model_validate(envelope["payload"])
+    assert [(block.type, block.text) for block in payload.blocks] == [
+        ("paragraph", "公司 A"),
+        ("heading", "项目经历"),
+        ("list", "负责平台重构"),
+    ]
+    assert payload.blocks[0].source_span["canvas_node_id"] == "node_cell"
+    assert payload.blocks[2].source_span["canvas_node_id"] == "node_cell_item"
 
 
 def test_langchain_resume_parser_runner_uses_structured_output_model():
@@ -107,13 +257,124 @@ def test_langchain_resume_parser_runner_uses_structured_output_model():
         ),
         agent_name="SourceParser",
     )
-    request = ResumeParserRunRequest(source_document_id="src_import", raw_text="张三")
+    request = parser_request([paragraph("张三")])
 
     envelope = LangChainResumeParserRunner(model_factory=lambda: FakeModel())(context, request)
 
     assert seen["schema"] is ParsedDocumentOutput
-    assert envelope["payload"] == expected_payload.model_dump()
-    assert "src_import" in seen["messages"][1]["content"]
+    output = ParsedDocumentOutput.model_validate(envelope["payload"])
+    assert output.blocks[0].source_span == {
+        "line": 0,
+        "source_canvas_id": "canvas_import",
+        "source_canvas_version": 1,
+    }
+    payload = json.loads(seen["messages"][1]["content"])
+    assert payload["source_document_id"] == "src_import"
+    assert payload["source_canvas_id"] == "canvas_import"
+    assert payload["source_canvas_version"] == 1
+    assert payload["source_canvas_doc_json"] == request.source_canvas_doc_json
+    assert "raw_text" not in payload
+
+
+def test_langchain_resume_parser_runner_restores_source_canvas_spans_when_model_omits_them():
+    seen = {}
+    raw_payload = ParsedDocumentOutput.model_validate(
+        {
+            "source_document_id": "src_import",
+            "blocks": [
+                {
+                    "type": "list",
+                    "text": "TypeDance",
+                    "order": 0,
+                    "source_span": {},
+                    "confidence": 0.9,
+                },
+                {
+                    "type": "list",
+                    "text": "初始化 source canvas",
+                    "order": 1,
+                    "source_span": {"model_note": "kept"},
+                    "confidence": 0.9,
+                },
+            ],
+            "detected_language": "zh-CN",
+            "parse_warnings": [],
+        }
+    )
+
+    class FakeStructuredModel:
+        def invoke(self, messages):
+            seen["system"] = messages[0]["content"]
+            return raw_payload
+
+    class FakeModel:
+        def with_structured_output(self, schema):
+            seen["schema"] = schema
+            return FakeStructuredModel()
+
+    context = build_agent_context(
+        RevisionRun(
+            id="run_import",
+            document_id="doc_import",
+            pack_id="resume",
+            run_type="import_reconstruct",
+            status="created",
+            created_at="2026-05-22T00:00:00.000Z",
+            updated_at="2026-05-22T00:00:00.000Z",
+        ),
+        agent_name="SourceParser",
+    )
+    request = parser_request(
+        [
+            {
+                "type": "bulletList",
+                "content": [
+                    {
+                        "type": "listItem",
+                        "attrs": {
+                            "canvasNodeId": "node_outer",
+                            "sourceBlockId": "src_import_0001",
+                        },
+                        "content": [
+                            paragraph("TypeDance"),
+                            {
+                                "type": "bulletList",
+                                "content": [
+                                    {
+                                        "type": "listItem",
+                                        "attrs": {
+                                            "canvasNodeId": "node_inner",
+                                            "sourceBlockId": "src_import_0002",
+                                        },
+                                        "content": [paragraph("初始化 source canvas")],
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            }
+        ]
+    )
+
+    envelope = LangChainResumeParserRunner(model_factory=lambda: FakeModel())(context, request)
+
+    payload = ParsedDocumentOutput.model_validate(envelope["payload"])
+    assert payload.blocks[0].source_span == {
+        "source_canvas_id": "canvas_import",
+        "source_canvas_version": 1,
+        "canvas_node_id": "node_outer",
+        "source_block_id": "src_import_0001",
+    }
+    assert payload.blocks[1].source_span == {
+        "source_canvas_id": "canvas_import",
+        "source_canvas_version": 1,
+        "canvas_node_id": "node_inner",
+        "source_block_id": "src_import_0002",
+        "model_note": "kept",
+    }
+    assert "canvasNodeId" in seen["system"]
+    assert "source_span.canvas_node_id" in seen["system"]
 
 
 def test_resume_parser_runner_config_defaults_to_auto_and_rule_without_key(tmp_path):

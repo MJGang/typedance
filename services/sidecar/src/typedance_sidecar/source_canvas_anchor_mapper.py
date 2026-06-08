@@ -66,9 +66,19 @@ class SourceCanvasAnchorMapper:
         parsed_blocks: list[ParsedBlock],
     ) -> dict[str, str]:
         available_nodes = list(canvas.node_map)
+        available_node_ids = {node.canvas_node_id for node in available_nodes}
         node_by_block: dict[str, str] = {}
 
         for block in sorted(parsed_blocks, key=lambda item: item.order):
+            span_node_id = block.source_span.get("canvas_node_id")
+            if isinstance(span_node_id, str) and span_node_id in available_node_ids:
+                node_by_block[block.id] = span_node_id
+                available_node_ids.remove(span_node_id)
+                available_nodes = [
+                    node for node in available_nodes if node.canvas_node_id != span_node_id
+                ]
+                continue
+
             block_text = self._normalize_text(block.text)
             if not block_text:
                 continue
@@ -76,6 +86,7 @@ class SourceCanvasAnchorMapper:
                 if self._normalize_text(node.text) != block_text:
                     continue
                 node_by_block[block.id] = node.canvas_node_id
+                available_node_ids.remove(node.canvas_node_id)
                 del available_nodes[index]
                 break
 

@@ -249,6 +249,76 @@ def test_anchor_mapper_normalizes_markdown_list_and_quote_markers():
     ]
 
 
+def test_anchor_mapper_prefers_source_span_canvas_node_id_for_nested_list_items():
+    now = utc_now()
+    canvas = SourceResumeCanvas(
+        id="canvas_1",
+        document_id="doc_1",
+        old_resume_source_id="src_1",
+        version=1,
+        source_snapshot_hash="sha256:source",
+        doc_json={"type": "doc", "content": []},
+        node_map=[
+            SourceResumeCanvasNode(
+                canvas_node_id="node_outer",
+                node_type="list_item",
+                text="TypeDance初始化 source canvas",
+                source_block_id="src_1_0001",
+            ),
+            SourceResumeCanvasNode(
+                canvas_node_id="node_inner",
+                node_type="list_item",
+                text="初始化 source canvas",
+                source_block_id="src_1_0002",
+            ),
+        ],
+        module_anchors=[],
+        created_at=now,
+        updated_at=now,
+    )
+    blocks = [
+        ParsedBlock(
+            id="block_outer",
+            source_document_id="src_1",
+            type="list",
+            text="TypeDance",
+            order=0,
+            source_span={"canvas_node_id": "node_outer"},
+        ),
+        ParsedBlock(
+            id="block_inner",
+            source_document_id="src_1",
+            type="list",
+            text="初始化 source canvas",
+            order=1,
+            source_span={"canvas_node_id": "node_inner"},
+        ),
+    ]
+    module = DocumentModule(
+        id="mod_project",
+        draft_id="draft_1",
+        pack_id="resume",
+        type="ProjectExperience",
+        title="项目经历",
+        order=1,
+        visibility="visible",
+        status="needs_review",
+        data={},
+        created_at=now,
+        updated_at=now,
+    )
+
+    updated = SourceCanvasAnchorMapper().apply_module_anchors(
+        canvas=canvas,
+        modules=[module],
+        parsed_blocks=blocks,
+        module_source_refs={"mod_project": ["block_outer", "block_inner"]},
+    )
+
+    assert updated.module_anchors[0].canvas_node_ids == ["node_outer", "node_inner"]
+    assert [node.module_id for node in updated.node_map] == ["mod_project", "mod_project"]
+
+
 def test_annotates_nested_list_items_with_canvas_node_ids():
     now = utc_now()
     source = SourceDocument(

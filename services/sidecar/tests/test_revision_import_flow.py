@@ -2,6 +2,7 @@ import pytest
 
 from typedance_sidecar.db import connect
 from typedance_sidecar.models import utc_now
+from typedance_sidecar.resume_agent_outputs import ParsedBlockDraft, ParsedDocumentOutput
 from typedance_sidecar.resume_structurer_runner import RuleBasedResumeStructurerRunner
 from typedance_sidecar.revision_import_flow import RevisionImportFlowService
 from typedance_sidecar.revision_models import (
@@ -16,6 +17,7 @@ from typedance_sidecar.source_canvas_initializer import (
     SourceCanvasInitializationError,
     SourceCanvasInitializer,
 )
+from typedance_sidecar.source_canvas_doc_json import annotate_source_doc_json
 
 
 def make_repository(tmp_path) -> RevisionRepository:
@@ -133,8 +135,13 @@ def test_import_flow_generates_workspace_objects(tmp_path):
     ]
     steps = repo.list_agent_steps(run.id)
     parser_steps = [step for step in steps if step.agent_name == "SourceParser"]
+    canvas = repo.get_source_resume_canvas(document.id)
+    assert canvas is not None
     assert len(parser_steps) == 1
-    assert parser_steps[0].input_refs == ["SourceDocument:src_import"]
+    assert parser_steps[0].input_refs == [
+        f"SourceDocument:{source.id}",
+        f"SourceResumeCanvas:{canvas.id}",
+    ]
     assert parser_steps[0].output_refs
     assert all(ref.startswith("ParsedBlock:") for ref in parser_steps[0].output_refs)
     structurer_steps = [step for step in steps if step.agent_name == "ResumeStructurer"]
@@ -244,6 +251,90 @@ def test_import_flow_renders_markdown_source_canvas_syntax(tmp_path):
         {"type": "text", "text": ": Vue"},
     ]
     assert divider["attrs"]["canvasNodeId"]
+
+
+def test_import_flow_parses_current_source_canvas_doc_json_instead_of_source_raw_text(tmp_path):
+    repo = make_repository(tmp_path)
+    document, source, run = seed_import_run(repo, raw_text="fallback raw text should not be used")
+    canvas = repo.get_source_resume_canvas(document.id)
+    assert canvas is not None
+    doc_json = {
+        "type": "doc",
+        "content": [
+            {
+                "type": "heading",
+                "attrs": {"level": 2},
+                "content": [{"type": "text", "text": "项目经历"}],
+            },
+            {
+                "type": "paragraph",
+                "content": [{"type": "text", "text": "来自源画布的项目内容"}],
+            },
+        ],
+    }
+    annotated_doc_json, node_map, source_snapshot_hash = annotate_source_doc_json(doc_json, source)
+    repo.save_source_resume_canvas(
+        canvas.model_copy(
+            update={
+                "doc_json": annotated_doc_json,
+                "node_map": node_map,
+                "source_snapshot_hash": source_snapshot_hash,
+                "updated_at": utc_now(),
+            }
+        )
+    )
+    seen = {}
+
+    def parser_runner(context, request):
+        seen["source_canvas_doc_json"] = request.source_canvas_doc_json
+        seen["raw_text"] = getattr(request, "raw_text", None)
+        seen["source_canvas_id"] = request.source_canvas_id
+        seen["source_canvas_version"] = request.source_canvas_version
+        return {
+            "invocation_id": context.invocation_id,
+            "run_id": context.run_id,
+            "document_id": context.document_id,
+            "pack_id": context.pack_id,
+            "agent_name": context.agent_name,
+            "output_type": "ParsedDocumentOutput",
+            "confidence": 0.9,
+            "warnings": [],
+            "payload": ParsedDocumentOutput(
+                source_document_id=source.id,
+                blocks=[
+                    ParsedBlockDraft(
+                        type="heading",
+                        text="项目经历",
+                        order=0,
+                        source_span={"canvas_node_id": node_map[0].canvas_node_id},
+                        confidence=0.9,
+                    ),
+                    ParsedBlockDraft(
+                        type="paragraph",
+                        text="来自源画布的项目内容",
+                        order=1,
+                        source_span={"canvas_node_id": node_map[1].canvas_node_id},
+                        confidence=0.9,
+                    ),
+                ],
+                detected_language="zh-CN",
+                parse_warnings=[],
+            ).model_dump(),
+            "output_refs": [],
+        }
+
+    service = RevisionImportFlowService(
+        repo,
+        parser_runner=parser_runner,
+        structurer_runner=RuleBasedResumeStructurerRunner(),
+    )
+
+    service.run_import_reconstruct(document.id, run.id)
+
+    assert seen["source_canvas_doc_json"] == annotated_doc_json
+    assert seen["raw_text"] is None
+    assert seen["source_canvas_id"] == canvas.id
+    assert seen["source_canvas_version"] == canvas.version
 
 
 def test_import_flow_rejects_multiple_sources(tmp_path):

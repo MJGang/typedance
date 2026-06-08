@@ -21,6 +21,8 @@ CONTACT_EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
 CONTACT_PHONE_RE = re.compile(r"(?:\+?86[- ]?)?1[3-9]\d{9}")
 DATE_RANGE_RE = re.compile(r"\d{4}[./-]\d{1,2}\s*[-至]\s*(?:\d{4}[./-]\d{1,2}|至今|现在)")
 MARKDOWN_HEADING_RE = re.compile(r"^\s*#{1,6}\s+(.+?)\s*#*\s*$")
+MARKDOWN_LIST_MARKER_RE = re.compile(r"^\s*(?:[-*+•·]|\d+[.)])\s+")
+MARKDOWN_QUOTE_RE = re.compile(r"^\s*>+\s*")
 MARKDOWN_THEMATIC_BREAK_RE = re.compile(r"^\s*([-*_])(?:\s*\1){2,}\s*$")
 
 SECTION_ALIASES: list[tuple[tuple[str, ...], str, str]] = [
@@ -35,7 +37,9 @@ SECTION_ALIASES: list[tuple[tuple[str, ...], str, str]] = [
 
 class ResumeParserRunRequest(BaseModel):
     source_document_id: str = Field(min_length=1)
-    raw_text: str | None = None
+    source_canvas_id: str = Field(min_length=1)
+    source_canvas_version: int = Field(ge=1)
+    source_canvas_doc_json: dict[str, Any]
 
 
 ResumeParserMode = Literal["rule", "langchain", "auto"]
@@ -54,7 +58,7 @@ class RuleBasedResumeParserRunner:
     ) -> dict[str, Any]:
         output = ParsedDocumentOutput(
             source_document_id=request.source_document_id,
-            blocks=_parse_blocks(request.raw_text),
+            blocks=_parse_blocks(request),
             detected_language="zh-CN",
             parse_warnings=[],
         )
@@ -85,6 +89,7 @@ class LangChainResumeParserRunner:
         structured_model = with_typedance_structured_output(model, ParsedDocumentOutput)
         raw_output = structured_model.invoke(_messages(context, request))
         output = _coerce_parser_output(raw_output)
+        output = _restore_source_canvas_spans(output, _parse_blocks(request))
         return {
             "invocation_id": context.invocation_id,
             "run_id": context.run_id,
@@ -138,7 +143,9 @@ def _messages(
         "run_type": "import_reconstruct",
         "document_id": context.document_id,
         "source_document_id": request.source_document_id,
-        "raw_text": request.raw_text,
+        "source_canvas_id": request.source_canvas_id,
+        "source_canvas_version": request.source_canvas_version,
+        "source_canvas_doc_json": request.source_canvas_doc_json,
     }
     return [
         {
@@ -146,6 +153,9 @@ def _messages(
             "content": (
                 "你是 TypeDance 的 SourceParser。只输出 ParsedDocumentOutput 结构化结果。"
                 f"{structured_output_system_instruction(ParsedDocumentOutput)}"
+                "source_canvas_doc_json 是唯一的简历正文来源，不要使用或推测其他来源。"
+                "遇到带 attrs.canvasNodeId 的节点时，必须把它写入 source_span.canvas_node_id；"
+                "遇到 attrs.sourceBlockId 时，必须把它写入 source_span.source_block_id。"
                 "你只负责解析和切块，不要重写、润色、补充用户经历。"
                 "保留原文顺序，并为每个 block 标注 type、text、order、source_span 和 confidence。"
             ),
@@ -165,18 +175,176 @@ def _coerce_parser_output(raw_output: Any) -> ParsedDocumentOutput:
     return ParsedDocumentOutput.model_validate(raw_output)
 
 
-def _parse_blocks(raw_text: str | None) -> list[ParsedBlockDraft]:
-    lines = [line.strip() for line in (raw_text or "").splitlines() if line.strip()]
-    return [
-        ParsedBlockDraft(
-            type=_block_type(line),
-            text=line,
-            order=index,
-            source_span={"line": index},
-            confidence=0.9,
+def _restore_source_canvas_spans(
+    output: ParsedDocumentOutput,
+    canonical_blocks: list[ParsedBlockDraft],
+) -> ParsedDocumentOutput:
+    canonical_by_order = sorted(canonical_blocks, key=lambda block: block.order)
+    used_indexes: set[int] = set()
+    restored_blocks: list[ParsedBlockDraft] = []
+
+    for block in output.blocks:
+        canonical_index = _matching_canonical_index(block, canonical_by_order, used_indexes)
+        if canonical_index is None:
+            restored_blocks.append(block)
+            continue
+        used_indexes.add(canonical_index)
+        canonical_span = canonical_by_order[canonical_index].source_span
+        restored_blocks.append(
+            block.model_copy(update={"source_span": {**block.source_span, **canonical_span}})
         )
-        for index, line in enumerate(lines)
-    ]
+
+    return output.model_copy(update={"blocks": restored_blocks})
+
+
+def _matching_canonical_index(
+    block: ParsedBlockDraft,
+    canonical_blocks: list[ParsedBlockDraft],
+    used_indexes: set[int],
+) -> int | None:
+    if (
+        block.order < len(canonical_blocks)
+        and block.order not in used_indexes
+        and _normalize_block_text(block.text) == _normalize_block_text(canonical_blocks[block.order].text)
+    ):
+        return block.order
+
+    block_text = _normalize_block_text(block.text)
+    for index, canonical in enumerate(canonical_blocks):
+        if index in used_indexes:
+            continue
+        if _normalize_block_text(canonical.text) == block_text:
+            return index
+    return None
+
+
+def _parse_blocks(request: ResumeParserRunRequest) -> list[ParsedBlockDraft]:
+    blocks: list[ParsedBlockDraft] = []
+
+    def append_block(
+        node: dict[str, Any],
+        block_type: str,
+        text: str,
+        *,
+        fallback_attrs: Any = None,
+    ) -> None:
+        normalized_text = text.strip()
+        if not normalized_text:
+            return
+        attrs = _merged_attrs(fallback_attrs, node.get("attrs"))
+        source_span: dict[str, Any] = {
+            "source_canvas_id": request.source_canvas_id,
+            "source_canvas_version": request.source_canvas_version,
+        }
+        canvas_node_id = attrs.get("canvasNodeId")
+        source_block_id = attrs.get("sourceBlockId")
+        if isinstance(canvas_node_id, str) and canvas_node_id:
+            source_span["canvas_node_id"] = canvas_node_id
+        if isinstance(source_block_id, str) and source_block_id:
+            source_span["source_block_id"] = source_block_id
+        blocks.append(
+            ParsedBlockDraft(
+                type=block_type,
+                text=normalized_text,
+                order=len(blocks),
+                source_span=source_span,
+                confidence=0.9,
+            )
+        )
+
+    def visit(
+        value: Any,
+        *,
+        inside_list_item: bool = False,
+        inherited_attrs: Any = None,
+    ) -> None:
+        if isinstance(value, list):
+            for item in value:
+                visit(
+                    item,
+                    inside_list_item=inside_list_item,
+                    inherited_attrs=inherited_attrs,
+                )
+            return
+        if not isinstance(value, dict):
+            return
+
+        node_type = value.get("type")
+        content = value.get("content")
+        if node_type == "listItem":
+            append_block(value, "list", _list_item_text(value), fallback_attrs=inherited_attrs)
+            if isinstance(content, list):
+                for child in content:
+                    if isinstance(child, dict) and child.get("type") not in {"paragraph", "heading"}:
+                        visit(
+                            child,
+                            inside_list_item=True,
+                            inherited_attrs=inherited_attrs,
+                        )
+            return
+        if node_type == "heading":
+            append_block(value, "heading", _extract_text(value), fallback_attrs=inherited_attrs)
+            return
+        if node_type == "paragraph" and not inside_list_item:
+            append_block(
+                value,
+                _block_type(_extract_text(value)),
+                _extract_text(value),
+                fallback_attrs=inherited_attrs,
+            )
+            return
+        if node_type == "tableCell":
+            cell_attrs = _merged_attrs(inherited_attrs, value.get("attrs"))
+            if isinstance(content, list):
+                for child in content:
+                    visit(
+                        child,
+                        inside_list_item=inside_list_item,
+                        inherited_attrs=cell_attrs,
+                    )
+            return
+
+        if isinstance(content, list):
+            for child in content:
+                visit(child, inside_list_item=inside_list_item, inherited_attrs=inherited_attrs)
+
+    visit(request.source_canvas_doc_json)
+    return blocks
+
+
+def _merged_attrs(fallback_attrs: Any, node_attrs: Any) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    if isinstance(fallback_attrs, dict):
+        merged.update(fallback_attrs)
+    if isinstance(node_attrs, dict):
+        merged.update(node_attrs)
+    return merged
+
+
+def _list_item_text(value: dict[str, Any]) -> str:
+    content = value.get("content")
+    if not isinstance(content, list):
+        return _extract_text(value)
+    direct_text = "".join(
+        _extract_text(child)
+        for child in content
+        if isinstance(child, dict) and child.get("type") in {"paragraph", "heading"}
+    )
+    return direct_text or _extract_text(value)
+
+
+def _extract_text(value: Any) -> str:
+    if isinstance(value, list):
+        return "".join(_extract_text(item) for item in value)
+    if not isinstance(value, dict):
+        return ""
+
+    text = value.get("text")
+    content = value.get("content")
+    content_text = _extract_text(content) if isinstance(content, list) else ""
+    if isinstance(text, str):
+        return text + content_text
+    return content_text
 
 
 def _block_type(text: str) -> str:
@@ -193,6 +361,15 @@ def _block_type(text: str) -> str:
     if text.startswith(("-", "*", "•", "·")):
         return "list"
     return "paragraph"
+
+
+def _normalize_block_text(text: str) -> str:
+    heading_match = MARKDOWN_HEADING_RE.match(text)
+    normalized = heading_match.group(1) if heading_match else text
+    normalized = MARKDOWN_QUOTE_RE.sub("", normalized)
+    normalized = MARKDOWN_LIST_MARKER_RE.sub("", normalized)
+    normalized = normalized.replace("**", "").replace("__", "")
+    return re.sub(r"\s+", "", normalized)
 
 
 def _section_for(text: str) -> tuple[str, str] | None:
