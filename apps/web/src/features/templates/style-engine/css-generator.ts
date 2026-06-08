@@ -59,6 +59,16 @@ function generateListStructureCSS(blockName: string, style: BlockStyle): string 
   return generateBlockCSS(blockName, pickStyle(style, LIST_STRUCTURE_KEYS));
 }
 
+function generateNestedListCSS(scope: string): string {
+  return [
+    `${scope} li > ul, ${scope} li > ol {\n  margin-top: 0.25em;\n  margin-bottom: 0.25em;\n  padding-left: 1.5em;\n}`,
+    `${scope} ul ul {\n  list-style-type: circle;\n  padding-left: 1.5em;\n}`,
+    `${scope} ul ul ul {\n  list-style-type: square;\n  padding-left: 1.5em;\n}`,
+    `${scope} ol ol {\n  list-style-type: lower-alpha;\n  padding-left: 1.5em;\n}`,
+    `${scope} ol ol ol {\n  list-style-type: lower-roman;\n  padding-left: 1.5em;\n}`,
+  ].join("\n\n");
+}
+
 export function generateFullCSS(blocks: Record<string, BlockStyle>): string {
   return Object.entries(blocks)
     .flatMap(([name, style]) => (
@@ -114,5 +124,6 @@ export function generateWorkspaceCSS(
       }
     }
   }
+  rules.push(generateNestedListCSS(scope));
   return rules.join("\n\n");
 }

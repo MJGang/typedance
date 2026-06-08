@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest"
 import { createRef } from "react"
 import { Editor } from "@tiptap/core"
 import StarterKit from "@tiptap/starter-kit"
-import { act, fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeAll, describe, expect, it, vi } from "vitest"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -15,6 +15,36 @@ import {
   setToolbarTextBlock,
   type ResumeRichTextEditorHandle,
 } from "./ResumeRichTextEditor"
+
+vi.mock("@typedance/resume-markdown", () => ({
+  markdownToResumeDocJson: vi.fn(() => {
+    throw new Error("PasteMarkdown should use the editor Markdown API")
+  }),
+}))
+
+type TestJsonNode = {
+  type?: string
+  text?: string
+  content?: TestJsonNode[]
+}
+
+function collectNodeText(node: TestJsonNode): string {
+  return [
+    node.text ?? "",
+    ...(node.content ?? []).map(collectNodeText),
+  ].join("")
+}
+
+function hasNestedListPath(node: TestJsonNode, path: string[]): boolean {
+  if (path.length === 0) return true
+
+  const [currentType, ...rest] = path
+  if (node.type === currentType && (rest.length === 0 || (node.content ?? []).some((child) => hasNestedListPath(child, rest)))) {
+    return true
+  }
+
+  return (node.content ?? []).some((child) => hasNestedListPath(child, path))
+}
 
 beforeAll(() => {
   class ResizeObserverMock {
@@ -527,5 +557,47 @@ describe("ResumeRichTextEditor toolbar", () => {
       cachedHandle?.setTextSelection({ anchor: 1, head: 1 })
       cachedHandle?.scrollToCanvasNode("node_1")
     }).not.toThrow()
+  })
+
+  it("pastes Markdown lists through the editor Markdown API without keeping raw markers", async () => {
+    const onChange = vi.fn()
+
+    const { unmount } = render(
+      <TooltipProvider>
+        <ResumeRichTextEditor
+          ariaLabel="Resume text"
+          docJson={{ type: "doc", content: [{ type: "paragraph" }] }}
+          onChange={onChange}
+        />
+      </TooltipProvider>,
+    )
+
+    try {
+      fireEvent.paste(screen.getByLabelText("Resume text"), {
+        clipboardData: {
+          getData: (type: string) => type === "text/plain"
+            ? [
+                "1. First ordered",
+                "   1. Second ordered",
+                "      1. Third ordered",
+                "",
+                "- First bullet",
+                "  - Second bullet",
+                "    - Third bullet",
+              ].join("\n")
+            : "",
+        },
+      })
+
+      await waitFor(() => expect(onChange).toHaveBeenCalled())
+
+      const change = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]
+      expect(change?.docJson).toBeDefined()
+      expect(hasNestedListPath(change.docJson, ["orderedList", "orderedList", "orderedList"])).toBe(true)
+      expect(hasNestedListPath(change.docJson, ["bulletList", "bulletList", "bulletList"])).toBe(true)
+      expect(collectNodeText(change.docJson)).not.toMatch(/(?:^|\n|\s)(?:1\.|-)\s/)
+    } finally {
+      unmount()
+    }
   })
 })

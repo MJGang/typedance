@@ -9,7 +9,6 @@ import StarterKit from "@tiptap/starter-kit"
 import DragHandle from "@tiptap/extension-drag-handle-react"
 import { PaginationPlus, PAGE_SIZES } from "tiptap-pagination-plus"
 import { Bold, Columns3, Eraser, GripVertical, Heading1, Heading2, Heading3, Italic, List, ListOrdered, ListTree, Type, Underline } from "lucide-react"
-import { markdownToResumeDocJson } from "@typedance/resume-markdown"
 import { Column, Columns, type ColumnsCount, type ColumnsGap } from "@typedance/tiptap-layout"
 
 import { Button } from "@/components/ui/button"
@@ -93,6 +92,14 @@ type ToolbarState = {
 }
 
 type ToolbarBlock = "paragraph" | "heading1" | "heading2" | "heading3" | "bulletList" | "orderedList" | "columns"
+
+type EditorMarkdownApi = {
+  parse: (markdown: string) => JSONContent
+}
+
+type MarkdownEditor = Editor & {
+  markdown?: EditorMarkdownApi
+}
 
 const inactiveToolbarState: ToolbarState = {
   isBold: false,
@@ -473,8 +480,11 @@ const PasteMarkdown = Extension.create({
               return false
             }
 
-            const doc = markdownToResumeDocJson(text)
-            editor.commands.insertContent(doc.content ?? [])
+            const markdown = (editor as MarkdownEditor).markdown
+            if (!markdown) return false
+
+            const json = markdown.parse(text)
+            editor.commands.insertContent(json)
             return true
           },
         },
