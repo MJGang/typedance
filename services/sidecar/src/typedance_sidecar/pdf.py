@@ -18,8 +18,11 @@ from .models import ResumeVersion, TemplateStyleConfig
 from .style_renderer import generate_full_css
 
 
-# Keep Playwright's printable area aligned with tiptap-pagination-plus in the editor.
+# Default A4 page padding mirrors the editor's default page margins.
 PDF_PAGE_MARGIN = {"top": "86px", "bottom": "86px", "left": "50px", "right": "50px"}
+# Playwright must not add another margin layer when the HTML provides @page margins.
+PDF_PRINT_MARGIN = {"top": "0", "bottom": "0", "left": "0", "right": "0"}
+PdfPageMargin = dict[str, str]
 
 
 def _resolve_browser_config() -> dict:
@@ -306,6 +309,56 @@ def _render_template_style_css(template_style: TemplateStyleConfig | None) -> st
     return generate_full_css(blocks_dict)
 
 
+def _normalized_page_margin(page_margin: PdfPageMargin | None) -> PdfPageMargin:
+    return page_margin or PDF_PAGE_MARGIN
+
+
+def _render_export_page_css(page_margin: PdfPageMargin | None) -> str:
+    page_margin = _normalized_page_margin(page_margin)
+    top = page_margin["top"]
+    right = page_margin["right"]
+    bottom = page_margin["bottom"]
+    left = page_margin["left"]
+    return f"""
+body.td-export-document {{
+  margin: 0;
+  background: #f4f1ea;
+}}
+.td-export-content {{
+  box-sizing: border-box;
+  width: 794px;
+  min-height: 1123px;
+  margin: 24px auto;
+  padding: {top} {right} {bottom} {left};
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 12px 32px rgba(15, 23, 42, 0.14);
+}}
+@media screen {{
+  html {{
+    background: #f4f1ea;
+  }}
+}}
+@media print {{
+  @page {{
+    size: A4;
+    margin: {top} {right} {bottom} {left};
+  }}
+  html,
+  body.td-export-document {{
+    background: #ffffff;
+  }}
+  .td-export-content {{
+    width: auto;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    box-shadow: none;
+  }}
+}}
+"""
+
+
 LAYOUT_CSS = """
 body.td-resume-page {
   margin: 0;
@@ -315,6 +368,12 @@ body.td-resume-page {
 }
 :where(.td-resume-page ul, .td-resume-page ol) {
   padding-left: 0;
+}
+:where(.td-resume-page p, .td-resume-page li, .td-resume-page li p) {
+  orphans: 1;
+  widows: 1;
+  break-inside: auto;
+  page-break-inside: auto;
 }
 .td-columns {
   display: grid;
@@ -347,8 +406,14 @@ body.td-resume-page {
 """
 
 
-def render_resume_html(resume: ResumeVersion, template_style: TemplateStyleConfig | None = None) -> str:
+def render_resume_html(
+    resume: ResumeVersion,
+    template_style: TemplateStyleConfig | None = None,
+    html_page_margin: PdfPageMargin | None = None,
+) -> str:
     template_style_css = _render_template_style_css(template_style)
+    export_page_css = _render_export_page_css(html_page_margin)
+    doc_body = _render_doc_body(resume)
     return f"""<!doctype html>
 <html lang="{resume.target_language}">
   <head>
@@ -356,12 +421,21 @@ def render_resume_html(resume: ResumeVersion, template_style: TemplateStyleConfi
     <style>
       {template_style_css}
       {LAYOUT_CSS}
+      {export_page_css}
     </style>
   </head>
-  <body class="td-resume-page">
-    {_render_doc_body(resume)}
+  <body class="td-resume-page td-export-document" data-td-natural-print>
+    <main class="td-export-content">
+      {doc_body}
+    </main>
   </body>
 </html>"""
+
+
+def _pdf_margin_for_html(html: str, page_margin: PdfPageMargin | None) -> PdfPageMargin:
+    if "data-td-natural-print" in html:
+        return PDF_PRINT_MARGIN
+    return page_margin or PDF_PAGE_MARGIN
 
 
 _pw = None
@@ -393,19 +467,31 @@ def render_and_export_pdf(
     page = browser.new_page()
     try:
         page.set_content(html, wait_until="load")
-        page.pdf(path=str(output_path), format="A4", print_background=True, margin=PDF_PAGE_MARGIN)
+        page.pdf(
+            path=str(output_path),
+            format="A4",
+            print_background=True,
+            prefer_css_page_size=True,
+            margin=_pdf_margin_for_html(html, None),
+        )
     finally:
         page.close()
     return output_path
 
 
-def render_html_to_pdf(html: str, output_path: Path) -> Path:
+def render_html_to_pdf(html: str, output_path: Path, page_margin: PdfPageMargin | None = None) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     browser = _get_browser()
     page = browser.new_page()
     try:
         page.set_content(html, wait_until="load")
-        page.pdf(path=str(output_path), format="A4", print_background=True, margin=PDF_PAGE_MARGIN)
+        page.pdf(
+            path=str(output_path),
+            format="A4",
+            print_background=True,
+            prefer_css_page_size=True,
+            margin=_pdf_margin_for_html(html, page_margin),
+        )
     finally:
         page.close()
     return output_path

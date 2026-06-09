@@ -149,7 +149,7 @@ describe("revision api", () => {
         status: "completed",
       },
       coach_summary: {
-        summary: "还有 1 个问题建议处理后再导出。",
+        summary: "还有 1 个问题建议处理。",
         next_action_ids: ["act_1"],
       },
       available_actions: [
@@ -771,7 +771,7 @@ describe("revision api", () => {
     expect(workspace.current_draft?.variant_type).toBe("opportunity")
   })
 
-  it("exports a revision draft PDF through the export gate", async () => {
+  it("exports a revision document PDF with the current canvas and page margins", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(
       "%PDF-1.4 revision pdf",
       {
@@ -779,7 +779,69 @@ describe("revision api", () => {
           "content-type": "application/pdf",
           "X-Pdf-Path": "D:/exports/%E5%BC%A0%E4%B8%89.pdf",
           "X-Export-Artifact-Id": "export_1",
-          "X-Export-Review-Status": "forced_with_risk",
+        },
+      },
+    )))
+    const writable = {
+      write: vi.fn(),
+      close: vi.fn(),
+    }
+    const showSaveFilePicker = vi.fn(async () => ({
+      name: "自选保存位置.pdf",
+      createWritable: vi.fn(async () => writable),
+    }))
+    vi.stubGlobal("showSaveFilePicker", showSaveFilePicker)
+
+    const { exportRevisionDocumentPdf } = await import("./api")
+    const docJson = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "当前画布" }] }] }
+    const templateStyle = {
+      template_id: "classic-a4",
+      preset: "classic",
+      blocks: { paragraph: { fontSize: "10px" } },
+      updated_at: "2026-06-05T00:00:00.000Z",
+    }
+    const result = await exportRevisionDocumentPdf("doc_1", "张三", {
+      docJson,
+      pageMargins: { top: 80, bottom: 70, left: 44, right: 46 },
+      templateStyle,
+    })
+
+    expect(showSaveFilePicker).toHaveBeenCalledWith({
+      suggestedName: "resume-张三.pdf",
+      types: [
+        { description: "PDF", accept: { "application/pdf": [".pdf"] } },
+      ],
+    })
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:4317/documents/doc_1/export/pdf",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          source_doc_json: docJson,
+          page_margins: { top: 80, bottom: 70, left: 44, right: 46 },
+          template_style: templateStyle,
+        }),
+      },
+    )
+    expect(writable.write).toHaveBeenCalled()
+    expect(writable.close).toHaveBeenCalled()
+    expect(result).toMatchObject({
+      artifactId: "export_1",
+      fileName: "自选保存位置.pdf",
+      filePath: "D:/exports/张三.pdf",
+      format: "pdf",
+    })
+  })
+
+  it("exports a revision document HTML with the current canvas and template style", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      "<!doctype html><html><body>当前画布</body></html>",
+      {
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "X-Html-Path": "D:/exports/%E5%BC%A0%E4%B8%89.html",
+          "X-Export-Artifact-Id": "export_html_1",
         },
       },
     )))
@@ -790,26 +852,41 @@ describe("revision api", () => {
       click: clickMock,
     } as unknown as HTMLAnchorElement)
     vi.stubGlobal("URL", {
-      createObjectURL: vi.fn().mockReturnValue("blob:revision"),
+      createObjectURL: vi.fn().mockReturnValue("blob:revision-html"),
       revokeObjectURL: vi.fn(),
     })
 
-    const { exportRevisionDraftPdf } = await import("./api")
-    const result = await exportRevisionDraftPdf("draft_1", "张三", { forceWithRisk: true })
+    const { exportRevisionDocumentHtml } = await import("./api")
+    const docJson = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "当前画布" }] }] }
+    const templateStyle = {
+      template_id: "classic-a4",
+      preset: "classic",
+      blocks: { paragraph: { fontSize: "10px" } },
+      updated_at: "2026-06-05T00:00:00.000Z",
+    }
+    const result = await exportRevisionDocumentHtml("doc_1", "张三", {
+      docJson,
+      pageMargins: { top: 80, bottom: 70, left: 44, right: 46 },
+      templateStyle,
+    })
 
     expect(fetch).toHaveBeenCalledWith(
-      "http://127.0.0.1:4317/drafts/draft_1/export/pdf",
+      "http://127.0.0.1:4317/documents/doc_1/export/html",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ force_with_risk: true }),
+        body: JSON.stringify({
+          source_doc_json: docJson,
+          page_margins: { top: 80, bottom: 70, left: 44, right: 46 },
+          template_style: templateStyle,
+        }),
       },
     )
     expect(clickMock).toHaveBeenCalled()
     expect(result).toMatchObject({
-      artifactId: "export_1",
-      reviewStatus: "forced_with_risk",
-      filePath: "D:/exports/张三.pdf",
+      artifactId: "export_html_1",
+      filePath: "D:/exports/张三.html",
+      format: "html",
     })
 
     createElementMock.mockRestore()

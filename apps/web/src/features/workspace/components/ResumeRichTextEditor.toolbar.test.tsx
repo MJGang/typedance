@@ -127,6 +127,27 @@ describe("ResumeRichTextEditor toolbar", () => {
     expect(onPageMarginGuidesVisibleChange).toHaveBeenCalledWith(false)
   })
 
+  it("does not add extra content spacing when explicit page margins are provided", async () => {
+    render(
+      <TooltipProvider>
+        <ResumeRichTextEditor
+          ariaLabel="Resume text"
+          docJson={{ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "正文" }] }] }}
+          marginConfig={{ top: 76, bottom: 76, left: 50, right: 50 }}
+          onChange={() => {}}
+        />
+      </TooltipProvider>,
+    )
+
+    await waitFor(() => {
+      const editor = document.querySelector<HTMLElement>(".rm-with-pagination")
+      expect(editor).not.toBeNull()
+      expect(editor?.style.getPropertyValue("--rm-margin-top")).toBe("76px")
+      expect(editor?.style.getPropertyValue("--rm-content-margin-top")).toBe("0px")
+      expect(editor?.style.getPropertyValue("--rm-content-margin-bottom")).toBe("0px")
+    })
+  })
+
   it("renders a paragraph block type icon in the floating drag handle by default", () => {
     render(
       <TooltipProvider>

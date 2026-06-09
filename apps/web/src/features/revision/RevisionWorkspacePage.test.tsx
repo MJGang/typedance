@@ -14,7 +14,8 @@ const apiMocks = vi.hoisted(() => ({
   runRevisionQualityReview: vi.fn(),
   createRevisionRun: vi.fn(),
   calibrateRevisionOpportunity: vi.fn(),
-  exportRevisionDraftPdf: vi.fn(),
+  exportRevisionDocumentPdf: vi.fn(),
+  exportRevisionDocumentHtml: vi.fn(),
   saveSourceResumeCanvas: vi.fn(),
   updateRevisionDocument: vi.fn(),
 }))
@@ -32,7 +33,8 @@ vi.mock("@/api", () => ({
   runRevisionQualityReview: (...args: unknown[]) => apiMocks.runRevisionQualityReview(...args),
   createRevisionRun: (...args: unknown[]) => apiMocks.createRevisionRun(...args),
   calibrateRevisionOpportunity: (...args: unknown[]) => apiMocks.calibrateRevisionOpportunity(...args),
-  exportRevisionDraftPdf: (...args: unknown[]) => apiMocks.exportRevisionDraftPdf(...args),
+  exportRevisionDocumentPdf: (...args: unknown[]) => apiMocks.exportRevisionDocumentPdf(...args),
+  exportRevisionDocumentHtml: (...args: unknown[]) => apiMocks.exportRevisionDocumentHtml(...args),
   saveSourceResumeCanvas: (...args: unknown[]) => apiMocks.saveSourceResumeCanvas(...args),
   updateRevisionDocument: (...args: unknown[]) => apiMocks.updateRevisionDocument(...args),
 }))
@@ -48,11 +50,13 @@ vi.mock("./DraftCanvas", () => ({
   DraftCanvas: ({
     canvas,
     onChange,
+    onPageMarginsChange,
     onRetrySave,
     saveStatus,
   }: {
     canvas: WorkspaceView["source_resume_canvas"]
     onChange: (change: { plainText: string; docJson: { type: "doc"; content: unknown[] } }) => void
+    onPageMarginsChange?: (margins: { top: number; bottom: number; left: number; right: number }) => void
     onRetrySave: () => void
     saveStatus: "idle" | "saving" | "saved" | "error"
   }) => (
@@ -96,6 +100,12 @@ vi.mock("./DraftCanvas", () => ({
         })}
       >
         再次编辑原始画布
+      </button>
+      <button
+        type="button"
+        onClick={() => onPageMarginsChange?.({ top: 88, bottom: 72, left: 42, right: 48 })}
+      >
+        调整页边距
       </button>
       <span aria-live="polite">
         {saveStatus === "saving" ? "正在保存" : saveStatus === "saved" ? "已保存" : saveStatus === "error" ? "保存失败" : ""}
@@ -279,7 +289,7 @@ const workspace: WorkspaceView = {
     status: "completed",
   },
   coach_summary: {
-    summary: "还有 1 个问题建议处理后再导出。",
+    summary: "还有 1 个问题建议处理。",
     next_action_ids: ["act_accept_prop_1"],
   },
   available_actions: [
@@ -425,7 +435,8 @@ describe("RevisionWorkspacePage", () => {
     apiMocks.runRevisionQualityReview.mockReset()
     apiMocks.createRevisionRun.mockReset()
     apiMocks.calibrateRevisionOpportunity.mockReset()
-    apiMocks.exportRevisionDraftPdf.mockReset()
+    apiMocks.exportRevisionDocumentPdf.mockReset()
+    apiMocks.exportRevisionDocumentHtml.mockReset()
     apiMocks.saveSourceResumeCanvas.mockReset()
     apiMocks.updateRevisionDocument.mockReset()
     draftCanvasMocks.render.mockReset()
@@ -434,7 +445,8 @@ describe("RevisionWorkspacePage", () => {
     apiMocks.runRevisionQualityReview.mockResolvedValue({ id: "run_review", status: "completed" })
     apiMocks.createRevisionRun.mockResolvedValue({ id: "run_issue", status: "created" })
     apiMocks.calibrateRevisionOpportunity.mockResolvedValue({ document: { id: "doc_1" } })
-    apiMocks.exportRevisionDraftPdf.mockResolvedValue({ fileName: "resume.pdf", reviewStatus: "forced_with_risk" })
+    apiMocks.exportRevisionDocumentPdf.mockResolvedValue({ fileName: "resume.pdf", format: "pdf" })
+    apiMocks.exportRevisionDocumentHtml.mockResolvedValue({ fileName: "resume.html", format: "html" })
     apiMocks.saveSourceResumeCanvas.mockResolvedValue(workspace.source_resume_canvas)
     apiMocks.updateRevisionDocument.mockResolvedValue({
       ...workspace.document,
@@ -449,7 +461,7 @@ describe("RevisionWorkspacePage", () => {
     expect(screen.getByText("加载工作台")).toBeInTheDocument()
     expect(await screen.findByRole("heading", { name: "张三的简历" })).toBeInTheDocument()
     expect(screen.queryByText("completed")).not.toBeInTheDocument()
-    expect(screen.getByText("还有 1 个问题建议处理后再导出。")).toBeInTheDocument()
+    expect(screen.getByText("还有 1 个问题建议处理。")).toBeInTheDocument()
     expect(screen.getByText("负责核心链路重构。")).toBeInTheDocument()
     expect(screen.getAllByText("缺少结果").length).toBeGreaterThan(0)
     expect(screen.getAllByText("改成结果导向表达").length).toBeGreaterThan(0)
@@ -457,8 +469,9 @@ describe("RevisionWorkspacePage", () => {
     const reviewActions = within(reviewPanel).getByTestId("revision-review-actions")
     expect(within(reviewActions).getByRole("button", { name: "质量检查" })).toBeInTheDocument()
     expect(within(reviewActions).getByRole("button", { name: "岗位校准" })).toBeInTheDocument()
-    expect(within(reviewActions).getByRole("button", { name: "导出" })).toBeInTheDocument()
+    expect(within(reviewActions).queryByRole("button", { name: "导出 PDF" })).not.toBeInTheDocument()
     expect(within(reviewActions).getByText("待处理")).toBeInTheDocument()
+    expect(within(screen.getByTestId("revision-workspace-header")).getByRole("button", { name: "导出" })).toBeInTheDocument()
     expect(reviewActions.compareDocumentPosition(within(reviewPanel).getByText("引导")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
@@ -524,7 +537,7 @@ describe("RevisionWorkspacePage", () => {
     const reviewActions = screen.getByTestId("revision-review-actions")
     expect(within(reviewActions).getByRole("button", { name: "质量检查" })).toBeDisabled()
     expect(within(reviewActions).getByRole("button", { name: "岗位校准" })).toBeDisabled()
-    expect(within(reviewActions).getByRole("button", { name: "导出" })).toBeDisabled()
+    expect(within(screen.getByTestId("revision-workspace-header")).getByRole("button", { name: "导出" })).toBeEnabled()
   })
 
   it("shows a stale source canvas recognition status", async () => {
@@ -883,13 +896,39 @@ describe("RevisionWorkspacePage", () => {
     expect(screen.getByLabelText("岗位信息")).toBeInTheDocument()
   })
 
-  it("opens export gate from the workspace", async () => {
+  it("exports from the title bar with current canvas and page margins", async () => {
     renderPage()
 
-    fireEvent.click(await screen.findByRole("button", { name: "导出" }))
+    fireEvent.click(await screen.findByRole("button", { name: "调整页边距" }))
+    fireEvent.keyDown(await screen.findByRole("button", { name: "导出" }), { key: "ArrowDown" })
+    fireEvent.click(await screen.findByRole("menuitem", { name: "导出 PDF" }))
 
-    expect(await screen.findByRole("heading", { name: "导出门禁" })).toBeInTheDocument()
-    expect(screen.getAllByText("缺少结果").length).toBeGreaterThan(0)
+    await waitFor(() => expect(apiMocks.exportRevisionDocumentPdf).toHaveBeenCalledWith(
+      "doc_1",
+      "张三的简历",
+      expect.objectContaining({
+        docJson: workspace.source_resume_canvas?.doc_json,
+        pageMargins: { top: 88, bottom: 72, left: 42, right: 48 },
+        templateStyle: expect.objectContaining({ template_id: "classic-a4" }),
+      }),
+    ))
+  })
+
+  it("exports HTML from the title bar menu with current canvas style", async () => {
+    renderPage()
+
+    fireEvent.keyDown(await screen.findByRole("button", { name: "导出" }), { key: "ArrowDown" })
+    fireEvent.click(await screen.findByRole("menuitem", { name: "导出 HTML" }))
+
+    await waitFor(() => expect(apiMocks.exportRevisionDocumentHtml).toHaveBeenCalledWith(
+      "doc_1",
+      "张三的简历",
+      expect.objectContaining({
+        docJson: workspace.source_resume_canvas?.doc_json,
+        pageMargins: { top: 76, bottom: 76, left: 50, right: 50 },
+        templateStyle: expect.objectContaining({ template_id: "classic-a4" }),
+      }),
+    ))
   })
 
   it("opens contextual issue detail with related proposal actions", async () => {

@@ -21,10 +21,10 @@ export const renderProjectionSchema = z.object({
 export const exportArtifactSchema = z.object({
   id: z.string().min(1),
   document_id: z.string().min(1),
-  draft_id: z.string().min(1),
+  draft_id: z.string().min(1).nullish(),
   format: z.enum(["pdf", "html", "markdown", "docx"]),
   file_path: z.string().optional(),
-  review_status: z.enum(["passed", "forced_with_risk", "blocked"]),
+  status: z.enum(["succeeded"]),
   created_at: isoDateTimeSchema,
 });
 

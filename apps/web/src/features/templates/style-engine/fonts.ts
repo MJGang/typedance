@@ -5,9 +5,11 @@ export interface FontOption {
 }
 
 export const VUE_DOC_FONT_STACK = "Quotes, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Oxygen, Ubuntu, Cantarell, \"Fira Sans\", \"Droid Sans\", \"Helvetica Neue\", sans-serif";
+export const MICROSOFT_YAHEI_FONT_STACK = "\"Microsoft YaHei\", \"Segoe UI\", Arial, sans-serif";
 
 export const COMMON_FONTS: FontOption[] = [
   { value: VUE_DOC_FONT_STACK, label: { "zh-CN": "系统界面", "en-US": "System UI" }, stack: VUE_DOC_FONT_STACK },
+  { value: MICROSOFT_YAHEI_FONT_STACK, label: { "zh-CN": "Microsoft YaHei", "en-US": "Microsoft YaHei" }, stack: MICROSOFT_YAHEI_FONT_STACK },
   { value: "Georgia, serif", label: { "zh-CN": "Georgia", "en-US": "Georgia" }, stack: "Georgia, serif" },
   { value: "'Times New Roman', serif", label: { "zh-CN": "Times New Roman", "en-US": "Times New Roman" }, stack: "'Times New Roman', serif" },
   { value: "Arial, sans-serif", label: { "zh-CN": "Arial", "en-US": "Arial" }, stack: "Arial, sans-serif" },

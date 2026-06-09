@@ -7,6 +7,7 @@ import {
   useState,
 } from "react"
 import type { ModuleAnchor, SourceResumeCanvas } from "@typedance/contracts"
+import type { TemplateStyleConfig } from "../templates/types"
 import { PAGE_SIZES } from "tiptap-pagination-plus"
 import type { ResumeDocJson, ResumeEditorChange } from "../workspace/editor"
 import { defaultClassicA4Style } from "../templates/data"
@@ -39,8 +40,10 @@ export type { DraftCanvasSaveStatus } from "./DraggableModuleOutline"
 type DraftCanvasProps = {
   canvas: SourceResumeCanvas
   onChange: (change: ResumeEditorChange) => void
+  onPageMarginsChange?: (margins: PageMargins) => void
   onRetrySave?: () => void
   saveStatus: DraftCanvasSaveStatus
+  templateStyle?: TemplateStyleConfig
 }
 
 type Position = { x: number; y: number }
@@ -50,11 +53,6 @@ const SOURCE_CANVAS_PAGE_SIZE: PageSize = {
   width: PAGE_SIZES.A4.pageWidth,
   height: PAGE_SIZES.A4.pageHeight,
 }
-
-const SOURCE_CANVAS_CLASSIC_CSS = generateWorkspaceCSS(
-  defaultClassicA4Style.blocks ?? {},
-  ".td-source-resume-canvas .rm-with-pagination",
-)
 
 function sameSize(left: Size, right: Size) {
   return left.width === right.width && left.height === right.height
@@ -126,8 +124,10 @@ function cancelMeasureFrame(frameId: number) {
 function DraftCanvasWorkspace({
   canvas,
   onChange,
+  onPageMarginsChange,
   onRetrySave,
   saveStatus,
+  templateStyle = defaultClassicA4Style,
 }: DraftCanvasProps) {
   const editorRef = useRef<ResumeRichTextEditorHandle>(null)
   const canvasRootRef = useRef<HTMLDivElement>(null)
@@ -135,6 +135,13 @@ function DraftCanvasWorkspace({
   const anchors = useMemo(
     () => [...canvas.module_anchors].sort((left, right) => left.order - right.order),
     [canvas.module_anchors],
+  )
+  const sourceCanvasCss = useMemo(
+    () => generateWorkspaceCSS(
+      templateStyle.blocks ?? {},
+      ".td-source-resume-canvas .rm-with-pagination",
+    ),
+    [templateStyle],
   )
   const initialPreferences = useMemo(
     () => loadModuleOutlinePreferences(canvas.document_id),
@@ -243,8 +250,10 @@ function DraftCanvasWorkspace({
 
   useEffect(() => {
     savePageMarginPreferences(canvas.document_id, pageMargins, SOURCE_CANVAS_PAGE_SIZE)
+    onPageMarginsChange?.(pageMargins)
   }, [
     canvas.document_id,
+    onPageMarginsChange,
     pageMargins.bottom,
     pageMargins.left,
     pageMargins.right,
@@ -280,7 +289,7 @@ function DraftCanvasWorkspace({
       <ResumeRichTextEditor
         ref={editorRef}
         ariaLabel="原始简历编辑区"
-        cssText={SOURCE_CANVAS_CLASSIC_CSS}
+        cssText={sourceCanvasCss}
         docJson={canvas.doc_json as ResumeDocJson}
         marginConfig={pageMargins}
         pageMarginGuidesVisible={pageMarginGuidesVisible}

@@ -36,7 +36,7 @@ export function RevisionWorkspaceCard({ document, onOpen }: RevisionWorkspaceCar
 function getQualityStateLabel(state: DocumentListItem["quality_state"]): string {
   switch (state) {
     case "ready":
-      return "可导出"
+      return "已检查"
     case "blocked":
       return "有阻塞"
     case "needs_review":

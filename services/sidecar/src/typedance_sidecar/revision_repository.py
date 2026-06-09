@@ -184,7 +184,7 @@ REVISION_TABLE_DEFINITIONS = [
     CREATE TABLE IF NOT EXISTS export_artifacts (
       id TEXT PRIMARY KEY,
       document_id TEXT NOT NULL,
-      draft_id TEXT NOT NULL,
+      draft_id TEXT,
       payload TEXT NOT NULL,
       schema_version TEXT NOT NULL DEFAULT '0.1.0',
       created_at TEXT NOT NULL,
@@ -195,9 +195,56 @@ REVISION_TABLE_DEFINITIONS = [
 
 
 def migrate_revision_payloads(connection: sqlite3.Connection) -> None:
+    _allow_nullable_export_artifact_draft_id(connection)
     _normalize_source_document_payloads(connection)
     _normalize_source_resume_canvas_payloads(connection)
     connection.commit()
+
+
+def _allow_nullable_export_artifact_draft_id(connection: sqlite3.Connection) -> None:
+    columns = connection.execute("PRAGMA table_info(export_artifacts)").fetchall()
+    draft_id_column = next((column for column in columns if column["name"] == "draft_id"), None)
+    if draft_id_column is None or draft_id_column["notnull"] == 0:
+        return
+
+    legacy_table = "export_artifacts_before_nullable_draft_id"
+    connection.execute(f"ALTER TABLE export_artifacts RENAME TO {legacy_table}")
+    connection.execute(
+        """
+        CREATE TABLE export_artifacts (
+          id TEXT PRIMARY KEY,
+          document_id TEXT NOT NULL,
+          draft_id TEXT,
+          payload TEXT NOT NULL,
+          schema_version TEXT NOT NULL DEFAULT '0.1.0',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        f"""
+        INSERT INTO export_artifacts (
+          id,
+          document_id,
+          draft_id,
+          payload,
+          schema_version,
+          created_at,
+          updated_at
+        )
+        SELECT
+          id,
+          document_id,
+          draft_id,
+          payload,
+          schema_version,
+          created_at,
+          updated_at
+        FROM {legacy_table}
+        """
+    )
+    connection.execute(f"DROP TABLE {legacy_table}")
 
 
 def _normalize_source_document_payloads(connection: sqlite3.Connection) -> None:

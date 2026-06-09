@@ -703,6 +703,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       }
       syncDragHandleVisibility(latestDragHandlePointerRef.current)
     }, [syncDragHandleVisibility])
+    const contentMargin = marginConfig ? 0 : 10
 
     const editor = useEditor({
       extensions: [
@@ -724,8 +725,8 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
           marginBottom: marginConfig?.bottom ?? 76,
           marginLeft: marginConfig?.left ?? 50,
           marginRight: marginConfig?.right ?? 50,
-          contentMarginTop: 10,
-          contentMarginBottom: 10,
+          contentMarginTop: contentMargin,
+          contentMarginBottom: contentMargin,
           headerLeft: "",
           headerRight: "",
           footerLeft: "",

@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { forwardRef, useImperativeHandle } from "react"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import type { SourceResumeCanvas } from "@typedance/contracts"
+import { MICROSOFT_YAHEI_FONT_STACK } from "../templates/style-engine/fonts"
 import { moduleOutlineStorageKey } from "./moduleInteractions"
 import { DraftCanvas } from "./DraftCanvas"
 
@@ -225,7 +226,7 @@ describe("DraftCanvas", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
 
     expect(editorMocks.props?.cssText).toContain(".td-source-resume-canvas .rm-with-pagination p")
-    expect(editorMocks.props?.cssText).toContain('font-family: Quotes, -apple-system')
+    expect(editorMocks.props?.cssText).toContain(`font-family: ${MICROSOFT_YAHEI_FONT_STACK};`)
     expect(editorMocks.props?.cssText).toContain("font-size: 16px;")
     expect(editorMocks.props?.cssText).toContain("line-height: 1.62;")
   })

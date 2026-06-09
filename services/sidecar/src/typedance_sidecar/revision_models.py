@@ -70,7 +70,7 @@ AgentStepStatus = Literal[
 DraftStatus = Literal["generated", "in_review", "accepted", "exported"]
 DraftVariantType = Literal["base", "opportunity"]
 ExportFormat = Literal["pdf", "html", "markdown", "docx"]
-ExportReviewStatus = Literal["passed", "forced_with_risk", "blocked"]
+ExportArtifactStatus = Literal["succeeded"]
 
 
 class Document(BaseModel):
@@ -313,10 +313,10 @@ class RenderProjection(BaseModel):
 class ExportArtifact(BaseModel):
     id: str
     document_id: str
-    draft_id: str
+    draft_id: str | None = None
     format: ExportFormat
     file_path: str | None = None
-    review_status: ExportReviewStatus
+    status: ExportArtifactStatus
     created_at: str
 
 

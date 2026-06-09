@@ -244,7 +244,7 @@ class RevisionQualityReviewService:
                     original_snapshot={"text": issue.original_text} if issue.original_text else None,
                     proposed_snapshot=proposed_snapshot,
                     summary=summary,
-                    rationale="基础质量检查发现该处会影响投递可信度或导出质量。",
+                    rationale="基础质量检查发现该处会影响投递可信度和内容质量。",
                     related_issue_ids=[issue.id],
                     evidence_link_ids=[evidence.id] if evidence else issue.evidence_link_ids,
                     confidence=0.74,

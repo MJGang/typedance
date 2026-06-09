@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useOutletContext, useParams } from "react-router-dom"
-import { AlertCircle, ArrowLeft, BriefcaseBusiness, Check, Download, Loader2, Pencil, RefreshCcw, Send, ShieldCheck, X } from "lucide-react"
+import { AlertCircle, ArrowLeft, BriefcaseBusiness, Check, ChevronDown, Download, FileText, Loader2, Pencil, RefreshCcw, Send, ShieldCheck, X } from "lucide-react"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -10,6 +12,8 @@ import {
   acceptRevisionProposal,
   createRevisionRun,
   dismissRevisionIssue,
+  exportRevisionDocumentHtml,
+  exportRevisionDocumentPdf,
   getRevisionWorkspaceView,
   rejectRevisionProposal,
   runRevisionQualityReview,
@@ -17,8 +21,9 @@ import {
 } from "@/api"
 import { resumePackPaths } from "../resume-pack/routes"
 import { DraftCanvas } from "./DraftCanvas"
-import { ExportGateModal } from "./ExportGateModal"
 import { OpportunityCalibrationModal } from "./OpportunityCalibrationModal"
+import { DEFAULT_SOURCE_CANVAS_PAGE_MARGINS, type PageMargins } from "./pageMargins"
+import { defaultClassicA4Style } from "../templates/data"
 import { useSourceCanvasAutosave } from "./useSourceCanvasAutosave"
 import type { RevisionWorkspaceChromeContext } from "@/components/SiteLayout"
 import type {
@@ -38,12 +43,14 @@ type LoadState =
   | { status: "loaded"; workspace: WorkspaceView }
   | { status: "error"; message: string }
 
+type RevisionExportFormat = "pdf" | "html"
+
 const SOURCE_CANVAS_TEXT_CURSOR_CLASS = "td-source-canvas-cursor-text"
 
 function qualityLabel(status?: string) {
-  if (status === "blocked") return "阻塞"
+  if (status === "blocked") return "需处理"
   if (status === "needs_review") return "待处理"
-  if (status === "ready") return "可导出"
+  if (status === "ready") return "已检查"
   return "未知"
 }
 
@@ -332,7 +339,8 @@ export function RevisionWorkspacePage() {
   const [state, setState] = useState<LoadState>({ status: "loading" })
   const [actingActionId, setActingActionId] = useState<string | null>(null)
   const [opportunityOpen, setOpportunityOpen] = useState(false)
-  const [exportOpen, setExportOpen] = useState(false)
+  const [exportingFormat, setExportingFormat] = useState<RevisionExportFormat | null>(null)
+  const [sourceCanvasPageMargins, setSourceCanvasPageMargins] = useState<PageMargins | null>(null)
   const [selectedIssueId, setSelectedIssueId] = useState<string | undefined>()
   const [issueContextInput, setIssueContextInput] = useState("")
   const [editingTitle, setEditingTitle] = useState(false)
@@ -507,6 +515,33 @@ export function RevisionWorkspacePage() {
     }
   }, [loadWorkspace, workspace])
 
+  const handleExport = useCallback(async (format: RevisionExportFormat) => {
+    if (!workspace || !sourceCanvas || exportingFormat) return
+    setExportingFormat(format)
+    try {
+      const exportDocument = format === "pdf" ? exportRevisionDocumentPdf : exportRevisionDocumentHtml
+      const result = await exportDocument(workspace.document.id, workspace.document.title, {
+        docJson: sourceCanvas.doc_json as Record<string, unknown>,
+        pageMargins: sourceCanvasPageMargins ?? DEFAULT_SOURCE_CANVAS_PAGE_MARGINS,
+        templateStyle: defaultClassicA4Style,
+      })
+      if (!result) return
+      const formatLabel = format === "pdf" ? "PDF" : "HTML"
+      toast.success(`${formatLabel} 导出成功`, {
+        description: `已保存为 ${result.fileName}`,
+        duration: 4000,
+      })
+    } catch {
+      const formatLabel = format === "pdf" ? "PDF" : "HTML"
+      toast.error(`${formatLabel} 导出失败`, {
+        description: "请检查 Sidecar 服务是否正常运行",
+        duration: 4000,
+      })
+    } finally {
+      setExportingFormat(null)
+    }
+  }, [exportingFormat, sourceCanvas, sourceCanvasPageMargins, workspace])
+
   const startTitleEditing = useCallback(() => {
     if (!workspace || isSavingTitle) return
     cancelTitleEditRef.current = false
@@ -667,6 +702,7 @@ export function RevisionWorkspacePage() {
   if (!workspace) return null
   const globalActions = documentLevelActions(workspace.available_actions)
   const workspaceRunStatusMessage = runStatusMessage(workspace.run_status?.status)
+  const exportDisabled = !sourceCanvas || exportingFormat !== null
 
   return (
     <div className="flex h-[calc(100svh-3rem)] min-h-0 flex-col overflow-hidden bg-background">
@@ -684,7 +720,7 @@ export function RevisionWorkspacePage() {
             reviewPanelVisible && "border-r border-border",
           )}
         >
-          <header className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
+          <header data-testid="revision-workspace-header" className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
             <Button variant="ghost" size="icon" aria-label="返回工作台" onClick={() => navigate(resumePackPaths.workspaces)}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
@@ -727,6 +763,31 @@ export function RevisionWorkspacePage() {
                 </h1>
               )}
             </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" disabled={exportDisabled}>
+                  {exportingFormat ? (
+                    <Loader2 data-icon="inline-start" className="animate-spin" />
+                  ) : (
+                    <Download data-icon="inline-start" />
+                  )}
+                  {exportingFormat ? "导出中..." : "导出"}
+                  <ChevronDown data-icon="inline-end" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuGroup>
+                  <DropdownMenuItem disabled={exportDisabled} onSelect={() => void handleExport("pdf")}>
+                    <Download />
+                    导出 PDF
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={exportDisabled} onSelect={() => void handleExport("html")}>
+                    <FileText />
+                    导出 HTML
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </header>
           <div
             ref={draftPanelRef}
@@ -738,8 +799,10 @@ export function RevisionWorkspacePage() {
                 <DraftCanvas
                   canvas={sourceCanvas}
                   onChange={handleCanvasChange}
+                  onPageMarginsChange={setSourceCanvasPageMargins}
                   onRetrySave={retryCanvasSave}
                   saveStatus={canvasSaveStatus}
+                  templateStyle={defaultClassicA4Style}
                 />
               ) : (
                 <div className="rounded-md border border-border bg-muted/30 p-4">
@@ -779,14 +842,6 @@ export function RevisionWorkspacePage() {
             >
               <BriefcaseBusiness className="mr-2 h-4 w-4" />
               岗位校准
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => setExportOpen(true)}
-              disabled={!workspace.current_draft}
-            >
-              <Download className="mr-2 h-4 w-4" />
-              导出
             </Button>
             <span className={`rounded-md border px-2 py-1 text-xs ${qualityClass(workspace.quality_gate?.status)}`}>
               {qualityLabel(workspace.quality_gate?.status)}
@@ -866,12 +921,6 @@ export function RevisionWorkspacePage() {
           onCompleted={loadWorkspace}
         />
       )}
-      <ExportGateModal
-        workspace={workspace}
-        open={exportOpen}
-        onOpenChange={setExportOpen}
-        onCompleted={loadWorkspace}
-      />
     </div>
   )
 }

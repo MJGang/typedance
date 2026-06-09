@@ -250,7 +250,7 @@ class DraftProjectionBuilder:
                 warnings.append(
                     {
                         "code": "module_needs_attention",
-                        "message": f"{module.title} 仍需要处理后再导出。",
+                        "message": f"{module.title} 仍需要处理。",
                         "severity": "warning",
                         "target": {"module_id": module.id, "module_type": module.type},
                     }

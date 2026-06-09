@@ -43,7 +43,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-Pdf-Path", "X-Html-Path", "X-Export-Artifact-Id", "X-Export-Review-Status"],
+    expose_headers=["X-Pdf-Path", "X-Html-Path", "X-Export-Artifact-Id"],
 )
 
 

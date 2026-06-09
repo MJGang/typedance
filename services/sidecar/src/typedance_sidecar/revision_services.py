@@ -605,9 +605,9 @@ class WorkspaceService:
         elif quality_gate.status == "blocked":
             summary = f"还有 {len(quality_gate.blocking_issue_ids)} 个阻塞问题需要先处理。"
         elif quality_gate.status == "needs_review":
-            summary = f"还有 {len(quality_gate.warning_issue_ids)} 个问题建议处理后再导出。"
+            summary = f"还有 {len(quality_gate.warning_issue_ids)} 个问题建议处理。"
         else:
-            summary = "当前草稿已准备好进入导出前检查。"
+            summary = "当前草稿暂无待处理建议。"
 
         return CoachSummary(summary=summary, next_action_ids=next_action_ids)
 

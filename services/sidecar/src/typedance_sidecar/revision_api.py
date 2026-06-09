@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
 from .import_resume_file_text import ImportResumeFileError, extract_import_resume_file_text
-from .models import Language, utc_now
+from .models import Language, TemplateStyleConfig, utc_now
 from .revision_models import (
     Document,
     DraftVersion,
@@ -25,7 +25,7 @@ from .revision_models import (
     WorkspaceView,
 )
 from .revision_blank_guided_flow import RevisionBlankGuidedFlowService
-from .revision_export_gate import RevisionExportBlockedError, RevisionExportGateService
+from .revision_export import RevisionExportService
 from .revision_import_flow import RevisionImportFlowService
 from .revision_issue_action import RevisionIssueActionService
 from .revision_opportunity_calibration import RevisionOpportunityCalibrationService
@@ -130,9 +130,29 @@ class SaveSourceResumeCanvasRequest(BaseModel):
         return doc_json
 
 
-class ExportDraftPdfRequest(BaseModel):
+class PageMarginsRequest(BaseModel):
+    top: float = Field(ge=0)
+    bottom: float = Field(ge=0)
+    left: float = Field(ge=0)
+    right: float = Field(ge=0)
+
+
+class ExportDocumentRequest(BaseModel):
     output_path: str | None = None
-    force_with_risk: bool = False
+    source_doc_json: dict[str, Any] | None = None
+    page_margins: PageMarginsRequest | None = None
+    template_style: TemplateStyleConfig | None = None
+
+    @field_validator("source_doc_json", mode="after")
+    @classmethod
+    def validate_source_doc_json(cls, doc_json: dict[str, Any] | None) -> dict[str, Any] | None:
+        if doc_json is None:
+            return None
+        if doc_json.get("type") != "doc":
+            raise ValueError("source_doc_json.type must be 'doc'")
+        if not isinstance(doc_json.get("content"), list):
+            raise ValueError("source_doc_json.content must be a list")
+        return doc_json
 
 
 class ConfirmClaimRequest(BaseModel):
@@ -472,54 +492,62 @@ def create_revision_router(
         except RevisionServiceError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @router.post("/drafts/{draft_id}/export/pdf")
-    def export_revision_draft_pdf(
-        draft_id: str,
-        payload: ExportDraftPdfRequest | None = None,
-        repo: RevisionRepository = Depends(repository),
+    def export_revision_document_response(
+        document_id: str,
+        export_format: Literal["pdf", "html"],
+        payload: ExportDocumentRequest | None,
+        repo: RevisionRepository,
     ) -> FileResponse:
-        request = payload or ExportDraftPdfRequest()
+        request = payload or ExportDocumentRequest()
         output_path = Path(request.output_path) if request.output_path else None
         try:
-            artifact = RevisionExportGateService(repo, output_dir=export_dir()).export_pdf(
-                draft_id,
+            artifact = RevisionExportService(repo, output_dir=export_dir()).export_document(
+                document_id,
+                export_format,
                 output_path=output_path,
-                force_with_risk=request.force_with_risk,
+                source_doc_json=request.source_doc_json,
+                page_margins=request.page_margins.model_dump() if request.page_margins else None,
+                template_style=request.template_style,
             )
-        except RevisionExportBlockedError as exc:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": str(exc),
-                    "artifact_id": exc.artifact.id,
-                    "review_status": exc.artifact.review_status,
-                    "blocking_issue_ids": exc.blocking_issue_ids,
-                    "warning_issue_ids": exc.warning_issue_ids,
-                },
-            ) from exc
         except RevisionServiceError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
-            raise HTTPException(status_code=500, detail="Revision PDF export failed") from exc
+            raise HTTPException(status_code=500, detail=f"Revision {export_format.upper()} export failed") from exc
 
         if artifact.file_path is None:
-            raise HTTPException(status_code=500, detail="Revision PDF export did not produce a file")
+            raise HTTPException(status_code=500, detail=f"Revision {export_format.upper()} export did not produce a file")
 
-        pdf_path = Path(artifact.file_path)
-        draft = require_draft(repo, draft_id)
-        document = require_document(repo, draft.document_id)
-        filename = pdf_path.name if request.output_path else f"resume-{document.title or draft.id}.pdf"
+        export_path = Path(artifact.file_path)
+        document = require_document(repo, document_id)
+        filename = export_path.name if request.output_path else f"resume-{document.title or document.id}.{export_format}"
+        media_type = "application/pdf" if export_format == "pdf" else "text/html; charset=utf-8"
+        path_header_name = "X-Pdf-Path" if export_format == "pdf" else "X-Html-Path"
         return FileResponse(
-            pdf_path,
-            media_type="application/pdf",
+            export_path,
+            media_type=media_type,
             filename=filename,
             content_disposition_type="attachment",
             headers={
-                "X-Pdf-Path": path_header_value(pdf_path),
+                path_header_name: path_header_value(export_path),
                 "X-Export-Artifact-Id": artifact.id,
-                "X-Export-Review-Status": artifact.review_status,
             },
         )
+
+    @router.post("/documents/{document_id}/export/pdf")
+    def export_revision_document_pdf(
+        document_id: str,
+        payload: ExportDocumentRequest | None = None,
+        repo: RevisionRepository = Depends(repository),
+    ) -> FileResponse:
+        return export_revision_document_response(document_id, "pdf", payload, repo)
+
+    @router.post("/documents/{document_id}/export/html")
+    def export_revision_document_html(
+        document_id: str,
+        payload: ExportDocumentRequest | None = None,
+        repo: RevisionRepository = Depends(repository),
+    ) -> FileResponse:
+        return export_revision_document_response(document_id, "html", payload, repo)
 
     @router.get("/drafts/{draft_id}/issues", response_model=list[RevisionIssue])
     def list_issues(

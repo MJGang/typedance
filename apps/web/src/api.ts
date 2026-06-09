@@ -4,7 +4,6 @@ import {
   documentSchema,
   draftVersionSchema,
   evidenceLinkSchema,
-  exportArtifactSchema,
   modelSettingsResponseSchema,
   modelSettingsTestResponseSchema,
   modelSettingsUpdateSchema,
@@ -23,7 +22,6 @@ import {
   type Document as RevisionDocument,
   type DraftVersion,
   type EvidenceLink,
-  type ExportArtifact,
   type ModelSettingsResponse,
   type ModelSettingsTestResponse,
   type ModelSettingsUpdate,
@@ -513,17 +511,73 @@ export async function confirmEvidenceLink(evidenceLinkId: string): Promise<Evide
   )
 }
 
-export async function exportRevisionDraftPdf(
-  draftId: string,
+type RevisionExportPageMargins = {
+  top: number
+  bottom: number
+  left: number
+  right: number
+}
+
+type RevisionDocumentExportFormat = "pdf" | "html"
+
+type RevisionDocumentExportOptions = {
+  docJson?: Record<string, unknown>
+  pageMargins?: RevisionExportPageMargins
+  templateStyle?: TemplateStyleConfig
+}
+
+type RevisionDocumentExportResult = {
+  fileName: string
+  filePath?: string
+  artifactId?: string
+  format: RevisionDocumentExportFormat
+}
+
+const REVISION_EXPORT_CONFIG: Record<RevisionDocumentExportFormat, {
+  extension: string
+  mimeType: string
+  pickerDescription: string
+  pickerExtensions: string[]
+  pathHeader: "X-Pdf-Path" | "X-Html-Path"
+}> = {
+  pdf: {
+    extension: "pdf",
+    mimeType: "application/pdf",
+    pickerDescription: "PDF",
+    pickerExtensions: [".pdf"],
+    pathHeader: "X-Pdf-Path",
+  },
+  html: {
+    extension: "html",
+    mimeType: "text/html",
+    pickerDescription: "HTML",
+    pickerExtensions: [".html", ".htm"],
+    pathHeader: "X-Html-Path",
+  },
+}
+
+function safeExportTitle(title: string) {
+  return title.replace(/[/\\?%*:|"<>]/g, "_")
+}
+
+async function chooseRevisionExportPathInTauri(format: RevisionDocumentExportFormat, fileName: string) {
+  if (format === "pdf") return choosePdfSavePathInTauri(fileName)
+  return chooseHtmlSavePathInTauri(fileName)
+}
+
+export async function exportRevisionDocument(
+  format: RevisionDocumentExportFormat,
+  documentId: string,
   title: string,
-  options: { forceWithRisk?: boolean } = {},
-): Promise<{ fileName: string; filePath?: string; artifactId?: string; reviewStatus?: ExportArtifact["review_status"] } | null> {
+  options: RevisionDocumentExportOptions = {},
+): Promise<RevisionDocumentExportResult | null> {
+  const config = REVISION_EXPORT_CONFIG[format]
   let fileHandle: FileSystemFileHandle | null = null
-  let fileName = `resume-${title.replace(/[/\\?%*:|"<>]/g, "_")}.pdf`
+  let fileName = `resume-${safeExportTitle(title)}.${config.extension}`
   let outputPath: string | null = null
 
   if (isTauri()) {
-    outputPath = await choosePdfSavePathInTauri(fileName)
+    outputPath = await chooseRevisionExportPathInTauri(format, fileName)
     if (!outputPath) return null
     fileName = outputPath.split(/[/\\]/).pop() ?? fileName
   }
@@ -534,7 +588,10 @@ export async function exportRevisionDraftPdf(
       fileHandle = await showPicker({
         suggestedName: fileName,
         types: [
-          { description: "PDF", accept: { "application/pdf": [".pdf"] } },
+          {
+            description: config.pickerDescription,
+            accept: { [config.mimeType]: config.pickerExtensions },
+          },
         ],
       })
       fileName = fileHandle.name
@@ -545,12 +602,18 @@ export async function exportRevisionDraftPdf(
     }
   }
 
-  const body: { output_path?: string; force_with_risk?: boolean } = {
-    force_with_risk: options.forceWithRisk ?? false,
-  }
+  const body: {
+    output_path?: string
+    source_doc_json?: Record<string, unknown>
+    page_margins?: RevisionExportPageMargins
+    template_style?: TemplateStyleConfig
+  } = {}
   if (outputPath) body.output_path = outputPath
+  if (options.docJson) body.source_doc_json = options.docJson
+  if (options.pageMargins) body.page_margins = options.pageMargins
+  if (options.templateStyle) body.template_style = options.templateStyle
 
-  const response = await fetch(`${baseUrl}/drafts/${draftId}/export/pdf`, {
+  const response = await fetch(`${baseUrl}/documents/${documentId}/export/${format}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -561,21 +624,17 @@ export async function exportRevisionDraftPdf(
     const message = typeof payload?.detail === "object" && payload.detail && "message" in payload.detail
       ? String(payload.detail.message)
       : `${response.status}`
-    throw new Error(`Failed to export revision PDF: ${message}`)
+    throw new Error(`Failed to export revision ${format.toUpperCase()}: ${message}`)
   }
 
-  const filePath = decodeHeaderPath(response.headers.get("X-Pdf-Path"))
+  const filePath = decodeHeaderPath(response.headers.get(config.pathHeader))
   const artifactId = response.headers.get("X-Export-Artifact-Id") ?? undefined
-  const rawReviewStatus = response.headers.get("X-Export-Review-Status")
-  const reviewStatus = rawReviewStatus
-    ? exportArtifactSchema.shape.review_status.parse(rawReviewStatus)
-    : undefined
 
   if (outputPath) {
     await response.blob()
     const savedPath = filePath ?? outputPath
     const savedName = savedPath.split(/[/\\]/).pop() ?? fileName
-    return { fileName: savedName, filePath: savedPath, artifactId, reviewStatus }
+    return { fileName: savedName, filePath: savedPath, artifactId, format }
   }
 
   const blob = await response.blob()
@@ -592,7 +651,23 @@ export async function exportRevisionDraftPdf(
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
-  return { fileName, filePath, artifactId, reviewStatus }
+  return { fileName, filePath, artifactId, format }
+}
+
+export async function exportRevisionDocumentPdf(
+  documentId: string,
+  title: string,
+  options: RevisionDocumentExportOptions = {},
+): Promise<RevisionDocumentExportResult | null> {
+  return exportRevisionDocument("pdf", documentId, title, options)
+}
+
+export async function exportRevisionDocumentHtml(
+  documentId: string,
+  title: string,
+  options: RevisionDocumentExportOptions = {},
+): Promise<RevisionDocumentExportResult | null> {
+  return exportRevisionDocument("html", documentId, title, options)
 }
 
 export async function exportResumePdf(

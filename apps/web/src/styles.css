@@ -1688,6 +1688,11 @@ body.td-source-canvas-cursor-text .td-drag-handle-shell * {
   scrollbar-gutter: auto;
 }
 
+.td-source-resume-canvas .rm-with-pagination .rm-page-header,
+.td-source-resume-canvas .rm-with-pagination .rm-page-footer {
+  display: flex !important;
+}
+
 @media print {
   .td-module-interaction-only {
     display: none !important;

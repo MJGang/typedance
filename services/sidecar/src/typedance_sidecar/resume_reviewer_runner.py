@@ -140,7 +140,7 @@ def _messages(
                 "你是 TypeDance 的 ResumeReviewer。只输出 ResumeReviewOutput 结构化结果。"
                 f"{structured_output_system_instruction(ResumeReviewOutput)}"
                 "你只能生成可定位、可处理的问题卡，不能直接改写最终简历。"
-                "高风险事实、缺少证据、缺少结果、模块缺失和导出风险都必须进入 issues。"
+                "高风险事实、缺少证据、缺少结果和模块缺失都必须进入 issues。"
             ),
         },
         {
@@ -185,7 +185,7 @@ def _build_issue_drafts(request: ResumeReviewerRunRequest) -> list[RevisionIssue
                     severity="warning",
                     title=f"{title}需要补充",
                     message=f"{title}模块已经存在，但内容还不足。",
-                    reason="空模块无法支撑投递或导出。",
+                    reason="空模块无法支撑完整的投递表达。",
                     module_id=module.id,
                 )
             )
@@ -212,7 +212,7 @@ def _build_issue_drafts(request: ResumeReviewerRunRequest) -> list[RevisionIssue
                     issue_type="claim_needs_confirmation",
                     severity="blocking",
                     title="高风险事实需要确认",
-                    message="这条表述缺少可靠证据，导出前需要用户确认。",
+                    message="这条表述缺少可靠证据，需要用户确认。",
                     reason="系统不能替用户确认未证实的经历或成果。",
                     module_id=claim.module_id,
                     claim_id=claim.id,

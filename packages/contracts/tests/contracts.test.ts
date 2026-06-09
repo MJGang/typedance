@@ -411,7 +411,7 @@ describe("revision run and workspace schemas", () => {
       draft_id: draft.id,
       format: "pdf",
       file_path: "resume.pdf",
-      review_status: "passed",
+      status: "succeeded",
       created_at: "2026-05-21T08:00:00.000Z",
     });
 
@@ -468,7 +468,16 @@ describe("revision run and workspace schemas", () => {
     expect(run.input_source_canvas_version).toBe(1);
     expect(workspace.current_draft?.id).toBe(draft.id);
     expect(workspace.source_resume_canvas?.id).toBe("canvas_1");
-    expect(artifact.review_status).toBe("passed");
+    expect(artifact.status).toBe("succeeded");
+    expect(exportArtifactSchema.parse({
+      id: "export_without_draft",
+      document_id: "doc_1",
+      draft_id: null,
+      format: "html",
+      file_path: "resume.html",
+      status: "succeeded",
+      created_at: "2026-05-21T08:00:00.000Z",
+    }).draft_id).toBeNull();
   });
 });
 

@@ -40,8 +40,10 @@ def test_render_and_export_pdf_writes_pdf_file(tmp_path, mock_playwright):
         path=str(pdf_path),
         format="A4",
         print_background=True,
-        margin={"top": "86px", "bottom": "86px", "left": "50px", "right": "50px"},
+        prefer_css_page_size=True,
+        margin={"top": "0", "bottom": "0", "left": "0", "right": "0"},
     )
+    mock_page.wait_for_function.assert_not_called()
     mock_page.close.assert_called_once()
 
 
@@ -56,7 +58,14 @@ def test_render_html_to_pdf_writes_projection_html(tmp_path, mock_playwright):
     assert pdf_path.exists()
     mock_page = mock_playwright
     mock_page.set_content.assert_called_once_with("<article>结构化草稿</article>", wait_until="load")
-    mock_page.pdf.assert_called_once()
+    mock_page.wait_for_function.assert_not_called()
+    mock_page.pdf.assert_called_once_with(
+        path=str(pdf_path),
+        format="A4",
+        print_background=True,
+        prefer_css_page_size=True,
+        margin={"top": "86px", "bottom": "86px", "left": "50px", "right": "50px"},
+    )
     mock_page.close.assert_called_once()
 
 
@@ -76,6 +85,33 @@ def test_rendered_html_resets_browser_default_body_margin():
 
     assert "body.td-resume-page" in html
     assert "margin: 0;" in html
+
+
+def test_rendered_html_uses_natural_print_pagination_with_page_margins():
+    resume = ResumeVersion(
+        id="test-html-a4-pages",
+        title="Test",
+        template_id="classic-a4",
+        target_language="zh-CN",
+        doc_json={"type": "doc", "content": []},
+        plain_text_snapshot="Hello World",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
+
+    html = render_resume_html(
+        resume,
+        html_page_margin={"top": "88px", "bottom": "72px", "left": "42px", "right": "48px"},
+    )
+
+    assert '<body class="td-resume-page td-export-document" data-td-natural-print>' in html
+    assert '<main class="td-export-content">' in html
+    assert "data-td-export-pages" not in html
+    assert "<script>" not in html
+    assert "width: 794px;" in html
+    assert "min-height: 1123px;" in html
+    assert "padding: 88px 48px 72px 42px;" in html
+    assert "@page {\n    size: A4;\n    margin: 88px 48px 72px 42px;" in html
 
 
 def test_rendered_html_resets_browser_default_block_spacing():
@@ -102,6 +138,45 @@ def test_rendered_html_resets_browser_default_block_spacing():
     assert ".td-resume-page p" in html
     assert ".td-resume-page ul" in html
     assert "padding-left: 0;" in html
+
+
+def test_rendered_html_allows_paragraph_lines_to_split_across_print_pages():
+    resume = ResumeVersion(
+        id="test-print-line-fragmentation",
+        title="Print",
+        template_id="classic-a4",
+        target_language="zh-CN",
+        doc_json={
+            "type": "doc",
+            "content": [
+                {
+                    "type": "bulletList",
+                    "content": [
+                        {
+                            "type": "listItem",
+                            "content": [
+                                {
+                                    "type": "paragraph",
+                                    "content": [{"type": "text", "text": "跨页多行列表项"}],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        },
+        plain_text_snapshot="",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
+
+    html = render_resume_html(resume)
+
+    assert ":where(.td-resume-page p, .td-resume-page li, .td-resume-page li p)" in html
+    assert "orphans: 1;" in html
+    assert "widows: 1;" in html
+    assert "break-inside: auto;" in html
+    assert "page-break-inside: auto;" in html
 
 
 def test_pdf_export_uses_doc_json_as_canonical_content():

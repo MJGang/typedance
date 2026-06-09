@@ -442,7 +442,7 @@ def test_revision_repository_roundtrips_core_objects(tmp_path):
             draft_id=draft.id,
             format="pdf",
             file_path="resume.pdf",
-            review_status="passed",
+            status="succeeded",
             created_at=now,
         )
     )

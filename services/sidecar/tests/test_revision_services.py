@@ -525,7 +525,7 @@ def test_render_and_export_services_wrap_repository_operations(tmp_path):
         draft_id="draft_1",
         format="pdf",
         file_path="resume.pdf",
-        review_status="passed",
+        status="succeeded",
         created_at=utc_now(),
     )
 

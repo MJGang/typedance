@@ -326,7 +326,7 @@ def test_revision_api_returns_workspace_and_renders_draft(revision_client):
     assert workspace["source_resume_canvas"]["id"] == "canvas_1"
     assert workspace["run_status"]["run_id"] == "run_1"
     assert workspace["run_status"]["status"] == "completed"
-    assert workspace["coach_summary"]["summary"] == "还有 1 个问题建议处理后再导出。"
+    assert workspace["coach_summary"]["summary"] == "还有 1 个问题建议处理。"
     assert [action["action_type"] for action in workspace["available_actions"]] == [
         "dismiss_issue",
         "accept_proposal",
@@ -636,39 +636,89 @@ def test_revision_api_runs_issue_action(revision_client):
     )
 
 
-def test_revision_api_exports_draft_pdf_with_gate(revision_client, monkeypatch):
+def test_revision_api_exports_document_pdf_without_gate(revision_client, monkeypatch):
     client, tmp_path = revision_client
     seed_workspace(tmp_path)
+    captured_margin: list[dict[str, str] | None] = []
 
-    def fake_render_html_to_pdf(html: str, output_path: Path) -> Path:
+    def fake_render_html_to_pdf(html: str, output_path: Path, page_margin: dict[str, str] | None = None) -> Path:
+        captured_margin.append(page_margin)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(b"%PDF-1.4\n")
         assert "订单系统重构" in html
+        assert "font-size: 15px" in html
+        assert "#123456" in html
         return output_path
 
     monkeypatch.setattr(
-        "typedance_sidecar.revision_export_gate.render_html_to_pdf",
+        "typedance_sidecar.revision_export.render_html_to_pdf",
         fake_render_html_to_pdf,
     )
 
-    blocked_response = client.post("/drafts/draft_1/export/pdf")
-
-    assert blocked_response.status_code == 409
-    assert blocked_response.json()["detail"]["warning_issue_ids"] == ["issue_1"]
-
     response = client.post(
-        "/drafts/draft_1/export/pdf",
-        json={"force_with_risk": True},
+        "/documents/doc_1/export/pdf",
+        json={
+            "source_doc_json": {
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": "订单系统重构"}],
+                    }
+                ],
+            },
+            "page_margins": {"top": 88, "bottom": 72, "left": 42, "right": 48},
+            "template_style": {
+                "template_id": "classic-a4",
+                "blocks": {"paragraph": {"fontSize": "15px", "color": "#123456"}},
+            },
+        },
         headers={"Origin": "http://127.0.0.1:5173"},
     )
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
-    assert response.headers["X-Export-Review-Status"] == "forced_with_risk"
     assert response.headers["X-Export-Artifact-Id"].startswith("export_")
+    assert "X-Export-Review-Status" not in response.headers
+    assert captured_margin == [{"top": "88px", "bottom": "72px", "left": "42px", "right": "48px"}]
     export_path = Path(response.headers["X-Pdf-Path"])
     assert export_path.parent.name == "exports"
     assert "X-Export-Artifact-Id" in response.headers["access-control-expose-headers"]
+    assert "X-Export-Review-Status" not in response.headers["access-control-expose-headers"]
+
+
+def test_revision_api_exports_document_html_with_current_style(revision_client):
+    client, tmp_path = revision_client
+    seed_workspace(tmp_path)
+
+    response = client.post(
+        "/documents/doc_1/export/html",
+        json={
+            "source_doc_json": {
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": "订单系统重构"}],
+                    }
+                ],
+            },
+            "page_margins": {"top": 88, "bottom": 72, "left": 42, "right": 48},
+            "template_style": {
+                "template_id": "classic-a4",
+                "blocks": {"paragraph": {"fontSize": "15px", "color": "#123456"}},
+            },
+        },
+        headers={"Origin": "http://127.0.0.1:5173"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert response.headers["X-Export-Artifact-Id"].startswith("export_")
+    assert "X-Html-Path" in response.headers
+    assert "font-size: 15px" in response.text
+    assert "#123456" in response.text
+    assert "padding: 88px 48px 72px 42px" in response.text
 
 
 def test_revision_api_handles_issues_proposals_and_confirmations(revision_client):
