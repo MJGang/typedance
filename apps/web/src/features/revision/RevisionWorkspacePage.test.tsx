@@ -1010,7 +1010,7 @@ describe("RevisionWorkspacePage", () => {
     expect(workspaceGrid).toHaveClass("grid-cols-[minmax(0,1fr)]")
     expect(workspaceGrid).not.toHaveClass("grid-cols-[minmax(0,1fr)_360px]")
     expect(workspaceGrid).toHaveClass("overflow-hidden")
-    expect(draftPanel).toHaveClass("overflow-auto")
+    expect(draftPanel).toHaveClass("overflow-hidden")
     expect(draftPanel).toHaveClass("pt-0")
     expect(draftPanel).toHaveClass("px-0")
     expect(reviewPanel).toHaveClass("overflow-y-auto")

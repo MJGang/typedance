@@ -166,6 +166,65 @@ describe("ResumeRichTextEditor toolbar", () => {
     expect(dragHandle.querySelector(".lucide-grip-vertical")).toBeInTheDocument()
   })
 
+  it("scrolls the editor print wrapper when the mouse wheel is used during block dragging", () => {
+    render(
+      <TooltipProvider>
+        <ResumeRichTextEditor
+          ariaLabel="Resume text"
+          docJson={{ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Drag me" }] }] }}
+          onChange={() => {}}
+        />
+      </TooltipProvider>,
+    )
+
+    const wrapper = document.querySelector<HTMLElement>(".td-editor-print-wrapper")
+    const dragHandle = document.querySelector<HTMLElement>(".td-resume-drag-handle-floating")
+    expect(wrapper).toBeInstanceOf(HTMLElement)
+    expect(dragHandle).toBeInstanceOf(HTMLElement)
+    Object.defineProperty(wrapper, "scrollTop", { configurable: true, writable: true, value: 120 })
+    Object.defineProperty(wrapper, "scrollHeight", { configurable: true, value: 1200 })
+    Object.defineProperty(wrapper, "clientHeight", { configurable: true, value: 400 })
+
+    fireEvent.dragStart(dragHandle!)
+    fireEvent.wheel(document, { deltaY: 180 })
+
+    expect(wrapper?.scrollTop).toBe(300)
+
+    fireEvent.dragEnd(dragHandle!)
+    fireEvent.wheel(document, { deltaY: 120 })
+
+    expect(wrapper?.scrollTop).toBe(300)
+  })
+
+  it("scrolls the editor print wrapper after pressing the drag handle before native drag starts", () => {
+    render(
+      <TooltipProvider>
+        <ResumeRichTextEditor
+          ariaLabel="Resume text"
+          docJson={{ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Drag me" }] }] }}
+          onChange={() => {}}
+        />
+      </TooltipProvider>,
+    )
+
+    const wrapper = document.querySelector<HTMLElement>(".td-editor-print-wrapper")
+    const dragHandle = screen.getByTestId("resume-drag-handle")
+    expect(wrapper).toBeInstanceOf(HTMLElement)
+    Object.defineProperty(wrapper, "scrollTop", { configurable: true, writable: true, value: 120 })
+    Object.defineProperty(wrapper, "scrollHeight", { configurable: true, value: 1200 })
+    Object.defineProperty(wrapper, "clientHeight", { configurable: true, value: 400 })
+
+    fireEvent.pointerDown(dragHandle, { button: 0, pointerId: 12 })
+    fireEvent.wheel(document, { deltaY: 180 })
+
+    expect(wrapper?.scrollTop).toBe(300)
+
+    fireEvent.pointerUp(document, { pointerId: 12 })
+    fireEvent.wheel(document, { deltaY: 120 })
+
+    expect(wrapper?.scrollTop).toBe(300)
+  })
+
   it("maps floating drag handle block types to icons", () => {
     const editor = new Editor({
       extensions: [StarterKit, BlockStyle],
@@ -432,7 +491,7 @@ describe("ResumeRichTextEditor toolbar", () => {
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" })
   })
 
-  it("scrolls a source canvas node within the source canvas viewport with a top offset", () => {
+  it("scrolls a source canvas node within the editor print wrapper with a top offset", () => {
     const ref = createRef<ResumeRichTextEditorHandle>()
 
     render(
@@ -463,15 +522,61 @@ describe("ResumeRichTextEditor toolbar", () => {
     expect(sourceViewport).toBeInstanceOf(HTMLElement)
     expect(printWrapper).toBeInstanceOf(HTMLElement)
     Object.defineProperty(sourceViewport, "scrollTop", { configurable: true, value: 120 })
+    Object.defineProperty(printWrapper, "scrollTop", { configurable: true, value: 80 })
     Object.defineProperty(sourceViewport, "scrollTo", { configurable: true, value: sourceScrollTo })
     Object.defineProperty(printWrapper, "scrollTo", { configurable: true, value: printScrollTo })
     vi.spyOn(sourceViewport as HTMLElement, "getBoundingClientRect").mockReturnValue({ top: 100 } as DOMRect)
+    vi.spyOn(printWrapper as HTMLElement, "getBoundingClientRect").mockReturnValue({ top: 180 } as DOMRect)
     vi.spyOn(canvasNode, "getBoundingClientRect").mockReturnValue({ top: 460 } as DOMRect)
 
     ref.current?.scrollToCanvasNode("node_1", { topOffset: 24 })
 
-    expect(sourceScrollTo).toHaveBeenCalledWith({ top: 456, behavior: "smooth" })
-    expect(printScrollTo).not.toHaveBeenCalled()
+    expect(printScrollTo).toHaveBeenCalledWith({ top: 336, behavior: "smooth" })
+    expect(sourceScrollTo).not.toHaveBeenCalled()
+  })
+
+  it("scrolls a heading index within the editor print wrapper with a top offset", () => {
+    const ref = createRef<ResumeRichTextEditorHandle>()
+
+    render(
+      <TooltipProvider>
+        <div className="td-source-resume-canvas-viewport">
+          <ResumeRichTextEditor
+            ref={ref}
+            ariaLabel="Resume text"
+            docJson={{
+              type: "doc",
+              content: [
+                { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "项目经历" }] },
+                { type: "paragraph", content: [{ type: "text", text: "Work body" }] },
+                { type: "heading", attrs: { level: 3 }, content: [{ type: "text", text: "TypeDance" }] },
+              ],
+            }}
+            onChange={() => {}}
+          />
+        </div>
+      </TooltipProvider>,
+    )
+
+    const heading = screen.getByText("TypeDance")
+    const sourceViewport = heading.closest(".td-source-resume-canvas-viewport")
+    const printWrapper = heading.closest(".td-editor-print-wrapper")
+    const sourceScrollTo = vi.fn()
+    const printScrollTo = vi.fn()
+    expect(sourceViewport).toBeInstanceOf(HTMLElement)
+    expect(printWrapper).toBeInstanceOf(HTMLElement)
+    Object.defineProperty(sourceViewport, "scrollTop", { configurable: true, value: 120 })
+    Object.defineProperty(printWrapper, "scrollTop", { configurable: true, value: 80 })
+    Object.defineProperty(sourceViewport, "scrollTo", { configurable: true, value: sourceScrollTo })
+    Object.defineProperty(printWrapper, "scrollTo", { configurable: true, value: printScrollTo })
+    vi.spyOn(sourceViewport as HTMLElement, "getBoundingClientRect").mockReturnValue({ top: 100 } as DOMRect)
+    vi.spyOn(printWrapper as HTMLElement, "getBoundingClientRect").mockReturnValue({ top: 180 } as DOMRect)
+    vi.spyOn(heading, "getBoundingClientRect").mockReturnValue({ top: 460 } as DOMRect)
+
+    ref.current?.scrollToHeadingIndex(1, { topOffset: 24 })
+
+    expect(printScrollTo).toHaveBeenCalledWith({ top: 336, behavior: "smooth" })
+    expect(sourceScrollTo).not.toHaveBeenCalled()
   })
 
   it("falls back to the editor print wrapper when no source viewport is present", () => {

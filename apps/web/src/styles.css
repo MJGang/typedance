@@ -1607,12 +1607,13 @@ textarea {
 
 .td-source-resume-canvas .td-rich-editor {
   align-items: stretch;
-  height: auto;
+  height: 100%;
   min-height: 100%;
   overflow: visible;
 }
 
 .td-source-resume-canvas .td-rich-editor-toolbar {
+  flex: 0 0 auto;
   width: 100%;
   max-width: none;
 }
@@ -1634,6 +1635,16 @@ textarea {
 .td-source-resume-canvas [role="button"],
 .td-source-resume-canvas .td-rich-editor-toolbar,
 .td-source-resume-canvas .td-rich-editor-toolbar * {
+  cursor: pointer;
+}
+
+.td-source-resume-canvas .td-module-interaction-only,
+.td-source-resume-canvas .td-module-interaction-only * {
+  cursor: default;
+}
+
+.td-source-resume-canvas .td-module-interaction-only button,
+.td-source-resume-canvas .td-module-interaction-only [role="button"] {
   cursor: pointer;
 }
 
@@ -1683,9 +1694,16 @@ body.td-source-canvas-cursor-text .td-drag-handle-shell * {
 
 .td-source-resume-canvas .td-editor-print-wrapper {
   width: 100%;
-  flex: 0 0 auto;
-  overflow: visible;
-  scrollbar-gutter: auto;
+  flex: 1 1 auto;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  box-sizing: border-box;
+}
+
+.td-source-resume-canvas[data-outline-layout="docked"][data-outline-expanded="true"] .td-editor-print-wrapper {
+  padding-left: var(--td-module-outline-reserved-width);
+  padding-right: 1.5rem;
 }
 
 .td-source-resume-canvas .rm-with-pagination .rm-page-header,

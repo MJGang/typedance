@@ -70,6 +70,7 @@ export type ResumeRichTextEditorHandle = {
   unsetColumns: () => void
   setTextSelection: (selection: { anchor: number; head: number }) => void
   scrollToCanvasNode: (canvasNodeId: string, options?: { topOffset?: number }) => void
+  scrollToHeadingIndex: (index: number, options?: { topOffset?: number }) => void
   updatePageMargins: (margins: MarginConfig) => void
 }
 
@@ -244,7 +245,38 @@ function getDragHandleNodeElement(editor: Editor, pos: number) {
   return nodeDom instanceof HTMLElement ? nodeDom : null
 }
 
-function ResumeDragHandleChrome({ block }: { block: ToolbarBlock }) {
+function getEditorScrollContainer(element: HTMLElement) {
+  return element.closest(".td-editor-print-wrapper")
+    ?? element.closest(".td-source-resume-canvas-viewport")
+}
+
+function wheelDeltaYPixels(event: WheelEvent, container: HTMLElement) {
+  if (event.deltaMode === 1) return event.deltaY * 40
+  if (event.deltaMode === 2) return event.deltaY * container.clientHeight
+  return event.deltaY
+}
+
+function scrollElementByWheelDelta(element: HTMLElement, event: WheelEvent) {
+  const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight)
+  if (maxScrollTop <= 0) return false
+
+  const deltaY = wheelDeltaYPixels(event, element)
+  if (deltaY === 0) return false
+
+  const nextScrollTop = Math.min(maxScrollTop, Math.max(0, element.scrollTop + deltaY))
+  if (nextScrollTop === element.scrollTop) return false
+
+  element.scrollTop = nextScrollTop
+  return true
+}
+
+function ResumeDragHandleChrome({
+  block,
+  onPointerDown,
+}: {
+  block: ToolbarBlock
+  onPointerDown?: (event: PointerEvent<HTMLDivElement>) => void
+}) {
   const presentation = getDragHandleBlockPresentation(block)
   const Icon = presentation.icon
 
@@ -255,6 +287,7 @@ function ResumeDragHandleChrome({ block }: { block: ToolbarBlock }) {
       data-testid="resume-drag-handle"
       aria-label={`拖拽${presentation.label}块`}
       title={`拖拽${presentation.label}块`}
+      onPointerDown={onPointerDown}
     >
       <span className="td-drag-handle">
         <Icon className="td-drag-handle-kind-icon" />
@@ -661,6 +694,8 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
     const [dragHandleVisible, setDragHandleVisible] = useState(false)
     const latestDragHandlePointerRef = useRef<{ clientX: number; clientY: number } | null>(null)
     const dragHandleCandidateRef = useRef<DragHandleCandidate | null>(null)
+    const printWrapperRef = useRef<HTMLDivElement>(null)
+    const stopBlockDragScrollRef = useRef<(() => void) | null>(null)
     const syncDragHandleVisibility = useCallback((pointer: { clientX: number; clientY: number } | null) => {
       const candidate = dragHandleCandidateRef.current
       const isVisible = isPointerWithinDragHandleTextLine(
@@ -703,6 +738,44 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       }
       syncDragHandleVisibility(latestDragHandlePointerRef.current)
     }, [syncDragHandleVisibility])
+    const stopBlockDragScrolling = useCallback(() => {
+      stopBlockDragScrollRef.current?.()
+      stopBlockDragScrollRef.current = null
+    }, [])
+    const startBlockDragScrolling = useCallback(() => {
+      stopBlockDragScrolling()
+      const scrollContainer = printWrapperRef.current
+      if (!scrollContainer) return
+
+      const handleWheel = (event: WheelEvent) => {
+        if (!scrollElementByWheelDelta(scrollContainer, event)) return
+        event.preventDefault()
+      }
+      const stopFromDocument = () => {
+        stopBlockDragScrolling()
+      }
+
+      document.addEventListener("wheel", handleWheel, { capture: true, passive: false })
+      document.addEventListener("pointerup", stopFromDocument, true)
+      document.addEventListener("pointercancel", stopFromDocument, true)
+      document.addEventListener("mouseup", stopFromDocument, true)
+      document.addEventListener("dragend", stopFromDocument, true)
+      document.addEventListener("drop", stopFromDocument, true)
+      window.addEventListener("blur", stopFromDocument)
+      stopBlockDragScrollRef.current = () => {
+        document.removeEventListener("wheel", handleWheel, true)
+        document.removeEventListener("pointerup", stopFromDocument, true)
+        document.removeEventListener("pointercancel", stopFromDocument, true)
+        document.removeEventListener("mouseup", stopFromDocument, true)
+        document.removeEventListener("dragend", stopFromDocument, true)
+        document.removeEventListener("drop", stopFromDocument, true)
+        window.removeEventListener("blur", stopFromDocument)
+      }
+    }, [stopBlockDragScrolling])
+    const handleDragHandlePointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
+      if (event.button > 0) return
+      startBlockDragScrolling()
+    }, [startBlockDragScrolling])
     const contentMargin = marginConfig ? 0 : 10
 
     const editor = useEditor({
@@ -832,8 +905,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
           if (canvasNode instanceof HTMLElement && canvasNode.getAttribute("data-canvas-node-id") === canvasNodeId) {
             const behavior = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
             if (options?.topOffset !== undefined) {
-              const viewport = canvasNode.closest(".td-source-resume-canvas-viewport")
-                ?? canvasNode.closest(".td-editor-print-wrapper")
+              const viewport = getEditorScrollContainer(canvasNode)
               if (!(viewport instanceof HTMLElement)) return
               const targetRect = canvasNode.getBoundingClientRect()
               const viewportRect = viewport.getBoundingClientRect()
@@ -846,6 +918,46 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
             canvasNode.scrollIntoView({ behavior, block: "center" })
             return
           }
+        }
+      },
+      scrollToHeadingIndex: (index, options) => {
+        if (!editor || editor.isDestroyed) return
+        let headingIndex = 0
+        const { doc } = editor.state
+        let targetPos: number | null = null
+        let found = false
+        doc.descendants((node, pos) => {
+          if (found) return false
+          if (node.type.name === "heading") {
+            if (headingIndex === index) {
+              targetPos = pos
+              found = true
+              return false
+            }
+            headingIndex++
+          }
+          return true
+        })
+        if (targetPos === null) return
+
+        const { view } = editor
+        const headingNode = view.nodeDOM(targetPos)
+        if (!(headingNode instanceof HTMLElement)) return
+        const behavior = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+        if (options?.topOffset !== undefined) {
+          const viewport = getEditorScrollContainer(headingNode)
+          if (!(viewport instanceof HTMLElement)) {
+            headingNode.scrollIntoView({ behavior, block: "center" })
+            return
+          }
+          const targetRect = headingNode.getBoundingClientRect()
+          const viewportRect = viewport.getBoundingClientRect()
+          viewport.scrollTo({
+            top: Math.max(0, viewport.scrollTop + targetRect.top - viewportRect.top - options.topOffset),
+            behavior,
+          })
+        } else {
+          headingNode.scrollIntoView({ behavior, block: "center" })
         }
       },
       updatePageMargins: (margins) => {
@@ -876,6 +988,8 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       marginConfig?.right,
       marginConfig?.top,
     ])
+
+    useEffect(() => stopBlockDragScrolling, [stopBlockDragScrolling])
 
     const canEditParagraphStyle = toolbarState.activeBlock === "paragraph"
     const canEditBlockStyle = Boolean(editor) && toolbarState.activeBlock !== "columns"
@@ -1065,12 +1179,14 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
           <DragHandle
             editor={editor}
             className={`drag-handle td-resume-drag-handle-floating${dragHandleVisible ? "" : " td-resume-drag-handle-suppressed"}`}
+            onElementDragEnd={stopBlockDragScrolling}
+            onElementDragStart={startBlockDragScrolling}
             onNodeChange={handleDragHandleNodeChange}
           >
-            <ResumeDragHandleChrome block={dragHandleBlock} />
+            <ResumeDragHandleChrome block={dragHandleBlock} onPointerDown={handleDragHandlePointerDown} />
           </DragHandle>
         )}
-        <div className="td-editor-print-wrapper">
+        <div ref={printWrapperRef} className="td-editor-print-wrapper">
           <EditorContent editor={editor} className="td-rich-editor-content" />
         </div>
       </div>

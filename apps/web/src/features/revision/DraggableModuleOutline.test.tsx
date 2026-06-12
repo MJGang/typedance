@@ -1,30 +1,11 @@
 import "@testing-library/jest-dom/vitest"
 import { fireEvent, render, screen } from "@testing-library/react"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import type { ModuleAnchor } from "@typedance/contracts"
 import {
   DraggableModuleOutline,
   type DraggableModuleOutlineProps,
 } from "./DraggableModuleOutline"
-
-const OriginalPointerEvent = globalThis.PointerEvent
-
-class PointerEventMock extends MouseEvent {
-  pointerId: number
-
-  constructor(type: string, properties: PointerEventInit = {}) {
-    super(type, properties)
-    this.pointerId = properties.pointerId ?? 0
-  }
-}
-
-beforeAll(() => {
-  globalThis.PointerEvent = PointerEventMock as typeof PointerEvent
-})
-
-afterAll(() => {
-  globalThis.PointerEvent = OriginalPointerEvent
-})
 
 const anchors: ModuleAnchor[] = [
   {
@@ -48,62 +29,43 @@ function createProps(
     anchors,
     activeModuleId: null,
     expanded: true,
-    position: { x: 20, y: 30 },
-    bounds: { width: 300, height: 200 },
+    floating: false,
+    outlineTop: 40,
+    panelWidth: 264,
     saveStatus: "idle",
     onExpandedChange: vi.fn(),
-    onPositionCommit: vi.fn(),
     onActivateModule: vi.fn(),
     onScrollToAnchor: vi.fn(),
     ...overrides,
   }
 }
 
-function mockOutlineSize(outline: HTMLElement) {
-  vi.spyOn(outline, "getBoundingClientRect").mockReturnValue({
-    width: 100,
-    height: 80,
-  } as DOMRect)
-}
-
-function mockPointerCapture(handle: HTMLElement) {
-  const setPointerCapture = vi.fn()
-  const releasePointerCapture = vi.fn()
-  const hasPointerCapture = vi.fn(() => true)
-
-  Object.assign(handle, {
-    setPointerCapture,
-    releasePointerCapture,
-    hasPointerCapture,
-  })
-
-  return { setPointerCapture, releasePointerCapture }
-}
-
 describe("DraggableModuleOutline", () => {
-  it("renders expanded items and lets the chevron toggle only expansion", () => {
+  it("renders a top-left toggle and lets it expand or collapse the outline panel", () => {
     const props = createProps()
     const { rerender } = render(<DraggableModuleOutline {...props} />)
 
+    expect(screen.getByRole("button", { name: "收起大纲" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    )
+    expect(screen.getByLabelText("简历模块大纲")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "项目经历" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "教育经历" })).toBeInTheDocument()
 
-    const toggle = screen.getByRole("button", { name: "折叠模块大纲" })
-    fireEvent.pointerDown(toggle, { pointerId: 11, clientX: 40, clientY: 50 })
-    fireEvent.pointerMove(toggle, { pointerId: 11, clientX: 200, clientY: 180 })
-    fireEvent.pointerUp(toggle, { pointerId: 11, clientX: 200, clientY: 180 })
-    fireEvent.click(toggle)
-
+    fireEvent.click(screen.getByRole("button", { name: "收起大纲" }))
     expect(props.onExpandedChange).toHaveBeenCalledWith(false)
-    expect(props.onPositionCommit).not.toHaveBeenCalled()
 
     rerender(<DraggableModuleOutline {...props} expanded={false} />)
 
-    expect(screen.getByRole("button", { name: "展开模块大纲" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "展开大纲" })).toHaveAttribute(
       "aria-expanded",
       "false",
     )
-    expect(screen.queryByRole("button", { name: "项目经历" })).not.toBeInTheDocument()
+    expect(screen.getByTestId("module-outline-panel")).toContainElement(
+      screen.getByTestId("module-outline-main-toggle"),
+    )
+    expect(screen.getByTestId("module-outline-panel")).toHaveClass("size-8")
+    expect(screen.queryByTestId("module-outline-row-module-project")).not.toBeInTheDocument()
   })
 
   it("marks the active module item", () => {
@@ -113,21 +75,14 @@ describe("DraggableModuleOutline", () => {
       />,
     )
 
-    expect(screen.getByRole("button", { name: "项目经历" })).toHaveAttribute(
-      "aria-current",
-      "true",
-    )
-    expect(screen.getByRole("button", { name: "项目经历" })).toHaveAttribute(
-      "data-active",
-      "true",
-    )
-    expect(screen.getByRole("button", { name: "项目经历" })).toHaveClass(
-      "bg-blue-50",
-      "text-blue-700",
-    )
-    expect(screen.getByRole("button", { name: "教育经历" })).not.toHaveAttribute(
-      "aria-current",
-    )
+    const activeItem = screen.getByRole("button", { name: "项目经历" })
+    expect(activeItem).toHaveAttribute("aria-current", "true")
+    expect(activeItem).toHaveAttribute("data-active", "true")
+    expect(activeItem).toHaveClass("text-primary", "font-semibold")
+    expect(activeItem).toHaveClass("hover:text-primary")
+    const inactiveItem = screen.getByRole("button", { name: "教育经历" })
+    expect(inactiveItem).not.toHaveAttribute("aria-current")
+    expect(inactiveItem).toHaveClass("hover:text-primary/70")
   })
 
   it("activates a module before scrolling to its anchor", () => {
@@ -142,7 +97,7 @@ describe("DraggableModuleOutline", () => {
 
     expect(calls).toEqual(["activate", "scroll"])
     expect(props.onActivateModule).toHaveBeenCalledWith("module-project")
-    expect(props.onScrollToAnchor).toHaveBeenCalledWith(anchors[0])
+    expect(props.onScrollToAnchor).toHaveBeenCalledWith(expect.objectContaining(anchors[0]))
   })
 
   it("announces save status and retries failed saves", () => {
@@ -178,216 +133,276 @@ describe("DraggableModuleOutline", () => {
     expect(screen.getByText("暂无可用模块大纲。")).toBeInTheDocument()
   })
 
-  it("commits a clamped drag position once on pointer up", () => {
-    const props = createProps()
-    render(<DraggableModuleOutline {...props} />)
-    const outline = screen.getByLabelText("简历模块大纲")
-    const handle = screen.getByTestId("module-outline-drag-handle")
-    mockOutlineSize(outline)
-    const capture = mockPointerCapture(handle)
-
-    fireEvent.pointerDown(handle, { pointerId: 7, clientX: 10, clientY: 10 })
-    fireEvent.pointerMove(handle, { pointerId: 7, clientX: 350, clientY: 250 })
-
-    expect(outline).toHaveStyle({ left: "200px", top: "120px" })
-    expect(props.onPositionCommit).not.toHaveBeenCalled()
-
-    fireEvent.pointerUp(handle, { pointerId: 7, clientX: 350, clientY: 250 })
-
-    expect(props.onPositionCommit).toHaveBeenCalledTimes(1)
-    expect(props.onPositionCommit).toHaveBeenCalledWith({ x: 200, y: 120 })
-    expect(capture.setPointerCapture).toHaveBeenCalledWith(7)
-    expect(capture.releasePointerCapture).toHaveBeenCalledWith(7)
-  })
-
-  it("commits the final drag position once on pointer cancel", () => {
-    const props = createProps()
-    render(<DraggableModuleOutline {...props} />)
-    const outline = screen.getByLabelText("简历模块大纲")
-    const handle = screen.getByTestId("module-outline-drag-handle")
-    mockOutlineSize(outline)
-    const capture = mockPointerCapture(handle)
-
-    fireEvent.pointerDown(handle, { pointerId: 9, clientX: 20, clientY: 30 })
-    fireEvent.pointerMove(handle, { pointerId: 9, clientX: -40, clientY: -50 })
-    fireEvent.pointerCancel(handle, { pointerId: 9 })
-
-    expect(props.onPositionCommit).toHaveBeenCalledTimes(1)
-    expect(props.onPositionCommit).toHaveBeenCalledWith({ x: 0, y: 0 })
-    expect(capture.releasePointerCapture).toHaveBeenCalledWith(9)
-  })
-
-  it("commits the last moved position when pointer cancel has no coordinates", () => {
-    const props = createProps()
-    render(<DraggableModuleOutline {...props} />)
-    const outline = screen.getByLabelText("简历模块大纲")
-    const handle = screen.getByTestId("module-outline-drag-handle")
-    mockOutlineSize(outline)
-    mockPointerCapture(handle)
-
-    fireEvent.pointerDown(handle, { pointerId: 9, clientX: 10, clientY: 10 })
-    fireEvent.pointerMove(handle, { pointerId: 9, clientX: 50, clientY: 60 })
-    fireEvent.pointerCancel(handle, { pointerId: 9 })
-
-    expect(props.onPositionCommit).toHaveBeenCalledTimes(1)
-    expect(props.onPositionCommit).toHaveBeenCalledWith({ x: 60, y: 80 })
-  })
-
-  it("clamps the initial position when a drag ends without moving", () => {
-    const props = createProps({ position: { x: 500, y: 400 } })
-    render(<DraggableModuleOutline {...props} />)
-    const outline = screen.getByLabelText("简历模块大纲")
-    const handle = screen.getByTestId("module-outline-drag-handle")
-    mockOutlineSize(outline)
-    mockPointerCapture(handle)
-
-    fireEvent.pointerDown(handle, { pointerId: 7, clientX: 10, clientY: 10 })
-    fireEvent.pointerUp(handle, { pointerId: 7, clientX: 10, clientY: 10 })
-
-    expect(props.onPositionCommit).toHaveBeenLastCalledWith({ x: 200, y: 120 })
-  })
-
-  it("commits the pointer up coordinates after the last move", () => {
-    const props = createProps()
-    render(<DraggableModuleOutline {...props} />)
-    const outline = screen.getByLabelText("简历模块大纲")
-    const handle = screen.getByTestId("module-outline-drag-handle")
-    mockOutlineSize(outline)
-    mockPointerCapture(handle)
-
-    fireEvent.pointerDown(handle, { pointerId: 7, clientX: 10, clientY: 10 })
-    fireEvent.pointerMove(handle, { pointerId: 7, clientX: 30, clientY: 40 })
-    fireEvent.pointerUp(handle, { pointerId: 7, clientX: 80, clientY: 90 })
-
-    expect(props.onPositionCommit).toHaveBeenCalledTimes(1)
-    expect(props.onPositionCommit).toHaveBeenCalledWith({ x: 90, y: 110 })
-  })
-
-  it("ignores additional pointer downs until the active drag finishes", () => {
-    const props = createProps()
-    render(<DraggableModuleOutline {...props} />)
-    const outline = screen.getByLabelText("简历模块大纲")
-    const handle = screen.getByTestId("module-outline-drag-handle")
-    mockOutlineSize(outline)
-    const capture = mockPointerCapture(handle)
-
-    fireEvent.pointerDown(handle, { pointerId: 7, clientX: 10, clientY: 10 })
-    fireEvent.pointerDown(handle, { pointerId: 9, clientX: 100, clientY: 100 })
-    fireEvent.pointerMove(handle, { pointerId: 9, clientX: 200, clientY: 180 })
-    fireEvent.pointerUp(handle, { pointerId: 9, clientX: 200, clientY: 180 })
-
-    expect(props.onPositionCommit).not.toHaveBeenCalled()
-
-    fireEvent.pointerMove(handle, { pointerId: 7, clientX: 50, clientY: 60 })
-    fireEvent.pointerUp(handle, { pointerId: 7, clientX: 50, clientY: 60 })
-
-    expect(props.onPositionCommit).toHaveBeenCalledTimes(1)
-    expect(props.onPositionCommit).toHaveBeenCalledWith({ x: 60, y: 80 })
-    expect(capture.setPointerCapture).toHaveBeenCalledTimes(1)
-    expect(capture.setPointerCapture).toHaveBeenCalledWith(7)
-    expect(capture.releasePointerCapture).toHaveBeenCalledTimes(1)
-    expect(capture.releasePointerCapture).toHaveBeenCalledWith(7)
-  })
-
-  it("syncs changed position props while idle", () => {
-    const props = createProps()
-    const { rerender } = render(<DraggableModuleOutline {...props} />)
-    const outline = screen.getByLabelText("简历模块大纲")
-
-    expect(outline).toHaveStyle({ left: "20px", top: "30px" })
-
-    rerender(
+  it("uses a glass floating panel when the A4 page cannot fit beside the minimum outline", () => {
+    render(
       <DraggableModuleOutline
-        {...props}
-        position={{ x: 72, y: 84 }}
+        {...createProps({ floating: true, panelWidth: 224 })}
       />,
     )
 
-    expect(outline).toHaveStyle({ left: "72px", top: "84px" })
+    const shell = screen.getByTestId("module-outline-shell")
+    expect(shell).toHaveAttribute("data-layout", "floating")
+    expect(shell).toHaveClass("left-4")
+    expect(shell).toHaveStyle({ top: "40px" })
+    expect(shell).not.toHaveClass("bg-background/70")
+    expect(shell).not.toHaveClass("ring-1")
+    expect(shell.getAttribute("style")).toContain("--td-module-outline-panel-width: 224px")
+    const toggle = screen.getByTestId("module-outline-main-toggle")
+    const panel = screen.getByTestId("module-outline-panel")
+    expect(panel).toContainElement(toggle)
+    expect(toggle).toHaveClass("bg-transparent")
+    expect(toggle).not.toHaveClass("border-border/70")
+    expect(toggle).not.toHaveClass("bg-background/85")
+    expect(screen.getByTestId("module-outline-main-toggle-icon")).toHaveAttribute("data-icon", "chevrons-left")
+    expect(panel).toHaveClass("border", "border-border/50", "backdrop-blur-xl")
   })
 
-  it("reclamps and commits the position when idle bounds shrink", () => {
-    const props = createProps({ position: { x: 180, y: 100 } })
-    const { rerender } = render(<DraggableModuleOutline {...props} />)
-    const outline = screen.getByLabelText("简历模块大纲")
-    mockOutlineSize(outline)
+  it("aligns the expanded toggle top edge to the first A4 page top", () => {
+    render(<DraggableModuleOutline {...createProps({ expanded: true, outlineTop: 56 })} />)
 
-    rerender(
-      <DraggableModuleOutline
-        {...props}
-        bounds={{ width: 160, height: 120 }}
-      />,
+    const shell = screen.getByTestId("module-outline-shell")
+    const panel = screen.getByTestId("module-outline-panel")
+    const toggle = screen.getByTestId("module-outline-main-toggle")
+
+    expect(panel).toContainElement(toggle)
+    expect(shell).toHaveStyle({ top: "56px" })
+  })
+
+  it("aligns the collapsed toggle top edge directly to the first A4 page top", () => {
+    render(<DraggableModuleOutline {...createProps({ expanded: false, outlineTop: 56 })} />)
+
+    expect(screen.getByTestId("module-outline-shell")).toHaveStyle({ top: "56px" })
+    expect(screen.getByTestId("module-outline-panel")).toHaveClass("size-8")
+  })
+
+  it("uses a double-left arrow for the docked expanded outline toggle", () => {
+    render(<DraggableModuleOutline {...createProps({ floating: false, expanded: true })} />)
+
+    const panel = screen.getByTestId("module-outline-panel")
+    const toggle = screen.getByTestId("module-outline-main-toggle")
+    expect(panel).toContainElement(toggle)
+    expect(toggle).not.toHaveClass("border-border/70")
+    expect(screen.getByTestId("module-outline-main-toggle-icon")).toHaveAttribute(
+      "data-icon",
+      "chevrons-left",
+    )
+  })
+
+  it("uses the menu icon when the outline is collapsed", () => {
+    render(<DraggableModuleOutline {...createProps({ floating: false, expanded: false })} />)
+
+    const panel = screen.getByTestId("module-outline-panel")
+    const toggle = screen.getByTestId("module-outline-main-toggle")
+    expect(panel).toContainElement(toggle)
+    expect(panel).toHaveClass("border", "border-border", "shadow-sm", "size-8")
+    expect(toggle).toHaveClass("border-transparent", "bg-transparent")
+    expect(toggle).toHaveClass("hover:bg-transparent")
+    expect(toggle).not.toHaveClass("hover:bg-accent/60")
+    expect(screen.getByTestId("module-outline-main-toggle-icon")).toHaveAttribute(
+      "data-icon",
+      "menu",
+    )
+  })
+
+  it("does not animate panel dimensions when toggling the outline", () => {
+    const { rerender } = render(<DraggableModuleOutline {...createProps({ expanded: true })} />)
+
+    expect(screen.getByTestId("module-outline-panel")).not.toHaveClass(
+      "transition-[width,max-height]",
     )
 
-    expect(outline).toHaveStyle({ left: "60px", top: "40px" })
-    expect(props.onPositionCommit).toHaveBeenLastCalledWith({ x: 60, y: 40 })
+    rerender(<DraggableModuleOutline {...createProps({ expanded: false })} />)
+
+    expect(screen.getByTestId("module-outline-panel")).not.toHaveClass(
+      "transition-[width,max-height]",
+    )
   })
 
-  it("reclamps and commits the position when expanded content changes its size", () => {
-    const props = createProps({
-      expanded: false,
-      position: { x: 180, y: 100 },
+  it("keeps the expanded outline panel vertical padding balanced", () => {
+    render(<DraggableModuleOutline {...createProps({ expanded: true })} />)
+
+    expect(screen.getByTestId("module-outline-scroll")).toHaveClass("p-2")
+    expect(screen.getByTestId("module-outline-main-toggle")).toHaveClass("mb-2")
+  })
+
+  it("indents heading outline items by heading level", () => {
+    const headingAnchors = [
+      {
+        module_id: "module-project",
+        canvas_node_ids: ["node-project"],
+        title: "项目经历",
+        order: 0,
+        outline_level: 2,
+      },
+      {
+        module_id: "module-project-a",
+        canvas_node_ids: ["node-project-a"],
+        title: "项目 A",
+        order: 1,
+        outline_level: 3,
+      },
+      {
+        module_id: "module-project-a-detail",
+        canvas_node_ids: ["node-project-a-detail"],
+        title: "项目 A 细节",
+        order: 2,
+        outline_level: 5,
+      },
+    ] as unknown as ModuleAnchor[]
+    render(<DraggableModuleOutline {...createProps({ anchors: headingAnchors })} />)
+
+    expect(screen.getByRole("button", { name: "项目经历" })).toHaveAttribute(
+      "data-depth",
+      "0",
+    )
+    expect(screen.getByRole("button", { name: "项目经历" })).toHaveStyle({
+      paddingLeft: "10px",
     })
-    const { rerender } = render(<DraggableModuleOutline {...props} />)
-    const outline = screen.getByLabelText("简历模块大纲")
-    vi.spyOn(outline, "getBoundingClientRect").mockReturnValue({
-      width: 100,
-      height: 140,
-    } as DOMRect)
-
-    rerender(<DraggableModuleOutline {...props} expanded />)
-
-    expect(outline).toHaveStyle({ left: "180px", top: "60px" })
-    expect(props.onPositionCommit).toHaveBeenLastCalledWith({ x: 180, y: 60 })
-  })
-
-  it("reclamps the last moved position on pointer cancel after bounds shrink", () => {
-    const props = createProps()
-    const { rerender } = render(<DraggableModuleOutline {...props} />)
-    const outline = screen.getByLabelText("简历模块大纲")
-    const handle = screen.getByTestId("module-outline-drag-handle")
-    mockOutlineSize(outline)
-    mockPointerCapture(handle)
-
-    fireEvent.pointerDown(handle, { pointerId: 9, clientX: 10, clientY: 10 })
-    fireEvent.pointerMove(handle, { pointerId: 9, clientX: 180, clientY: 150 })
-    rerender(
-      <DraggableModuleOutline
-        {...props}
-        bounds={{ width: 160, height: 120 }}
-      />,
+    expect(screen.getByRole("button", { name: "项目 A" })).toHaveAttribute(
+      "data-depth",
+      "1",
     )
-    fireEvent.pointerCancel(handle, { pointerId: 9 })
-
-    expect(props.onPositionCommit).toHaveBeenCalledTimes(1)
-    expect(props.onPositionCommit).toHaveBeenCalledWith({ x: 60, y: 40 })
-  })
-
-  it("ignores non-primary pointer downs", () => {
-    const props = createProps()
-    render(<DraggableModuleOutline {...props} />)
-    const outline = screen.getByLabelText("简历模块大纲")
-    const handle = screen.getByTestId("module-outline-drag-handle")
-    mockOutlineSize(outline)
-    const capture = mockPointerCapture(handle)
-
-    fireEvent.pointerDown(handle, {
-      pointerId: 7,
-      button: 1,
-      clientX: 10,
-      clientY: 10,
+    expect(screen.getByRole("button", { name: "项目 A" })).toHaveStyle({
+      paddingLeft: "28px",
     })
-    fireEvent.pointerMove(handle, { pointerId: 7, clientX: 100, clientY: 100 })
-    fireEvent.pointerUp(handle, { pointerId: 7, clientX: 100, clientY: 100 })
-
-    expect(props.onPositionCommit).not.toHaveBeenCalled()
-    expect(capture.setPointerCapture).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "项目 A 细节" })).toHaveAttribute(
+      "data-depth",
+      "2",
+    )
+    expect(screen.getByRole("button", { name: "项目 A 细节" })).toHaveStyle({
+      paddingLeft: "46px",
+    })
   })
 
-  it("marks the floating outline as module-interaction-only", () => {
+  it("uses heading levels rather than resume title text to build hierarchy", () => {
+    const headingAnchors = [
+      {
+        module_id: "module-info",
+        canvas_node_ids: ["node-info"],
+        title: "个人信息",
+        order: 0,
+        outline_level: 2,
+      },
+      {
+        module_id: "module-work",
+        canvas_node_ids: ["node-work"],
+        title: "工作经历",
+        order: 1,
+        outline_level: 2,
+      },
+      {
+        module_id: "module-work-a",
+        canvas_node_ids: ["node-work-a"],
+        title: "杭州恒生芸擎网络科技有限公司 | 前端技术负责人",
+        order: 2,
+        outline_level: 3,
+      },
+      {
+        module_id: "module-projects",
+        canvas_node_ids: ["node-projects"],
+        title: "重点项目",
+        order: 3,
+        outline_level: 2,
+      },
+      {
+        module_id: "module-project-a",
+        canvas_node_ids: ["node-project-a"],
+        title: "TypeDance AI-native 简历改稿系统 | 个人项目 / 独立全栈开发",
+        order: 4,
+        outline_level: 4,
+      },
+    ] as unknown as ModuleAnchor[]
+    render(<DraggableModuleOutline {...createProps({ anchors: headingAnchors })} />)
+
+    expect(screen.getByRole("button", { name: "工作经历" })).toHaveStyle({
+      paddingLeft: "10px",
+    })
+    expect(
+      screen.getByRole("button", {
+        name: "杭州恒生芸擎网络科技有限公司 | 前端技术负责人",
+      }),
+    ).toHaveStyle({ paddingLeft: "28px" })
+    expect(screen.getByRole("button", { name: "重点项目" })).toHaveStyle({
+      paddingLeft: "10px",
+    })
+    expect(
+      screen.getByRole("button", {
+        name: "TypeDance AI-native 简历改稿系统 | 个人项目 / 独立全栈开发",
+      }),
+    ).toHaveStyle({ paddingLeft: "28px" })
+
+    fireEvent.pointerEnter(screen.getByTestId("module-outline-row-module-work"))
+    expect(screen.getByRole("button", { name: "收起 工作经历 子模块" })).toBeInTheDocument()
+  })
+
+  it("truncates long child titles instead of wrapping them", () => {
+    const longChildTitle = "杭州恒生芸擎网络科技有限公司 | 前端技术负责人 | 负责跨端低代码设计器和复杂表格渲染治理"
+    const headingAnchors = [
+      {
+        module_id: "module-work",
+        canvas_node_ids: ["node-work"],
+        title: "工作经历",
+        order: 0,
+        outline_level: 2,
+      },
+      {
+        module_id: "module-work-a",
+        canvas_node_ids: ["node-work-a"],
+        title: longChildTitle,
+        order: 1,
+        outline_level: 3,
+      },
+    ] as unknown as ModuleAnchor[]
+    render(<DraggableModuleOutline {...createProps({ anchors: headingAnchors })} />)
+
+    const childButton = screen.getByRole("button", { name: longChildTitle })
+    const childText = screen.getByText(longChildTitle)
+
+    expect(childButton).toHaveClass("overflow-hidden")
+    expect(childButton).not.toHaveClass("whitespace-normal")
+    expect(childText).toHaveClass("truncate", "whitespace-nowrap")
+  })
+
+  it("reveals solid triangle collapse controls only while hovering a parent row", () => {
+    const headingAnchors = [
+      {
+        module_id: "module-project",
+        canvas_node_ids: ["node-project"],
+        title: "项目经历",
+        order: 0,
+        outline_level: 2,
+      },
+      {
+        module_id: "module-project-a",
+        canvas_node_ids: ["node-project-a"],
+        title: "项目 A",
+        order: 1,
+        outline_level: 3,
+      },
+    ] as unknown as ModuleAnchor[]
+    render(<DraggableModuleOutline {...createProps({ anchors: headingAnchors })} />)
+
+    expect(screen.getByRole("button", { name: "项目 A" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "收起 项目经历 子模块" })).not.toBeInTheDocument()
+
+    fireEvent.pointerEnter(screen.getByTestId("module-outline-row-module-project"))
+    const toggle = screen.getByRole("button", { name: "收起 项目经历 子模块" })
+    const expandedIcon = screen.getByTestId("module-outline-toggle-icon-module-project")
+    expect(expandedIcon).toHaveAttribute("data-direction", "up")
+    expect(expandedIcon).toHaveClass("fill-current")
+    fireEvent.click(toggle)
+
+    expect(screen.queryByRole("button", { name: "项目 A" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "展开 项目经历 子模块" })).toBeInTheDocument()
+    const collapsedIcon = screen.getByTestId("module-outline-toggle-icon-module-project")
+    expect(collapsedIcon).toHaveAttribute("data-direction", "down")
+    expect(collapsedIcon).toHaveClass("fill-current")
+  })
+
+  it("marks the outline chrome as module-interaction-only", () => {
     render(<DraggableModuleOutline {...createProps()} />)
 
-    expect(screen.getByLabelText("简历模块大纲")).toHaveClass(
+    expect(screen.getByTestId("module-outline-shell")).toHaveClass(
       "td-module-interaction-only",
     )
   })

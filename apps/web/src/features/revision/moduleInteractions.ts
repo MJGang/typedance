@@ -1,40 +1,29 @@
 export type PersistedModuleOutlinePreferences = {
   visible: boolean
   expanded: boolean
-  position: { x: number; y: number }
 }
 
-type Position = { x: number; y: number }
 type Size = { width: number; height: number }
 
 const MODULE_OUTLINE_STORAGE_PREFIX = "typedance:revision-workspace:module-outline:"
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value)
-}
+const MODULE_OUTLINE_MIN_WIDTH = 224
+const MODULE_OUTLINE_MAX_WIDTH = 288
+const MODULE_OUTLINE_WIDTH_RATIO = 0.22
+const MODULE_OUTLINE_PAGE_GAP = 24
+const MODULE_OUTLINE_RIGHT_SAFE_GAP = 24
 
 function isModuleOutlinePreferences(value: unknown): value is PersistedModuleOutlinePreferences {
   if (typeof value !== "object" || value === null) return false
 
   const preferences = value as Record<string, unknown>
-  const position = preferences.position
-  if (typeof position !== "object" || position === null) return false
-
-  const coordinates = position as Record<string, unknown>
   return (
     typeof preferences.visible === "boolean"
     && typeof preferences.expanded === "boolean"
-    && isFiniteNumber(coordinates.x)
-    && isFiniteNumber(coordinates.y)
   )
 }
 
 function finiteNonNegative(value: number): number {
   return Number.isFinite(value) ? Math.max(0, value) : 0
-}
-
-function finiteCoordinate(value: number): number {
-  return Number.isFinite(value) ? value : 0
 }
 
 export function moduleOutlineStorageKey(documentId: string): string {
@@ -54,10 +43,6 @@ export function loadModuleOutlinePreferences(
     return {
       visible: preferences.visible,
       expanded: preferences.expanded,
-      position: {
-        x: preferences.position.x,
-        y: preferences.position.y,
-      },
     }
   } catch {
     return null
@@ -73,10 +58,6 @@ export function saveModuleOutlinePreferences(
   const persistedPreferences: PersistedModuleOutlinePreferences = {
     visible: preferences.visible,
     expanded: preferences.expanded,
-    position: {
-      x: preferences.position.x,
-      y: preferences.position.y,
-    },
   }
 
   try {
@@ -86,30 +67,35 @@ export function saveModuleOutlinePreferences(
   }
 }
 
-export function clampOutlinePosition(
-  position: Position,
-  viewportSize: Size,
-  outlineSize: Size,
-): Position {
-  const maxX = Math.max(0, finiteNonNegative(viewportSize.width) - finiteNonNegative(outlineSize.width))
-  const maxY = Math.max(0, finiteNonNegative(viewportSize.height) - finiteNonNegative(outlineSize.height))
-
-  return {
-    x: Math.min(Math.max(0, finiteCoordinate(position.x)), maxX),
-    y: Math.min(Math.max(0, finiteCoordinate(position.y)), maxY),
-  }
+export function clampModuleOutlinePanelWidth(viewportSize: Size): number {
+  const preferredWidth = finiteNonNegative(viewportSize.width) * MODULE_OUTLINE_WIDTH_RATIO
+  return Math.min(
+    MODULE_OUTLINE_MAX_WIDTH,
+    Math.max(MODULE_OUTLINE_MIN_WIDTH, preferredWidth),
+  )
 }
 
-export function getDefaultModuleOutlinePosition(
+export function canDockModuleOutline(
   viewportSize: Size,
-  outlineSize: Size,
-): Position {
-  return clampOutlinePosition(
-    {
-      x: finiteNonNegative(viewportSize.width) - finiteNonNegative(outlineSize.width) - 12,
-      y: 48,
-    },
-    viewportSize,
-    outlineSize,
-  )
+  pageWidth: number,
+): boolean {
+  const minRequiredWidth = finiteNonNegative(pageWidth)
+    + MODULE_OUTLINE_MIN_WIDTH
+    + MODULE_OUTLINE_PAGE_GAP
+    + MODULE_OUTLINE_RIGHT_SAFE_GAP
+  return finiteNonNegative(viewportSize.width) >= minRequiredWidth
+}
+
+export function getModuleOutlineLayout(
+  viewportSize: Size,
+  pageWidth: number,
+) {
+  const panelWidth = clampModuleOutlinePanelWidth(viewportSize)
+  const docked = canDockModuleOutline(viewportSize, pageWidth)
+
+  return {
+    docked,
+    panelWidth,
+    reservedWidth: docked ? panelWidth + MODULE_OUTLINE_PAGE_GAP : 0,
+  }
 }

@@ -7,16 +7,21 @@ import { MICROSOFT_YAHEI_FONT_STACK } from "../templates/style-engine/fonts"
 import { moduleOutlineStorageKey } from "./moduleInteractions"
 import { DraftCanvas } from "./DraftCanvas"
 
+type MockDocJson = {
+  type?: "doc"
+  content?: Array<{
+    type?: string
+    attrs?: {
+      canvasNodeId?: string
+      level?: number
+      moduleId?: string
+    }
+    content?: Array<{ type?: string; text?: string }>
+  }>
+}
+
 type MockEditorProps = {
-  docJson: {
-    content?: Array<{
-      attrs?: {
-        canvasNodeId?: string
-        moduleId?: string
-      }
-      content?: Array<{ text?: string }>
-    }>
-  }
+  docJson: MockDocJson
   moduleOutlineVisible?: boolean
   pageMarginGuidesVisible?: boolean
   cssText?: string
@@ -26,7 +31,7 @@ type MockEditorProps = {
     left: number
     right: number
   }
-  onChange: (change: { plainText: string; docJson: { type: "doc" } }) => void
+  onChange: (change: { plainText: string; docJson: MockDocJson }) => void
   onModuleOutlineVisibleChange?: (visible: boolean) => void
   onPageMarginGuidesVisibleChange?: (visible: boolean) => void
   onSourceCanvasModuleChange?: (moduleId: string | null) => void
@@ -35,6 +40,7 @@ type MockEditorProps = {
 const editorMocks = vi.hoisted(() => ({
   props: null as MockEditorProps | null,
   scrollToCanvasNode: vi.fn(),
+  scrollToHeadingIndex: vi.fn(),
   updatePageMargins: vi.fn(),
 }))
 
@@ -61,25 +67,29 @@ vi.mock("../workspace/components/ResumeRichTextEditor", () => ({
       unsetColumns: vi.fn(),
       setTextSelection: vi.fn(),
       scrollToCanvasNode: editorMocks.scrollToCanvasNode,
+      scrollToHeadingIndex: editorMocks.scrollToHeadingIndex,
       updatePageMargins: editorMocks.updatePageMargins,
     }))
 
     return (
-      <div className="td-editor-print-wrapper">
-        <div className="ProseMirror rm-with-pagination">
-          <div className="page">
-            {props.docJson.content?.map((node) => (
-              <p
-                key={node.attrs?.canvasNodeId}
-                data-canvas-node-id={node.attrs?.canvasNodeId}
-                data-module-id={node.attrs?.moduleId}
-                data-testid={`canvas-node-${node.attrs?.moduleId}`}
-              >
-                {node.content?.[0]?.text}
-              </p>
-            ))}
+      <div className="td-rich-editor h-full overflow-hidden" data-testid="mock-rich-editor">
+        <div className="td-rich-editor-toolbar" data-testid="mock-rich-editor-toolbar" />
+        <div className="td-editor-print-wrapper" data-testid="mock-editor-print-wrapper">
+          <div className="ProseMirror rm-with-pagination">
+            <div className="page">
+              {props.docJson.content?.map((node, index) => (
+                <p
+                  key={node.attrs?.canvasNodeId ?? `${node.type ?? "node"}-${index}`}
+                  data-canvas-node-id={node.attrs?.canvasNodeId}
+                  data-module-id={node.attrs?.moduleId}
+                  data-testid={`canvas-node-${node.attrs?.moduleId}`}
+                >
+                  {node.content?.[0]?.text}
+                </p>
+              ))}
+            </div>
+            <div className="rm-pagination-gap" />
           </div>
-          <div className="rm-pagination-gap" />
         </div>
       </div>
     )
@@ -96,14 +106,14 @@ const canvas: SourceResumeCanvas = {
     type: "doc",
     content: [
       {
-        type: "paragraph",
-        attrs: { canvasNodeId: "node_project", sourceBlockId: "block_project", moduleId: "mod_1" },
-        content: [{ type: "text", text: "负责核心链路重构。" }],
+        type: "heading",
+        attrs: { canvasNodeId: "node_project", level: 2, moduleId: "mod_1" },
+        content: [{ type: "text", text: "项目经历" }],
       },
       {
-        type: "paragraph",
-        attrs: { canvasNodeId: "node_education", sourceBlockId: "block_education", moduleId: "mod_2" },
-        content: [{ type: "text", text: "软件工程专业。" }],
+        type: "heading",
+        attrs: { canvasNodeId: "node_education", level: 2, moduleId: "mod_2" },
+        content: [{ type: "text", text: "教育经历" }],
       },
     ],
   },
@@ -111,16 +121,16 @@ const canvas: SourceResumeCanvas = {
     {
       canvas_node_id: "node_project",
       source_block_id: "block_project",
-      node_type: "paragraph",
-      text: "负责核心链路重构。",
+      node_type: "heading",
+      text: "项目经历",
       source_span: { line: 1 },
       module_id: "mod_1",
     },
     {
       canvas_node_id: "node_education",
       source_block_id: "block_education",
-      node_type: "paragraph",
-      text: "软件工程专业。",
+      node_type: "heading",
+      text: "教育经历",
       source_span: { line: 2 },
       module_id: "mod_2",
     },
@@ -146,6 +156,9 @@ const canvas: SourceResumeCanvas = {
 let rootSize = { width: 600, height: 500 }
 let sourceViewportSize: { width: number; height: number } | null = null
 let paginationPageSize = { width: 794, height: 1123 }
+let paginationTop = 140
+let editorPrintWrapperTop = 140
+let editorToolbarBottom = 128
 
 function rect({
   left,
@@ -176,10 +189,14 @@ beforeEach(() => {
   localStorage.clear()
   editorMocks.props = null
   editorMocks.scrollToCanvasNode.mockReset()
+  editorMocks.scrollToHeadingIndex.mockReset()
   editorMocks.updatePageMargins.mockReset()
   rootSize = { width: 600, height: 500 }
   sourceViewportSize = null
   paginationPageSize = { width: 794, height: 1123 }
+  paginationTop = 140
+  editorPrintWrapperTop = 140
+  editorToolbarBottom = 128
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     if (this.classList.contains("td-source-resume-canvas-viewport") && sourceViewportSize) {
       return rect({ left: 40, top: 90, ...sourceViewportSize })
@@ -190,11 +207,17 @@ beforeEach(() => {
     if (this.getAttribute("aria-label") === "简历模块大纲") {
       return rect({ left: 0, top: 0, width: 208, height: 160 })
     }
+    if (this.classList.contains("td-rich-editor-toolbar")) {
+      return rect({ left: 50, top: 100, width: rootSize.width, height: editorToolbarBottom - 100 })
+    }
+    if (this.classList.contains("td-editor-print-wrapper")) {
+      return rect({ left: 50, top: editorPrintWrapperTop, width: rootSize.width, height: rootSize.height - 40 })
+    }
     if (this.classList.contains("page")) {
-      return rect({ left: 80, top: 140, ...paginationPageSize })
+      return rect({ left: 80, top: paginationTop, ...paginationPageSize })
     }
     if (this.classList.contains("rm-with-pagination")) {
-      return rect({ left: 80, top: 140, width: 794, height: 2200 })
+      return rect({ left: 80, top: paginationTop, width: 794, height: 2200 })
     }
     if (this.dataset.canvasNodeId === "node_project") {
       return rect({ left: 90, top: 160, width: 460, height: 100 })
@@ -353,11 +376,125 @@ describe("DraftCanvas", () => {
     const item = screen.getByRole("button", { name: "项目经历" })
     fireEvent.click(item)
 
-    expect(item).toHaveAttribute("aria-current", "true")
-    expect(editorMocks.scrollToCanvasNode).toHaveBeenCalledWith(
-      "node_project",
+    expect(editorMocks.scrollToHeadingIndex).toHaveBeenCalledWith(
+      0,
       { topOffset: 16 },
     )
+    expect(editorMocks.scrollToCanvasNode).not.toHaveBeenCalled()
+  })
+
+  it("collapses the outline to its icon after an outline item scrolls the canvas", () => {
+    render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
+
+    fireEvent.click(screen.getByRole("button", { name: "项目经历" }))
+
+    expect(editorMocks.scrollToHeadingIndex).toHaveBeenCalledWith(0, { topOffset: 16 })
+    expect(screen.getByTestId("module-outline-panel")).toHaveClass("size-8")
+    expect(screen.queryByRole("button", { name: "项目经历" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "展开大纲" })).toBeInTheDocument()
+  })
+
+  it("collapses the expanded outline when the editor canvas is clicked", () => {
+    render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
+
+    fireEvent.pointerDown(screen.getByTestId("mock-editor-print-wrapper"))
+
+    expect(screen.getByTestId("module-outline-panel")).toHaveClass("size-8")
+    expect(screen.queryByRole("button", { name: "项目经历" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "展开大纲" })).toBeInTheDocument()
+  })
+
+  it("builds the outline from heading nodes instead of backend module anchors", () => {
+    render(
+      <DraftCanvas
+        canvas={{
+          ...canvas,
+          doc_json: {
+            type: "doc",
+            content: [
+              {
+                type: "heading",
+                attrs: { level: 1 },
+                content: [{ type: "text", text: "个人信息" }],
+              },
+              {
+                type: "paragraph",
+                content: [{ type: "text", text: "不是大纲项" }],
+              },
+              {
+                type: "heading",
+                attrs: { level: 3 },
+                content: [{ type: "text", text: "TypeDance" }],
+              },
+            ],
+          },
+          module_anchors: [
+            {
+              module_id: "backend-only",
+              canvas_node_ids: ["backend-node"],
+              title: "后端返回模块",
+              order: 0,
+            },
+          ],
+        }}
+        onChange={vi.fn()}
+        saveStatus="idle"
+      />,
+    )
+
+    expect(screen.getByRole("button", { name: "个人信息" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "TypeDance" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "不是大纲项" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "后端返回模块" })).not.toBeInTheDocument()
+  })
+
+  it("updates the outline immediately when headings are pasted or deleted", () => {
+    render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
+
+    act(() => editorMocks.props?.onChange({
+      plainText: "个人信息\n\nTypeDance\n\n交付结果",
+      docJson: {
+        type: "doc",
+        content: [
+          {
+            type: "heading",
+            attrs: { level: 1 },
+            content: [{ type: "text", text: "个人信息" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 3 },
+            content: [{ type: "text", text: "TypeDance" }],
+          },
+          {
+            type: "heading",
+            attrs: { level: 5 },
+            content: [{ type: "text", text: "交付结果" }],
+          },
+        ],
+      },
+    }))
+
+    expect(screen.getByRole("button", { name: "个人信息" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "TypeDance" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "交付结果" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "项目经历" })).not.toBeInTheDocument()
+
+    act(() => editorMocks.props?.onChange({
+      plainText: "只有正文",
+      docJson: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "只有正文" }],
+          },
+        ],
+      },
+    }))
+
+    expect(screen.queryByRole("button", { name: "个人信息" })).not.toBeInTheDocument()
+    expect(screen.getByText("暂无可用模块大纲。")).toBeInTheDocument()
   })
 
   it("mirrors editor module selection into the outline and clears it for unrecognized content", () => {
@@ -380,9 +517,11 @@ describe("DraftCanvas", () => {
 
     act(() => editorMocks.props?.onSourceCanvasModuleChange?.("mod_1"))
     expect(screen.queryByTestId("module-region-mod_1")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "收起大纲" })).toBeInTheDocument()
 
     act(() => editorMocks.props?.onModuleOutlineVisibleChange?.(false))
 
+    expect(screen.queryByRole("button", { name: "收起大纲" })).not.toBeInTheDocument()
     expect(screen.queryByLabelText("简历模块大纲")).not.toBeInTheDocument()
     expect(screen.queryByTestId("module-region-mod_1")).not.toBeInTheDocument()
 
@@ -413,10 +552,10 @@ describe("DraftCanvas", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
     await waitFor(() => expect(localStorage.getItem(moduleOutlineStorageKey("doc_1"))).not.toBeNull())
 
-    const toggle = screen.getByRole("button", { name: "折叠模块大纲" })
+    const toggle = screen.getByRole("button", { name: "收起大纲" })
     fireEvent.click(toggle)
 
-    expect(screen.getByRole("button", { name: "展开模块大纲" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "展开大纲" })).toHaveAttribute(
       "aria-expanded",
       "false",
     )
@@ -449,11 +588,12 @@ describe("DraftCanvas", () => {
       />,
     )
 
+    expect(screen.getByTestId("module-outline-shell")).toBeInTheDocument()
     expect(screen.getByLabelText("简历模块大纲")).toBeInTheDocument()
     expect(editorMocks.props?.moduleOutlineVisible).toBe(true)
   })
 
-  it("restores saved outline position and expansion state", () => {
+  it("restores saved outline visibility and expansion state", () => {
     localStorage.setItem(moduleOutlineStorageKey("doc_1"), JSON.stringify({
       visible: true,
       expanded: false,
@@ -462,41 +602,77 @@ describe("DraftCanvas", () => {
 
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
 
-    expect(screen.getByLabelText("简历模块大纲")).toHaveStyle({
-      left: "72px",
-      top: "84px",
-    })
-    expect(screen.getByRole("button", { name: "展开模块大纲" })).toBeInTheDocument()
+    expect(screen.getByTestId("module-outline-shell")).toBeInTheDocument()
+    expect(screen.getByLabelText("简历模块大纲")).toBeInTheDocument()
+    expect(screen.getByTestId("module-outline-panel")).toHaveClass("size-8")
+    expect(screen.queryByTestId("module-outline-row-module-1")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "展开大纲" })).toBeInTheDocument()
   })
 
-  it("persists the outline position after dragging its title bar", async () => {
-    render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
-    await waitFor(() => {
-      expect(screen.getByLabelText("简历模块大纲")).toHaveStyle({
-        left: "380px",
-        top: "48px",
-      })
-    })
-    const handle = screen.getByTestId("module-outline-drag-handle")
-    Object.assign(handle, {
-      setPointerCapture: vi.fn(),
-      releasePointerCapture: vi.fn(),
-      hasPointerCapture: vi.fn(() => true),
-    })
+  it("docks the outline and reserves left-side space when the A4 page can still fit", async () => {
+    sourceViewportSize = { width: 1200, height: 500 }
 
-    fireEvent.pointerDown(handle, { pointerId: 7, clientX: 10, clientY: 10 })
-    fireEvent.pointerMove(handle, { pointerId: 7, clientX: -90, clientY: 62 })
-    fireEvent.pointerUp(handle, { pointerId: 7, clientX: -90, clientY: 62 })
+    render(
+      <div className="td-source-resume-canvas-viewport">
+        <DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />
+      </div>,
+    )
 
+    const root = screen.getByTestId("module-outline-shell").closest(".td-source-resume-canvas")
     await waitFor(() => {
-      expect(JSON.parse(localStorage.getItem(moduleOutlineStorageKey("doc_1")) ?? "")).toMatchObject({
-        position: { x: 280, y: 100 },
-      })
+      expect(root).toHaveAttribute("data-outline-layout", "docked")
+      expect(root).toHaveAttribute("data-outline-expanded", "true")
+      expect(root?.getAttribute("style")).toContain("--td-module-outline-reserved-width: 288px")
     })
+    expect(screen.getByTestId("module-outline-shell")).toHaveAttribute("data-layout", "docked")
+    expect(screen.getByTestId("module-outline-shell")).toHaveStyle({ top: "40px" })
+    expect(screen.getByTestId("module-outline-shell").getAttribute("style")).toContain(
+      "--td-module-outline-panel-width: 264px",
+    )
   })
 
-  it("uses the source canvas viewport size for the default outline position", async () => {
-    sourceViewportSize = { width: 400, height: 300 }
+  it("keeps the toolbar outside the canvas scroll container", () => {
+    render(
+      <div className="td-source-resume-canvas-viewport">
+        <DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />
+      </div>,
+    )
+
+    const root = screen.getByTestId("module-outline-shell").closest(".td-source-resume-canvas")
+    expect(root).toHaveClass("h-full", "overflow-hidden")
+    expect(screen.getByTestId("mock-rich-editor")).toHaveClass("h-full", "overflow-hidden")
+    expect(screen.getByTestId("mock-rich-editor-toolbar")).not.toBe(
+      screen.getByTestId("mock-editor-print-wrapper"),
+    )
+    expect(screen.getByTestId("mock-editor-print-wrapper")).toHaveClass(
+      "td-editor-print-wrapper",
+    )
+  })
+
+  it("uses a floating glass outline when the viewport cannot fit the minimum outline beside A4", async () => {
+    sourceViewportSize = { width: 900, height: 500 }
+
+    render(
+      <div className="td-source-resume-canvas-viewport">
+        <DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />
+      </div>,
+    )
+
+    const root = screen.getByTestId("module-outline-shell").closest(".td-source-resume-canvas")
+    await waitFor(() => {
+      expect(root).toHaveAttribute("data-outline-layout", "floating")
+      expect(root).not.toHaveAttribute("data-outline-expanded")
+      expect(root?.getAttribute("style")).toContain("--td-module-outline-reserved-width: 0px")
+    })
+    expect(screen.getByTestId("module-outline-shell")).toHaveAttribute("data-layout", "floating")
+    expect(screen.getByTestId("module-outline-shell")).toHaveStyle({ top: "40px" })
+    expect(screen.getByTestId("module-outline-panel")).toHaveClass("backdrop-blur-xl")
+  })
+
+  it("keeps the outline below the toolbar when the canvas content is scrolled", async () => {
+    sourceViewportSize = { width: 1200, height: 500 }
+    paginationTop = 100
+    editorPrintWrapperTop = 140
 
     render(
       <div className="td-source-resume-canvas-viewport">
@@ -505,59 +681,80 @@ describe("DraftCanvas", () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByLabelText("简历模块大纲")).toHaveStyle({
-        left: "180px",
-        top: "48px",
-      })
+      expect(screen.getByTestId("module-outline-shell")).toHaveStyle({ top: "40px" })
     })
   })
 
-  it("reclamps the persisted outline position after the canvas shrinks", async () => {
-    localStorage.setItem(moduleOutlineStorageKey("doc_1"), JSON.stringify({
-      visible: true,
-      expanded: true,
-      position: { x: 380, y: 300 },
-    }))
-    render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
+  it("keeps the outline bottom gap equal to the top toolbar gap as the canvas resizes", async () => {
+    sourceViewportSize = { width: 1200, height: 500 }
+    rootSize = { width: 1200, height: 500 }
+    editorToolbarBottom = 128
+    editorPrintWrapperTop = 140
 
-    rootSize = { width: 300, height: 260 }
+    render(
+      <div className="td-source-resume-canvas-viewport">
+        <DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />
+      </div>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId("module-outline-shell").getAttribute("style")).toContain(
+        "--td-module-outline-max-height: 448px",
+      )
+    })
+
+    rootSize = { width: 1200, height: 360 }
+    act(() => editorMocks.props?.onChange({
+      plainText: "resized",
+      docJson: {
+        type: "doc",
+        content: [
+          {
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: " resized heading" }],
+          },
+        ],
+      },
+    }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("module-outline-shell").getAttribute("style")).toContain(
+        "--td-module-outline-max-height: 308px",
+      )
+    })
+  })
+
+  it("switches the outline from docked to floating when the source viewport shrinks", async () => {
+    sourceViewportSize = { width: 1200, height: 500 }
+    render(
+      <div className="td-source-resume-canvas-viewport">
+        <DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />
+      </div>,
+    )
+    const root = screen.getByTestId("module-outline-shell").closest(".td-source-resume-canvas")
+    await waitFor(() => expect(root).toHaveAttribute("data-outline-layout", "docked"))
+
+    sourceViewportSize = { width: 900, height: 500 }
     act(() => editorMocks.props?.onChange({
       plainText: "updated",
       docJson: { type: "doc" },
     }))
 
     await waitFor(() => {
-      expect(screen.getByLabelText("简历模块大纲")).toHaveStyle({
-        left: "92px",
-        top: "100px",
-      })
-    })
-    expect(JSON.parse(localStorage.getItem(moduleOutlineStorageKey("doc_1")) ?? "")).toMatchObject({
-      position: { x: 92, y: 100 },
+      expect(root).toHaveAttribute("data-outline-layout", "floating")
+      expect(root).not.toHaveAttribute("data-outline-expanded")
+      expect(root?.getAttribute("style")).toContain("--td-module-outline-reserved-width: 0px")
     })
   })
 
   it("keeps interaction state out of the submitted editor document", async () => {
     const onChange = vi.fn()
     render(<DraftCanvas canvas={canvas} onChange={onChange} saveStatus="idle" />)
-    await waitFor(() => {
-      expect(screen.getByLabelText("简历模块大纲")).toHaveStyle({
-        left: "380px",
-        top: "48px",
-      })
-    })
     act(() => editorMocks.props?.onSourceCanvasModuleChange?.("mod_1"))
     fireEvent.pointerOver(screen.getByTestId("canvas-node-mod_2"))
     expect(screen.queryByTestId("module-region-mod_2")).not.toBeInTheDocument()
-    const handle = screen.getByTestId("module-outline-drag-handle")
-    Object.assign(handle, {
-      setPointerCapture: vi.fn(),
-      releasePointerCapture: vi.fn(),
-      hasPointerCapture: vi.fn(() => true),
-    })
-    fireEvent.pointerDown(handle, { pointerId: 7, clientX: 10, clientY: 10 })
-    fireEvent.pointerMove(handle, { pointerId: 7, clientX: -90, clientY: 62 })
-    fireEvent.pointerUp(handle, { pointerId: 7, clientX: -90, clientY: 62 })
+    fireEvent.click(screen.getByRole("button", { name: "收起大纲" }))
 
     const docJson = {
       type: "doc" as const,
@@ -575,7 +772,7 @@ describe("DraftCanvas", () => {
     const onRetrySave = vi.fn()
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} onRetrySave={onRetrySave} saveStatus="error" />)
 
-    expect(screen.getByText("负责核心链路重构。")).toBeInTheDocument()
+    expect(screen.getByTestId("canvas-node-mod_1")).toBeInTheDocument()
     expect(screen.getByText("保存失败")).toHaveAttribute("aria-live", "polite")
     fireEvent.click(screen.getByRole("button", { name: "重试保存" }))
     expect(onRetrySave).toHaveBeenCalledTimes(1)
@@ -584,7 +781,7 @@ describe("DraftCanvas", () => {
   it("renders all module anchors at the same outline depth", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
 
-    expect(screen.getByRole("button", { name: "项目经历" })).toHaveClass("pl-2")
-    expect(screen.getByRole("button", { name: "教育经历" })).toHaveClass("pl-2")
+    expect(screen.getByRole("button", { name: "项目经历" })).toHaveStyle({ paddingLeft: "10px" })
+    expect(screen.getByRole("button", { name: "教育经历" })).toHaveStyle({ paddingLeft: "10px" })
   })
 })

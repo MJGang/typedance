@@ -5,6 +5,8 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
+  type PointerEvent,
 } from "react"
 import type { ModuleAnchor, SourceResumeCanvas } from "@typedance/contracts"
 import type { TemplateStyleConfig } from "../templates/types"
@@ -21,7 +23,7 @@ import {
   type DraftCanvasSaveStatus,
 } from "./DraggableModuleOutline"
 import {
-  getDefaultModuleOutlinePosition,
+  getModuleOutlineLayout,
   loadModuleOutlinePreferences,
   saveModuleOutlinePreferences,
 } from "./moduleInteractions"
@@ -46,12 +48,70 @@ type DraftCanvasProps = {
   templateStyle?: TemplateStyleConfig
 }
 
-type Position = { x: number; y: number }
 type Size = { width: number; height: number }
 
-const SOURCE_CANVAS_PAGE_SIZE: PageSize = {
-  width: PAGE_SIZES.A4.pageWidth,
-  height: PAGE_SIZES.A4.pageHeight,
+type OutlineAnchorWithLevel = ModuleAnchor & {
+  outline_level?: number | null
+  heading_index?: number
+}
+
+function collectHeadingAnchors(docJson: ResumeDocJson): OutlineAnchorWithLevel[] {
+  const anchors: OutlineAnchorWithLevel[] = []
+  let headingIndex = 0
+
+  const getNodeText = (node: unknown): string => {
+    if (!node || typeof node !== "object") return ""
+    const n = node as { text?: unknown; content?: unknown[] }
+    if (typeof n.text === "string") return n.text
+    let text = ""
+    for (const child of n.content ?? []) {
+      text += getNodeText(child)
+    }
+    return text
+  }
+
+  const visitNode = (node: unknown) => {
+    if (!node || typeof node !== "object") return
+    const currentNode = node as {
+      attrs?: Record<string, unknown>
+      content?: unknown[]
+      type?: unknown
+    }
+    if (currentNode.type !== "heading") {
+      for (const child of currentNode.content ?? []) {
+        visitNode(child)
+      }
+      return
+    }
+
+    const attrs = currentNode.attrs
+    const currentHeadingIndex = headingIndex
+    headingIndex += 1
+    const title = getNodeText(currentNode).trim()
+    if (!title) return
+
+    const level = typeof attrs?.level === "number" && Number.isFinite(attrs.level) && attrs.level > 0
+      ? attrs.level
+      : null
+    const canvasNodeId = typeof attrs?.canvasNodeId === "string" && attrs.canvasNodeId
+      ? attrs.canvasNodeId
+      : null
+    const moduleId = typeof attrs?.moduleId === "string" && attrs.moduleId
+      ? attrs.moduleId
+      : `heading_${currentHeadingIndex}`
+
+    anchors.push({
+      module_id: moduleId,
+      canvas_node_ids: canvasNodeId ? [canvasNodeId] : [],
+      title,
+      order: anchors.length,
+      outline_level: level,
+      heading_index: currentHeadingIndex,
+    })
+  }
+
+  visitNode(docJson)
+  return anchors
 }
 
 function sameSize(left: Size, right: Size) {
@@ -86,6 +146,11 @@ function readPositivePixelVariable(element: HTMLElement, name: string): number |
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
+const SOURCE_CANVAS_PAGE_SIZE: PageSize = {
+  width: PAGE_SIZES.A4.pageWidth,
+  height: PAGE_SIZES.A4.pageHeight,
+}
+
 function getFirstPageBounds(root: HTMLElement): PageBounds | null {
   const paginatedEditor = root.querySelector<HTMLElement>(".rm-with-pagination")
   if (!paginatedEditor) return null
@@ -103,6 +168,22 @@ function getFirstPageBounds(root: HTMLElement): PageBounds | null {
     y: editorRect.top - rootRect.top,
     width: pageWidth,
     height: pageHeight,
+  }
+}
+
+function getOutlineFrame(root: HTMLElement): { maxHeight: number; top: number } {
+  const printWrapper = root.querySelector<HTMLElement>(".td-editor-print-wrapper")
+  if (!printWrapper) return { maxHeight: 640, top: 0 }
+
+  const rootRect = root.getBoundingClientRect()
+  const wrapperRect = printWrapper.getBoundingClientRect()
+  const toolbar = root.querySelector<HTMLElement>(".td-rich-editor-toolbar")
+  const toolbarRect = toolbar?.getBoundingClientRect()
+  const edgeGap = toolbarRect ? Math.max(0, wrapperRect.top - toolbarRect.bottom) : 0
+
+  return {
+    maxHeight: Math.max(32, rootRect.bottom - wrapperRect.top - edgeGap),
+    top: Math.max(0, wrapperRect.top - rootRect.top),
   }
 }
 
@@ -132,9 +213,12 @@ function DraftCanvasWorkspace({
   const editorRef = useRef<ResumeRichTextEditorHandle>(null)
   const canvasRootRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<number | null>(null)
-  const anchors = useMemo(
-    () => [...canvas.module_anchors].sort((left, right) => left.order - right.order),
-    [canvas.module_anchors],
+  const [currentDocJson, setCurrentDocJson] = useState<ResumeDocJson>(
+    () => canvas.doc_json as ResumeDocJson,
+  )
+  const anchors = useMemo<OutlineAnchorWithLevel[]>(
+    () => collectHeadingAnchors(currentDocJson),
+    [currentDocJson],
   )
   const sourceCanvasCss = useMemo(
     () => generateWorkspaceCSS(
@@ -150,18 +234,36 @@ function DraftCanvasWorkspace({
   const [activeModuleId, setActiveModuleId] = useState<string | null>(null)
   const [outlineVisible, setOutlineVisible] = useState(initialPreferences?.visible ?? true)
   const [outlineExpanded, setOutlineExpanded] = useState(initialPreferences?.expanded ?? true)
-  const [outlinePosition, setOutlinePosition] = useState<Position | null>(
-    initialPreferences?.position ?? null,
-  )
-  const outlinePositionRef = useRef(outlinePosition)
-  const [outlineBounds, setOutlineBounds] = useState<Size>({ width: 0, height: 0 })
+  const [viewportSize, setViewportSize] = useState<Size>({ width: 0, height: 0 })
   const [pageBounds, setPageBounds] = useState<PageBounds | null>(null)
+  const [outlineMaxHeight, setOutlineMaxHeight] = useState(640)
+  const [outlineTop, setOutlineTop] = useState(0)
   const [pageMarginGuidesVisible, setPageMarginGuidesVisible] = useState(false)
   const [pageMargins, setPageMargins] = useState<PageMargins>(() => (
     loadPageMarginPreferences(canvas.document_id, SOURCE_CANVAS_PAGE_SIZE)
     ?? DEFAULT_SOURCE_CANVAS_PAGE_MARGINS
   ))
-  outlinePositionRef.current = outlinePosition
+  const outlineLayout = useMemo(
+    () => getModuleOutlineLayout(
+      viewportSize,
+      pageBounds?.width ?? SOURCE_CANVAS_PAGE_SIZE.width,
+    ),
+    [pageBounds?.width, viewportSize],
+  )
+  const outlineReservedWidth = outlineVisible && outlineExpanded ? outlineLayout.reservedWidth : 0
+
+  useEffect(() => {
+    setCurrentDocJson(canvas.doc_json as ResumeDocJson)
+  }, [canvas.doc_json])
+
+  useEffect(() => {
+    setActiveModuleId((currentModuleId) => {
+      if (!currentModuleId) return currentModuleId
+      return anchors.some((anchor) => anchor.module_id === currentModuleId)
+        ? currentModuleId
+        : null
+    })
+  }, [anchors])
 
   const measureCanvas = useCallback(() => {
     const root = canvasRootRef.current
@@ -169,24 +271,20 @@ function DraftCanvasWorkspace({
 
     const viewport = getSourceCanvasViewport(root)
     const nextBounds = getElementSize(viewport ?? root)
-    setOutlineBounds((currentBounds) => (
+    setViewportSize((currentBounds) => (
       sameSize(currentBounds, nextBounds) ? currentBounds : nextBounds
     ))
     const nextPageBounds = getFirstPageBounds(root)
     setPageBounds((currentBounds) => (
       samePageBounds(currentBounds, nextPageBounds) ? currentBounds : nextPageBounds
     ))
-
-    if (
-      outlinePositionRef.current === null
-      && nextBounds.width > 0
-      && nextBounds.height > 0
-    ) {
-      const outline = root.querySelector<HTMLElement>("[aria-label='简历模块大纲']")
-      if (outline) {
-        setOutlinePosition(getDefaultModuleOutlinePosition(nextBounds, getElementSize(outline)))
-      }
-    }
+    const nextOutlineFrame = getOutlineFrame(root)
+    setOutlineTop((currentTop) => (
+      currentTop === nextOutlineFrame.top ? currentTop : nextOutlineFrame.top
+    ))
+    setOutlineMaxHeight((currentHeight) => (
+      currentHeight === nextOutlineFrame.maxHeight ? currentHeight : nextOutlineFrame.maxHeight
+    ))
   }, [])
 
   const scheduleMeasure = useCallback(() => {
@@ -200,7 +298,7 @@ function DraftCanvasWorkspace({
 
   useLayoutEffect(() => {
     measureCanvas()
-  }, [canvas.doc_json, measureCanvas])
+  }, [currentDocJson, measureCanvas])
 
   useEffect(() => {
     const root = canvasRootRef.current
@@ -232,19 +330,16 @@ function DraftCanvasWorkspace({
 
   useEffect(() => {
     scheduleMeasure()
-  }, [canvas.doc_json, outlineExpanded, outlineVisible, scheduleMeasure])
+  }, [currentDocJson, outlineExpanded, outlineVisible, scheduleMeasure])
 
   useEffect(() => {
-    if (outlinePosition === null) return
     saveModuleOutlinePreferences(canvas.document_id, {
       visible: outlineVisible,
       expanded: outlineExpanded,
-      position: outlinePosition,
     })
   }, [
     canvas.document_id,
     outlineExpanded,
-    outlinePosition,
     outlineVisible,
   ])
 
@@ -261,6 +356,7 @@ function DraftCanvasWorkspace({
   ])
 
   const handleEditorChange = useCallback((change: ResumeEditorChange) => {
+    setCurrentDocJson(change.docJson)
     onChange(change)
     scheduleMeasure()
   }, [onChange, scheduleMeasure])
@@ -274,23 +370,44 @@ function DraftCanvasWorkspace({
 
   const scrollToAnchor = useCallback((anchor: ModuleAnchor) => {
     setActiveModuleId(anchor.module_id)
-    const firstNodeId = anchor.canvas_node_ids[0]
-    if (firstNodeId) {
-      editorRef.current?.scrollToCanvasNode(firstNodeId, { topOffset: 16 })
+    const outlineAnchor = anchor as OutlineAnchorWithLevel
+    if (outlineAnchor.heading_index !== undefined) {
+      editorRef.current?.scrollToHeadingIndex(outlineAnchor.heading_index, { topOffset: 16 })
+    } else {
+      const firstNodeId = anchor.canvas_node_ids[0]
+      if (firstNodeId) {
+        editorRef.current?.scrollToCanvasNode(firstNodeId, { topOffset: 16 })
+      }
     }
+    setOutlineExpanded(false)
     scheduleMeasure()
   }, [scheduleMeasure])
+
+  const handleCanvasPointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    if (!outlineExpanded) return
+    const target = event.target
+    if (!(target instanceof Element)) return
+    if (!target.closest(".td-editor-print-wrapper")) return
+
+    setOutlineExpanded(false)
+  }, [outlineExpanded])
 
   return (
     <div
       ref={canvasRootRef}
-      className="td-source-resume-canvas relative min-h-0"
+      className="td-source-resume-canvas relative flex h-full min-h-0 flex-col overflow-hidden"
+      data-outline-layout={outlineLayout.docked ? "docked" : "floating"}
+      data-outline-expanded={outlineReservedWidth > 0 ? "true" : undefined}
+      onPointerDownCapture={handleCanvasPointerDown}
+      style={{
+        "--td-module-outline-reserved-width": `${outlineReservedWidth}px`,
+      } as CSSProperties}
     >
       <ResumeRichTextEditor
         ref={editorRef}
         ariaLabel="原始简历编辑区"
         cssText={sourceCanvasCss}
-        docJson={canvas.doc_json as ResumeDocJson}
+        docJson={currentDocJson}
         marginConfig={pageMargins}
         pageMarginGuidesVisible={pageMarginGuidesVisible}
         moduleOutlineVisible={outlineVisible}
@@ -312,12 +429,13 @@ function DraftCanvasWorkspace({
           anchors={anchors}
           activeModuleId={activeModuleId}
           expanded={outlineExpanded}
-          position={outlinePosition ?? { x: 0, y: 0 }}
-          bounds={outlineBounds}
+          floating={!outlineLayout.docked}
+          outlineMaxHeight={outlineMaxHeight}
+          outlineTop={outlineTop}
+          panelWidth={outlineLayout.panelWidth}
           saveStatus={saveStatus}
           onRetrySave={onRetrySave}
           onExpandedChange={setOutlineExpanded}
-          onPositionCommit={setOutlinePosition}
           onActivateModule={setActiveModuleId}
           onScrollToAnchor={scrollToAnchor}
         />
