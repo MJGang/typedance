@@ -39,6 +39,7 @@ type MockEditorProps = {
 
 const editorMocks = vi.hoisted(() => ({
   props: null as MockEditorProps | null,
+  pageCount: 1,
   scrollToCanvasNode: vi.fn(),
   scrollToHeadingIndex: vi.fn(),
   updatePageMargins: vi.fn(),
@@ -76,18 +77,20 @@ vi.mock("../workspace/components/ResumeRichTextEditor", () => ({
         <div className="td-rich-editor-toolbar" data-testid="mock-rich-editor-toolbar" />
         <div className="td-editor-print-wrapper" data-testid="mock-editor-print-wrapper">
           <div className="ProseMirror rm-with-pagination">
-            <div className="page">
-              {props.docJson.content?.map((node, index) => (
-                <p
-                  key={node.attrs?.canvasNodeId ?? `${node.type ?? "node"}-${index}`}
-                  data-canvas-node-id={node.attrs?.canvasNodeId}
-                  data-module-id={node.attrs?.moduleId}
-                  data-testid={`canvas-node-${node.attrs?.moduleId}`}
-                >
-                  {node.content?.[0]?.text}
-                </p>
-              ))}
-            </div>
+            {Array.from({ length: editorMocks.pageCount }, (_, pageIndex) => (
+              <div key={pageIndex} className="page" data-page-index={pageIndex}>
+                {pageIndex === 0 ? props.docJson.content?.map((node, index) => (
+                  <p
+                    key={node.attrs?.canvasNodeId ?? `${node.type ?? "node"}-${index}`}
+                    data-canvas-node-id={node.attrs?.canvasNodeId}
+                    data-module-id={node.attrs?.moduleId}
+                    data-testid={`canvas-node-${node.attrs?.moduleId}`}
+                  >
+                    {node.content?.[0]?.text}
+                  </p>
+                )) : null}
+              </div>
+            ))}
             <div className="rm-pagination-gap" />
           </div>
         </div>
@@ -188,6 +191,7 @@ beforeAll(() => {
 beforeEach(() => {
   localStorage.clear()
   editorMocks.props = null
+  editorMocks.pageCount = 1
   editorMocks.scrollToCanvasNode.mockReset()
   editorMocks.scrollToHeadingIndex.mockReset()
   editorMocks.updatePageMargins.mockReset()
@@ -197,6 +201,18 @@ beforeEach(() => {
   paginationTop = 140
   editorPrintWrapperTop = 140
   editorToolbarBottom = 128
+  Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+    configurable: true,
+    value: vi.fn(function scrollTo(this: HTMLElement, options?: ScrollToOptions | number, y?: number) {
+      if (typeof options === "object" && typeof options.top === "number") {
+        this.scrollTop = options.top
+        return
+      }
+      if (typeof y === "number") {
+        this.scrollTop = y
+      }
+    }),
+  })
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     if (this.classList.contains("td-source-resume-canvas-viewport") && sourceViewportSize) {
       return rect({ left: 40, top: 90, ...sourceViewportSize })
@@ -214,10 +230,22 @@ beforeEach(() => {
       return rect({ left: 50, top: editorPrintWrapperTop, width: rootSize.width, height: rootSize.height - 40 })
     }
     if (this.classList.contains("page")) {
-      return rect({ left: 80, top: paginationTop, ...paginationPageSize })
+      const pageIndex = Number.parseInt(this.dataset.pageIndex ?? "0", 10) || 0
+      const scrollTop = document.querySelector<HTMLElement>(".td-editor-print-wrapper")?.scrollTop ?? 0
+      return rect({
+        left: 80,
+        top: paginationTop + pageIndex * (paginationPageSize.height + 28) - scrollTop,
+        ...paginationPageSize,
+      })
     }
     if (this.classList.contains("rm-with-pagination")) {
-      return rect({ left: 80, top: paginationTop, width: 794, height: 2200 })
+      const scrollTop = document.querySelector<HTMLElement>(".td-editor-print-wrapper")?.scrollTop ?? 0
+      return rect({
+        left: 80,
+        top: paginationTop - scrollTop,
+        width: 794,
+        height: editorMocks.pageCount * (paginationPageSize.height + 28),
+      })
     }
     if (this.dataset.canvasNodeId === "node_project") {
       return rect({ left: 90, top: 160, width: 460, height: 100 })
@@ -304,6 +332,31 @@ describe("DraftCanvas", () => {
       height: "1123px",
     })
     expect(screen.getByRole("button", { name: "拖拽左边距，当前 50px" })).toBeInTheDocument()
+  })
+
+  it("renders page navigation outside the right edge of the A4 page and jumps pages", async () => {
+    editorMocks.pageCount = 3
+    sourceViewportSize = { width: 1200, height: 500 }
+    rootSize = { width: 1200, height: 500 }
+
+    render(
+      <div className="td-source-resume-canvas-viewport">
+        <DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />
+      </div>,
+    )
+
+    const navigator = await screen.findByTestId("source-page-navigator")
+    const shell = screen.getByTestId("source-page-navigator-shell")
+    expect(navigator).toHaveAccessibleName("页面跳转")
+    await waitFor(() => {
+      expect(shell).toHaveStyle({ left: "840px", top: "40px" })
+    })
+    expect(screen.getByTestId("source-page-navigator-page-1")).toHaveAttribute("aria-current", "page")
+
+    fireEvent.click(screen.getByTestId("source-page-navigator-page-3"))
+
+    expect(screen.getByTestId("mock-editor-print-wrapper")).toHaveProperty("scrollTop", 2286)
+    expect(screen.getByTestId("source-page-navigator-page-3")).toHaveAttribute("aria-current", "page")
   })
 
   it("updates page margins while dragging a guide without submitting editor content", async () => {

@@ -8,7 +8,10 @@ import {
   type CSSProperties,
   type PointerEvent,
 } from "react"
+import { ChevronDown, ChevronUp } from "lucide-react"
 import type { ModuleAnchor, SourceResumeCanvas } from "@typedance/contracts"
+import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import type { TemplateStyleConfig } from "../templates/types"
 import { PAGE_SIZES } from "tiptap-pagination-plus"
 import type { ResumeDocJson, ResumeEditorChange } from "../workspace/editor"
@@ -49,6 +52,11 @@ type DraftCanvasProps = {
 }
 
 type Size = { width: number; height: number }
+
+type PageNavigationState = {
+  currentPageIndex: number
+  pageTops: number[]
+}
 
 type OutlineAnchorWithLevel = ModuleAnchor & {
   outline_level?: number | null
@@ -128,6 +136,14 @@ function samePageBounds(left: PageBounds | null, right: PageBounds | null) {
   )
 }
 
+function samePageNavigationState(left: PageNavigationState, right: PageNavigationState) {
+  return (
+    left.currentPageIndex === right.currentPageIndex
+    && left.pageTops.length === right.pageTops.length
+    && left.pageTops.every((top, index) => top === right.pageTops[index])
+  )
+}
+
 function getElementSize(element: HTMLElement): Size {
   const rect = element.getBoundingClientRect()
   return {
@@ -138,6 +154,10 @@ function getElementSize(element: HTMLElement): Size {
 
 function getSourceCanvasViewport(root: HTMLElement): HTMLElement | null {
   return root.closest<HTMLElement>(".td-source-resume-canvas-viewport")
+}
+
+function getEditorPrintWrapper(root: HTMLElement): HTMLElement | null {
+  return root.querySelector<HTMLElement>(".td-editor-print-wrapper")
 }
 
 function readPositivePixelVariable(element: HTMLElement, name: string): number | null {
@@ -171,6 +191,37 @@ function getFirstPageBounds(root: HTMLElement): PageBounds | null {
   }
 }
 
+function getPageNavigationState(root: HTMLElement): PageNavigationState {
+  const printWrapper = getEditorPrintWrapper(root)
+  const pageElements = Array.from(root.querySelectorAll<HTMLElement>(".rm-with-pagination .page"))
+  if (!printWrapper || pageElements.length === 0) {
+    return { currentPageIndex: 0, pageTops: [] }
+  }
+
+  const wrapperRect = printWrapper.getBoundingClientRect()
+  const pageTops = pageElements
+    .map((pageElement) => (
+      printWrapper.scrollTop
+      + pageElement.getBoundingClientRect().top
+      - wrapperRect.top
+    ))
+    .filter((top) => Number.isFinite(top))
+    .sort((left, right) => left - right)
+
+  if (pageTops.length === 0) return { currentPageIndex: 0, pageTops: [] }
+
+  const activationLine = printWrapper.scrollTop + Math.min(
+    Math.max(printWrapper.clientHeight * 0.2, 48),
+    160,
+  )
+  let currentPageIndex = 0
+  for (let index = 0; index < pageTops.length; index += 1) {
+    if (pageTops[index] <= activationLine) currentPageIndex = index
+  }
+
+  return { currentPageIndex, pageTops }
+}
+
 function getOutlineFrame(root: HTMLElement): { maxHeight: number; top: number } {
   const printWrapper = root.querySelector<HTMLElement>(".td-editor-print-wrapper")
   if (!printWrapper) return { maxHeight: 640, top: 0 }
@@ -200,6 +251,97 @@ function cancelMeasureFrame(frameId: number) {
     return
   }
   window.clearTimeout(frameId)
+}
+
+function SourceCanvasPageNavigator({
+  currentPageIndex,
+  left,
+  maxHeight,
+  onJumpToPage,
+  pageCount,
+  top,
+}: {
+  currentPageIndex: number
+  left: number
+  maxHeight: number
+  onJumpToPage: (pageIndex: number) => void
+  pageCount: number
+  top: number
+}) {
+  if (pageCount <= 1) return null
+
+  const canGoPrevious = currentPageIndex > 0
+  const canGoNext = currentPageIndex < pageCount - 1
+
+  return (
+    <div
+      className="td-module-interaction-only absolute z-20"
+      data-testid="source-page-navigator-shell"
+      style={{
+        "--td-source-page-navigator-max-height": `${Math.max(96, maxHeight)}px`,
+        left: `${left}px`,
+        top: `${Math.max(0, top)}px`,
+      } as CSSProperties}
+    >
+      <nav
+        aria-label="页面跳转"
+        data-testid="source-page-navigator"
+        className="flex w-11 flex-col items-center rounded-md border border-border bg-background/90 p-1.5 shadow-sm backdrop-blur-xl"
+      >
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="跳转到上一页"
+          title="跳转到上一页"
+          disabled={!canGoPrevious}
+          className="size-7 rounded-sm"
+          onClick={() => onJumpToPage(currentPageIndex - 1)}
+        >
+          <ChevronUp className="size-3.5" />
+        </Button>
+        <div className="my-1 flex max-h-[calc(var(--td-source-page-navigator-max-height)-4.5rem)] min-h-0 flex-col gap-1 overflow-y-auto">
+          {Array.from({ length: pageCount }, (_, pageIndex) => {
+            const pageNumber = pageIndex + 1
+            const active = pageIndex === currentPageIndex
+            return (
+              <Button
+                key={pageNumber}
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-current={active ? "page" : undefined}
+                aria-label={`跳转到第 ${pageNumber} 页`}
+                title={`跳转到第 ${pageNumber} 页`}
+                data-testid={`source-page-navigator-page-${pageNumber}`}
+                className={cn(
+                  "size-7 rounded-sm text-xs font-semibold tabular-nums transition-colors",
+                  active
+                    ? "bg-primary text-primary-foreground shadow-sm hover:bg-primary hover:text-primary-foreground"
+                    : "text-muted-foreground hover:bg-primary/5 hover:text-primary",
+                )}
+                onClick={() => onJumpToPage(pageIndex)}
+              >
+                {pageNumber}
+              </Button>
+            )
+          })}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="跳转到下一页"
+          title="跳转到下一页"
+          disabled={!canGoNext}
+          className="size-7 rounded-sm"
+          onClick={() => onJumpToPage(currentPageIndex + 1)}
+        >
+          <ChevronDown className="size-3.5" />
+        </Button>
+      </nav>
+    </div>
+  )
 }
 
 function DraftCanvasWorkspace({
@@ -236,6 +378,10 @@ function DraftCanvasWorkspace({
   const [outlineExpanded, setOutlineExpanded] = useState(initialPreferences?.expanded ?? true)
   const [viewportSize, setViewportSize] = useState<Size>({ width: 0, height: 0 })
   const [pageBounds, setPageBounds] = useState<PageBounds | null>(null)
+  const [pageNavigationState, setPageNavigationState] = useState<PageNavigationState>({
+    currentPageIndex: 0,
+    pageTops: [],
+  })
   const [outlineMaxHeight, setOutlineMaxHeight] = useState(640)
   const [outlineTop, setOutlineTop] = useState(0)
   const [pageMarginGuidesVisible, setPageMarginGuidesVisible] = useState(false)
@@ -251,6 +397,12 @@ function DraftCanvasWorkspace({
     [pageBounds?.width, viewportSize],
   )
   const outlineReservedWidth = outlineVisible && outlineExpanded ? outlineLayout.reservedWidth : 0
+  const pageNavigatorLeft = pageBounds
+    ? Math.min(
+      Math.max(8, pageBounds.x + pageBounds.width + 16),
+      Math.max(8, viewportSize.width - 56),
+    )
+    : 0
 
   useEffect(() => {
     setCurrentDocJson(canvas.doc_json as ResumeDocJson)
@@ -277,6 +429,12 @@ function DraftCanvasWorkspace({
     const nextPageBounds = getFirstPageBounds(root)
     setPageBounds((currentBounds) => (
       samePageBounds(currentBounds, nextPageBounds) ? currentBounds : nextPageBounds
+    ))
+    const nextPageNavigationState = getPageNavigationState(root)
+    setPageNavigationState((currentState) => (
+      samePageNavigationState(currentState, nextPageNavigationState)
+        ? currentState
+        : nextPageNavigationState
     ))
     const nextOutlineFrame = getOutlineFrame(root)
     setOutlineTop((currentTop) => (
@@ -305,6 +463,7 @@ function DraftCanvasWorkspace({
     if (!root) return
 
     const viewport = getSourceCanvasViewport(root)
+    const printWrapper = getEditorPrintWrapper(root)
     const prosemirror = root.querySelector<HTMLElement>(".ProseMirror")
     const resizeObserver = typeof ResizeObserver === "undefined"
       ? null
@@ -315,12 +474,17 @@ function DraftCanvasWorkspace({
       resizeObserver?.observe(viewport)
       viewport.addEventListener("scroll", scheduleMeasure, { passive: true })
     }
+    if (printWrapper) {
+      resizeObserver?.observe(printWrapper)
+      printWrapper.addEventListener("scroll", scheduleMeasure, { passive: true })
+    }
     if (prosemirror) resizeObserver?.observe(prosemirror)
     scheduleMeasure()
 
     return () => {
       resizeObserver?.disconnect()
       viewport?.removeEventListener("scroll", scheduleMeasure)
+      printWrapper?.removeEventListener("scroll", scheduleMeasure)
       if (frameRef.current !== null) {
         cancelMeasureFrame(frameRef.current)
         frameRef.current = null
@@ -365,6 +529,28 @@ function DraftCanvasWorkspace({
     const nextMargins = clampPageMargins(margins, SOURCE_CANVAS_PAGE_SIZE)
     setPageMargins(nextMargins)
     editorRef.current?.updatePageMargins(nextMargins)
+    scheduleMeasure()
+  }, [scheduleMeasure])
+
+  const scrollToPage = useCallback((pageIndex: number) => {
+    const root = canvasRootRef.current
+    if (!root) return
+    const printWrapper = getEditorPrintWrapper(root)
+    if (!printWrapper) return
+
+    const nextPageNavigationState = getPageNavigationState(root)
+    const targetTop = nextPageNavigationState.pageTops[pageIndex]
+    if (!Number.isFinite(targetTop)) return
+
+    const behavior = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+    printWrapper.scrollTo({
+      top: Math.max(0, targetTop - 16),
+      behavior,
+    })
+    setPageNavigationState({
+      currentPageIndex: pageIndex,
+      pageTops: nextPageNavigationState.pageTops,
+    })
     scheduleMeasure()
   }, [scheduleMeasure])
 
@@ -438,6 +624,16 @@ function DraftCanvasWorkspace({
           onExpandedChange={setOutlineExpanded}
           onActivateModule={setActiveModuleId}
           onScrollToAnchor={scrollToAnchor}
+        />
+      ) : null}
+      {pageBounds ? (
+        <SourceCanvasPageNavigator
+          currentPageIndex={pageNavigationState.currentPageIndex}
+          left={pageNavigatorLeft}
+          maxHeight={outlineMaxHeight}
+          pageCount={pageNavigationState.pageTops.length}
+          top={outlineTop}
+          onJumpToPage={scrollToPage}
         />
       ) : null}
     </div>
