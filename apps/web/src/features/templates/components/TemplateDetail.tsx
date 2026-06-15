@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { ArrowLeft, RotateCcw } from "lucide-react"
+import { ArrowLeft, RotateCcw, Save } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import type { UiLanguage } from "../../workspace/types"
 import type { ResumeDocJson } from "../../workspace/editor"
 import type { BlockType, TemplateStyleConfig } from "../types"
@@ -26,6 +34,10 @@ type TemplateDetailProps = {
   onBack: () => void
   onThemeChange: (themeId: string) => void
   onStyleChange: (style: TemplateStyleConfig) => void
+  onSaveStyle: () => Promise<boolean>
+  onDiscardStyleChanges: () => void
+  hasUnsavedStyleChanges: boolean
+  isSavingStyle: boolean
   onResetTheme?: () => void
   onSampleChange: (sample: TemplateSampleContent) => void
   onSaveSample: () => void
@@ -84,12 +96,17 @@ export function TemplateDetail({
   onBack,
   onThemeChange,
   onStyleChange,
+  onSaveStyle,
+  onDiscardStyleChanges,
+  hasUnsavedStyleChanges,
+  isSavingStyle,
   onResetTheme,
   sampleStatus,
   styleStatus,
 }: TemplateDetailProps) {
   const [activeBlock, setActiveBlock] = useState<BlockType>("paragraph")
   const [sampleDoc, setSampleDoc] = useState<ResumeDocJson>(sample.doc_json as ResumeDocJson)
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false)
 
   useEffect(() => {
     setSampleDoc(sample.doc_json as ResumeDocJson)
@@ -110,12 +127,35 @@ export function TemplateDetail({
     }
   }, [])
 
+  const handleBackClick = useCallback(() => {
+    if (hasUnsavedStyleChanges) {
+      setShowUnsavedDialog(true)
+      return
+    }
+
+    onBack()
+  }, [hasUnsavedStyleChanges, onBack])
+
+  const handleSaveAndBack = useCallback(async () => {
+    const saved = await onSaveStyle()
+    if (!saved) return
+
+    setShowUnsavedDialog(false)
+    onBack()
+  }, [onBack, onSaveStyle])
+
+  const handleDiscardAndBack = useCallback(() => {
+    onDiscardStyleChanges()
+    setShowUnsavedDialog(false)
+    onBack()
+  }, [onBack, onDiscardStyleChanges])
+
   return (
-    <section className="grid gap-4">
+    <section className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Button type="button" variant="ghost" size="icon-sm" className="-ml-2" onClick={onBack} aria-label="返回主题库">
+            <Button type="button" variant="ghost" size="icon-sm" className="-ml-2" onClick={handleBackClick} aria-label="返回主题库">
               <ArrowLeft />
             </Button>
             <h2 className="m-0 text-xl font-semibold tracking-normal">{theme.title}</h2>
@@ -128,20 +168,29 @@ export function TemplateDetail({
                 重置
               </Button>
             )}
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void onSaveStyle()}
+              disabled={!hasUnsavedStyleChanges || isSavingStyle}
+            >
+              <Save data-icon="inline-start" />
+              {isSavingStyle ? "保存中..." : "保存"}
+            </Button>
           </div>
           <TemplateStatusText status={styleStatus} className="m-0 text-xs text-muted-foreground" />
         </div>
       </div>
 
-      <div className="grid min-h-0 gap-4 xl:grid-cols-[minmax(520px,1fr)_minmax(320px,380px)]">
-        <div className="grid min-h-0 gap-3 rounded-lg border border-border bg-card p-3 shadow-sm">
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(18rem,0.85fr)] gap-4 xl:grid-cols-[minmax(520px,1fr)_minmax(320px,380px)] xl:grid-rows-none">
+        <div className="flex min-h-0 flex-col gap-3 overflow-hidden rounded-lg border border-border bg-card p-3 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
             <div>
               <h3 className="m-0 text-sm font-semibold">演示简历</h3>
             </div>
             <p aria-live="polite" className="m-0 text-xs text-muted-foreground">{sampleStatus}</p>
           </div>
-          <div className="td-template-editor-wrapper min-h-0 overflow-auto rounded-md bg-muted/45 px-4 py-5">
+          <div className="td-template-editor-wrapper min-h-0 flex-1 overflow-y-auto overflow-x-hidden rounded-md bg-muted/45 px-4 py-5">
             <style>{cssText}</style>
             <style>{elementCssText}</style>
             <ResumeRichTextEditor
@@ -167,6 +216,29 @@ export function TemplateDetail({
           />
         </aside>
       </div>
+
+      <Dialog open={showUnsavedDialog} onOpenChange={setShowUnsavedDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>还有未保存的主题样式</DialogTitle>
+            <DialogDescription>
+              你刚调整了主题样式，但还没有保存。保存后会写入主题库；不保存返回会丢弃本次样式修改，预览也会恢复到上次保存的版本。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setShowUnsavedDialog(false)}>
+              继续编辑
+            </Button>
+            <Button type="button" variant="outline" onClick={handleDiscardAndBack} disabled={isSavingStyle}>
+              不保存返回
+            </Button>
+            <Button type="button" onClick={() => void handleSaveAndBack()} disabled={isSavingStyle}>
+              <Save data-icon="inline-start" />
+              {isSavingStyle ? "保存中..." : "保存并返回"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }

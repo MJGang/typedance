@@ -55,6 +55,9 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
   const [stylesLoaded, setStylesLoaded] = useState(false)
   const [styleStatus, setStyleStatus] = useState("主题已同步")
   const [editingThemeId, setEditingThemeId] = useState<string | null>(null)
+  const [persistedStyles, setPersistedStyles] = useState<TemplateStyleConfig[]>([])
+  const [dirtyThemeIds, setDirtyThemeIds] = useState<Set<string>>(() => new Set())
+  const [isSavingStyle, setIsSavingStyle] = useState(false)
 
   const defaultTemplate = templateRegistry[0]
   const sampleId = defaultTemplate.sampleContentIds[targetLanguage] ?? "sample-tech-zh"
@@ -77,10 +80,14 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
     void listTemplateStyles()
       .then((styles) => {
         setSavedStyles(styles)
+        setPersistedStyles(styles)
+        setDirtyThemeIds(new Set())
         setStylesLoaded(true)
       })
       .catch(() => {
         setSavedStyles([])
+        setPersistedStyles([])
+        setDirtyThemeIds(new Set())
         setStylesLoaded(true)
         setStyleStatus("当前展示内置主题")
       })
@@ -131,6 +138,7 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
     () => themes.find((theme) => theme.id === templateId) ?? null,
     [templateId, themes],
   )
+  const selectedThemeHasUnsavedChanges = Boolean(selectedTheme && dirtyThemeIds.has(selectedTheme.id))
 
   useEffect(() => {
     if (templateId && stylesLoaded && !selectedTheme) {
@@ -148,8 +156,54 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
 
   const handleStyleChange = useCallback((nextStyle: TemplateStyleConfig) => {
     setSavedStyles((current) => upsertTemplateStyle(current, nextStyle))
-    setStyleStatus("主题正在保存")
+    setDirtyThemeIds((current) => {
+      const next = new Set(current)
+      next.add(nextStyle.template_id)
+      return next
+    })
+    setStyleStatus("主题样式有未保存修改")
   }, [])
+
+  const handleSaveCurrentTheme = useCallback(async () => {
+    if (!selectedTheme || isSavingStyle) return false
+
+    setIsSavingStyle(true)
+    setStyleStatus("主题正在保存")
+    try {
+      const saved = await saveTemplateStyle(selectedTheme.styleConfig)
+      setSavedStyles((current) => upsertTemplateStyle(current, saved))
+      setPersistedStyles((current) => upsertTemplateStyle(current, saved))
+      setDirtyThemeIds((current) => {
+        const next = new Set(current)
+        next.delete(selectedTheme.id)
+        return next
+      })
+      setStyleStatus("主题样式已保存")
+      return true
+    } catch {
+      setStyleStatus("主题样式保存失败，请稍后重试")
+      return false
+    } finally {
+      setIsSavingStyle(false)
+    }
+  }, [isSavingStyle, selectedTheme])
+
+  const handleDiscardStyleChanges = useCallback(() => {
+    if (!selectedTheme) return
+
+    const persistedStyle = persistedStyles.find((style) => style.template_id === selectedTheme.id)
+    setSavedStyles((current) => (
+      persistedStyle
+        ? upsertTemplateStyle(current, persistedStyle)
+        : current.filter((style) => style.template_id !== selectedTheme.id)
+    ))
+    setDirtyThemeIds((current) => {
+      const next = new Set(current)
+      next.delete(selectedTheme.id)
+      return next
+    })
+    setStyleStatus("未保存修改已放弃")
+  }, [persistedStyles, selectedTheme])
 
   const handleCreateTheme = useCallback(async () => {
     const customCount = savedStyles.filter((style) => !isDefaultTheme(style.template_id)).length
@@ -167,6 +221,7 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
     try {
       const saved = await saveTemplateStyle(nextStyle)
       setSavedStyles((current) => current.map((style) => style.template_id === nextStyle.template_id ? saved : style))
+      setPersistedStyles((current) => upsertTemplateStyle(current, saved))
       openTheme(saved.template_id)
       setStyleStatus("主题已创建")
     } catch {
@@ -184,6 +239,12 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
     try {
       const saved = await saveTemplateStyle(nextStyle)
       setSavedStyles((current) => upsertTemplateStyle(current, saved))
+      setPersistedStyles((current) => upsertTemplateStyle(current, saved))
+      setDirtyThemeIds((current) => {
+        const next = new Set(current)
+        next.delete(nextStyle.template_id)
+        return next
+      })
       setStyleStatus("主题已重置为官方默认")
     } catch {
       setSavedStyles(previousStyles)
@@ -205,6 +266,7 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
     try {
       const saved = await saveTemplateStyle(nextStyle)
       setSavedStyles((current) => current.map((style) => style.template_id === theme.id ? saved : style))
+      setPersistedStyles((current) => current.map((style) => style.template_id === theme.id ? saved : style))
       setStyleStatus("主题名称已保存")
     } catch {
       setStyleStatus("主题名称保存失败，请稍后重试")
@@ -220,6 +282,12 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
     setStyleStatus("主题正在删除")
     try {
       await deleteTemplateStyle(theme.id)
+      setPersistedStyles((current) => current.filter((style) => style.template_id !== theme.id))
+      setDirtyThemeIds((current) => {
+        const next = new Set(current)
+        next.delete(theme.id)
+        return next
+      })
       if (templateId === theme.id) closeTheme()
       setStyleStatus("主题已删除")
     } catch {
@@ -243,7 +311,7 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
     const canResetTheme = selectedTheme.source === "default" && selectedTheme.id === defaultClassicA4Style.template_id
 
     return (
-      <main className="min-h-svh bg-background p-4 md:p-6">
+      <main className="box-border h-full overflow-hidden bg-background p-4 md:p-6">
         <TemplateDetail
           theme={selectedTheme}
           themes={themes}
@@ -252,6 +320,10 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
           onBack={closeTheme}
           onThemeChange={openTheme}
           onStyleChange={handleStyleChange}
+          onSaveStyle={handleSaveCurrentTheme}
+          onDiscardStyleChanges={handleDiscardStyleChanges}
+          hasUnsavedStyleChanges={selectedThemeHasUnsavedChanges}
+          isSavingStyle={isSavingStyle}
           onResetTheme={canResetTheme ? handleResetClassicTheme : undefined}
           onSampleChange={handleSampleChange}
           onSaveSample={handleSaveSample}

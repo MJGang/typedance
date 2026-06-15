@@ -71,7 +71,7 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "工作台" })).toBeInTheDocument()
     expect(screen.getByText("Resume Pack")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "工作台" })).toHaveAttribute("data-active", "true")
-    expect(screen.getByRole("link", { name: "简历成品" })).not.toHaveAttribute("data-active")
+    expect(screen.queryByRole("link", { name: "简历成品" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "切换 Pack" })).not.toBeInTheDocument()
   })
 

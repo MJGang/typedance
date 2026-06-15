@@ -136,7 +136,7 @@ export function SiteLayout() {
     <TooltipProvider>
       <SidebarProvider>
         <SiteSidebar />
-        <SidebarInset>
+        <SidebarInset className="h-svh min-h-0 overflow-hidden">
           <header className="flex h-12 items-center gap-2 border-b border-border px-4">
             <div className="ml-auto flex items-center gap-1">
               <ThemeToggle />
@@ -151,7 +151,7 @@ export function SiteLayout() {
               />
             </div>
           </header>
-          <main className="flex-1 overflow-auto">
+          <main className="min-h-0 flex-1 overflow-auto">
             <Outlet context={{ reviewPanelVisible, setReviewPanelVisible } satisfies RevisionWorkspaceChromeContext} />
           </main>
         </SidebarInset>

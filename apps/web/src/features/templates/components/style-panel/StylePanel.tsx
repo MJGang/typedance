@@ -1,9 +1,8 @@
-import { useCallback, useRef, useEffect } from "react";
+import { useCallback } from "react";
 import type { BlockType, TemplateStyleConfig } from "../../style-engine/types";
 import { BlockSelector } from "./BlockSelector";
 import { BlockStyleEditor } from "./BlockStyleEditor";
 import { ThemeSelector, type ThemeSelectorOption } from "./ThemeSelector";
-import { saveTemplateStyle } from "@/api";
 import { ColumnsSection } from "./sections/ColumnsSection";
 import type { ColumnsCount, ColumnsGap } from "@typedance/tiptap-layout";
 
@@ -38,8 +37,6 @@ export function StylePanel({
   onUnsetColumns,
   uiLanguage,
 }: StylePanelProps) {
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const currentBlockStyle = styleConfig.blocks[activeBlock] ?? {};
 
   const handleBlockStyleChange = useCallback((newStyle: typeof currentBlockStyle) => {
@@ -49,16 +46,7 @@ export function StylePanel({
       blocks: { ...styleConfig.blocks, [activeBlock]: newStyle },
     };
     onChange(next);
-
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      saveTemplateStyle(next)
-        .then((saved) => { onChange({ ...saved, preset: next.preset }); })
-        .catch(() => undefined);
-    }, 300);
   }, [styleConfig, activeBlock, onChange]);
-
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
   return (
     <div className="td-style-panel flex h-full flex-col">

@@ -8,7 +8,6 @@ import {
   modelSettingsTestResponseSchema,
   modelSettingsUpdateSchema,
   renderProjectionSchema,
-  resumeVersionSchema,
   revisionIssueSchema,
   revisionProposalSchema,
   revisionRunSchema,
@@ -26,7 +25,6 @@ import {
   type ModelSettingsTestResponse,
   type ModelSettingsUpdate,
   type RenderProjection,
-  type ResumeVersion,
   type RevisionIssue,
   type RevisionProposal,
   type RevisionRun,
@@ -63,50 +61,6 @@ function decodeHeaderPath(value: string | null): string | undefined {
   } catch {
     return value
   }
-}
-
-export async function listResumeVersions(): Promise<ResumeVersion[]> {
-  const response = await fetch(`${baseUrl}/resume-versions`);
-  if (!response.ok) throw new Error(`Failed to list resumes: ${response.status}`);
-  return z.array(resumeVersionSchema).parse(deepStripNull(await response.json()));
-}
-
-export async function getResumeVersion(resumeId: string): Promise<ResumeVersion> {
-  const response = await fetch(`${baseUrl}/resume-versions/${resumeId}`);
-  if (!response.ok) throw new Error(`Failed to get resume: ${response.status}`);
-  return resumeVersionSchema.parse(deepStripNull(await response.json()));
-}
-
-export async function updateResumeVersion(
-  resumeId: string,
-  data: Partial<Pick<ResumeVersion, "title" | "target_language" | "template_id" | "doc_json" | "plain_text_snapshot">>,
-): Promise<ResumeVersion> {
-  const response = await fetch(`${baseUrl}/resume-versions/${resumeId}`, {
-    method: "PATCH",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) throw new Error(`Failed to update resume: ${response.status}`);
-  return resumeVersionSchema.parse(deepStripNull(await response.json()));
-}
-
-export async function deleteResumeVersion(resumeId: string): Promise<void> {
-  const response = await fetch(`${baseUrl}/resume-versions/${resumeId}`, { method: "DELETE" });
-  if (!response.ok) throw new Error(`Failed to delete resume: ${response.status}`);
-}
-
-export async function createResumeVersion(resume: Pick<ResumeVersion, "title" | "target_language" | "plain_text_snapshot" | "doc_json" | "template_id">): Promise<ResumeVersion> {
-  const response = await fetch(`${baseUrl}/resume-versions`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(resume)
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to create resume: ${response.status}`);
-  }
-
-  return resumeVersionSchema.parse(await response.json());
 }
 
 export type CreateRevisionDocumentInput = {

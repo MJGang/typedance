@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest"
 import { defaultClassicA4Style } from "./data"
-import { COMMON_FONTS, MICROSOFT_YAHEI_FONT_STACK, VUE_DOC_FONT_STACK } from "./style-engine/fonts"
+import {
+  ARIAL_FONT_VALUE,
+  COMMON_FONTS,
+  MICROSOFT_YAHEI_FONT_STACK,
+  MICROSOFT_YAHEI_FONT_VALUE,
+  SEGOE_UI_FONT_VALUE,
+  buildFontFamilyStack,
+  moveFontFamilySelection,
+  parseFontFamilySelection,
+} from "./style-engine/fonts"
 import { CLASSIC_A4_PRESETS } from "./style-engine/presets"
 
 describe("defaultClassicA4Style", () => {
@@ -23,17 +32,35 @@ describe("defaultClassicA4Style", () => {
     })
   })
 
-  it("exposes Microsoft YaHei for the classic template style panel", () => {
-    expect(COMMON_FONTS[0]).toMatchObject({
-      value: VUE_DOC_FONT_STACK,
-      label: { "zh-CN": "系统界面", "en-US": "System UI" },
-    })
+  it("exposes multi-select font options without System UI", () => {
+    expect(COMMON_FONTS).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        label: expect.objectContaining({ "en-US": "System UI" }),
+      }),
+    ]))
     expect(COMMON_FONTS).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        value: MICROSOFT_YAHEI_FONT_STACK,
+        value: MICROSOFT_YAHEI_FONT_VALUE,
         label: { "zh-CN": "Microsoft YaHei", "en-US": "Microsoft YaHei" },
+      }),
+      expect.objectContaining({
+        value: ARIAL_FONT_VALUE,
+        label: { "zh-CN": "Arial", "en-US": "Arial" },
+      }),
+      expect.objectContaining({
+        value: SEGOE_UI_FONT_VALUE,
+        label: { "zh-CN": "Segoe UI", "en-US": "Segoe UI" },
       }),
     ]))
     expect(defaultClassicA4Style.blocks?.paragraph?.fontFamily).toBe(MICROSOFT_YAHEI_FONT_STACK)
+  })
+
+  it("builds, parses, and reorders font family selections", () => {
+    const selected = [MICROSOFT_YAHEI_FONT_VALUE, SEGOE_UI_FONT_VALUE, ARIAL_FONT_VALUE]
+
+    expect(buildFontFamilyStack(selected)).toBe(MICROSOFT_YAHEI_FONT_STACK)
+    expect(parseFontFamilySelection(MICROSOFT_YAHEI_FONT_STACK)).toEqual(selected)
+    expect(moveFontFamilySelection(selected, ARIAL_FONT_VALUE, -1)).toEqual([MICROSOFT_YAHEI_FONT_VALUE, ARIAL_FONT_VALUE, SEGOE_UI_FONT_VALUE])
+    expect(moveFontFamilySelection(selected, MICROSOFT_YAHEI_FONT_VALUE, -1)).toEqual(selected)
   })
 })

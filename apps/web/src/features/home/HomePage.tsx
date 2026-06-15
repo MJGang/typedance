@@ -1,1 +1,1 @@
-export { ResumeProductsPage as HomePage } from "../resume-pack/ResumeProductsPage"
+export { ResumeWorkspacesPage as HomePage } from "../resume-pack/ResumeWorkspacesPage"

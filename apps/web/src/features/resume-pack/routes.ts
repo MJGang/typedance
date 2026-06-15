@@ -1,4 +1,4 @@
-import { BriefcaseBusiness, FileText, LayoutTemplate, Settings } from "lucide-react"
+import { BriefcaseBusiness, LayoutTemplate, Settings } from "lucide-react"
 import type { ComponentType } from "react"
 
 export const RESUME_PACK_BASE_PATH = "/packs/resume" as const
@@ -6,15 +6,13 @@ export const RESUME_PACK_BASE_PATH = "/packs/resume" as const
 export const resumePackPaths = {
   workspaces: `${RESUME_PACK_BASE_PATH}/workspaces`,
   workspace: (documentId: string) => `${RESUME_PACK_BASE_PATH}/workspaces/${documentId}`,
-  resumes: `${RESUME_PACK_BASE_PATH}/resumes`,
-  resume: (resumeId: string) => `${RESUME_PACK_BASE_PATH}/resumes/${resumeId}`,
   templates: `${RESUME_PACK_BASE_PATH}/templates`,
   template: (templateId: string) => `${RESUME_PACK_BASE_PATH}/templates/${encodeURIComponent(templateId)}`,
   settings: `${RESUME_PACK_BASE_PATH}/settings`,
 } as const
 
 export type ResumePackNavItem = {
-  id: "workspaces" | "resumes" | "templates" | "settings"
+  id: "workspaces" | "templates" | "settings"
   label: string
   path: string
   icon: ComponentType<{ className?: string }>
@@ -29,13 +27,6 @@ export const resumePackNavigation: ResumePackNavItem[] = [
     icon: BriefcaseBusiness,
     isActive: (pathname) =>
       pathname === "/" || pathname === resumePackPaths.workspaces || pathname.startsWith(`${resumePackPaths.workspaces}/`),
-  },
-  {
-    id: "resumes",
-    label: "简历成品",
-    path: resumePackPaths.resumes,
-    icon: FileText,
-    isActive: (pathname) => pathname === resumePackPaths.resumes || pathname.startsWith(`${resumePackPaths.resumes}/`),
   },
   {
     id: "templates",
