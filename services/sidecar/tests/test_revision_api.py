@@ -381,6 +381,26 @@ def test_revision_api_returns_404_when_updating_missing_document(revision_client
     assert response.status_code == 404
 
 
+def test_revision_api_deletes_document(revision_client):
+    client, tmp_path = revision_client
+    seed_workspace(tmp_path)
+
+    response = client.delete("/documents/doc_1")
+
+    assert response.status_code == 204
+    assert client.get("/documents/doc_1").status_code == 404
+    assert all(document["id"] != "doc_1" for document in client.get("/documents").json())
+    assert client.get("/documents/doc_1/workspace-view").status_code == 404
+
+
+def test_revision_api_returns_404_when_deleting_missing_document(revision_client):
+    client, _tmp_path = revision_client
+
+    response = client.delete("/documents/doc_missing")
+
+    assert response.status_code == 404
+
+
 def test_revision_api_saves_source_resume_canvas_document(revision_client):
     client, tmp_path = revision_client
     seed_workspace(tmp_path)

@@ -1,13 +1,22 @@
 import type { DocumentListItem } from "@typedance/contracts"
 import { PreviewShowcaseCard } from "@/components/preview-showcase-card"
-import { ClipboardCheck } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { ClipboardCheck, Loader2, Trash2 } from "lucide-react"
 
 type RevisionWorkspaceCardProps = {
   document: DocumentListItem
   onOpen: () => void
+  onDeleteRequest?: () => void
+  deleting?: boolean
 }
 
-export function RevisionWorkspaceCard({ document, onOpen }: RevisionWorkspaceCardProps) {
+export function RevisionWorkspaceCard({
+  document,
+  onOpen,
+  onDeleteRequest,
+  deleting = false,
+}: RevisionWorkspaceCardProps) {
   const statusLabel = getQualityStateLabel(document.quality_state)
   const timeLabel = getRelativeTime(document.updated_at)
 
@@ -17,6 +26,29 @@ export function RevisionWorkspaceCard({ document, onOpen }: RevisionWorkspaceCar
       subtitle={`${statusLabel} · ${timeLabel}`}
       onClick={onOpen}
       interactiveLabel={`打开${document.title}`}
+      menu={
+        onDeleteRequest ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="cursor-pointer text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:border-destructive/40 focus-visible:ring-destructive/20"
+                aria-label={`删除${document.title}`}
+                disabled={deleting}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onDeleteRequest()
+                }}
+              >
+                {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>删除工作台</TooltipContent>
+          </Tooltip>
+        ) : undefined
+      }
       previewClassName="bg-muted/40"
       preview={
         <div className="flex aspect-[210/297] w-full flex-col items-center justify-center gap-3 bg-card px-6 text-center">

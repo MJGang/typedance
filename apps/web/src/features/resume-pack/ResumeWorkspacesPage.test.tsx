@@ -2,13 +2,16 @@ import "@testing-library/jest-dom/vitest"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter, useLocation } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { ResumeWorkspacesPage } from "./ResumeWorkspacesPage"
 
 const apiMocks = vi.hoisted(() => ({
+  deleteRevisionDocument: vi.fn(),
   listRevisionDocuments: vi.fn(),
 }))
 
 vi.mock("@/api", () => ({
+  deleteRevisionDocument: (...args: unknown[]) => apiMocks.deleteRevisionDocument(...args),
   listRevisionDocuments: (...args: unknown[]) => apiMocks.listRevisionDocuments(...args),
 }))
 
@@ -28,14 +31,18 @@ function LocationProbe() {
 function renderPage() {
   render(
     <MemoryRouter initialEntries={["/packs/resume/workspaces"]}>
-      <ResumeWorkspacesPage />
-      <LocationProbe />
+      <TooltipProvider>
+        <ResumeWorkspacesPage />
+        <LocationProbe />
+      </TooltipProvider>
     </MemoryRouter>,
   )
 }
 
 describe("ResumeWorkspacesPage", () => {
   beforeEach(() => {
+    apiMocks.deleteRevisionDocument.mockReset()
+    apiMocks.deleteRevisionDocument.mockResolvedValue(undefined)
     apiMocks.listRevisionDocuments.mockReset()
     apiMocks.listRevisionDocuments.mockResolvedValue([
       {
@@ -84,6 +91,40 @@ describe("ResumeWorkspacesPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "新建简历" }))
     expect(screen.getByRole("dialog")).toHaveTextContent("新建简历弹窗")
+  })
+
+  it("deletes a workspace after confirmation", async () => {
+    renderPage()
+
+    fireEvent.click(await screen.findByRole("button", { name: "删除旧简历重构" }))
+    expect(screen.getByRole("dialog", { name: "删除「旧简历重构」？" })).toHaveTextContent(
+      "删除后无法恢复",
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "删除工作台" }))
+
+    await waitFor(() => {
+      expect(apiMocks.deleteRevisionDocument).toHaveBeenCalledWith("doc_1")
+    })
+    await waitFor(() => {
+      expect(screen.queryByText("旧简历重构")).not.toBeInTheDocument()
+    })
+  })
+
+  it("keeps the workspace when deletion fails", async () => {
+    apiMocks.deleteRevisionDocument.mockRejectedValueOnce(new Error("network"))
+    renderPage()
+
+    fireEvent.click(await screen.findByRole("button", { name: "删除旧简历重构" }))
+    fireEvent.click(screen.getByRole("button", { name: "删除工作台" }))
+
+    await waitFor(() => {
+      expect(apiMocks.deleteRevisionDocument).toHaveBeenCalledWith("doc_1")
+    })
+    expect(screen.getByText("旧简历重构")).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "删除工作台" })).not.toBeDisabled()
+    })
   })
 
   it("shows an empty state", async () => {

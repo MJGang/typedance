@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { FileUp, Loader2, Plus } from "lucide-react"
+import { toast } from "sonner"
 import type { DocumentListItem } from "@typedance/contracts"
-import { listRevisionDocuments } from "@/api"
+import { deleteRevisionDocument, listRevisionDocuments } from "@/api"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { BlankGuidedResumeModal } from "../home/BlankGuidedResumeModal"
 import { ImportOldResumeModal } from "../home/ImportOldResumeModal"
 import { resumePackPaths } from "./routes"
@@ -16,6 +25,8 @@ export function ResumeWorkspacesPage() {
   const [error, setError] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [guidedOpen, setGuidedOpen] = useState(false)
+  const [documentPendingDelete, setDocumentPendingDelete] = useState<DocumentListItem | null>(null)
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null)
 
   const openImportModal = () => {
     setGuidedOpen(false)
@@ -43,6 +54,32 @@ export function ResumeWorkspacesPage() {
   useEffect(() => {
     void loadDocuments()
   }, [loadDocuments])
+
+  const handleDeleteDialogOpenChange = (open: boolean) => {
+    if (open || deletingDocumentId) return
+    setDocumentPendingDelete(null)
+  }
+
+  const confirmDeleteDocument = async () => {
+    if (!documentPendingDelete) return
+
+    const target = documentPendingDelete
+    setDeletingDocumentId(target.id)
+    try {
+      await deleteRevisionDocument(target.id)
+      setDocuments((currentDocuments) => currentDocuments.filter((document) => document.id !== target.id))
+      setDocumentPendingDelete(null)
+      toast.success("工作台已删除", {
+        description: target.title,
+      })
+    } catch {
+      toast.error("删除工作台失败", {
+        description: "请稍后重试。",
+      })
+    } finally {
+      setDeletingDocumentId(null)
+    }
+  }
 
   return (
     <div className="mx-auto max-w-6xl p-6">
@@ -96,6 +133,8 @@ export function ResumeWorkspacesPage() {
               key={document.id}
               document={document}
               onOpen={() => navigate(resumePackPaths.workspace(document.id))}
+              onDeleteRequest={() => setDocumentPendingDelete(document)}
+              deleting={deletingDocumentId === document.id}
             />
           ))}
         </div>
@@ -103,6 +142,35 @@ export function ResumeWorkspacesPage() {
 
       <ImportOldResumeModal open={importOpen} onOpenChange={setImportOpen} />
       <BlankGuidedResumeModal open={guidedOpen} onOpenChange={setGuidedOpen} />
+      <Dialog open={documentPendingDelete !== null} onOpenChange={handleDeleteDialogOpenChange}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>删除「{documentPendingDelete?.title}」？</DialogTitle>
+            <DialogDescription>
+              删除后无法恢复。该工作台的来源、画布、改稿记录、建议和导出记录都会从本机移除。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deletingDocumentId !== null}
+              onClick={() => setDocumentPendingDelete(null)}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deletingDocumentId !== null}
+              onClick={() => void confirmDeleteDocument()}
+            >
+              {deletingDocumentId ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+              删除工作台
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

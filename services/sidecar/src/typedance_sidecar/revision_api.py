@@ -278,6 +278,14 @@ def create_revision_router(
             "updated_at": utc_now(),
         }))
 
+    @router.delete("/documents/{document_id}", status_code=204)
+    def delete_document(
+        document_id: str,
+        repo: RevisionRepository = Depends(repository),
+    ) -> None:
+        if not repo.delete_document(document_id):
+            raise HTTPException(status_code=404, detail="Document not found")
+
     @router.post("/documents/{document_id}/sources", response_model=SourceDocument, status_code=201)
     def create_source(
         document_id: str,

@@ -110,6 +110,11 @@ export async function updateRevisionDocument(
   )
 }
 
+export async function deleteRevisionDocument(documentId: string): Promise<void> {
+  const response = await fetch(`${baseUrl}/documents/${documentId}`, { method: "DELETE" })
+  if (!response.ok) throw new Error(`Failed to delete revision document: ${response.status}`)
+}
+
 export async function getRevisionWorkspaceView(documentId: string): Promise<WorkspaceView> {
   const response = await fetch(`${baseUrl}/documents/${documentId}/workspace-view`)
   return parseTemplateResponse(

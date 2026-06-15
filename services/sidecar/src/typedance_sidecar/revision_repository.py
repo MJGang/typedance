@@ -391,6 +391,70 @@ class RevisionRepository:
         ).fetchall()
         return [Document.model_validate(json.loads(row["payload"])) for row in rows]
 
+    def delete_document(self, document_id: str) -> bool:
+        if self.get_document(document_id) is None:
+            return False
+
+        draft_ids = [
+            row["id"]
+            for row in self.connection.execute(
+                "SELECT id FROM draft_versions WHERE document_id = ?",
+                (document_id,),
+            ).fetchall()
+        ]
+        source_ids = [
+            row["id"]
+            for row in self.connection.execute(
+                "SELECT id FROM source_documents WHERE document_id = ?",
+                (document_id,),
+            ).fetchall()
+        ]
+        run_ids = [
+            row["id"]
+            for row in self.connection.execute(
+                "SELECT id FROM revision_runs WHERE document_id = ?",
+                (document_id,),
+            ).fetchall()
+        ]
+        issue_ids = [
+            row["id"]
+            for row in self.connection.execute(
+                "SELECT id FROM revision_issues WHERE document_id = ?",
+                (document_id,),
+            ).fetchall()
+        ]
+
+        try:
+            for draft_id in draft_ids:
+                self.connection.execute("DELETE FROM render_projections WHERE draft_id = ?", (draft_id,))
+                self.connection.execute("DELETE FROM document_claims WHERE draft_id = ?", (draft_id,))
+                self.connection.execute("DELETE FROM document_modules WHERE draft_id = ?", (draft_id,))
+            for source_id in source_ids:
+                self.connection.execute("DELETE FROM parsed_blocks WHERE source_document_id = ?", (source_id,))
+            for run_id in run_ids:
+                self.connection.execute("DELETE FROM agent_steps WHERE run_id = ?", (run_id,))
+            for issue_id in issue_ids:
+                self.connection.execute("DELETE FROM revision_actions WHERE issue_id = ?", (issue_id,))
+
+            for table in (
+                "source_documents",
+                "source_resume_canvases",
+                "draft_versions",
+                "evidence_links",
+                "revision_runs",
+                "revision_issues",
+                "revision_proposals",
+                "user_confirmations",
+                "export_artifacts",
+            ):
+                self.connection.execute(f"DELETE FROM {table} WHERE document_id = ?", (document_id,))
+            self.connection.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return True
+
     def save_source_document(self, source: SourceDocument) -> SourceDocument:
         self._save("source_documents", source, {"document_id": source.document_id})
         return source

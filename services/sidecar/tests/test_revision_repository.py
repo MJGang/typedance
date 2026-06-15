@@ -464,3 +464,22 @@ def test_revision_repository_roundtrips_core_objects(tmp_path):
     assert repo.list_user_confirmations(document.id) == [confirmation]
     assert repo.get_render_projection(projection.id) == projection
     assert repo.list_export_artifacts(document.id) == [artifact]
+
+    assert repo.delete_document(document.id) is True
+    assert repo.get_document(document.id) is None
+    assert repo.list_source_documents(document.id) == []
+    assert repo.list_parsed_blocks(source.id) == []
+    assert repo.get_revision_run(run.id) is None
+    assert repo.list_revision_runs(document.id) == []
+    assert repo.list_agent_steps(run.id) == []
+    assert repo.list_draft_versions(document.id) == []
+    assert repo.list_document_modules(draft.id) == []
+    assert repo.list_document_claims(draft.id) == []
+    assert repo.list_evidence_links(document.id) == []
+    assert repo.list_revision_issues(draft.id) == []
+    assert repo.list_revision_actions(issue.id) == []
+    assert repo.list_revision_proposals(draft.id) == []
+    assert repo.list_user_confirmations(document.id) == []
+    assert repo.get_render_projection(projection.id) is None
+    assert repo.list_export_artifacts(document.id) == []
+    assert repo.delete_document(document.id) is False
