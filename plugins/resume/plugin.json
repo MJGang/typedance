@@ -1,0 +1,79 @@
+{
+  "id": "resume.agent",
+  "name": "Resume Agent",
+  "version": "0.1.0",
+  "module_format": "esm",
+  "scopes": ["pack:resume"],
+  "description": "Pack-scoped AI capability plugin for the TypeDance Resume Pack.",
+  "instructions": ["instructions.md"],
+  "skills": [
+    {
+      "id": "resume.workspace",
+      "name": "Resume Workspace",
+      "description": "Read and update the current resume workspace through Python MCP tools.",
+      "instruction_files": ["skills/workspace.md"],
+      "tool_names": [
+        "resume.getDocument",
+        "resume.getWorkspaceView",
+        "resume.saveSourceResumeCanvas"
+      ]
+    },
+    {
+      "id": "resume.review",
+      "name": "Resume Review",
+      "description": "Review resume quality with evidence-first, conservative revision behavior.",
+      "instruction_files": ["skills/review.md"],
+      "tool_names": [
+        "resume.getWorkspaceView",
+        "resume.dismissIssue",
+        "resume.confirmClaim",
+        "resume.confirmEvidenceLink"
+      ]
+    },
+    {
+      "id": "resume.revision",
+      "name": "Resume Revision",
+      "description": "Apply user-approved resume revision proposals and render/export artifacts.",
+      "instruction_files": ["skills/revision.md"],
+      "tool_names": [
+        "resume.acceptProposal",
+        "resume.rejectProposal",
+        "resume.renderDraft",
+        "resume.exportDocument"
+      ]
+    }
+  ],
+  "agents": [
+    {
+      "id": "resume.primary",
+      "name": "Resume Primary Agent",
+      "role": "primary",
+      "description": "Main interactive agent for the Resume Pack workbench.",
+      "skill_ids": ["resume.workspace", "resume.review", "resume.revision"],
+      "allowed_tool_names": []
+    },
+    {
+      "id": "resume.verifier",
+      "name": "Resume Verifier",
+      "role": "verifier",
+      "description": "Focused subagent for checking evidence, claims, and artifact readiness.",
+      "skill_ids": ["resume.workspace", "resume.review"],
+      "allowed_tool_names": []
+    }
+  ],
+  "mcp_servers": [
+    {
+      "id": "resume.python",
+      "name": "TypeDance Resume Python MCP",
+      "transport": "stdio",
+      "command": "python",
+      "args": ["-m", "typedance_sidecar.mcp.resume_server"]
+    }
+  ],
+  "permissions": [
+    "mcp.tool",
+    "artifact.write",
+    "memory.read",
+    "memory.write"
+  ]
+}

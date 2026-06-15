@@ -1,7 +1,7 @@
 # Revision Engine 目标工程架构
 
 > 状态：目标架构草案  
-> 目标：定义 TypeDance AI-native 改稿系统的后端领域模型、存储结构、API、Agent Orchestrator 和现有系统取舍。  
+> 目标：定义 TypeDance AI-native 改稿系统的业务领域模型、存储结构、API、TS Agent Host / Harness Core 边界和现有系统取舍。
 > 范围：这是终局架构，不是渐进式实施计划。
 
 ## 1. 架构原则
@@ -42,12 +42,12 @@ Revision Workspace API
   +--> Render Service
   |
   v
-Revision Orchestrator
+Agent Host
   |
   +--> Pack Registry
-  +--> Agent Runtime
+  +--> Harness Runtime
   +--> Schema Validator
-  +--> Run State Store
+  +--> Harness Event Store
   |
   v
 Storage Layer
@@ -55,7 +55,6 @@ Storage Layer
   +--> Source Documents
   +--> Modules / Claims / Evidence
   +--> Drafts / Proposals / Issues
-  +--> Runs / Agent Steps
   +--> Export Artifacts
 ```
 
@@ -78,12 +77,8 @@ DraftVersion
   ├─ RevisionProposal[]
   └─ RenderProjection
 
-RevisionRun
-  ├─ AgentStep[]
-  ├─ RevisionIssue[]
-  ├─ RevisionProposal[]
-  ├─ EvidenceLink[]
-  └─ DraftVersion
+HarnessRun (TS Harness / Agent Host)
+  └─ 通过 run_id 关联 Draft / Issue / Proposal / Evidence 的来源
 ```
 
 关键关系：
@@ -96,7 +91,7 @@ RevisionRun
 - `EvidenceLink` 连接来源和主张。
 - `RevisionIssue` 是用户可处理的问题卡。
 - `RevisionProposal` 是 AI 的具体修改方案。
-- `RevisionRun` 是一次可追踪的改稿任务。
+- `HarnessRun` 是 TS Harness / Agent Host 的运行对象，sidecar 只在业务对象里保存其 `run_id` 作为来源引用。
 
 ## 4. 核心表结构
 
@@ -221,62 +216,9 @@ evidence_links {
 }
 ```
 
-### revision_runs
+### Harness runs and events
 
-```ts
-revision_runs {
-  id: string
-  document_id: string
-  pack_id: string
-  run_type:
-    | "import_reconstruct"
-    | "material_generate"
-    | "module_rewrite"
-    | "issue_action"
-    | "evidence_check"
-    | "review_gate"
-  status:
-    | "created"
-    | "parsing"
-    | "understanding"
-    | "planning"
-    | "generating"
-    | "verifying"
-    | "building_tasks"
-    | "awaiting_user_confirmation"
-    | "ready_for_review"
-    | "completed"
-    | "failed_retryable"
-    | "failed_final"
-    | "canceled"
-  source_document_ids: string[]
-  base_draft_id?: string
-  target_draft_id?: string
-  user_intent?: string
-  selected_module_id?: string
-  selected_issue_id?: string
-  selected_action_id?: string
-  output_summary?: string
-  created_at: string
-  updated_at: string
-}
-```
-
-### agent_steps
-
-```ts
-agent_steps {
-  id: string
-  run_id: string
-  agent_name: string
-  status: "pending" | "running" | "completed" | "failed" | "skipped"
-  input_refs: string[]
-  output_refs: string[]
-  error?: string
-  started_at?: string
-  finished_at?: string
-}
-```
+HarnessRun 和 HarnessEvent 属于 `@typedance/harness-contracts` 与 TS Harness Runtime。Sidecar 不建 AI run/step 表；Draft、Issue、Proposal、Evidence 只保存外部 `run_id` 作为来源引用。
 
 ### draft_versions
 
@@ -431,23 +373,25 @@ GET /sources/{source_id}
 GET /sources/{source_id}/parsed-blocks
 ```
 
-### Revision Orchestrator
+### Agent Host / Harness Runtime
 
 职责：
 
-- 创建 RevisionRun。
-- 执行状态机。
-- 按 Pack 合约调用 Agent。
-- 校验 Agent 输出。
-- 写入 Draft、Issue、Proposal、Evidence。
+- TS Agent Host 根据当前 pack 加载对应 plugins，并创建 HarnessRun。
+- Harness Runtime 执行模型循环、工具调用、权限确认、上下文管理和事件流。
+- plugin 通过 MCP/HTTP 调用 Sidecar 暴露的业务能力。
+- Agent 输出必须经过结构化校验后，才写入 Draft、Issue、Proposal、Evidence 等业务表。
+- Sidecar 不持有模型调用、agent 编排、skill 选择或 plugin 调度逻辑。
 
 核心接口：
 
 ```text
-POST /revision-runs
-GET /revision-runs/{run_id}
-POST /revision-runs/{run_id}/cancel
-POST /revision-runs/{run_id}/retry
+POST /packs/{pack_id}/runs
+GET /runs/{run_id}
+GET /runs/{run_id}/events
+POST /runs/{run_id}/input
+POST /runs/{run_id}/cancel
+POST /permissions/{request_id}/resolve
 ```
 
 ### Draft Service
@@ -539,35 +483,19 @@ RevisionWorkspaceView {
 }
 ```
 
-## 6. RevisionRun 编排流程
+## 6. HarnessRun 编排流程
 
 ### import_reconstruct
 
 适用于导入旧简历、旧文档并生成新版草稿。
 
 ```text
-created
--> parsing
-   SourceParserAgent
--> understanding
-   PackRouterAgent
-   StructureAgent
-   FactExtractorAgent
-   ClaimExtractorAgent
--> planning
-   IssueDetectorAgent
-   RevisionPlannerAgent
--> generating
-   SectionWriterAgent
-   DraftBuilder
--> verifying
-   EvidenceVerifierAgent
-   RiskCheckerAgent
--> building_tasks
-   CoachNarratorAgent
-   ActionBuilder
--> ready_for_review
-   DraftRenderer
+queued
+-> running
+   plugin parses source through sidecar MCP / HTTP tools
+   plugin generates structured draft, issues, proposals, evidence
+   plugin validates output schema
+   plugin writes business objects through sidecar APIs
 -> completed
 ```
 
@@ -576,21 +504,18 @@ created
 适用于用户点击某个问题卡动作。
 
 ```text
-created
--> planning
-   根据 action type 选择 agent
--> generating
+queued
+-> running
+   根据 action 选择当前 pack plugin 内的 skill/tool/agent
    生成 Proposal 或用户输入请求
--> verifying
    校验新内容和证据状态
--> building_tasks
-   更新 Issue / Proposal / Draft
+   通过 sidecar API 更新 Issue / Proposal / Draft
 -> completed
 ```
 
-## 7. Agent Runtime
+## 7. Harness Runtime
 
-Agent Runtime 必须提供：
+Harness Runtime 必须提供：
 
 - 输入对象组装。
 - Prompt / tool 调用。
@@ -604,8 +529,8 @@ Agent 输出必须通过对应 Pack 的 `output_schema`。
 如果输出无法校验：
 
 ```text
-AgentStep failed
-RevisionRun failed_retryable 或 failed_final
+HarnessEvent 记录失败原因
+HarnessRun status = failed
 不得写入 DraftVersion
 ```
 
@@ -613,23 +538,24 @@ RevisionRun failed_retryable 或 failed_final
 
 前端需要看到真实进度，而不是单一 loading。
 
-后端应产生事件：
+TS Harness Runtime 应产生事件：
 
 ```text
-revision_run.created
-revision_run.status_changed
-agent_step.started
-agent_step.completed
+run.created
+run.status_changed
+model.delta
+tool.call.started
+tool.call.completed
 draft.created
 issue.created
 proposal.created
 evidence.created
 render_projection.created
-revision_run.completed
-revision_run.failed
+run.completed
+run.failed
 ```
 
-前端可以通过轮询或事件流订阅。
+前端通过 Agent Host SSE 订阅事件流；Sidecar workspace view 不携带 run 状态。
 
 ## 9. 与现有系统的关系
 
@@ -650,7 +576,6 @@ PDF export
 ```text
 DraftVersion
   -> RenderProjection.doc_json
-  -> ResumeVersion 兼容投影
   -> PDF Export
 ```
 
@@ -664,7 +589,7 @@ DraftVersion
 
 - 文档来源层。
 - 模块 / Claim / Evidence 数据层。
-- RevisionRun 状态机。
+- TS Agent Host / Harness Core。
 - Issue / Proposal / Action 系统。
 - Workspace 聚合 API。
 
@@ -685,8 +610,8 @@ Pack schema 测试
 Agent output schema 测试
 确保 Agent 输出不能绕过结构化协议。
 
-RevisionRun 状态机测试
-确保每种 run_type 状态流转正确。
+Harness lifecycle 测试
+确保运行、事件、权限和失败路径正确。
 
 Evidence policy 测试
 确保缺证据强主张不能静默进入 accepted Draft。

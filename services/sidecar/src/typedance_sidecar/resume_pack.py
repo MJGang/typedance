@@ -129,17 +129,14 @@ resume_pack_definition = DocumentPack(
         {
             "action_type": "request_user_input",
             "label": "补充事实",
-            "creates_run_type": "issue_action",
         },
         {
             "action_type": "make_more_conservative",
             "label": "改得更保守",
-            "creates_run_type": "issue_action",
         },
         {
             "action_type": "make_more_specific",
             "label": "改得更具体",
-            "creates_run_type": "issue_action",
         },
         {"action_type": "view_source", "label": "查看来源"},
         {"action_type": "dismiss_issue", "label": "忽略问题"},
@@ -180,48 +177,6 @@ resume_pack_definition = DocumentPack(
             "claim_type": "summary",
             "requires_evidence": True,
             "requires_user_confirmation_when_missing": True,
-        },
-    ],
-    agent_contracts=[
-        {
-            "agent_name": "ParserAgent",
-            "input_schema": "SourceDocument",
-            "output_schema": "ParsedDocumentOutput",
-        },
-        {
-            "agent_name": "ResumeStructurer",
-            "input_schema": "ParsedBlock[]",
-            "output_schema": "StructuredResumeOutput",
-        },
-        {
-            "agent_name": "ResumeReviewer",
-            "input_schema": "DraftVersion",
-            "output_schema": "ResumeReviewOutput",
-        },
-        {
-            "agent_name": "ResumeRewriter",
-            "input_schema": "RevisionIssue",
-            "output_schema": "ResumeRewriteOutput",
-        },
-        {
-            "agent_name": "EvidenceVerifier",
-            "input_schema": "DocumentClaim[]",
-            "output_schema": "EvidenceVerificationOutput",
-        },
-        {
-            "agent_name": "OpportunityCalibrator",
-            "input_schema": "OpportunityContext",
-            "output_schema": "OpportunityCalibrationOutput",
-        },
-        {
-            "agent_name": "RenderPlanner",
-            "input_schema": "DraftVersion",
-            "output_schema": "RenderPlanOutput",
-        },
-        {
-            "agent_name": "CoachNarrator",
-            "input_schema": "WorkspaceView",
-            "output_schema": "CoachNarrationOutput",
         },
     ],
     render_mapping={

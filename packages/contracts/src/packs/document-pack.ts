@@ -17,7 +17,6 @@ export const issueTypeSpecSchema = z.object({
 export const actionSpecSchema = z.object({
   action_type: z.string().min(1),
   label: z.string().min(1),
-  creates_run_type: z.string().optional(),
 });
 
 export const qualityRuleSchema = z.object({
@@ -33,12 +32,6 @@ export const evidenceRuleSchema = z.object({
   requires_user_confirmation_when_missing: z.boolean(),
 });
 
-export const agentContractSchema = z.object({
-  agent_name: z.string().min(1),
-  input_schema: z.string().min(1),
-  output_schema: z.string().min(1),
-});
-
 export const renderMappingSchema = z.object({
   default_profile: z.string().min(1),
   supported_profiles: z.array(z.string()).default([]),
@@ -52,7 +45,6 @@ export const documentPackSchema = z.object({
   actions: z.array(actionSpecSchema),
   quality_rules: z.array(qualityRuleSchema),
   evidence_rules: z.array(evidenceRuleSchema),
-  agent_contracts: z.array(agentContractSchema),
   render_mapping: renderMappingSchema,
 });
 
@@ -61,6 +53,5 @@ export type IssueTypeSpec = z.infer<typeof issueTypeSpecSchema>;
 export type ActionSpec = z.infer<typeof actionSpecSchema>;
 export type QualityRule = z.infer<typeof qualityRuleSchema>;
 export type EvidenceRule = z.infer<typeof evidenceRuleSchema>;
-export type AgentContract = z.infer<typeof agentContractSchema>;
 export type RenderMapping = z.infer<typeof renderMappingSchema>;
 export type DocumentPack = z.infer<typeof documentPackSchema>;

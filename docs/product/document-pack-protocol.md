@@ -27,9 +27,10 @@ Document Pack =
 - 证据要求
 - 输出格式
 - 语气策略
-- Agent 合约
 - 渲染映射
 ```
+
+AI 编排能力不写入 Python Pack manifest。TS Agent Host 通过独立插件配置把当前 pack 映射为可加载的 plugin 集合和 Harness `capability_policy`。
 
 ## 2. Pack 顶层结构
 
@@ -45,7 +46,6 @@ DocumentPack {
   quality_rules: QualityRule[]
   evidence_rules: EvidenceRule[]
   render_mapping: RenderMapping
-  agent_contracts: AgentContract[]
 }
 ```
 
@@ -111,8 +111,9 @@ ActionSpec {
 例如用户点击“改成保守表达”：
 
 ```text
-创建 issue_action RevisionRun
--> 调用对应 RewriterAgent
+TS Agent Host 创建 HarnessRun(action = issue_action)
+-> Harness Runtime 在当前 pack 的 plugin 边界内选择工具/agent
+-> 通过 MCP/HTTP 调用 Python 业务能力
 -> 生成新的 RevisionProposal
 -> 更新 DraftVersion
 -> 关闭或更新 RevisionIssue
@@ -155,21 +156,22 @@ EvidenceRule {
 
 简历、述职、晋升材料需要强证据；小说、博客创意改写则不一定要求事实来源。
 
-## 8. AgentContract
+## 8. TS Plugin Binding
 
 ```ts
-AgentContract {
-  name: string
-  purpose: string
-  input_schema: object
-  output_schema: object
-  reads: string[]
-  writes: string[]
-  failure_modes: string[]
+PluginBinding {
+  plugin_id: string
+  actions: string[]
+  scopes: string[]
+  tools?: string[]
+  agents?: string[]
+  skills?: string[]
 }
 ```
 
-Agent 必须输出结构化对象。
+PluginBinding 不写入 Python Pack manifest，而是由 TS Agent Host 维护。Pack 只定义业务语义，TS plugin 决定某个 action 可使用哪些 skill、MCP tool 或 agent。
+
+Agent / skill 必须输出结构化对象。
 
 禁止把下面这种内容作为主要输出：
 
@@ -308,52 +310,19 @@ DraftVersion {
 }
 ```
 
-## 10. RevisionRun 状态机
+## 10. HarnessRun 生命周期
 
 ```ts
-RevisionRun {
+HarnessRun {
   id: string
-  pack_id: string
-
-  run_type:
-    | "import_reconstruct"
-    | "material_generate"
-    | "module_rewrite"
-    | "issue_action"
-    | "evidence_check"
-    | "review_gate"
-
-  source_document_ids: string[]
-  base_draft_id?: string
-  target_draft_id?: string
-
-  user_intent?: string
-  selected_module_id?: string
-  selected_issue_id?: string
-  selected_action_id?: string
-
-  status:
-    | "created"
-    | "parsing"
-    | "understanding"
-    | "planning"
-    | "generating"
-    | "verifying"
-    | "building_tasks"
-    | "awaiting_user_confirmation"
-    | "ready_for_review"
-    | "completed"
-    | "failed_retryable"
-    | "failed_final"
-    | "canceled"
-
-  agent_steps: AgentStep[]
-  output_summary?: string
-
+  status: "queued" | "running" | "awaiting_input" | "completed" | "failed" | "canceled"
+  capability_policy: CapabilityPolicy
   created_at: string
   updated_at: string
 }
 ```
+
+HarnessRun 属于 TS Harness Runtime。Pack 协议不定义 run 状态机，只允许业务对象通过 `run_id` 引用外部运行来源。
 
 ## 11. 服务边界
 
@@ -367,8 +336,11 @@ Source Service
 Understanding Service
 拆分模块、事实、主张。
 
-Revision Orchestrator
-管理 RevisionRun 状态机和 Agent 编排。
+Agent Host
+管理 pack 到 plugin 的绑定，并调用 Harness Runtime。
+
+Harness Runtime
+管理 HarnessRun 生命周期、工具调用、权限、上下文和事件流。
 
 Draft Service
 保存 DraftVersion，应用 RevisionProposal。

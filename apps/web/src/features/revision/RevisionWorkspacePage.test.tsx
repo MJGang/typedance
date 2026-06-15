@@ -12,7 +12,7 @@ const apiMocks = vi.hoisted(() => ({
   rejectRevisionProposal: vi.fn(),
   dismissRevisionIssue: vi.fn(),
   runRevisionQualityReview: vi.fn(),
-  createRevisionRun: vi.fn(),
+  runRevisionIssueAction: vi.fn(),
   calibrateRevisionOpportunity: vi.fn(),
   exportRevisionDocumentPdf: vi.fn(),
   exportRevisionDocumentHtml: vi.fn(),
@@ -31,7 +31,7 @@ vi.mock("@/api", () => ({
   rejectRevisionProposal: (...args: unknown[]) => apiMocks.rejectRevisionProposal(...args),
   dismissRevisionIssue: (...args: unknown[]) => apiMocks.dismissRevisionIssue(...args),
   runRevisionQualityReview: (...args: unknown[]) => apiMocks.runRevisionQualityReview(...args),
-  createRevisionRun: (...args: unknown[]) => apiMocks.createRevisionRun(...args),
+  runRevisionIssueAction: (...args: unknown[]) => apiMocks.runRevisionIssueAction(...args),
   calibrateRevisionOpportunity: (...args: unknown[]) => apiMocks.calibrateRevisionOpportunity(...args),
   exportRevisionDocumentPdf: (...args: unknown[]) => apiMocks.exportRevisionDocumentPdf(...args),
   exportRevisionDocumentHtml: (...args: unknown[]) => apiMocks.exportRevisionDocumentHtml(...args),
@@ -284,10 +284,6 @@ const workspace: WorkspaceView = {
     blocking_issue_ids: [],
     warning_issue_ids: ["issue_1"],
   },
-  run_status: {
-    run_id: "run_1",
-    status: "completed",
-  },
   coach_summary: {
     summary: "还有 1 个问题建议处理。",
     next_action_ids: ["act_accept_prop_1"],
@@ -357,10 +353,7 @@ function workspaceForDocument(documentId: string, title: string): WorkspaceView 
   }
 }
 
-function sourceCanvasOnlyWorkspace(
-  status: NonNullable<WorkspaceView["run_status"]>["status"],
-  text: string,
-): WorkspaceView {
+function sourceCanvasOnlyWorkspace(text: string): WorkspaceView {
   return {
     ...workspace,
     document: {
@@ -390,10 +383,6 @@ function sourceCanvasOnlyWorkspace(
       status: "unknown",
       blocking_issue_ids: [],
       warning_issue_ids: [],
-    },
-    run_status: {
-      run_id: "run_import",
-      status,
     },
     coach_summary: undefined,
     available_actions: [],
@@ -433,7 +422,7 @@ describe("RevisionWorkspacePage", () => {
     apiMocks.rejectRevisionProposal.mockReset()
     apiMocks.dismissRevisionIssue.mockReset()
     apiMocks.runRevisionQualityReview.mockReset()
-    apiMocks.createRevisionRun.mockReset()
+    apiMocks.runRevisionIssueAction.mockReset()
     apiMocks.calibrateRevisionOpportunity.mockReset()
     apiMocks.exportRevisionDocumentPdf.mockReset()
     apiMocks.exportRevisionDocumentHtml.mockReset()
@@ -443,7 +432,7 @@ describe("RevisionWorkspacePage", () => {
     apiMocks.getRevisionWorkspaceView.mockResolvedValue(workspace)
     apiMocks.acceptRevisionProposal.mockResolvedValue({ id: "prop_1", status: "applied" })
     apiMocks.runRevisionQualityReview.mockResolvedValue({ id: "run_review", status: "completed" })
-    apiMocks.createRevisionRun.mockResolvedValue({ id: "run_issue", status: "created" })
+    apiMocks.runRevisionIssueAction.mockResolvedValue({ id: "run_issue", status: "running" })
     apiMocks.calibrateRevisionOpportunity.mockResolvedValue({ document: { id: "doc_1" } })
     apiMocks.exportRevisionDocumentPdf.mockResolvedValue({ fileName: "resume.pdf", format: "pdf" })
     apiMocks.exportRevisionDocumentHtml.mockResolvedValue({ fileName: "resume.html", format: "html" })
@@ -523,33 +512,17 @@ describe("RevisionWorkspacePage", () => {
     expect(screen.getByRole("button", { name: "项目经历" })).toBeInTheDocument()
   })
 
-  it("renders the source canvas and recognizing status before a draft exists", async () => {
-    apiMocks.getRevisionWorkspaceView.mockResolvedValue(sourceCanvasOnlyWorkspace(
-      "recognizing",
-      "后台识别中的原始画布",
-    ))
+  it("renders the source canvas before a draft exists", async () => {
+    apiMocks.getRevisionWorkspaceView.mockResolvedValue(sourceCanvasOnlyWorkspace("后台识别中的原始画布"))
 
     renderPage()
 
     expect(await screen.findByText("后台识别中的原始画布")).toBeInTheDocument()
-    expect(screen.getByText("正在识别模块和建议")).toBeInTheDocument()
     expect(draftCanvasMocks.render).toHaveBeenCalledWith("doc_1")
     const reviewActions = screen.getByTestId("revision-review-actions")
     expect(within(reviewActions).getByRole("button", { name: "质量检查" })).toBeDisabled()
     expect(within(reviewActions).getByRole("button", { name: "岗位校准" })).toBeDisabled()
     expect(within(screen.getByTestId("revision-workspace-header")).getByRole("button", { name: "导出" })).toBeEnabled()
-  })
-
-  it("shows a stale source canvas recognition status", async () => {
-    apiMocks.getRevisionWorkspaceView.mockResolvedValue(sourceCanvasOnlyWorkspace(
-      "stale",
-      "更新后的原始画布",
-    ))
-
-    renderPage()
-
-    expect(await screen.findByText("更新后的原始画布")).toBeInTheDocument()
-    expect(screen.getByText("源画布已更新，需要重新识别")).toBeInTheDocument()
   })
 
   it("debounces source canvas autosave and announces success", async () => {
@@ -971,12 +944,12 @@ describe("RevisionWorkspacePage", () => {
     fireEvent.click(within(detail).getByRole("button", { name: "提交补充" }))
 
     await waitFor(() => {
-      expect(apiMocks.createRevisionRun).toHaveBeenCalledWith("doc_1", {
-        run_type: "issue_action",
-        base_draft_id: "draft_1",
-        selected_module_id: "mod_1",
-        selected_issue_id: "issue_1",
-        user_intent: "这个项目让接口错误率下降 30%。",
+      expect(apiMocks.runRevisionIssueAction).toHaveBeenCalledWith({
+        documentId: "doc_1",
+        baseDraftId: "draft_1",
+        selectedModuleId: "mod_1",
+        selectedIssueId: "issue_1",
+        userIntent: "这个项目让接口错误率下降 30%。",
       })
     })
     await waitFor(() => expect(apiMocks.getRevisionWorkspaceView).toHaveBeenCalledTimes(2))

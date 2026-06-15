@@ -8,7 +8,7 @@
 
 1. 前端主页面读取 `WorkspaceView`，不自行拼 Agent 输出。
 2. 用户动作围绕 Issue、Proposal、Claim、Draft，而不是 prompt。
-3. 所有 AI 运行通过 `RevisionRun` 追踪。
+3. 所有 AI 运行通过 `HarnessRun` 追踪。
 4. 所有导出基于 Draft，而不是直接基于编辑器 `doc_json`。
 5. legacy `resume-versions` API 只用于兼容，不再作为新体验主 API。
 
@@ -24,8 +24,8 @@ draft_    DraftVersion
 mod_      DocumentModule
 claim_    DocumentClaim
 ev_       EvidenceLink
-run_      RevisionRun
-step_     AgentStep
+run_      HarnessRun
+step_     HarnessEvent
 issue_    RevisionIssue
 prop_     RevisionProposal
 act_      RevisionAction
@@ -188,63 +188,36 @@ GET /sources/{source_id}
 GET /sources/{source_id}/parsed-blocks
 ```
 
-## 5. Revision Runs
+## 5. AI Runs
+
+AI run 不属于 Python Sidecar API。Sidecar 只暴露确定性的业务 HTTP API 和 MCP 工具；模型调用、plugin 选择、agent 编排、权限确认、事件流都由 TS Agent Host + Harness Core 负责。
 
 ### 5.1 创建运行
 
 ```text
-POST /documents/{document_id}/revision-runs
+POST /packs/{pack_id}/runs
 ```
 
 请求：
 
 ```ts
-CreateRevisionRunRequest {
-  run_type:
-    | "import_reconstruct"
-    | "blank_guided_generate"
-    | "quality_review"
-    | "issue_action"
-    | "module_rewrite"
-    | "evidence_check"
-    | "opportunity_calibrate"
-    | "review_gate"
-  source_document_ids?: string[]
-  base_draft_id?: string
-  selected_module_id?: string
-  selected_issue_id?: string
-  selected_action_id?: string
-  user_intent?: string
-  opportunity_context_id?: string
+StartPackRunRequest {
+  action: string
+  user_message: string
+  context: Record<string, unknown>
 }
 ```
 
 响应：
 
 ```ts
-RevisionRun {
+HarnessRun {
   id: string
-  document_id: string
-  pack_id: string
-  run_type: string
-  status:
-    | "created"
-    | "parsing"
-    | "understanding"
-    | "planning"
-    | "generating"
-    | "verifying"
-    | "building_tasks"
-    | "awaiting_user_confirmation"
-    | "ready_for_review"
-    | "completed"
-    | "failed_retryable"
-    | "failed_final"
-    | "canceled"
-  source_document_ids: string[]
-  base_draft_id?: string
-  target_draft_id?: string
-  output_summary?: string
+  status: "queued" | "running" | "awaiting_input" | "completed" | "failed" | "canceled"
+  capability_policy: {
+    scope_ids: string[]
+    plugin_ids: string[]
+  }
   created_at: string
   updated_at: string
 }
@@ -253,15 +226,16 @@ RevisionRun {
 ### 5.2 获取运行
 
 ```text
-GET /revision-runs/{run_id}
-GET /documents/{document_id}/revision-runs
+GET /runs/{run_id}
+GET /runs/{run_id}/events
 ```
 
-### 5.3 取消或重试
+### 5.3 继续、取消或授权
 
 ```text
-POST /revision-runs/{run_id}/cancel
-POST /revision-runs/{run_id}/retry
+POST /runs/{run_id}/input
+POST /runs/{run_id}/cancel
+POST /permissions/{request_id}/resolve
 ```
 
 ## 6. Workspace View
@@ -286,7 +260,7 @@ WorkspaceView {
   source_summaries: SourceDocumentSummary[]
   render_projection?: RenderProjection
   quality_gate?: QualityGateResult
-  run_status?: RevisionRunStatusSummary
+  run_status?: HarnessRunStatusSummary
   coach_summary?: CoachSummary
   available_actions: ContextualAction[]
 }
@@ -388,7 +362,7 @@ ExecuteIssueActionRequest {
 ```ts
 IssueActionResponse {
   issue: RevisionIssue
-  created_run?: RevisionRun
+  created_run?: HarnessRun
   created_proposals: RevisionProposal[]
   requested_input?: UserInputRequest
   workspace_view?: WorkspaceView
@@ -479,7 +453,7 @@ ReviseProposalRequest {
 }
 ```
 
-响应创建新的 RevisionRun 或新的 Proposal。
+响应创建新的 HarnessRun 或新的 Proposal。
 
 ## 10. Claims and Evidence
 
@@ -560,7 +534,7 @@ CreateContextualInputRequest {
 ```ts
 ContextualInputResponse {
   source_document?: SourceDocument
-  created_run?: RevisionRun
+  created_run?: HarnessRun
   workspace_view?: WorkspaceView
 }
 ```
@@ -606,8 +580,8 @@ OpportunityContext {
 使用：
 
 ```text
-POST /documents/{document_id}/revision-runs
-run_type = "opportunity_calibrate"
+POST /packs/resume/runs
+action = "opportunity_calibrate"
 ```
 
 ## 13. Export
@@ -657,14 +631,14 @@ POST /exports/pdf/{resume_id}
 POST /exports/html/{resume_id}
 ```
 
-新工作台不应依赖 legacy API 作为主数据源。
+新工作台不应依赖旧编辑器 API 作为主数据源。
 
 ## 15. API 完成定义
 
 API 层达到目标形态时，应满足：
 
 1. 首页创建的是 `Document`。
-2. 导入旧简历创建 `SourceDocument` 和 `RevisionRun`。
+2. 导入旧简历创建 `SourceDocument` 和 `HarnessRun`。
 3. 主工作台读取 `WorkspaceView`。
 4. 问题处理走 `IssueAction`。
 5. AI 修改走 `RevisionProposal`。

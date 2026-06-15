@@ -7,7 +7,6 @@ from typedance_sidecar.revision_models import (
     Document,
     DraftVersion,
     RevisionIssue,
-    RevisionRun,
     SourceDocument,
     SourceResumeCanvas,
 )
@@ -93,17 +92,7 @@ def seed_export_workspace(
             updated_at=now,
         )
     )
-    run = repo.save_revision_run(
-        RevisionRun(
-            id="run_export",
-            document_id=document.id,
-            pack_id=document.pack_id,
-            run_type="quality_review",
-            status="completed",
-            created_at=now,
-            updated_at=now,
-        )
-    )
+    run_id = "hrun_export"
     if not with_draft:
         return document, None
 
@@ -111,7 +100,7 @@ def seed_export_workspace(
         DraftVersion(
             id="draft_export",
             document_id=document.id,
-            run_id=run.id,
+            run_id=run_id,
             pack_id=document.pack_id,
             status="accepted",
             summary="当前草稿",
@@ -123,7 +112,7 @@ def seed_export_workspace(
         repo.save_revision_issue(
             RevisionIssue(
                 id=f"issue_{issue_severity}",
-                run_id=run.id,
+                run_id=run_id,
                 document_id=document.id,
                 draft_id=draft.id,
                 type="missing_result",

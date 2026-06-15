@@ -49,7 +49,7 @@ R12 AI 输入与聊天降级
 | R5-02 | 问题卡必须关联具体位置 | `RevisionIssue.target` | 点击问题能定位到相关模块或 Claim |
 | R5-03 | 问题卡必须有可执行动作 | `RevisionAction` | 用户不需要自己想 prompt |
 | R5-04 | 问题卡必须区分阻塞和建议 | `RevisionIssue.blocking` | 导出前能识别阻塞问题 |
-| R5-05 | 系统必须支持无 JD 的基础质量诊断 | `RevisionRun` | 没有目标岗位也能生成质量问题 |
+| R5-05 | 系统必须支持无 JD 的基础质量诊断 | `HarnessRun` | 没有目标岗位也能生成质量问题 |
 | R6-01 | 修改建议必须保存为 Proposal | `RevisionProposal` | 每条建议有 before、after、reason、risk |
 | R6-02 | Proposal 必须可接受和拒绝 | `RevisionProposal.status` | 用户决策会改变状态并记录历史 |
 | R6-03 | Proposal 必须可局部应用 | `DraftPatch` | 接受一条建议不会覆盖整份简历 |

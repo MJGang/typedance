@@ -16,7 +16,6 @@ from .revision_models import (
     RenderProjection,
     RevisionIssue,
     RevisionProposal,
-    RevisionRunStatusSummary,
     SourceDocument,
     SourceResumeCanvas,
     SourceResumeCanvasNode,
@@ -354,7 +353,6 @@ class WorkspaceService:
             source_resume_canvas=self.repository.get_source_resume_canvas(document.id),
             render_projection=render_projection,
             quality_gate=quality_gate,
-            run_status=self._run_status(document.id),
             coach_summary=self._coach_summary(quality_gate, current_draft, available_actions),
             available_actions=available_actions,
         )
@@ -507,27 +505,6 @@ class WorkspaceService:
             status=status,
             blocking_issue_ids=blocking_issue_ids,
             warning_issue_ids=warning_issue_ids,
-        )
-
-    def _run_status(self, document_id: str) -> RevisionRunStatusSummary | None:
-        runs = self.repository.list_revision_runs(document_id)
-        if not runs:
-            return None
-
-        latest_run = runs[-1]
-        steps = self.repository.list_agent_steps(latest_run.id)
-        current_step = None
-        for step in steps:
-            if step.status in {"pending", "running"}:
-                current_step = step.agent_name
-                break
-        if current_step is None and steps:
-            current_step = steps[-1].agent_name
-
-        return RevisionRunStatusSummary(
-            run_id=latest_run.id,
-            status=latest_run.status,
-            current_step=current_step,
         )
 
     def _available_actions(

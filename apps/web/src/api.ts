@@ -4,13 +4,9 @@ import {
   documentSchema,
   draftVersionSchema,
   evidenceLinkSchema,
-  modelSettingsResponseSchema,
-  modelSettingsTestResponseSchema,
-  modelSettingsUpdateSchema,
   renderProjectionSchema,
   revisionIssueSchema,
   revisionProposalSchema,
-  revisionRunSchema,
   sourceDocumentSchema,
   sourceResumeCanvasSchema,
   templateSampleContentSchema,
@@ -21,13 +17,10 @@ import {
   type Document as RevisionDocument,
   type DraftVersion,
   type EvidenceLink,
-  type ModelSettingsResponse,
-  type ModelSettingsTestResponse,
-  type ModelSettingsUpdate,
+  type HarnessRun,
   type RenderProjection,
   type RevisionIssue,
   type RevisionProposal,
-  type RevisionRun,
   type SourceDocument,
   type SourceResumeCanvas,
   type TemplateSampleContent,
@@ -35,6 +28,7 @@ import {
   type UserConfirmation,
   type WorkspaceView,
 } from "@typedance/contracts";
+import { startResumeAgentRun } from "./agentHost";
 import { chooseHtmlSavePathInTauri, choosePdfSavePathInTauri, isTauri } from "./tauri";
 const baseUrl = import.meta.env.VITE_SIDECAR_URL ?? "http://127.0.0.1:4317";
 
@@ -140,58 +134,6 @@ export async function saveSourceResumeCanvas(
   )
 }
 
-export async function projectLegacyResumeToRevisionWorkspace(resumeId: string): Promise<WorkspaceView> {
-  const response = await fetch(`${baseUrl}/legacy/resume-versions/${resumeId}/revision-document`, {
-    method: "POST",
-  })
-  return parseTemplateResponse(
-    response,
-    (value) => workspaceViewSchema.parse(value),
-    "Failed to project legacy resume",
-  )
-}
-
-export async function getModelSettings(): Promise<ModelSettingsResponse> {
-  const response = await fetch(`${baseUrl}/settings/model`)
-  return parseTemplateResponse(
-    response,
-    (value) => modelSettingsResponseSchema.parse(value),
-    "Failed to load model settings",
-  )
-}
-
-export async function saveModelSettings(input: ModelSettingsUpdate): Promise<ModelSettingsResponse> {
-  const payload = modelSettingsUpdateSchema.parse(input)
-  const response = await fetch(`${baseUrl}/settings/model`, {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-  })
-  return parseTemplateResponse(
-    response,
-    (value) => modelSettingsResponseSchema.parse(value),
-    "Failed to save model settings",
-  )
-}
-
-export async function testModelSettings(): Promise<ModelSettingsTestResponse> {
-  const response = await fetch(`${baseUrl}/settings/model/test`, { method: "POST" })
-  return parseTemplateResponse(
-    response,
-    (value) => modelSettingsTestResponseSchema.parse(value),
-    "Failed to test model settings",
-  )
-}
-
-export async function clearModelApiKey(): Promise<ModelSettingsResponse> {
-  const response = await fetch(`${baseUrl}/settings/model/api-key`, { method: "DELETE" })
-  return parseTemplateResponse(
-    response,
-    (value) => modelSettingsResponseSchema.parse(value),
-    "Failed to clear model API key",
-  )
-}
-
 export async function createRevisionSource(
   documentId: string,
   source: {
@@ -232,30 +174,6 @@ export async function createRevisionUploadedSource(
   )
 }
 
-export async function createRevisionRun(
-  documentId: string,
-  run: {
-    run_type: RevisionRun["run_type"]
-    source_document_ids?: string[]
-    base_draft_id?: string
-    user_intent?: string
-    selected_module_id?: string
-    selected_issue_id?: string
-    selected_action_id?: string
-  },
-): Promise<RevisionRun> {
-  const response = await fetch(`${baseUrl}/documents/${documentId}/revision-runs`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(run),
-  })
-  return parseTemplateResponse(
-    response,
-    (value) => revisionRunSchema.parse(value),
-    "Failed to create revision run",
-  )
-}
-
 export type ImportOldResumeInput = {
   title: string
   raw_text?: string
@@ -266,7 +184,7 @@ export type ImportOldResumeInput = {
 export type ImportOldResumeProgressStep =
   | "create_document"
   | "save_source"
-  | "start_recognition"
+  | "start_agent"
   | "load_workspace"
 
 export async function importOldResume(
@@ -295,11 +213,14 @@ export async function importOldResume(
         raw_text: input.raw_text,
         mime_type: "text/plain",
       })
-  onProgress?.("start_recognition")
-  await createRevisionRun(document.id, {
-    run_type: "import_reconstruct",
-    source_document_ids: [source.id],
-    user_intent: "导入旧简历并生成可审阅草稿",
+  onProgress?.("start_agent")
+  await startResumeAgentRun({
+    action: "import_old_resume",
+    userMessage: "导入旧简历并生成可审阅草稿",
+    context: {
+      document_id: document.id,
+      source_document_ids: [source.id],
+    },
   })
   onProgress?.("load_workspace")
   return getRevisionWorkspaceView(document.id)
@@ -343,10 +264,13 @@ export async function startBlankGuidedResume(input: StartBlankGuidedResumeInput)
     raw_text: rawText,
     mime_type: "text/plain",
   })
-  await createRevisionRun(document.id, {
-    run_type: "blank_guided_generate",
-    source_document_ids: [source.id],
-    user_intent: "从空白引导生成基础简历",
+  await startResumeAgentRun({
+    action: "blank_guided_generate",
+    userMessage: "从空白引导生成基础简历",
+    context: {
+      document_id: document.id,
+      source_document_ids: [source.id],
+    },
   })
   return getRevisionWorkspaceView(document.id)
 }
@@ -354,11 +278,14 @@ export async function startBlankGuidedResume(input: StartBlankGuidedResumeInput)
 export async function runRevisionQualityReview(
   documentId: string,
   baseDraftId?: string,
-): Promise<RevisionRun> {
-  return createRevisionRun(documentId, {
-    run_type: "quality_review",
-    base_draft_id: baseDraftId,
-    user_intent: "运行基础质量检查",
+): Promise<HarnessRun> {
+  return startResumeAgentRun({
+    action: "quality_review",
+    userMessage: "运行基础质量检查",
+    context: {
+      document_id: documentId,
+      ...(baseDraftId ? { base_draft_id: baseDraftId } : {}),
+    },
   })
 }
 
@@ -378,13 +305,35 @@ export async function calibrateRevisionOpportunity(
     raw_text: input.raw_text,
     mime_type: "text/plain",
   })
-  await createRevisionRun(documentId, {
-    run_type: "opportunity_calibrate",
-    source_document_ids: [source.id],
-    base_draft_id: baseDraftId,
-    user_intent: "生成岗位校准版本",
+  await startResumeAgentRun({
+    action: "opportunity_calibrate",
+    userMessage: "生成岗位校准版本",
+    context: {
+      document_id: documentId,
+      source_document_ids: [source.id],
+      base_draft_id: baseDraftId,
+    },
   })
   return getRevisionWorkspaceView(documentId)
+}
+
+export async function runRevisionIssueAction(input: {
+  documentId: string
+  baseDraftId: string
+  selectedModuleId?: string
+  selectedIssueId: string
+  userIntent: string
+}): Promise<HarnessRun> {
+  return startResumeAgentRun({
+    action: "issue_action",
+    userMessage: input.userIntent,
+    context: {
+      document_id: input.documentId,
+      base_draft_id: input.baseDraftId,
+      selected_issue_id: input.selectedIssueId,
+      ...(input.selectedModuleId ? { selected_module_id: input.selectedModuleId } : {}),
+    },
+  })
 }
 
 export async function renderRevisionDraft(

@@ -1,4 +1,4 @@
-import { BriefcaseBusiness, LayoutTemplate, Settings } from "lucide-react"
+import { BriefcaseBusiness, LayoutTemplate } from "lucide-react"
 import type { ComponentType } from "react"
 
 export const RESUME_PACK_BASE_PATH = "/packs/resume" as const
@@ -8,11 +8,10 @@ export const resumePackPaths = {
   workspace: (documentId: string) => `${RESUME_PACK_BASE_PATH}/workspaces/${documentId}`,
   templates: `${RESUME_PACK_BASE_PATH}/templates`,
   template: (templateId: string) => `${RESUME_PACK_BASE_PATH}/templates/${encodeURIComponent(templateId)}`,
-  settings: `${RESUME_PACK_BASE_PATH}/settings`,
 } as const
 
 export type ResumePackNavItem = {
-  id: "workspaces" | "templates" | "settings"
+  id: "workspaces" | "templates"
   label: string
   path: string
   icon: ComponentType<{ className?: string }>
@@ -34,12 +33,5 @@ export const resumePackNavigation: ResumePackNavItem[] = [
     path: resumePackPaths.templates,
     icon: LayoutTemplate,
     isActive: (pathname) => pathname === resumePackPaths.templates || pathname.startsWith(`${resumePackPaths.templates}/`),
-  },
-  {
-    id: "settings",
-    label: "设置",
-    path: resumePackPaths.settings,
-    icon: Settings,
-    isActive: (pathname) => pathname === resumePackPaths.settings,
   },
 ]

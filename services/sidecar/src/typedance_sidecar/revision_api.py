@@ -4,7 +4,7 @@ from typing import Any, Literal
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -18,18 +18,12 @@ from .revision_models import (
     RenderProjection,
     RevisionIssue,
     RevisionProposal,
-    RevisionRun,
     SourceDocument,
     SourceResumeCanvas,
     UserConfirmation,
     WorkspaceView,
 )
-from .revision_blank_guided_flow import RevisionBlankGuidedFlowService
 from .revision_export import RevisionExportService
-from .revision_import_flow import RevisionImportFlowService
-from .revision_issue_action import RevisionIssueActionService
-from .revision_opportunity_calibration import RevisionOpportunityCalibrationService
-from .revision_quality_review import RevisionQualityReviewService
 from .revision_render_projection import RenderProjectionError
 from .revision_repository import RevisionRepository
 from .revision_services import (
@@ -92,25 +86,6 @@ class CreateSourceRequest(BaseModel):
     file_path: str | None = None
     original_uri: str | None = None
     mime_type: str | None = None
-
-
-class CreateRevisionRunRequest(BaseModel):
-    run_type: Literal[
-        "import_reconstruct",
-        "blank_guided_generate",
-        "quality_review",
-        "issue_action",
-        "module_rewrite",
-        "evidence_check",
-        "opportunity_calibrate",
-        "review_gate",
-    ]
-    source_document_ids: list[str] = Field(default_factory=list)
-    base_draft_id: str | None = None
-    user_intent: str | None = None
-    selected_module_id: str | None = None
-    selected_issue_id: str | None = None
-    selected_action_id: str | None = None
 
 
 class RenderDraftRequest(BaseModel):
@@ -191,12 +166,6 @@ def create_revision_router(
             raise HTTPException(status_code=404, detail="Proposal not found")
         return proposal
 
-    def require_run(repo: RevisionRepository, run_id: str) -> RevisionRun:
-        run = repo.get_revision_run(run_id)
-        if run is None:
-            raise HTTPException(status_code=404, detail="Revision run not found")
-        return run
-
     def export_dir() -> Path:
         if export_dir_dependency is not None:
             return export_dir_dependency()
@@ -226,17 +195,6 @@ def create_revision_router(
             }
         )
         return repo.save_initialized_source_resume_canvas(initialized_source, canvas)
-
-    def _run_import_reconstruct_background(
-        repository_dependency: RepositoryDependency,
-        document_id: str,
-        run_id: str,
-    ) -> None:
-        repo = repository_dependency()
-        try:
-            RevisionImportFlowService(repo).run_import_reconstruct(document_id, run_id)
-        except RevisionServiceError:
-            return
 
     @router.post("/documents", response_model=Document, status_code=201)
     def create_document(
@@ -369,69 +327,6 @@ def create_revision_router(
         repo: RevisionRepository = Depends(repository),
     ) -> list[ParsedBlock]:
         return SourceService(repo).list_parsed_blocks(source_id)
-
-    @router.post("/documents/{document_id}/revision-runs", response_model=RevisionRun, status_code=201)
-    def create_revision_run(
-        document_id: str,
-        payload: CreateRevisionRunRequest,
-        background_tasks: BackgroundTasks,
-        repo: RevisionRepository = Depends(repository),
-    ) -> RevisionRun:
-        document = require_document(repo, document_id)
-        source_canvas = (
-            repo.get_source_resume_canvas(document_id)
-            if payload.run_type == "import_reconstruct"
-            else None
-        )
-        if payload.run_type == "import_reconstruct" and source_canvas is None:
-            raise HTTPException(status_code=400, detail="Source resume canvas is not initialized")
-
-        now = utc_now()
-        run = RevisionRun(
-            id=f"run_{uuid4().hex}",
-            document_id=document_id,
-            pack_id=document.pack_id,
-            run_type=payload.run_type,
-            status="recognizing" if payload.run_type == "import_reconstruct" else "created",
-            source_document_ids=payload.source_document_ids,
-            input_source_canvas_id=source_canvas.id if source_canvas else None,
-            input_source_canvas_version=source_canvas.version if source_canvas else None,
-            base_draft_id=payload.base_draft_id,
-            user_intent=payload.user_intent,
-            selected_module_id=payload.selected_module_id,
-            selected_issue_id=payload.selected_issue_id,
-            selected_action_id=payload.selected_action_id,
-            created_at=now,
-            updated_at=now,
-        )
-        saved_run = repo.save_revision_run(run)
-        try:
-            if saved_run.run_type == "import_reconstruct":
-                background_tasks.add_task(
-                    _run_import_reconstruct_background,
-                    repository_dependency,
-                    document_id,
-                    saved_run.id,
-                )
-                return saved_run
-            if saved_run.run_type == "blank_guided_generate":
-                return RevisionBlankGuidedFlowService(repo).run_blank_guided_generate(document_id, saved_run.id)
-            if saved_run.run_type == "quality_review":
-                return RevisionQualityReviewService(repo).run_quality_review(document_id, saved_run.id)
-            if saved_run.run_type == "issue_action":
-                return RevisionIssueActionService(repo).run_issue_action(document_id, saved_run.id)
-            if saved_run.run_type == "opportunity_calibrate":
-                return RevisionOpportunityCalibrationService(repo).run_opportunity_calibrate(document_id, saved_run.id)
-            return saved_run
-        except RevisionServiceError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    @router.get("/revision-runs/{run_id}", response_model=RevisionRun)
-    def get_revision_run(
-        run_id: str,
-        repo: RevisionRepository = Depends(repository),
-    ) -> RevisionRun:
-        return require_run(repo, run_id)
 
     @router.get("/documents/{document_id}/workspace-view", response_model=WorkspaceView)
     def get_workspace_view(

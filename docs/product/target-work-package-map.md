@@ -11,8 +11,8 @@ WP1 Contracts
   -> WP2 Storage
   -> WP3 Revision Services
   -> WP4 Pack Runtime
-  -> WP5 Agent Runtime
-  -> WP6 Resume Agents
+  -> WP5 Agent Host + Harness Core
+  -> WP6 Resume AI Plugins
   -> WP7 Render Projection
   -> WP8 Revision API
   -> WP9 Workspace View
@@ -22,16 +22,15 @@ WP1 Contracts
   -> WP13 Quality Review
   -> WP14 Opportunity Calibration
   -> WP15 Export Gate
-  -> WP16 Legacy Compatibility
-  -> WP17 Test System
+  -> WP16 Test System
 ```
 
 并行原则：
 
 - Contracts 先稳定，否则前后端和 Agent 会反复漂移。
-- Storage、Pack Runtime、Agent Runtime 可以并行设计，但必须依赖同一套 schema。
+- Storage、Pack Runtime、Agent Host 和 Harness Core 可以并行设计，但必须依赖同一套 schema。
 - UI 不应等待所有 Agent 真实可用才开始，但 UI 消费的必须是目标 `WorkspaceView`，可以用 mock 数据。
-- Legacy Compatibility 只服务过渡，不定义新产品方向。
+- 旧编辑器 API 不能定义新产品方向，也不能进入 AI 主链路。
 
 ## 2. WP1 Contracts
 
@@ -52,8 +51,7 @@ WP1 Contracts
 - `EvidenceLink` schema。
 - `RevisionIssue` schema。
 - `RevisionProposal` schema。
-- `RevisionRun` schema。
-- `AgentStep` schema。
+- `@typedance/harness-contracts` 的 HarnessRun / HarnessEvent re-export。
 - `RenderProjection` schema。
 - `WorkspaceView` schema。
 - `ExportArtifact` schema。
@@ -64,17 +62,17 @@ WP1 Contracts
 
 1. TypeScript 类型和 zod schema 一致。
 2. Python Pydantic model 与 contracts 对齐。
-3. `ResumeVersion` 被标记为 legacy projection。
+3. 旧编辑器 `ResumeVersion` 与当前 AI 工作台事实源隔离。
 4. 所有新增对象都有 schema 测试。
 
 实现入口：
 
 - `packages/contracts/src/shared.ts`
-- `packages/contracts/src/legacy/*`
 - `packages/contracts/src/revision/*`
+- `packages/contracts/src/harness/*`
 - `packages/contracts/src/packs/*`
 
-完成后，`ResumeVersion` 应只作为 legacy projection 保留；新系统的事实源从 `Document`、`DraftVersion`、`RevisionIssue`、`RevisionProposal`、`EvidenceLink` 和 `WorkspaceView` 开始。
+完成后，新系统的事实源从 `Document`、`DraftVersion`、`RevisionIssue`、`RevisionProposal`、`EvidenceLink` 和 `WorkspaceView` 开始；HarnessRun 是 TS Harness/Agent Host 的运行对象，不是 sidecar 业务表。
 
 ## 3. WP2 Storage
 
@@ -90,7 +88,7 @@ WP1 Contracts
 - Repository 层。
 - migration 策略。
 - 数据版本字段。
-- legacy 数据兼容读取。
+- 数据版本字段。
 
 必需表：
 
@@ -102,8 +100,6 @@ draft_versions
 document_modules
 document_claims
 evidence_links
-revision_runs
-agent_steps
 revision_issues
 revision_proposals
 revision_actions
@@ -117,7 +113,7 @@ export_artifacts
 1. 每个对象能创建、读取、更新、关联查询。
 2. `Document` 能查询当前 Draft、Issue、Source。
 3. 删除 Document 不丢失审计所需的已导出记录，除非用户明确清理。
-4. 旧 `resume-versions` 数据仍可读取。
+4. 不创建 sidecar run/agent step 表。
 
 ## 4. WP3 Revision Services
 
@@ -142,7 +138,7 @@ export_artifacts
 验收：
 
 1. API 层只调用 service。
-2. Agent Runtime 只通过 service 写领域对象。
+2. Sidecar service 只写领域对象，不持有模型调用和 agent 编排。
 3. Proposal 应用由 `DraftService` 执行。
 4. Evidence 确认由 `EvidenceService` 执行。
 5. WorkspaceView 由 `WorkspaceService` 聚合。
@@ -165,7 +161,7 @@ export_artifacts
 - QualityRule。
 - EvidenceRule。
 - RenderMapping。
-- AgentContract。
+- TS Agent Host plugin 绑定配置。
 
 验收：
 
@@ -175,38 +171,38 @@ export_artifacts
 4. Pack schema 可测试。
 5. 组件和 prompt 中不散落 pack 规则。
 
-## 6. WP5 Agent Runtime
+## 6. WP5 Agent Host + Harness Core
 
 目标：
 
 ```text
-让所有 Agent 调用都可追踪、可校验、可失败恢复。
+让所有 AI 调用都可追踪、可校验、可授权、可流式展示，并和业务 pack 解耦。
 ```
 
 产物：
 
-- Agent invocation context。
-- Agent output envelope。
-- AgentStep 记录。
-- schema validator。
-- policy guard。
-- retry strategy。
-- error taxonomy。
+- `packages/agent-host`。
+- `packages/harness-contracts`。
+- `packages/harness-core`。
+- `packages/harness-server`。
+- HarnessRun / HarnessEvent / permission / tool call contract。
+- plugin registry 与 capability policy。
+- model loop、schema validator、policy guard、retry strategy、error taxonomy。
 
 验收：
 
-1. Agent 输出校验失败不能写 Draft。
-2. 每次调用都有 AgentStep。
-3. 每个输出都有 run_id 和 schema_version。
+1. Harness Core 不出现 TypeDance、resume、pack、Document 等业务概念。
+2. Agent Host 能把当前 pack 映射为 plugin/capability policy。
+3. 每次运行都有 HarnessEvent 流，前端可订阅。
 4. failed_schema、failed_tool、failed_model、failed_policy 能区分。
-5. Policy Guard 能阻止无证据强主张静默进入 accepted Draft。
+5. Tool/permission 边界能阻止越权调用。
 
-## 7. WP6 Resume Agents
+## 7. WP6 Resume AI Plugins
 
 目标：
 
 ```text
-实现 Resume Pack 所需 Agent 能力。
+实现 Resume Pack 所需 AI plugin / skill / agent 能力。
 ```
 
 Agent：
@@ -245,7 +241,6 @@ Agent：
 - Draft to PDF input。
 - layout warning。
 - compact suggestion issue。
-- legacy `ResumeVersion` projection adapter。
 
 验收：
 
@@ -267,7 +262,7 @@ Agent：
 
 - Documents。
 - Sources。
-- RevisionRuns。
+- Agent Host Runs。
 - Drafts。
 - Issues。
 - Proposals。
@@ -280,11 +275,11 @@ Agent：
 验收：
 
 1. 首页创建 Document。
-2. 导入创建 Source 和 RevisionRun。
+2. 导入创建 Source 和 HarnessRun。
 3. 工作台读取 WorkspaceView。
 4. 用户动作通过 Issue / Proposal / Claim API。
 5. 导出通过 Draft API。
-6. `resume-versions` 标记为 legacy。
+6. sidecar 不暴露 AI run API。
 
 ## 10. WP9 Workspace View
 
@@ -480,30 +475,7 @@ Add Opportunity
 4. ExportArtifact 关联 Draft。
 5. 导出的 PDF 可投递。
 
-## 17. WP16 Legacy Compatibility
-
-目标：
-
-```text
-让旧系统资产可用，但不再定义新主线。
-```
-
-产物：
-
-- Legacy ResumeVersion projection。
-- Existing resume import adapter。
-- Existing PDF renderer adapter。
-- Legacy workspace fallback。
-- Template style internalization。
-
-验收：
-
-1. 旧简历可打开。
-2. 旧 PDF 导出能力可复用。
-3. legacy API 不影响新 WorkspaceView。
-4. 主题系统降级为渲染配置。
-
-## 18. WP17 Test System
+## 17. WP16 Test System
 
 目标：
 
@@ -538,7 +510,7 @@ Add Opportunity
 
 - WP1 Contracts 和 WP4 Pack Runtime 共同设计。
 - WP2 Storage 和 WP3 Services。
-- WP5 Agent Runtime 和 WP6 Agent mock output。
+- WP5 Harness Runtime 和 WP6 Agent mock output。
 - WP9 WorkspaceView 和 WP10 UI mock。
 - WP7 Render Projection 和 WP15 Export Gate。
 
@@ -547,7 +519,7 @@ Add Opportunity
 - 两个工作流同时改同一套 schema。
 - UI 直接绕过 WorkspaceView 调 API。
 - Agent 直接写数据库。
-- Render 直接依赖 legacy ResumeVersion 成为新核心。
+- Render 直接依赖旧 ResumeVersion 成为新核心。
 
 ## 20. 完整完成定义
 

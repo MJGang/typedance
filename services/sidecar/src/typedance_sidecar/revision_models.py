@@ -30,43 +30,6 @@ IssueSeverity = Literal["info", "warning", "blocking"]
 IssueStatus = Literal["open", "resolved", "dismissed", "accepted", "needs_user_input"]
 ProposalStatus = Literal["pending", "applied", "rejected", "edited", "superseded"]
 RiskLevel = Literal["low", "medium", "high"]
-RevisionRunStatus = Literal[
-    "created",
-    "parsing",
-    "recognizing",
-    "understanding",
-    "planning",
-    "generating",
-    "verifying",
-    "building_tasks",
-    "awaiting_user_confirmation",
-    "ready_for_review",
-    "completed",
-    "failed_retryable",
-    "failed_final",
-    "canceled",
-    "stale",
-]
-RevisionRunType = Literal[
-    "import_reconstruct",
-    "blank_guided_generate",
-    "quality_review",
-    "issue_action",
-    "module_rewrite",
-    "evidence_check",
-    "opportunity_calibrate",
-    "review_gate",
-]
-AgentStepStatus = Literal[
-    "pending",
-    "running",
-    "completed",
-    "failed_schema",
-    "failed_tool",
-    "failed_model",
-    "failed_policy",
-    "skipped",
-]
 DraftStatus = Literal["generated", "in_review", "accepted", "exported"]
 DraftVariantType = Literal["base", "opportunity"]
 ExportFormat = Literal["pdf", "html", "markdown", "docx"]
@@ -204,38 +167,6 @@ class EvidenceLink(BaseModel):
     created_at: str
 
 
-class RevisionRun(BaseModel):
-    id: str
-    document_id: str
-    pack_id: str
-    run_type: RevisionRunType
-    status: RevisionRunStatus
-    source_document_ids: list[str] = Field(default_factory=list)
-    input_source_canvas_id: str | None = None
-    input_source_canvas_version: int | None = Field(default=None, ge=1)
-    base_draft_id: str | None = None
-    target_draft_id: str | None = None
-    user_intent: str | None = None
-    selected_module_id: str | None = None
-    selected_issue_id: str | None = None
-    selected_action_id: str | None = None
-    output_summary: str | None = None
-    created_at: str
-    updated_at: str
-
-
-class AgentStep(BaseModel):
-    id: str
-    run_id: str
-    agent_name: str
-    status: AgentStepStatus
-    input_refs: list[str] = Field(default_factory=list)
-    output_refs: list[str] = Field(default_factory=list)
-    error: dict[str, Any] | None = None
-    started_at: str | None = None
-    finished_at: str | None = None
-
-
 class RevisionAction(BaseModel):
     id: str
     issue_id: str
@@ -326,12 +257,6 @@ class QualityGateResult(BaseModel):
     warning_issue_ids: list[str] = Field(default_factory=list)
 
 
-class RevisionRunStatusSummary(BaseModel):
-    run_id: str
-    status: RevisionRunStatus
-    current_step: str | None = None
-
-
 class CoachSummary(BaseModel):
     summary: str
     next_action_ids: list[str] = Field(default_factory=list)
@@ -356,6 +281,5 @@ class WorkspaceView(BaseModel):
     source_resume_canvas: SourceResumeCanvas | None = None
     render_projection: RenderProjection | None = None
     quality_gate: QualityGateResult | None = None
-    run_status: RevisionRunStatusSummary | None = None
     coach_summary: CoachSummary | None = None
     available_actions: list[ContextualAction] = Field(default_factory=list)

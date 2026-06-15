@@ -8,17 +8,20 @@
 
 TypeDance 的目标工程形态不是一个更强的富文本编辑器。
 
-目标系统应由四个核心层组成：
+目标系统应由五个核心层组成：
 
 ```text
 Contracts
   定义所有跨前后端的稳定对象和 schema。
 
 Revision Engine
-  管理来源、草稿、问题、建议、证据、版本和运行状态。
+  管理来源、草稿、问题、建议、证据、版本和工作台视图。
 
-Document Pack Runtime
-  根据文档类型加载模块、质量规则、动作、Agent 合约和渲染映射。
+Sidecar Business Runtime
+  提供确定性的本地业务 API、文件解析、存储和 MCP 工具。
+
+TS Agent Host + Harness Core
+  根据当前 pack 加载 AI plugins，并负责 HarnessRun、模型循环、工具调用、权限和事件流。
 
 Revision Workspace
   把结构化对象映射成自然的改稿体验。
@@ -37,17 +40,18 @@ DraftVersion -> RenderProjection -> doc_json / HTML / PDF
 定位：
 
 ```text
-跨前端、sidecar、Agent Runtime 的事实 schema 层。
+跨前端、sidecar、Agent Host 和 Harness Runtime 的事实 schema 层。
 ```
 
 目标职责：
 
 - 定义 Document、SourceDocument、DraftVersion、DocumentModule。
 - 定义 DocumentClaim、EvidenceLink、RevisionIssue、RevisionProposal。
-- 定义 RevisionRun、AgentStep、RenderProjection、ExportArtifact。
+- 定义 RenderProjection、ExportArtifact。
+- 通过 `@typedance/harness-contracts` 复用 HarnessRun、HarnessEvent 等通用 run 合约，不在 revision 领域自建 run schema。
 - 定义 WorkspaceView 聚合响应。
 - 定义 Resume Pack 的 module / issue / action / quality rule 枚举。
-- 保留 `ResumeVersion` 作为兼容对象，但标注为 legacy projection。
+- 旧编辑器 `ResumeVersion` 仅属于旧编辑器数据模型，不参与当前 AI 路径。
 
 不应承担：
 
@@ -68,7 +72,7 @@ DraftVersion -> RenderProjection -> doc_json / HTML / PDF
 
 - 接收结构化 Draft 或 RenderProjection。
 - 输出 HTML。
-- 输出 TipTap / ProseMirror `doc_json` 兼容投影。
+- 输出 TipTap / ProseMirror `doc_json` 渲染投影。
 - 输出布局警告。
 - 复用默认 A4 模板。
 
@@ -84,7 +88,7 @@ DraftVersion -> RenderProjection -> doc_json / HTML / PDF
 定位：
 
 ```text
-本地优先 Revision Engine 服务。
+本地优先业务服务。
 ```
 
 目标职责：
@@ -92,17 +96,18 @@ DraftVersion -> RenderProjection -> doc_json / HTML / PDF
 - 本地数据库。
 - 来源材料存储。
 - 文件解析和 ParsedBlock。
-- RevisionRun 状态机。
-- Pack Registry。
-- Agent Runtime 调用与校验。
 - Draft / Issue / Proposal / Evidence 服务。
 - WorkspaceView 聚合。
 - Render 和 Export。
+- 向 Agent Host 暴露可授权调用的 HTTP API 和 MCP tools。
 
 不应承担：
 
 - 前端布局逻辑。
 - UI 文案拼接。
+- 模型调用。
+- agent/skill/plugin 编排。
+- HarnessRun 生命周期管理。
 - 无 schema 的 AI 输出透传。
 
 ### 2.4 `apps/web`
@@ -148,9 +153,10 @@ packages/contracts/src/
     evidence.ts
     issue.ts
     proposal.ts
-    run.ts
     render.ts
     workspace-view.ts
+  harness/
+    index.ts
   packs/
     document-pack.ts
     resume-pack.ts
@@ -184,24 +190,14 @@ services/sidecar/src/typedance_sidecar/
     workspace_service.py
     render_service.py
     export_service.py
-    orchestrator.py
-    run_state.py
   packs/
     registry.py
     resume_pack.py
-  agents/
-    runtime.py
-    schemas.py
-    resume_parser.py
-    resume_structurer.py
-    resume_reviewer.py
-    resume_rewriter.py
-    evidence_verifier.py
-    opportunity_calibrator.py
+  mcp/
+    resume_tools.py
   api/
     documents.py
     sources.py
-    revision_runs.py
     drafts.py
     issues.py
     proposals.py
@@ -212,10 +208,43 @@ services/sidecar/src/typedance_sidecar/
 关键约束：
 
 ```text
-legacy API 可以存在，但新工作台不能以 legacy API 为主。
+Sidecar API 只能描述业务对象；AI run API 属于 TS Agent Host。
 ```
 
-### 3.3 Web
+### 3.3 Agent Host 与 Harness
+
+```text
+packages/agent-host/src/
+  index.ts
+  plugin-config.ts
+
+packages/harness-contracts/src/
+  index.ts
+  run.ts
+  events.ts
+  plugin.ts
+  tool.ts
+  permission.ts
+
+packages/harness-core/src/
+  runtime.ts
+  plugin-registry.ts
+  permissions.ts
+  memory.ts
+  verification.ts
+
+packages/harness-server/src/
+  server.ts
+```
+
+关键约束：
+
+```text
+Agent Host 可以理解 pack 与 plugin 的绑定。
+Harness Core 不允许出现 TypeDance、resume、pack、Document 等业务概念。
+```
+
+### 3.4 Web
 
 ```text
 apps/web/src/features/revision-workspace/
@@ -255,13 +284,21 @@ apps/web/src/features/workspace/
 Web
   POST /documents
   POST /documents/{document_id}/sources
-  POST /documents/{document_id}/revision-runs
+  POST /packs/resume/runs
 
 Sidecar
   Source Service 保存原始来源
-  Parse Service 生成 ParsedBlock
-  Revision Orchestrator 创建 import_reconstruct run
-  Agent Runtime 生成结构化输出
+  暴露解析、保存、草稿、问题、证据等业务能力和 MCP 工具
+
+TS Agent Host
+  将 resume pack 映射为当前可用 plugins
+  创建 HarnessRun(action = import_reconstruct)
+
+Harness Runtime
+  在 capability_policy 边界内驱动模型、工具、权限、上下文和事件流
+  通过 MCP/HTTP 调用 Sidecar 业务能力
+
+Sidecar
   Draft Service 保存 DraftVersion
   Issue Service 保存 RevisionIssue
   Proposal Service 保存 RevisionProposal
@@ -300,8 +337,13 @@ Web
 Sidecar
   保存为 SourceDocument
   创建 ParsedBlock
-  Evidence Verifier 重新评估相关 Claim
-  Rewriter 生成新 Proposal
+
+TS Agent Host / Harness Runtime
+  创建当前 pack 的补充事实处理 run
+  必要时调用证据评估、重写和提案生成 plugin
+
+Sidecar
+  保存 AI 产出的结构化 Proposal / Evidence 结果
   WorkspaceView 更新
 ```
 
@@ -344,17 +386,18 @@ DELETE /sources/{source_id}
 
 上传文件、粘贴文本、手动补充都进入 Source Service。
 
-### 5.3 Revision Runs
+### 5.3 Agent Runs
 
 ```text
-POST /documents/{document_id}/revision-runs
-GET /revision-runs/{run_id}
-GET /documents/{document_id}/revision-runs
-POST /revision-runs/{run_id}/cancel
-POST /revision-runs/{run_id}/retry
+POST /packs/{pack_id}/runs
+GET /runs/{run_id}
+GET /runs/{run_id}/events
+POST /runs/{run_id}/input
+POST /runs/{run_id}/cancel
+POST /permissions/{request_id}/resolve
 ```
 
-`run_type` 包括：
+`action` 由当前 pack 的 TS plugin 配置解释，常见值包括：
 
 ```text
 import_reconstruct
@@ -473,7 +516,7 @@ localDraftEditState
 
 ## 7. Agent 输出边界
 
-Agent Runtime 的基本规则：
+Harness Runtime 的基本规则：
 
 ```text
 Agent 可以分析和建议。
@@ -530,10 +573,11 @@ type DocumentPack = {
   actions: ActionSpec[]
   quality_rules: QualityRule[]
   evidence_rules: EvidenceRule[]
-  agent_contracts: AgentContract[]
   render_mapping: RenderMapping
 }
 ```
+
+DocumentPack 只描述产品语义和业务规则。AI plugin、agent、skill、MCP 暴露关系由 TS Agent Host 的 pack plugin 配置维护，不能写入 Python Pack manifest。
 
 Pack 负责决定：
 
@@ -559,8 +603,6 @@ draft_versions
 document_modules
 document_claims
 evidence_links
-revision_runs
-agent_steps
 revision_issues
 revision_proposals
 revision_actions
@@ -648,26 +690,23 @@ Issue detail sheet
 - 内部调试。
 - 模板维护页。
 
-## 11. 兼容层
+## 11. 旧编辑器数据边界
 
-当前系统中的 `ResumeVersion` 不能立即从概念上删除，但必须改为兼容层。
+当前系统中的 `ResumeVersion` 属于旧编辑器数据模型。它可以继续服务旧编辑器页面和渲染器复用，但不能作为新 AI 工作台的事实源，也不能作为 AI run 的投影目标。
 
-目标关系：
+允许关系：
 
 ```text
-DraftVersion
-  -> RenderProjection
-  -> LegacyResumeVersionProjection
-  -> existing renderer/export compatibility
+DraftVersion -> RenderProjection -> renderer/export
+旧 ResumeVersion -> renderer/export
 ```
 
-兼容层职责：
+旧编辑器数据层职责：
 
 - 让现有 PDF 导出链路可复用。
-- 让现有 editor 在过渡期可编辑 RenderProjection。
-- 让旧数据可打开。
+- 让旧编辑器数据可继续打开。
 
-兼容层不能承担：
+旧编辑器数据层不能承担：
 
 - Issue 状态。
 - Evidence 状态。
@@ -683,7 +722,7 @@ DraftVersion
 - revision schema。
 - resume pack schema。
 - workspace view schema。
-- legacy projection schema。
+- 旧编辑器数据 schema 与当前 AI 工作台 schema 的隔离。
 
 ### 12.2 Service Tests
 
@@ -692,7 +731,7 @@ DraftVersion
 - 创建 Document。
 - 添加 Source。
 - 生成 ParsedBlock。
-- 创建 RevisionRun。
+- 创建 HarnessRun。
 - 保存 Draft。
 - 应用 Proposal。
 - 确认 Claim。

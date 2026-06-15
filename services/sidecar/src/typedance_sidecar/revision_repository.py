@@ -5,7 +5,6 @@ from typing import TypeVar
 from pydantic import BaseModel
 
 from .revision_models import (
-    AgentStep,
     Document,
     DocumentClaim,
     DocumentModule,
@@ -17,7 +16,6 @@ from .revision_models import (
     RevisionAction,
     RevisionIssue,
     RevisionProposal,
-    RevisionRun,
     SourceDocument,
     SourceResumeCanvas,
     UserConfirmation,
@@ -109,26 +107,6 @@ REVISION_TABLE_DEFINITIONS = [
     )
     """,
     """
-    CREATE TABLE IF NOT EXISTS revision_runs (
-      id TEXT PRIMARY KEY,
-      document_id TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      schema_version TEXT NOT NULL DEFAULT '0.1.0',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS agent_steps (
-      id TEXT PRIMARY KEY,
-      run_id TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      schema_version TEXT NOT NULL DEFAULT '0.1.0',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    )
-    """,
-    """
     CREATE TABLE IF NOT EXISTS revision_issues (
       id TEXT PRIMARY KEY,
       document_id TEXT NOT NULL,
@@ -195,10 +173,16 @@ REVISION_TABLE_DEFINITIONS = [
 
 
 def migrate_revision_payloads(connection: sqlite3.Connection) -> None:
+    _drop_obsolete_ai_run_tables(connection)
     _allow_nullable_export_artifact_draft_id(connection)
     _normalize_source_document_payloads(connection)
     _normalize_source_resume_canvas_payloads(connection)
     connection.commit()
+
+
+def _drop_obsolete_ai_run_tables(connection: sqlite3.Connection) -> None:
+    connection.execute("DROP TABLE IF EXISTS agent_steps")
+    connection.execute("DROP TABLE IF EXISTS revision_runs")
 
 
 def _allow_nullable_export_artifact_draft_id(connection: sqlite3.Connection) -> None:
@@ -409,13 +393,6 @@ class RevisionRepository:
                 (document_id,),
             ).fetchall()
         ]
-        run_ids = [
-            row["id"]
-            for row in self.connection.execute(
-                "SELECT id FROM revision_runs WHERE document_id = ?",
-                (document_id,),
-            ).fetchall()
-        ]
         issue_ids = [
             row["id"]
             for row in self.connection.execute(
@@ -431,8 +408,6 @@ class RevisionRepository:
                 self.connection.execute("DELETE FROM document_modules WHERE draft_id = ?", (draft_id,))
             for source_id in source_ids:
                 self.connection.execute("DELETE FROM parsed_blocks WHERE source_document_id = ?", (source_id,))
-            for run_id in run_ids:
-                self.connection.execute("DELETE FROM agent_steps WHERE run_id = ?", (run_id,))
             for issue_id in issue_ids:
                 self.connection.execute("DELETE FROM revision_actions WHERE issue_id = ?", (issue_id,))
 
@@ -441,7 +416,6 @@ class RevisionRepository:
                 "source_resume_canvases",
                 "draft_versions",
                 "evidence_links",
-                "revision_runs",
                 "revision_issues",
                 "revision_proposals",
                 "user_confirmations",
@@ -528,23 +502,6 @@ class RevisionRepository:
 
     def list_evidence_links(self, document_id: str) -> list[EvidenceLink]:
         return self._list("evidence_links", EvidenceLink, "document_id", document_id)
-
-    def save_revision_run(self, run: RevisionRun) -> RevisionRun:
-        self._save("revision_runs", run, {"document_id": run.document_id})
-        return run
-
-    def get_revision_run(self, run_id: str) -> RevisionRun | None:
-        return self._get("revision_runs", RevisionRun, run_id)
-
-    def list_revision_runs(self, document_id: str) -> list[RevisionRun]:
-        return self._list("revision_runs", RevisionRun, "document_id", document_id)
-
-    def save_agent_step(self, step: AgentStep) -> AgentStep:
-        self._save("agent_steps", step, {"run_id": step.run_id})
-        return step
-
-    def list_agent_steps(self, run_id: str) -> list[AgentStep]:
-        return self._list("agent_steps", AgentStep, "run_id", run_id)
 
     def save_revision_issue(self, issue: RevisionIssue) -> RevisionIssue:
         self._save(

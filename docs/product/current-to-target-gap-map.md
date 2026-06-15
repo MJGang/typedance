@@ -206,7 +206,7 @@ DraftVersion -> RenderProjection -> doc_json / HTML / PDF
 Document
 + SourceDocument
 + ParsedBlock
-+ RevisionRun
++ HarnessRun
 + DraftVersion
 + RevisionIssue
 + RevisionProposal
@@ -445,7 +445,7 @@ qualityGate
 - Issue Service。
 - Proposal Service。
 - Evidence Service。
-- Revision Orchestrator。
+- Agent Host。
 - Pack Registry。
 - Render Service。
 - Export Service。
@@ -482,9 +482,9 @@ PUT /template-styles/:id
 终局 API 应扩展为：
 
 ```text
+Python Sidecar 业务 API：
 POST /documents
 POST /documents/:id/sources
-POST /documents/:id/revision-runs
 GET  /documents/:id/workspace-view
 POST /issues/:id/actions
 POST /proposals/:id/accept
@@ -492,9 +492,16 @@ POST /proposals/:id/reject
 POST /claims/:id/confirm
 POST /drafts/:id/render
 POST /drafts/:id/export
+
+TS Agent Host AI API：
+POST /packs/:packId/runs
+GET  /runs/:runId
+GET  /runs/:runId/events
+POST /runs/:runId/input
+POST /runs/:runId/cancel
 ```
 
-`resume-versions` 可以作为兼容 API 保留，但不能继续承担核心改稿状态。
+`resume-versions` 不再作为终局 API 保留；改稿状态必须收敛到 Document、Source、Draft、Issue、Proposal、Evidence、ExportArtifact 等当前业务模型。
 
 ## 10. 必须避免的错误方向
 

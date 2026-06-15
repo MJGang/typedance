@@ -168,7 +168,7 @@ DocumentClaim
 EvidenceLink
 RevisionIssue
 RevisionProposal
-RevisionRun
+HarnessRun
 RenderProjection
 ExportArtifact
 ```
@@ -209,7 +209,7 @@ WP1 Contracts
 WP2 Storage
 WP3 Revision Services
 WP4 Pack Runtime
-WP5 Agent Runtime
+WP5 Harness Runtime
 WP6 Resume Agents
 WP7 Render Projection
 WP8 Revision API

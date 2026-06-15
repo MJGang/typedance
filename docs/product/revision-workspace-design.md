@@ -254,7 +254,7 @@ ComparisonView {
 用户输入后，系统不应该只回复聊天文本，而应该生成新的结构化结果：
 
 ```text
-新的 RevisionRun
+新的 HarnessRun
 新的 RevisionProposal
 更新后的 DraftVersion
 更新后的 Issue 状态
@@ -346,7 +346,7 @@ ComparisonView {
 
 ```text
 用户点击 rewrite_conservative
--> 创建 issue_action RevisionRun
+-> 创建 issue_action HarnessRun
 -> 后端生成新 Proposal
 -> 前端展示局部对比
 ```
@@ -355,7 +355,7 @@ ComparisonView {
 
 ```text
 用户输入自然语言
--> 创建 module_rewrite 或 issue_action RevisionRun
+-> 创建 module_rewrite 或 issue_action HarnessRun
 -> 系统输出结构化修改结果
 -> 前端展示为 Proposal / Issue / Draft 更新
 ```

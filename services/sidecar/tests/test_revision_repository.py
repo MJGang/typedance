@@ -3,7 +3,6 @@ import sqlite3
 
 from typedance_sidecar.db import connect
 from typedance_sidecar.revision_models import (
-    AgentStep,
     Document,
     DocumentClaim,
     DocumentModule,
@@ -16,7 +15,6 @@ from typedance_sidecar.revision_models import (
     RevisionAction,
     RevisionIssue,
     RevisionProposal,
-    RevisionRun,
     SourceResumeCanvas,
     SourceResumeCanvasNode,
     SourceDocument,
@@ -35,8 +33,6 @@ REVISION_TABLES = {
     "document_modules",
     "document_claims",
     "evidence_links",
-    "revision_runs",
-    "agent_steps",
     "revision_issues",
     "revision_proposals",
     "revision_actions",
@@ -246,6 +242,8 @@ def test_connect_creates_revision_tables(tmp_path):
 
     table_names = {row["name"] for row in rows}
     assert REVISION_TABLES.issubset(table_names)
+    assert "revision_runs" not in table_names
+    assert "agent_steps" not in table_names
 
 
 def test_revision_repository_roundtrips_core_objects(tmp_path):
@@ -284,35 +282,12 @@ def test_revision_repository_roundtrips_core_objects(tmp_path):
             source_span={"start": 0, "end": 6},
         )
     )
-    run = repo.save_revision_run(
-        RevisionRun(
-            id="run_1",
-            document_id=document.id,
-            pack_id="resume",
-            run_type="import_reconstruct",
-            status="completed",
-            source_document_ids=[source.id],
-            created_at=now,
-            updated_at=now,
-        )
-    )
-    step = repo.save_agent_step(
-        AgentStep(
-            id="step_1",
-            run_id=run.id,
-            agent_name="ResumeReviewer",
-            status="completed",
-            input_refs=["draft_1"],
-            output_refs=["issue_1"],
-            started_at=now,
-            finished_at=now,
-        )
-    )
+    run_id = "hrun_1"
     draft = repo.save_draft_version(
         DraftVersion(
             id="draft_1",
             document_id=document.id,
-            run_id=run.id,
+            run_id=run_id,
             pack_id="resume",
             status="in_review",
             summary="新版基础简历草稿",
@@ -365,7 +340,7 @@ def test_revision_repository_roundtrips_core_objects(tmp_path):
     issue = repo.save_revision_issue(
         RevisionIssue(
             id="issue_1",
-            run_id=run.id,
+            run_id=run_id,
             document_id=document.id,
             draft_id=draft.id,
             module_id=module.id,
@@ -395,7 +370,7 @@ def test_revision_repository_roundtrips_core_objects(tmp_path):
     proposal = repo.save_revision_proposal(
         RevisionProposal(
             id="prop_1",
-            run_id=run.id,
+            run_id=run_id,
             document_id=document.id,
             draft_id=draft.id,
             target={"claim_id": claim.id},
@@ -451,9 +426,6 @@ def test_revision_repository_roundtrips_core_objects(tmp_path):
     assert repo.list_documents() == [document]
     assert repo.list_source_documents(document.id) == [source]
     assert repo.list_parsed_blocks(source.id) == [block]
-    assert repo.get_revision_run(run.id) == run
-    assert repo.list_revision_runs(document.id) == [run]
-    assert repo.list_agent_steps(run.id) == [step]
     assert repo.list_draft_versions(document.id) == [draft]
     assert repo.list_document_modules(draft.id) == [module]
     assert repo.list_document_claims(draft.id) == [claim]
@@ -469,9 +441,6 @@ def test_revision_repository_roundtrips_core_objects(tmp_path):
     assert repo.get_document(document.id) is None
     assert repo.list_source_documents(document.id) == []
     assert repo.list_parsed_blocks(source.id) == []
-    assert repo.get_revision_run(run.id) is None
-    assert repo.list_revision_runs(document.id) == []
-    assert repo.list_agent_steps(run.id) == []
     assert repo.list_draft_versions(document.id) == []
     assert repo.list_document_modules(draft.id) == []
     assert repo.list_document_claims(draft.id) == []

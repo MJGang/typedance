@@ -54,6 +54,11 @@
 - 严禁仅凭历史记忆直接写实现，避免使用过时 API 或已废弃方法。
 - 在涉及框架或 API 的开发任务中，必须使用 `context7` skill。
 
+## Windows PowerShell 命令规范
+
+- 在 PowerShell 的 `-Command` 字符串中执行 `rg`、`Select-String` 等搜索命令时，如果正则包含管道符 `|`，必须把正则整体放在单引号中，例如 `rg -n 'AI|agent|prompt' services apps`；不要写成 `rg -n "AI|agent|prompt"` 后再嵌入外层双引号，否则 PowerShell 可能把 `|` 当作管道解析。
+- 需要在外层双引号内传递复杂正则时，优先使用单引号包裹内部正则；如果内部正则本身需要单引号，再改用 here-string 或拆成多次 `rg`，不要反复尝试同一个会被 PowerShell 误解析的命令。
+
 ## 样式规范
 
 每个组件的样式尽量使用tailwindcss实现，尽量少往style.css里写，style.css是全局的一些样式定义。

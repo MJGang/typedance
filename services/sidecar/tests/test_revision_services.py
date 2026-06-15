@@ -13,7 +13,6 @@ from typedance_sidecar.revision_models import (
     RenderProjection,
     RevisionIssue,
     RevisionProposal,
-    RevisionRun,
     SourceDocument,
     SourceResumeCanvas,
 )
@@ -91,23 +90,12 @@ def seed_revision_workspace(repo: RevisionRepository) -> dict[str, object]:
             updated_at=now,
         )
     )
-    run = repo.save_revision_run(
-        RevisionRun(
-            id="run_1",
-            document_id=document.id,
-            pack_id="resume",
-            run_type="import_reconstruct",
-            status="completed",
-            source_document_ids=[source.id],
-            created_at=now,
-            updated_at=now,
-        )
-    )
+    run_id = "hrun_1"
     draft = repo.save_draft_version(
         DraftVersion(
             id="draft_1",
             document_id=document.id,
-            run_id=run.id,
+            run_id=run_id,
             pack_id="resume",
             status="in_review",
             summary="基于旧简历生成的新草稿",
@@ -161,7 +149,7 @@ def seed_revision_workspace(repo: RevisionRepository) -> dict[str, object]:
     issue = repo.save_revision_issue(
         RevisionIssue(
             id="issue_1",
-            run_id=run.id,
+            run_id=run_id,
             document_id=document.id,
             draft_id=draft.id,
             module_id=module.id,
@@ -180,7 +168,7 @@ def seed_revision_workspace(repo: RevisionRepository) -> dict[str, object]:
     proposal = repo.save_revision_proposal(
         RevisionProposal(
             id="prop_1",
-            run_id=run.id,
+            run_id=run_id,
             document_id=document.id,
             draft_id=draft.id,
             target={"claim_id": claim.id},
@@ -214,7 +202,6 @@ def seed_revision_workspace(repo: RevisionRepository) -> dict[str, object]:
         "document": document,
         "source": source,
         "source_canvas": source_canvas,
-        "run": run,
         "draft": draft,
         "module": module,
         "claim": claim,
@@ -348,9 +335,6 @@ def test_workspace_service_aggregates_current_revision_view(tmp_path):
     assert view.quality_gate is not None
     assert view.quality_gate.status == "blocked"
     assert view.quality_gate.blocking_issue_ids == ["issue_1"]
-    assert view.run_status is not None
-    assert view.run_status.run_id == "run_1"
-    assert view.run_status.current_step is None
     assert view.coach_summary is not None
     assert view.coach_summary.summary == "还有 1 个阻塞问题需要先处理。"
     assert view.coach_summary.next_action_ids == [

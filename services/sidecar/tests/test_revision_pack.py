@@ -25,7 +25,7 @@ def test_resume_pack_declares_required_modules_and_actions():
     assert basic_info.required is True
     assert basic_info.title == "基本信息"
     assert project_experience.repeatable is True
-    assert request_input.creates_run_type == "issue_action"
+    assert not hasattr(request_input, "creates_run_type")
     assert confirm_claim.label == "确认真实"
 
 
@@ -78,7 +78,6 @@ def test_pack_registry_rejects_invalid_pack_definitions():
         actions=[],
         quality_rules=[],
         evidence_rules=[],
-        agent_contracts=[],
         render_mapping={
             "default_profile": "default-a4",
             "supported_profiles": ["ats"],
@@ -96,7 +95,6 @@ def test_pack_registry_rejects_invalid_pack_definitions():
         actions=[],
         quality_rules=[],
         evidence_rules=[],
-        agent_contracts=[],
         render_mapping={
             "default_profile": "default-a4",
             "supported_profiles": ["ats"],

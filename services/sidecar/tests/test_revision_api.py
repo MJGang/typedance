@@ -13,7 +13,6 @@ from typedance_sidecar.revision_models import (
     EvidenceLink,
     RevisionIssue,
     RevisionProposal,
-    RevisionRun,
     SourceDocument,
     SourceResumeCanvas,
 )
@@ -87,23 +86,12 @@ def seed_workspace(tmp_path) -> RevisionRepository:
             updated_at=now,
         )
     )
-    run = repo.save_revision_run(
-        RevisionRun(
-            id="run_1",
-            document_id=document.id,
-            pack_id=document.pack_id,
-            run_type="quality_review",
-            status="completed",
-            source_document_ids=[source.id],
-            created_at=now,
-            updated_at=now,
-        )
-    )
+    run_id = "hrun_1"
     draft = repo.save_draft_version(
         DraftVersion(
             id="draft_1",
             document_id=document.id,
-            run_id=run.id,
+            run_id=run_id,
             pack_id=document.pack_id,
             status="in_review",
             summary="结构化草稿",
@@ -162,7 +150,7 @@ def seed_workspace(tmp_path) -> RevisionRepository:
     issue = repo.save_revision_issue(
         RevisionIssue(
             id="issue_1",
-            run_id=run.id,
+            run_id=run_id,
             document_id=document.id,
             draft_id=draft.id,
             module_id=module.id,
@@ -181,7 +169,7 @@ def seed_workspace(tmp_path) -> RevisionRepository:
     repo.save_revision_proposal(
         RevisionProposal(
             id="prop_1",
-            run_id=run.id,
+            run_id=run_id,
             document_id=document.id,
             draft_id=draft.id,
             target={"claim_id": claim.id},
@@ -203,7 +191,7 @@ def seed_workspace(tmp_path) -> RevisionRepository:
     return repo
 
 
-def test_revision_api_creates_document_source_and_run(revision_client):
+def test_revision_api_creates_document_and_source(revision_client):
     client, _tmp_path = revision_client
 
     created_document = client.post(
@@ -244,34 +232,6 @@ def test_revision_api_creates_document_source_and_run(revision_client):
     assert canvas["doc_json"]["content"][0]["type"] == "heading"
     assert canvas["version"] == 1
     assert workspace_after_source["current_draft"] is None
-
-    created_run = client.post(
-        f"/documents/{document['id']}/revision-runs",
-        json={
-            "run_type": "import_reconstruct",
-            "source_document_ids": [source["id"]],
-            "user_intent": "导入旧简历并重构",
-        },
-    )
-    assert created_run.status_code == 201
-    run = created_run.json()
-    assert run["pack_id"] == "resume"
-    assert run["input_source_canvas_id"] == canvas["id"]
-    assert run["input_source_canvas_version"] == canvas["version"]
-    assert run["status"] == "recognizing"
-    assert client.get(f"/revision-runs/{run['id']}").json()["id"] == run["id"]
-
-    workspace = client.get(f"/documents/{document['id']}/workspace-view").json()
-    current_run = client.get(f"/revision-runs/{run['id']}").json()
-    assert current_run["status"] == "completed"
-    assert current_run["target_draft_id"].startswith("draft_")
-    assert workspace["current_draft"]["id"] == current_run["target_draft_id"]
-    assert len(workspace["modules"]) >= 2
-    assert workspace["issues"]
-    assert workspace["proposals"]
-    assert workspace["evidence"]
-    assert workspace["render_projection"]["draft_id"] == current_run["target_draft_id"]
-
 
 def test_revision_api_creates_uploaded_resume_source(revision_client, monkeypatch):
     client, tmp_path = revision_client
@@ -324,8 +284,6 @@ def test_revision_api_returns_workspace_and_renders_draft(revision_client):
     assert workspace["current_draft"]["id"] == "draft_1"
     assert workspace["modules"][0]["id"] == "mod_1"
     assert workspace["source_resume_canvas"]["id"] == "canvas_1"
-    assert workspace["run_status"]["run_id"] == "run_1"
-    assert workspace["run_status"]["status"] == "completed"
     assert workspace["coach_summary"]["summary"] == "还有 1 个问题建议处理。"
     assert [action["action_type"] for action in workspace["available_actions"]] == [
         "dismiss_issue",
@@ -501,159 +459,6 @@ def test_revision_api_returns_404_when_source_resume_canvas_missing(revision_cli
     )
 
     assert response.status_code == 404
-
-
-def test_revision_api_runs_blank_guided_generation(revision_client):
-    client, _tmp_path = revision_client
-
-    created_document = client.post(
-        "/documents",
-        json={
-            "title": "新简历",
-            "pack_id": "resume",
-            "target_language": "zh-CN",
-            "initial_mode": "blank_guided",
-        },
-    )
-    document = created_document.json()
-    created_source = client.post(
-        f"/documents/{document['id']}/sources",
-        json={
-            "source_type": "manual_user_input",
-            "title": "空白引导信息",
-            "raw_text": "姓名: 张三\n目标方向: 前端工程师\n技能: Vue3、TypeScript",
-        },
-    )
-    source = created_source.json()
-    assert source["parse_status"] == "pending"
-
-    created_run = client.post(
-        f"/documents/{document['id']}/revision-runs",
-        json={
-            "run_type": "blank_guided_generate",
-            "source_document_ids": [source["id"]],
-            "user_intent": "从空白引导生成基础简历",
-        },
-    )
-
-    assert created_run.status_code == 201
-    run = created_run.json()
-    assert run["status"] == "completed"
-    assert run["target_draft_id"].startswith("draft_")
-
-    workspace = client.get(f"/documents/{document['id']}/workspace-view").json()
-    assert workspace["current_draft"]["id"] == run["target_draft_id"]
-    canvas = workspace["source_resume_canvas"]
-    assert canvas["old_resume_source_id"] == source["id"]
-    assert canvas["doc_json"]["content"][0]["content"][0]["text"] == "新简历"
-    assert {module["type"] for module in workspace["modules"]} >= {
-        "BasicInfo",
-        "JobIntent",
-        "CoreSkills",
-        "WorkExperience",
-        "ProjectExperience",
-    }
-    assert workspace["issues"]
-    assert workspace["proposals"]
-    assert workspace["render_projection"]["draft_id"] == run["target_draft_id"]
-
-
-def test_revision_api_runs_quality_review(revision_client):
-    client, tmp_path = revision_client
-    seed_workspace(tmp_path)
-
-    created_run = client.post(
-        "/documents/doc_1/revision-runs",
-        json={
-            "run_type": "quality_review",
-            "base_draft_id": "draft_1",
-            "user_intent": "运行基础质量检查",
-        },
-    )
-
-    assert created_run.status_code == 201
-    run = created_run.json()
-    assert run["status"] == "completed"
-    assert run["target_draft_id"] == "draft_1"
-
-    workspace = client.get("/documents/doc_1/workspace-view").json()
-    issue_types = {issue["type"] for issue in workspace["issues"]}
-    assert {"missing_basic_info", "missing_skills", "missing_result"} <= issue_types
-    assert len(workspace["proposals"]) >= 2
-    assert workspace["quality_gate"]["status"] == "blocked"
-
-
-def test_revision_api_runs_opportunity_calibration(revision_client):
-    client, tmp_path = revision_client
-    repo = seed_workspace(tmp_path)
-    repo.save_source_document(
-        SourceDocument(
-            id="src_opp",
-            document_id="doc_1",
-            source_type="external_context",
-            title="前端岗位",
-            raw_text="要求：React、TypeScript、Node.js",
-            parse_status="pending",
-            created_at=utc_now(),
-        )
-    )
-
-    created_run = client.post(
-        "/documents/doc_1/revision-runs",
-        json={
-            "run_type": "opportunity_calibrate",
-            "source_document_ids": ["src_opp"],
-            "base_draft_id": "draft_1",
-            "user_intent": "生成岗位版本",
-        },
-    )
-
-    assert created_run.status_code == 201
-    run = created_run.json()
-    assert run["status"] == "completed"
-    assert run["target_draft_id"] != "draft_1"
-
-    workspace = client.get("/documents/doc_1/workspace-view").json()
-    assert workspace["current_draft"]["id"] == run["target_draft_id"]
-    assert workspace["current_draft"]["variant_type"] == "opportunity"
-    assert any(issue["type"] == "missing_opportunity_requirement" for issue in workspace["issues"])
-    assert workspace["proposals"]
-
-
-def test_revision_api_runs_issue_action(revision_client):
-    client, tmp_path = revision_client
-    seed_workspace(tmp_path)
-
-    created_run = client.post(
-        "/documents/doc_1/revision-runs",
-        json={
-            "run_type": "issue_action",
-            "base_draft_id": "draft_1",
-            "selected_module_id": "mod_1",
-            "selected_issue_id": "issue_1",
-            "user_intent": "上线后接口错误率下降 30%。",
-        },
-    )
-
-    assert created_run.status_code == 201
-    run = created_run.json()
-    assert run["status"] == "completed"
-    assert run["target_draft_id"] == "draft_1"
-    assert "局部改稿建议" in run["output_summary"]
-
-    repo = repo_for(tmp_path)
-    proposals = [proposal for proposal in repo.list_revision_proposals("draft_1") if proposal.run_id == run["id"]]
-    assert len(proposals) == 1
-    assert proposals[0].related_issue_ids == ["issue_1"]
-    assert proposals[0].proposed_snapshot["text"].endswith("上线后接口错误率下降 30%。")
-
-    confirmations = repo.list_user_confirmations("doc_1")
-    assert any(
-        confirmation.issue_id == "issue_1"
-        and confirmation.claim_id == "claim_1"
-        and confirmation.note == "上线后接口错误率下降 30%。"
-        for confirmation in confirmations
-    )
 
 
 def test_revision_api_exports_document_pdf_without_gate(revision_client, monkeypatch):

@@ -523,7 +523,7 @@ Resume Pack 依赖 Revision Engine。
 - Proposal Service：保存修改建议和用户决策。
 - Evidence Service：保存证据关系和确认状态。
 - Render Service：生成 HTML、doc_json、PDF 输入。
-- Revision Orchestrator：编排一次完整改稿任务。
+- Agent Host：编排一次完整改稿任务。
 - Pack Registry：加载 Resume Pack 的模块、规则、动作和 schema。
 
 前端不应直接消费 Agent 原始输出，而应消费 Workspace View。
@@ -537,7 +537,7 @@ ParsedBlock
 DocumentModule
 DocumentClaim
 EvidenceLink
-RevisionRun
+HarnessRun
 RevisionIssue
 RevisionProposal
 RevisionAction

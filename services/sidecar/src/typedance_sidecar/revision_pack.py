@@ -2,7 +2,7 @@ from collections.abc import Iterable
 
 from pydantic import BaseModel, Field
 
-from .revision_models import IssueSeverity, ModuleVisibility, RevisionRunType
+from .revision_models import IssueSeverity, ModuleVisibility
 
 
 class PackRegistryError(Exception):
@@ -26,7 +26,6 @@ class IssueTypeSpec(BaseModel):
 class ActionSpec(BaseModel):
     action_type: str = Field(min_length=1)
     label: str = Field(min_length=1)
-    creates_run_type: RevisionRunType | None = None
 
 
 class QualityRule(BaseModel):
@@ -42,12 +41,6 @@ class EvidenceRule(BaseModel):
     requires_user_confirmation_when_missing: bool
 
 
-class AgentContract(BaseModel):
-    agent_name: str = Field(min_length=1)
-    input_schema: str = Field(min_length=1)
-    output_schema: str = Field(min_length=1)
-
-
 class RenderMapping(BaseModel):
     default_profile: str = Field(min_length=1)
     supported_profiles: list[str] = Field(default_factory=list)
@@ -61,7 +54,6 @@ class DocumentPack(BaseModel):
     actions: list[ActionSpec] = Field(default_factory=list)
     quality_rules: list[QualityRule] = Field(default_factory=list)
     evidence_rules: list[EvidenceRule] = Field(default_factory=list)
-    agent_contracts: list[AgentContract] = Field(default_factory=list)
     render_mapping: RenderMapping
 
 
@@ -129,10 +121,6 @@ class PackRegistry:
         self._ensure_unique("action type", [action.action_type for action in pack.actions])
         self._ensure_unique("quality rule", [rule.id for rule in pack.quality_rules])
         self._ensure_unique("evidence rule", [rule.id for rule in pack.evidence_rules])
-        self._ensure_unique(
-            "agent contract",
-            [contract.agent_name for contract in pack.agent_contracts],
-        )
         if pack.render_mapping.default_profile not in pack.render_mapping.supported_profiles:
             raise PackRegistryError(
                 f"Default render profile is not supported: {pack.render_mapping.default_profile}"

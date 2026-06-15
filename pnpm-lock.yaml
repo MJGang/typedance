@@ -164,12 +164,73 @@ importers:
         specifier: ^3.1.3
         version: 3.2.4(@types/node@24.12.3)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(msw@2.14.5(@types/node@24.12.3)(typescript@5.9.3))
 
+  packages/agent-host:
+    dependencies:
+      '@typedance/harness-contracts':
+        specifier: workspace:*
+        version: link:../harness-contracts
+      '@typedance/harness-core':
+        specifier: workspace:*
+        version: link:../harness-core
+    devDependencies:
+      '@types/node':
+        specifier: ^24.12.3
+        version: 24.12.3
+      vitest:
+        specifier: ^3.1.3
+        version: 3.2.4(@types/node@24.12.3)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(msw@2.14.5(@types/node@24.12.3)(typescript@5.9.3))
+
   packages/contracts:
+    dependencies:
+      '@typedance/harness-contracts':
+        specifier: workspace:*
+        version: link:../harness-contracts
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.76
+    devDependencies:
+      vitest:
+        specifier: ^3.1.3
+        version: 3.2.4(@types/node@24.12.3)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(msw@2.14.5(@types/node@24.12.3)(typescript@5.9.3))
+
+  packages/harness-contracts:
     dependencies:
       zod:
         specifier: ^3.25.0
         version: 3.25.76
     devDependencies:
+      vitest:
+        specifier: ^3.1.3
+        version: 3.2.4(@types/node@24.12.3)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(msw@2.14.5(@types/node@24.12.3)(typescript@5.9.3))
+
+  packages/harness-core:
+    dependencies:
+      '@typedance/harness-contracts':
+        specifier: workspace:*
+        version: link:../harness-contracts
+    devDependencies:
+      '@types/node':
+        specifier: ^24.12.3
+        version: 24.12.3
+      vitest:
+        specifier: ^3.1.3
+        version: 3.2.4(@types/node@24.12.3)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(msw@2.14.5(@types/node@24.12.3)(typescript@5.9.3))
+
+  packages/harness-server:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@3.25.76)
+      '@typedance/harness-contracts':
+        specifier: workspace:*
+        version: link:../harness-contracts
+      '@typedance/harness-core':
+        specifier: workspace:*
+        version: link:../harness-core
+    devDependencies:
+      '@types/node':
+        specifier: ^24.12.3
+        version: 24.12.3
       vitest:
         specifier: ^3.1.3
         version: 3.2.4(@types/node@24.12.3)(jiti@2.7.0)(jsdom@25.0.1)(lightningcss@1.32.0)(msw@2.14.5(@types/node@24.12.3)(typescript@5.9.3))

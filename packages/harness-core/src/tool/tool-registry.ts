@@ -1,0 +1,74 @@
+import {
+  harnessToolCallSchema,
+  harnessToolResultSchema,
+  type HarnessToolCall,
+  type HarnessToolOrigin,
+  type HarnessToolResult,
+} from "@typedance/harness-contracts";
+import type { HarnessPermissionRequirement } from "../permission/permission-engine";
+
+export type HarnessToolHandler = (
+  input: Record<string, unknown>,
+  call: HarnessToolCall
+) => Promise<unknown> | unknown;
+
+export type HarnessToolRegistration = {
+  name: string;
+  origin: HarnessToolOrigin;
+  handler: HarnessToolHandler;
+  requiresPermission?: (input: Record<string, unknown>, call: HarnessToolCall) => HarnessPermissionRequirement | undefined;
+};
+
+export type HarnessToolInvocationResult =
+  | { status: "completed"; result: HarnessToolResult }
+  | { status: "failed"; result: HarnessToolResult };
+
+export class HarnessToolRegistry {
+  #tools = new Map<string, HarnessToolRegistration>();
+
+  register(registration: HarnessToolRegistration): HarnessToolRegistration {
+    this.#tools.set(registration.name, registration);
+    return registration;
+  }
+
+  get(name: string): HarnessToolRegistration {
+    const registration = this.#tools.get(name);
+    if (!registration) {
+      throw new Error(`Unknown harness tool: ${name}`);
+    }
+    return registration;
+  }
+
+  parseCall(input: HarnessToolCall): HarnessToolCall {
+    return harnessToolCallSchema.parse(input);
+  }
+
+  async invoke(call: HarnessToolCall): Promise<HarnessToolInvocationResult> {
+    const parsedCall = this.parseCall(call);
+    const registration = this.get(parsedCall.name);
+
+    if (registration.origin !== parsedCall.origin) {
+      throw new Error(`Tool origin mismatch for ${parsedCall.name}: ${parsedCall.origin}`);
+    }
+
+    try {
+      const output = await registration.handler(parsedCall.input, parsedCall);
+      const result = harnessToolResultSchema.parse({
+        tool_call_id: parsedCall.id,
+        status: "completed",
+        output,
+      });
+      return { status: "completed", result };
+    } catch (error) {
+      const result = harnessToolResultSchema.parse({
+        tool_call_id: parsedCall.id,
+        status: "failed",
+        error: {
+          code: "tool_failed",
+          message: error instanceof Error ? error.message : "Tool failed",
+        },
+      });
+      return { status: "failed", result };
+    }
+  }
+}

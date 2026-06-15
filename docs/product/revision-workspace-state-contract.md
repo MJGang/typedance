@@ -336,12 +336,12 @@ onExecuteAction
 
 | 用户动作 | API | 结果 |
 | --- | --- | --- |
-| 导入旧简历 | `POST /documents` + `POST /sources` + `POST /revision-runs` | 创建 Document、Source、RevisionRun |
+| 导入旧简历 | `POST /documents` + `POST /sources` + `POST /packs/resume/runs` | 创建 Document、Source，并由 TS Agent Host 启动 HarnessRun |
 | 点击问题卡 | 无 API | 更新本地 selection |
 | 接受建议 | `POST /proposals/{id}/accept` | 更新 Draft / Issue / RenderProjection |
 | 拒绝建议 | `POST /proposals/{id}/reject` | 更新 Proposal 状态 |
-| 要求更保守 | `POST /proposals/{id}/revise` | 创建新 Proposal 或 RevisionRun |
-| 补充事实 | `POST /contextual-inputs` | 创建 Source 或 RevisionRun |
+| 要求更保守 | `POST /packs/resume/runs` | 当前 pack plugin 生成新 Proposal |
+| 补充事实 | `POST /contextual-inputs` 或 `POST /packs/resume/runs` | 创建 Source，必要时由当前 pack plugin 继续生成 Proposal |
 | 确认主张 | `POST /claims/{id}/confirm` | 更新 Claim / Evidence / Issue |
 | 忽略问题 | `POST /issues/{id}/dismiss` | 更新 Issue 状态 |
 | 导出 PDF | `POST /drafts/{id}/export/pdf` | 创建 ExportArtifact |
@@ -360,7 +360,7 @@ onExecuteAction
 
 ### 10.2 运行中
 
-RevisionRun 运行中时，页面展示分阶段进度：
+HarnessRun 运行中时，页面展示分阶段进度：
 
 ```text
 解析来源

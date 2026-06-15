@@ -10,12 +10,12 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import {
   acceptRevisionProposal,
-  createRevisionRun,
   dismissRevisionIssue,
   exportRevisionDocumentHtml,
   exportRevisionDocumentPdf,
   getRevisionWorkspaceView,
   rejectRevisionProposal,
+  runRevisionIssueAction,
   runRevisionQualityReview,
   updateRevisionDocument,
 } from "@/api"
@@ -59,12 +59,6 @@ function qualityClass(status?: string) {
   if (status === "needs_review") return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300"
   if (status === "ready") return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300"
   return "border-border bg-muted text-muted-foreground"
-}
-
-function runStatusMessage(status?: string) {
-  if (status === "recognizing") return "正在识别模块和建议"
-  if (status === "stale") return "源画布已更新，需要重新识别"
-  return null
 }
 
 function targetMatches(action: ContextualAction, proposal: RevisionProposal) {
@@ -653,12 +647,12 @@ export function RevisionWorkspacePage() {
     const actionId = issueContextActionId(selectedIssue.id)
     setActingActionId(actionId)
     try {
-      await createRevisionRun(workspace.document.id, {
-        run_type: "issue_action",
-        base_draft_id: workspace.current_draft.id,
-        selected_module_id: selectedIssue.module_id,
-        selected_issue_id: selectedIssue.id,
-        user_intent: userIntent,
+      await runRevisionIssueAction({
+        documentId: workspace.document.id,
+        baseDraftId: workspace.current_draft.id,
+        selectedModuleId: selectedIssue.module_id,
+        selectedIssueId: selectedIssue.id,
+        userIntent,
       })
       setIssueContextInput("")
       await loadWorkspace()
@@ -701,7 +695,6 @@ export function RevisionWorkspacePage() {
 
   if (!workspace) return null
   const globalActions = documentLevelActions(workspace.available_actions)
-  const workspaceRunStatusMessage = runStatusMessage(workspace.run_status?.status)
   const exportDisabled = !sourceCanvas || exportingFormat !== null
 
   return (
@@ -847,15 +840,6 @@ export function RevisionWorkspacePage() {
               {qualityLabel(workspace.quality_gate?.status)}
             </span>
           </section>
-
-          {workspaceRunStatusMessage ? (
-            <section>
-              <p className="mb-2 text-xs font-medium text-muted-foreground">状态</p>
-              <div className="rounded-md border border-border bg-muted/30 p-3">
-                <p className="text-sm leading-6 text-muted-foreground">{workspaceRunStatusMessage}</p>
-              </div>
-            </section>
-          ) : null}
 
           <section>
             <p className="mb-2 text-xs font-medium text-muted-foreground">引导</p>

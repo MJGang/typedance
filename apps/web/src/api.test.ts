@@ -5,7 +5,6 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
-
 describe("template api", () => {
   it("loads a template sample", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
@@ -143,10 +142,6 @@ describe("revision api", () => {
         status: "needs_review",
         blocking_issue_ids: [],
         warning_issue_ids: ["issue_1"],
-      },
-      run_status: {
-        run_id: "run_1",
-        status: "completed",
       },
       coach_summary: {
         summary: "还有 1 个问题建议处理。",
@@ -295,7 +290,7 @@ describe("revision api", () => {
     expect(proposal.status).toBe("applied")
   })
 
-  it("imports an old resume through document source run and opens a recognizing workspace view", async () => {
+  it("imports an old resume through document source and opens the workspace view", async () => {
     const responses = [
       {
         id: "doc_import",
@@ -320,13 +315,13 @@ describe("revision api", () => {
       },
       {
         id: "run_import",
-        document_id: "doc_import",
-        pack_id: "resume",
-        run_type: "import_reconstruct",
-        status: "recognizing",
-        source_document_ids: ["src_import"],
-        created_at: "2026-05-21T08:00:00.000Z",
-        updated_at: "2026-05-21T08:00:00.000Z",
+        capability_policy: {
+          scope_ids: ["pack:resume"],
+          plugin_ids: ["resume.agent"],
+        },
+        status: "running",
+        created_at: "2026-06-16T00:00:00.000Z",
+        updated_at: "2026-06-16T00:00:00.000Z",
       },
       {
         document: {
@@ -366,10 +361,6 @@ describe("revision api", () => {
         evidence: [],
         source_summaries: [],
         quality_gate: { status: "unknown", blocking_issue_ids: [], warning_issue_ids: [] },
-        run_status: {
-          run_id: "run_import",
-          status: "recognizing",
-        },
         available_actions: [],
       },
     ]
@@ -408,12 +399,16 @@ describe("revision api", () => {
     })
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
-      "http://127.0.0.1:4317/documents/doc_import/revision-runs",
+      "http://127.0.0.1:4327/packs/resume/runs",
       expect.objectContaining({ method: "POST" }),
     )
     expect(requestBody(2)).toMatchObject({
-      run_type: "import_reconstruct",
-      source_document_ids: ["src_import"],
+      action: "import_old_resume",
+      user_message: "导入旧简历并生成可审阅草稿",
+      context: {
+        document_id: "doc_import",
+        source_document_ids: ["src_import"],
+      },
     })
     expect(fetchMock).toHaveBeenNthCalledWith(
       4,
@@ -422,19 +417,15 @@ describe("revision api", () => {
     expect(workspace.document.current_draft_id).toBeUndefined()
     expect(workspace.current_draft).toBeUndefined()
     expect(workspace.source_resume_canvas?.id).toBe("canvas_import")
-    expect(workspace.run_status).toEqual({
-      run_id: "run_import",
-      status: "recognizing",
-    })
     expect(progressSteps).toEqual([
       "create_document",
       "save_source",
-      "start_recognition",
+      "start_agent",
       "load_workspace",
     ])
   })
 
-  it("imports an old resume file through upload source run and opens a recognizing workspace view", async () => {
+  it("imports an old resume file through upload source and opens the workspace view", async () => {
     const responses = [
       {
         id: "doc_import",
@@ -461,13 +452,13 @@ describe("revision api", () => {
       },
       {
         id: "run_import",
-        document_id: "doc_import",
-        pack_id: "resume",
-        run_type: "import_reconstruct",
-        status: "recognizing",
-        source_document_ids: ["src_import"],
-        created_at: "2026-05-21T08:00:00.000Z",
-        updated_at: "2026-05-21T08:00:00.000Z",
+        capability_policy: {
+          scope_ids: ["pack:resume"],
+          plugin_ids: ["resume.agent"],
+        },
+        status: "running",
+        created_at: "2026-06-16T00:00:00.000Z",
+        updated_at: "2026-06-16T00:00:00.000Z",
       },
       {
         document: {
@@ -507,10 +498,6 @@ describe("revision api", () => {
         evidence: [],
         source_summaries: [],
         quality_gate: { status: "unknown", blocking_issue_ids: [], warning_issue_ids: [] },
-        run_status: {
-          run_id: "run_import",
-          status: "recognizing",
-        },
         available_actions: [],
       },
     ]
@@ -537,14 +524,14 @@ describe("revision api", () => {
     expect(workspace.document.current_draft_id).toBeUndefined()
     expect(workspace.current_draft).toBeUndefined()
     expect(workspace.source_resume_canvas?.id).toBe("canvas_import")
-    expect(workspace.run_status).toEqual({
-      run_id: "run_import",
-      status: "recognizing",
-    })
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "http://127.0.0.1:4317/documents/doc_import/workspace-view",
+    )
     expect(progressSteps).toEqual([
       "create_document",
       "save_source",
-      "start_recognition",
+      "start_agent",
       "load_workspace",
     ])
   })
@@ -574,14 +561,13 @@ describe("revision api", () => {
       },
       {
         id: "run_guided",
-        document_id: "doc_guided",
-        pack_id: "resume",
-        run_type: "blank_guided_generate",
-        status: "completed",
-        source_document_ids: ["src_guided"],
-        target_draft_id: "draft_guided",
-        created_at: "2026-05-21T08:00:00.000Z",
-        updated_at: "2026-05-21T08:00:00.000Z",
+        capability_policy: {
+          scope_ids: ["pack:resume"],
+          plugin_ids: ["resume.agent"],
+        },
+        status: "running",
+        created_at: "2026-06-16T00:00:00.000Z",
+        updated_at: "2026-06-16T00:00:00.000Z",
       },
       {
         document: {
@@ -590,19 +576,7 @@ describe("revision api", () => {
           title: "新简历",
           status: "active",
           target_language: "zh-CN",
-          current_draft_id: "draft_guided",
-          created_at: "2026-05-21T08:00:00.000Z",
-          updated_at: "2026-05-21T08:00:00.000Z",
-        },
-        current_draft: {
-          id: "draft_guided",
-          document_id: "doc_guided",
-          run_id: "run_guided",
-          pack_id: "resume",
-          status: "in_review",
-          summary: "基于引导信息生成的基础简历初稿",
-          applied_proposal_ids: [],
-          unresolved_issue_ids: [],
+          current_draft_id: null,
           created_at: "2026-05-21T08:00:00.000Z",
           updated_at: "2026-05-21T08:00:00.000Z",
         },
@@ -640,135 +614,24 @@ describe("revision api", () => {
       source_type: "manual_user_input",
       raw_text: "姓名: 张三\n目标方向: 前端工程师\n技能: Vue3、TypeScript",
     })
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://127.0.0.1:4327/packs/resume/runs",
+      expect.objectContaining({ method: "POST" }),
+    )
     expect(requestBody(2)).toMatchObject({
-      run_type: "blank_guided_generate",
-      source_document_ids: ["src_guided"],
+      action: "blank_guided_generate",
+      user_message: "从空白引导生成基础简历",
+      context: {
+        document_id: "doc_guided",
+        source_document_ids: ["src_guided"],
+      },
     })
     expect(fetchMock).toHaveBeenNthCalledWith(
       4,
       "http://127.0.0.1:4317/documents/doc_guided/workspace-view",
     )
-    expect(workspace.document.current_draft_id).toBe("draft_guided")
-  })
-
-  it("runs a revision quality review", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
-      id: "run_review",
-      document_id: "doc_1",
-      pack_id: "resume",
-      run_type: "quality_review",
-      status: "completed",
-      source_document_ids: [],
-      base_draft_id: "draft_1",
-      target_draft_id: "draft_1",
-      created_at: "2026-05-21T08:00:00.000Z",
-      updated_at: "2026-05-21T08:00:00.000Z",
-    }))))
-
-    const { runRevisionQualityReview } = await import("./api")
-    const run = await runRevisionQualityReview("doc_1", "draft_1")
-
-    expect(fetch).toHaveBeenCalledWith(
-      "http://127.0.0.1:4317/documents/doc_1/revision-runs",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          run_type: "quality_review",
-          base_draft_id: "draft_1",
-          user_intent: "运行基础质量检查",
-        }),
-      },
-    )
-    expect(run.status).toBe("completed")
-  })
-
-  it("calibrates an opportunity from external context", async () => {
-    const responses = [
-      {
-        id: "src_opp",
-        document_id: "doc_1",
-        source_type: "external_context",
-        title: "前端岗位",
-        mime_type: "text/plain",
-        raw_text: "要求：React、TypeScript",
-        parse_status: "recognized",
-        created_at: "2026-05-21T08:00:00.000Z",
-      },
-      {
-        id: "run_opp",
-        document_id: "doc_1",
-        pack_id: "resume",
-        run_type: "opportunity_calibrate",
-        status: "completed",
-        source_document_ids: ["src_opp"],
-        base_draft_id: "draft_1",
-        target_draft_id: "draft_opp",
-        created_at: "2026-05-21T08:00:00.000Z",
-        updated_at: "2026-05-21T08:00:00.000Z",
-      },
-      {
-        document: {
-          id: "doc_1",
-          pack_id: "resume",
-          title: "基础简历",
-          status: "active",
-          target_language: "zh-CN",
-          current_draft_id: "draft_opp",
-          created_at: "2026-05-21T08:00:00.000Z",
-          updated_at: "2026-05-21T08:00:00.000Z",
-        },
-        current_draft: {
-          id: "draft_opp",
-          document_id: "doc_1",
-          run_id: "run_opp",
-          pack_id: "resume",
-          status: "in_review",
-          summary: "前端岗位岗位版本",
-          applied_proposal_ids: [],
-          unresolved_issue_ids: [],
-          variant_type: "opportunity",
-          created_at: "2026-05-21T08:00:00.000Z",
-          updated_at: "2026-05-21T08:00:00.000Z",
-        },
-        modules: [],
-        claims: [],
-        issues: [],
-        proposals: [],
-        evidence: [],
-        source_summaries: [],
-        quality_gate: { status: "needs_review", blocking_issue_ids: [], warning_issue_ids: [] },
-        available_actions: [],
-      },
-    ]
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(responses.shift())))
-    vi.stubGlobal("fetch", fetchMock)
-    const requestBody = (callIndex: number) => {
-      const init = (fetchMock.mock.calls[callIndex] as unknown as [string, RequestInit?])[1]
-      if (typeof init?.body !== "string") throw new Error("Expected JSON request body")
-      return JSON.parse(init.body)
-    }
-
-    const { calibrateRevisionOpportunity } = await import("./api")
-    const workspace = await calibrateRevisionOpportunity("doc_1", "draft_1", {
-      title: "前端岗位",
-      raw_text: "要求：React、TypeScript",
-    })
-
-    expect(requestBody(0)).toMatchObject({
-      source_type: "external_context",
-      title: "前端岗位",
-    })
-    expect(requestBody(1)).toMatchObject({
-      run_type: "opportunity_calibrate",
-      base_draft_id: "draft_1",
-      source_document_ids: ["src_opp"],
-    })
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      "http://127.0.0.1:4317/documents/doc_1/workspace-view",
-    )
-    expect(workspace.current_draft?.variant_type).toBe("opportunity")
+    expect(workspace.document.current_draft_id).toBeUndefined()
   })
 
   it("exports a revision document PDF with the current canvas and page margins", async () => {
@@ -890,139 +753,5 @@ describe("revision api", () => {
     })
 
     createElementMock.mockRestore()
-  })
-
-  it("projects a legacy resume into a revision workspace", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
-      document: {
-        id: "doc_legacy_resume_1",
-        pack_id: "resume",
-        title: "旧简历",
-        status: "active",
-        target_language: "zh-CN",
-        current_draft_id: "draft_legacy_resume_1",
-        accepted_draft_id: "draft_legacy_resume_1",
-        created_at: "2026-05-21T08:00:00.000Z",
-        updated_at: "2026-05-21T08:00:00.000Z",
-      },
-      current_draft: {
-        id: "draft_legacy_resume_1",
-        document_id: "doc_legacy_resume_1",
-        run_id: "run_legacy_resume_1",
-        pack_id: "resume",
-        status: "accepted",
-        summary: "旧简历兼容投影",
-        applied_proposal_ids: [],
-        unresolved_issue_ids: [],
-        variant_type: "base",
-        created_at: "2026-05-21T08:00:00.000Z",
-        updated_at: "2026-05-21T08:00:00.000Z",
-      },
-      modules: [],
-      claims: [],
-      issues: [],
-      proposals: [],
-      evidence: [],
-      source_summaries: [],
-      quality_gate: { status: "ready", blocking_issue_ids: [], warning_issue_ids: [] },
-      available_actions: [],
-    }))))
-
-    const { projectLegacyResumeToRevisionWorkspace } = await import("./api")
-    const workspace = await projectLegacyResumeToRevisionWorkspace("resume_1")
-
-    expect(fetch).toHaveBeenCalledWith(
-      "http://127.0.0.1:4317/legacy/resume-versions/resume_1/revision-document",
-      { method: "POST" },
-    )
-    expect(workspace.document.id).toBe("doc_legacy_resume_1")
-  })
-})
-
-describe("model settings api", () => {
-  it("loads redacted model settings", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
-      config_path: "C:/Users/test/.typedance/config.toml",
-      auth_path: "C:/Users/test/.typedance/auth.json",
-      model: {
-        provider: "deepseek",
-        model: "deepseek-v4-flash",
-        base_url: "https://api.deepseek.com",
-        temperature: 0,
-        timeout_seconds: 120,
-        structured_output: true,
-      },
-      agents: {
-        parser: "auto",
-        structurer: "auto",
-        reviewer: "auto",
-        rewriter: "auto",
-        opportunity_calibrator: "auto",
-      },
-      api_key: {
-        configured: true,
-        source: "auth_json",
-        preview: "...a9f2",
-      },
-    }))))
-
-    const { getModelSettings } = await import("./api")
-    const settings = await getModelSettings()
-
-    expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:4317/settings/model")
-    expect(settings.model.model).toBe("deepseek-v4-flash")
-  })
-
-  it("saves model settings with an optional api key", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
-      config_path: "C:/Users/test/.typedance/config.toml",
-      auth_path: "C:/Users/test/.typedance/auth.json",
-      model: {
-        provider: "openai",
-        model: "gpt-5.4",
-        base_url: null,
-        temperature: 0,
-        timeout_seconds: 120,
-        structured_output: true,
-      },
-      agents: {
-        parser: "langchain",
-        structurer: "auto",
-        reviewer: "auto",
-        rewriter: "auto",
-        opportunity_calibrator: "auto",
-      },
-      api_key: {
-        configured: true,
-        source: "auth_json",
-        preview: "...a9f2",
-      },
-    }))))
-
-    const { saveModelSettings } = await import("./api")
-    await saveModelSettings({
-      model: {
-        provider: "openai",
-        model: "gpt-5.4",
-        base_url: null,
-        temperature: 0,
-        timeout_seconds: 120,
-        structured_output: true,
-      },
-      agents: {
-        parser: "langchain",
-        structurer: "auto",
-        reviewer: "auto",
-        rewriter: "auto",
-        opportunity_calibrator: "auto",
-      },
-      api_key: "sk-test-a9f2",
-    })
-
-    expect(fetch).toHaveBeenCalledWith(
-      "http://127.0.0.1:4317/settings/model",
-      expect.objectContaining({ method: "PUT" }),
-    )
-    expect(JSON.parse((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].body).api_key).toBe("sk-test-a9f2")
   })
 })

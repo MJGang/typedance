@@ -140,7 +140,7 @@ DocumentClaim
 EvidenceLink
 主张与来源之间的证据关系。
 
-RevisionRun
+HarnessRun
 一次可追踪、可恢复、可解释的改稿任务。
 
 RevisionIssue

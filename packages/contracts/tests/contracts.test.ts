@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  agentModeSchema,
-  agentStepSchema,
   documentClaimSchema,
   documentModuleSchema,
   documentPackSchema,
@@ -10,9 +8,6 @@ import {
   evidenceLinkSchema,
   exportArtifactSchema,
   languageSchema,
-  modelProviderSchema,
-  modelSettingsResponseSchema,
-  modelSettingsUpdateSchema,
   parsedBlockSchema,
   renderProjectionSchema,
   resumePackDefinition,
@@ -20,7 +15,6 @@ import {
   resumeVersionSchema,
   revisionIssueSchema,
   revisionProposalSchema,
-  revisionRunSchema,
   sourceResumeCanvasSchema,
   sourceDocumentSchema,
   templateSampleContentSchema,
@@ -35,7 +29,6 @@ describe("shared schemas", () => {
     expect(() => languageSchema.parse("fr-FR")).toThrow();
   });
 });
-
 describe("resumeVersionSchema", () => {
   it("accepts a minimal valid resume version", () => {
     const parsed = resumeVersionSchema.parse({
@@ -55,7 +48,6 @@ describe("resumeVersionSchema", () => {
     expect(parsed.accepted_edit_ids).toEqual([]);
   });
 });
-
 describe("templateSampleContentSchema", () => {
   it("validates template sample content", () => {
     const parsed = templateSampleContentSchema.parse({
@@ -337,54 +329,13 @@ describe("revision run and workspace schemas", () => {
     ).toThrow();
   });
 
-  it("accepts stale revision runs for outdated source canvas recognition", () => {
-    const run = revisionRunSchema.parse({
-      id: "run_stale",
-      document_id: "doc_1",
-      pack_id: "resume",
-      run_type: "import_reconstruct",
-      status: "stale",
-      source_document_ids: ["src_1"],
-      input_source_canvas_id: "canvas_1",
-      input_source_canvas_version: 1,
-      created_at: "2026-05-21T08:00:00.000Z",
-      updated_at: "2026-05-21T08:00:00.000Z",
-    });
-
-    expect(run.status).toBe("stale");
-    expect(run.input_source_canvas_version).toBe(1);
-  });
-
-  it("validates run, draft, render projection, export artifact, and workspace view", () => {
-    const run = revisionRunSchema.parse({
-      id: "run_1",
-      document_id: "doc_1",
-      pack_id: "resume",
-      run_type: "import_reconstruct",
-      status: "recognizing",
-      source_document_ids: ["src_1"],
-      input_source_canvas_id: "canvas_1",
-      input_source_canvas_version: 1,
-      target_draft_id: "draft_1",
-      created_at: "2026-05-21T08:00:00.000Z",
-      updated_at: "2026-05-21T08:00:00.000Z",
-    });
-
-    const step = agentStepSchema.parse({
-      id: "step_1",
-      run_id: run.id,
-      agent_name: "ResumeReviewer",
-      status: "completed",
-      input_refs: ["draft_1"],
-      output_refs: ["issue_1"],
-      started_at: "2026-05-21T08:00:00.000Z",
-      finished_at: "2026-05-21T08:00:01.000Z",
-    });
+  it("validates draft, render projection, export artifact, and workspace view", () => {
+    const harnessRunId = "hrun_1";
 
     const draft = draftVersionSchema.parse({
       id: "draft_1",
       document_id: "doc_1",
-      run_id: run.id,
+      run_id: harnessRunId,
       pack_id: "resume",
       status: "in_review",
       summary: "新版基础简历草稿",
@@ -452,11 +403,6 @@ describe("revision run and workspace schemas", () => {
         blocking_issue_ids: [],
         warning_issue_ids: ["issue_1"],
       },
-      run_status: {
-        run_id: run.id,
-        status: run.status,
-        current_step: step.agent_name,
-      },
       coach_summary: {
         summary: "这份简历已经生成，可以先处理 1 个问题。",
         next_action_ids: [],
@@ -464,8 +410,6 @@ describe("revision run and workspace schemas", () => {
       available_actions: [],
     });
 
-    expect(run.input_source_canvas_id).toBe("canvas_1");
-    expect(run.input_source_canvas_version).toBe(1);
     expect(workspace.current_draft?.id).toBe(draft.id);
     expect(workspace.source_resume_canvas?.id).toBe("canvas_1");
     expect(artifact.status).toBe("succeeded");
@@ -493,7 +437,10 @@ describe("document pack schemas", () => {
 
   it("validates a generic document pack", () => {
     const parsed = documentPackSchema.parse(resumePackDefinition);
-    expect(parsed.agent_contracts.map((item) => item.agent_name)).toContain("ResumeReviewer");
+    expect(parsed.actions.find((item) => item.action_type === "request_user_input")).toEqual({
+      action_type: "request_user_input",
+      label: "补充事实",
+    });
   });
 });
 
@@ -559,60 +506,5 @@ describe("AI-native contract guardrails", () => {
 
     expect(legacy.doc_json).toEqual({ type: "doc", content: [] });
     expect(draft.id).toBe("draft_new");
-  });
-});
-
-describe("model settings schemas", () => {
-  it("validates a redacted model settings response", () => {
-    const parsed = modelSettingsResponseSchema.parse({
-      config_path: "C:/Users/test/.typedance/config.toml",
-      auth_path: "C:/Users/test/.typedance/auth.json",
-      model: {
-        provider: "deepseek",
-        model: "deepseek-v4-flash",
-        base_url: "https://api.deepseek.com",
-        temperature: 0,
-        timeout_seconds: 120,
-        structured_output: true,
-      },
-      agents: {
-        parser: "auto",
-        structurer: "auto",
-        reviewer: "auto",
-        rewriter: "auto",
-        opportunity_calibrator: "auto",
-      },
-      api_key: {
-        configured: true,
-        source: "auth_json",
-        preview: "...a9f2",
-      },
-    });
-
-    expect(parsed.model.model).toBe("deepseek-v4-flash");
-    expect(parsed.api_key.preview).toBe("...a9f2");
-  });
-
-  it("validates settings update without requiring an api key", () => {
-    const parsed = modelSettingsUpdateSchema.parse({
-      model: {
-        provider: "openai",
-        model: "gpt-5.4",
-        base_url: null,
-        temperature: 0.1,
-        timeout_seconds: 90,
-        structured_output: true,
-      },
-      agents: {
-        parser: "langchain",
-        structurer: "auto",
-        reviewer: "auto",
-        rewriter: "rule",
-        opportunity_calibrator: "auto",
-      },
-    });
-
-    expect(modelProviderSchema.parse("openai")).toBe("openai");
-    expect(agentModeSchema.parse(parsed.agents.rewriter)).toBe("rule");
   });
 });

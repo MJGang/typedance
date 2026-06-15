@@ -91,12 +91,12 @@ AgentOutputEnvelope<T> {
 3. `warnings` 不得作为唯一风险承载，高风险必须转为 `RevisionIssue`。
 4. 校验失败时不能写入 Draft、Issue、Proposal、Evidence。
 
-## 4. AgentStep 状态
+## 4. HarnessEvent 状态
 
-每次 Agent 调用都必须记录为 `AgentStep`。
+每次 Agent 调用都必须记录为 `HarnessEvent`。
 
 ```ts
-AgentStep {
+HarnessEvent {
   id: string
   run_id: string
   agent_name: string
@@ -608,7 +608,7 @@ raw model output
 -> normalize refs
 -> domain policy check
 -> write domain objects
--> update AgentStep
+-> update HarnessEvent
 -> emit events
 ```
 
@@ -618,8 +618,8 @@ raw model output
 不写 Draft
 不应用 Proposal
 不更新 accepted 状态
-记录 AgentStep error
-RevisionRun 进入 failed_retryable 或 failed_final
+记录 HarnessEvent error
+HarnessRun status = failed
 ```
 
 ## 15. Policy Guard
@@ -662,7 +662,7 @@ Agent 层达到目标形态时，应满足：
 
 1. 每个 Agent 有明确输入对象。
 2. 每个 Agent 有明确输出 schema。
-3. 每次 Agent 调用都有 AgentStep。
+3. 每次 Agent 调用都有 HarnessEvent。
 4. Agent 输出不能绕过领域服务落库。
 5. Agent 不能直接写 accepted Draft。
 6. 强主张必须走 Evidence 或 Confirmation。

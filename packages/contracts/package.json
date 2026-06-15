@@ -16,6 +16,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@typedance/harness-contracts": "workspace:*",
     "zod": "^3.25.0"
   },
   "devDependencies": {
