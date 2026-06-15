@@ -347,6 +347,39 @@ describe("DraftCanvas", () => {
     })
   })
 
+  it("edits the numeric page margin label while keeping the px unit fixed", async () => {
+    const onChange = vi.fn()
+    render(<DraftCanvas canvas={canvas} onChange={onChange} saveStatus="idle" />)
+    showPageMarginGuides()
+
+    fireEvent.click(screen.getByTestId("page-margin-label-top"))
+
+    const input = screen.getByTestId("page-margin-input-top")
+    expect(input).toHaveValue("76")
+    expect(screen.getByTestId("page-margin-unit-top")).toHaveTextContent("px")
+
+    fireEvent.change(input, { target: { value: "128px" } })
+    expect(input).toHaveValue("128")
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    expect(screen.getByRole("button", { name: "拖拽上边距，当前 128px" })).toBeInTheDocument()
+    expect(editorMocks.updatePageMargins).toHaveBeenLastCalledWith({
+      top: 128,
+      bottom: 76,
+      left: 50,
+      right: 50,
+    })
+    expect(onChange).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(localStorage.getItem("typedance:revision-workspace:page-margins:doc_1")).toBe(JSON.stringify({
+        top: 128,
+        bottom: 76,
+        left: 50,
+        right: 50,
+      }))
+    })
+  })
+
   it("raises the active margin guide above crossing guides while dragging", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
     showPageMarginGuides()

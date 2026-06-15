@@ -1,8 +1,11 @@
 import {
+  type ChangeEvent,
+  Fragment,
   useEffect,
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react"
 import type { PageMargins, PageSize } from "./pageMargins"
@@ -32,6 +35,11 @@ type DragState = {
   latest: PageMargins
 }
 
+type EditingState = {
+  side: MarginSide
+  value: string
+}
+
 const GUIDE_HIT_SIZE = 24
 const GUIDE_HOVER_COLOR = "rgba(224, 242, 254, 0.48)"
 const GUIDE_DRAG_COLOR = "rgba(224, 242, 254, 0.9)"
@@ -59,7 +67,7 @@ function getGuidePosition(side: MarginSide, margins: PageMargins, pageBounds: Pa
 
 function getDraggedMargins(
   dragState: DragState,
-  event: ReactPointerEvent<HTMLButtonElement>,
+  event: ReactPointerEvent<HTMLElement>,
   pageBounds: PageBounds,
   pageSize: PageSize,
 ) {
@@ -135,6 +143,25 @@ function guideLineClassName(side: MarginSide) {
     : "absolute left-0 top-1/2 w-full border-t border-dashed border-blue-500"
 }
 
+function guideLabelStyle(side: MarginSide, position: number, pageBounds: PageBounds): CSSProperties {
+  const vertical = side === "left" || side === "right"
+  return vertical
+    ? {
+      left: position,
+      top: pageBounds.height / 2,
+      transform: "translate(-50%, -50%)",
+    }
+    : {
+      left: pageBounds.width / 2,
+      top: position,
+      transform: "translate(-50%, -50%)",
+    }
+}
+
+function digitsOnly(value: string) {
+  return value.replace(/\D/g, "")
+}
+
 export function PageMarginGuides({
   margins,
   pageBounds,
@@ -145,18 +172,20 @@ export function PageMarginGuides({
   const [draggingSide, setDraggingSide] = useState<MarginSide | null>(null)
   const [hoveredSide, setHoveredSide] = useState<MarginSide | null>(null)
   const [temporaryMargins, setTemporaryMargins] = useState(margins)
+  const [editingState, setEditingState] = useState<EditingState | null>(null)
 
   useEffect(() => {
-    if (dragStateRef.current) return
+    if (dragStateRef.current || editingState) return
     setTemporaryMargins(margins)
   }, [
+    editingState,
     margins.bottom,
     margins.left,
     margins.right,
     margins.top,
   ])
 
-  const handlePointerDown = (side: MarginSide, event: ReactPointerEvent<HTMLButtonElement>) => {
+  const handlePointerDown = (side: MarginSide, event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0 || dragStateRef.current) return
 
     const initialMargins = clampPageMargins(temporaryMargins, pageSize)
@@ -173,7 +202,7 @@ export function PageMarginGuides({
     event.currentTarget.setPointerCapture?.(event.pointerId)
   }
 
-  const handlePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const handlePointerMove = (event: ReactPointerEvent<HTMLElement>) => {
     const dragState = dragStateRef.current
     if (!dragState || dragState.pointerId !== event.pointerId) return
 
@@ -185,7 +214,7 @@ export function PageMarginGuides({
     event.stopPropagation()
   }
 
-  const finishDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const finishDrag = (event: ReactPointerEvent<HTMLElement>) => {
     const dragState = dragStateRef.current
     if (!dragState || dragState.pointerId !== event.pointerId) return
 
@@ -203,6 +232,47 @@ export function PageMarginGuides({
     event.stopPropagation()
   }
 
+  const startEditing = (side: MarginSide) => {
+    if (dragStateRef.current) return
+    setEditingState({ side, value: String(temporaryMargins[side]) })
+  }
+
+  const commitEditing = (side: MarginSide, rawValue: string) => {
+    const nextValue = digitsOnly(rawValue)
+    setEditingState(null)
+    if (nextValue === "") return
+
+    const nextMargins = clampPageMargins({
+      ...temporaryMargins,
+      [side]: Number.parseInt(nextValue, 10),
+    }, pageSize)
+    setTemporaryMargins(nextMargins)
+    onMarginsChange(nextMargins)
+  }
+
+  const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = digitsOnly(event.target.value)
+    setEditingState((current) => (current ? { ...current, value } : current))
+  }
+
+  const handleInputKeyDown = (
+    side: MarginSide,
+    event: KeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (event.key === "Enter") {
+      commitEditing(side, event.currentTarget.value)
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
+
+    if (event.key === "Escape") {
+      setEditingState(null)
+      event.preventDefault()
+      event.stopPropagation()
+    }
+  }
+
   return (
     <div
       role="group"
@@ -217,16 +287,18 @@ export function PageMarginGuides({
     >
       {(["top", "bottom", "left", "right"] as MarginSide[]).map((side) => {
         const value = temporaryMargins[side]
+        const position = getGuidePosition(side, temporaryMargins, pageBounds, pageSize)
         const dragging = draggingSide === side
         const raised = dragging || (draggingSide === null && hoveredSide === side)
+        const editing = editingState?.side === side
         const surfaceState = dragging
           ? "dragging"
           : hoveredSide === side
             ? "hovered"
             : null
         return (
+          <Fragment key={side}>
           <button
-            key={side}
             type="button"
             aria-label={`拖拽${SIDE_LABELS[side]}，当前 ${value}px`}
             title={`${SIDE_LABELS[side]} ${value}px`}
@@ -234,7 +306,7 @@ export function PageMarginGuides({
             data-testid={`page-margin-guide-${side}`}
             className={guideClassName(side, raised)}
             style={{
-              ...guideStyle(side, getGuidePosition(side, temporaryMargins, pageBounds, pageSize), pageBounds),
+              ...guideStyle(side, position, pageBounds),
               ...guideSurfaceStyle(side, surfaceState),
             }}
             onPointerEnter={() => setHoveredSide(side)}
@@ -247,13 +319,55 @@ export function PageMarginGuides({
             onPointerCancel={finishDrag}
           >
             <span aria-hidden="true" className={guideLineClassName(side)} />
-            <span
-              aria-hidden="true"
-              className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded bg-neutral-950 px-2 py-1 text-[11px] font-medium leading-none text-white shadow-sm"
+          </button>
+          {editing ? (
+            <label
+              key={`${side}-input`}
+              className="pointer-events-auto absolute z-40 inline-flex h-5 items-center rounded bg-neutral-950 px-1.5 py-0.5 text-[11px] font-medium leading-none text-white shadow-sm"
+              data-testid={`page-margin-editor-${side}`}
+              style={guideLabelStyle(side, position, pageBounds)}
+              onPointerDown={(event) => {
+                event.stopPropagation()
+              }}
+            >
+              <input
+                autoFocus
+                aria-label={`Edit ${side} margin value`}
+                className="h-4 min-w-5 bg-transparent p-0 text-center font-medium leading-none text-white outline-none"
+                data-testid={`page-margin-input-${side}`}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                style={{ width: `${Math.max(2, editingState.value.length)}ch` }}
+                value={editingState.value}
+                onBlur={(event) => commitEditing(side, event.currentTarget.value)}
+                onChange={handleInputChange}
+                onFocus={(event) => event.currentTarget.select()}
+                onKeyDown={(event) => handleInputKeyDown(side, event)}
+              />
+              <span data-testid={`page-margin-unit-${side}`}>px</span>
+            </label>
+          ) : (
+            <button
+              key={`${side}-label`}
+              type="button"
+              aria-label={`Edit ${side} margin value`}
+              className="pointer-events-auto absolute z-40 rounded bg-neutral-950 px-2 py-1 text-[11px] font-medium leading-none text-white shadow-sm"
+              data-testid={`page-margin-label-${side}`}
+              style={guideLabelStyle(side, position, pageBounds)}
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                startEditing(side)
+              }}
+              onPointerDown={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+              }}
             >
               {value}px
-            </span>
-          </button>
+            </button>
+          )}
+          </Fragment>
         )
       })}
     </div>
