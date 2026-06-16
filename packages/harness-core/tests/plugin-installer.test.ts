@@ -16,14 +16,14 @@ describe("HarnessPluginInstaller", () => {
         name: "Alpha Agent",
         version: "0.1.0",
         module_format: "esm",
-        scopes: ["workspace:alpha"],
+        scopes: ["context:alpha"],
         skills: [
           {
-            id: "alpha.workspace",
-            name: "Workspace Reader",
-            description: "Read the active workspace.",
-            instruction_files: ["skills/workspace.md"],
-            tool_names: ["alpha.readWorkspace"],
+            id: "alpha.context",
+            name: "Context Reader",
+            description: "Read the active context.",
+            instruction_files: ["skills/context.md"],
+            tool_names: ["alpha.readContext"],
           },
         ],
         agents: [
@@ -31,7 +31,7 @@ describe("HarnessPluginInstaller", () => {
             id: "alpha.primary",
             name: "Alpha Primary Agent",
             role: "primary",
-            skill_ids: ["alpha.workspace"],
+            skill_ids: ["alpha.context"],
           },
         ],
         mcp_servers: [
@@ -46,7 +46,7 @@ describe("HarnessPluginInstaller", () => {
       }),
       "utf8"
     );
-    await writeFile(join(pluginDir, "skills", "workspace.md"), "Read workspace state before acting.", "utf8");
+    await writeFile(join(pluginDir, "skills", "context.md"), "Read context state before acting.", "utf8");
 
     const loader = new HarnessPluginFileLoader(root);
     const runtime = createHarnessRuntime({
@@ -65,23 +65,23 @@ describe("HarnessPluginInstaller", () => {
     await installer.installPlugin(runtime, "alpha");
 
     const context = await runtime.buildAgentSkillContext({
-      policy: { scopeIds: ["workspace:alpha"] },
+      policy: { scopeIds: ["context:alpha"] },
       agentId: "alpha.primary",
     });
-    expect(context.skills.map((skill) => skill.id)).toEqual(["alpha.workspace"]);
+    expect(context.skills.map((skill) => skill.id)).toEqual(["alpha.context"]);
 
     const run = runtime.createRun({
-      capability_policy: { scope_ids: ["workspace:alpha"] },
-      user_message: "Read workspace",
+      capability_policy: { scope_ids: ["context:alpha"] },
+      user_message: "Read context",
     });
     const result = await runtime.invokeAgentTool({
       runId: run.id,
       agentId: "alpha.primary",
       call: {
         id: "tool_call_1",
-        name: "alpha.readWorkspace",
+        name: "alpha.readContext",
         origin: "mcp",
-        input: { workspace_id: "workspace_1" },
+        input: { context_id: "context_1" },
       },
     });
 
@@ -90,8 +90,8 @@ describe("HarnessPluginInstaller", () => {
       throw new Error("expected completed result");
     }
     expect(result.result.output).toEqual({
-      toolName: "alpha.readWorkspace",
-      input: { workspace_id: "workspace_1" },
+      toolName: "alpha.readContext",
+      input: { context_id: "context_1" },
     });
   });
 });

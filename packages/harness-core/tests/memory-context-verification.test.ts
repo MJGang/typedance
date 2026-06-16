@@ -3,7 +3,7 @@ import { createHarnessRuntime } from "../src";
 
 const fixedNow = () => new Date("2026-06-15T08:00:00.000Z");
 
-describe("harness memory, workspace, and verification services", () => {
+describe("harness memory and verification services", () => {
   it("records scoped memory and emits memory update events", () => {
     const runtime = createHarnessRuntime({ now: fixedNow });
     const run = runtime.createRun({
@@ -23,20 +23,6 @@ describe("harness memory, workspace, and verification services", () => {
     expect(runtime.getEvents(run.id).at(-1)?.type).toBe("memory.updated");
   });
 
-  it("delegates workspace operations to the configured workspace adapter", async () => {
-    const runtime = createHarnessRuntime({
-      workspace: {
-        readText: async (uri) => `text:${uri}`,
-        search: async (query) => [{ uri: "file:///workspace.txt", score: 0.8, snippet: query }],
-      },
-    });
-
-    await expect(runtime.workspace.readText("file:///workspace.txt")).resolves.toBe("text:file:///workspace.txt");
-    await expect(runtime.workspace.search("workspace")).resolves.toEqual([
-      { uri: "file:///workspace.txt", score: 0.8, snippet: "workspace" },
-    ]);
-  });
-
   it("runs verification recipes and emits verification events", async () => {
     const runtime = createHarnessRuntime({ now: fixedNow });
     runtime.registerVerification({
@@ -52,7 +38,7 @@ describe("harness memory, workspace, and verification services", () => {
       user_message: "Check quality",
     });
 
-    const result = await runtime.runVerification(run.id, "quality.check", { workspace_id: "workspace_1" });
+    const result = await runtime.runVerification(run.id, "quality.check", { context_id: "context_1" });
 
     expect(result.status).toBe("passed");
     expect(runtime.getEvents(run.id).map((event) => event.type)).toEqual([

@@ -44,6 +44,7 @@ export type { DraftCanvasSaveStatus } from "./DraggableModuleOutline"
 
 type DraftCanvasProps = {
   canvas: SourceResumeCanvas
+  patchFlash?: CanvasPatchFlash | null
   onChange: (change: ResumeEditorChange) => void
   onPageMarginsChange?: (margins: PageMargins) => void
   onRetrySave?: () => void
@@ -56,6 +57,13 @@ type Size = { width: number; height: number }
 type PageNavigationState = {
   currentPageIndex: number
   pageTops: number[]
+}
+
+export type CanvasPatchFlash = {
+  sequence: number
+  canvasNodeIds?: string[]
+  sourceBlockIds?: string[]
+  moduleIds?: string[]
 }
 
 type OutlineAnchorWithLevel = ModuleAnchor & {
@@ -158,6 +166,21 @@ function getSourceCanvasViewport(root: HTMLElement): HTMLElement | null {
 
 function getEditorPrintWrapper(root: HTMLElement): HTMLElement | null {
   return root.querySelector<HTMLElement>(".td-editor-print-wrapper")
+}
+
+function getCanvasPatchFlashTargets(root: HTMLElement, flash: CanvasPatchFlash): HTMLElement[] {
+  const canvasNodeIds = new Set(flash.canvasNodeIds ?? [])
+  const sourceBlockIds = new Set(flash.sourceBlockIds ?? [])
+  const moduleIds = new Set(flash.moduleIds ?? [])
+  if (canvasNodeIds.size === 0 && sourceBlockIds.size === 0 && moduleIds.size === 0) {
+    return []
+  }
+  return Array.from(root.querySelectorAll<HTMLElement>("[data-canvas-node-id], [data-source-block-id], [data-module-id]"))
+    .filter((element) => (
+      canvasNodeIds.has(element.getAttribute("data-canvas-node-id") ?? "")
+      || sourceBlockIds.has(element.getAttribute("data-source-block-id") ?? "")
+      || moduleIds.has(element.getAttribute("data-module-id") ?? "")
+    ))
 }
 
 function readPositivePixelVariable(element: HTMLElement, name: string): number | null {
@@ -346,6 +369,7 @@ function SourceCanvasPageNavigator({
 
 function DraftCanvasWorkspace({
   canvas,
+  patchFlash,
   onChange,
   onPageMarginsChange,
   onRetrySave,
@@ -577,6 +601,33 @@ function DraftCanvasWorkspace({
 
     setOutlineExpanded(false)
   }, [outlineExpanded])
+
+  useEffect(() => {
+    if (!patchFlash) return
+    const root = canvasRootRef.current
+    if (!root) return
+
+    const targets = getCanvasPatchFlashTargets(root, patchFlash)
+    const flashTargets = targets.length > 0
+      ? targets
+      : [root.querySelector<HTMLElement>(".td-rich-editor-content") ?? root]
+    for (const target of flashTargets) {
+      target.classList.remove("td-ai-canvas-flash")
+      void target.offsetWidth
+      target.classList.add("td-ai-canvas-flash")
+    }
+    const timeout = window.setTimeout(() => {
+      for (const target of flashTargets) {
+        target.classList.remove("td-ai-canvas-flash")
+      }
+    }, 1800)
+    return () => {
+      window.clearTimeout(timeout)
+      for (const target of flashTargets) {
+        target.classList.remove("td-ai-canvas-flash")
+      }
+    }
+  }, [patchFlash])
 
   return (
     <div

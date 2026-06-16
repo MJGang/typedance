@@ -4,7 +4,7 @@
  * to keep the Tauri dependency optional (pure web fallback).
  */
 
-import { save } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 
 interface TauriInvoke {
   (cmd: string, args?: Record<string, unknown>): Promise<unknown>;
@@ -38,6 +38,25 @@ export async function chooseHtmlSavePathInTauri(suggestedName: string): Promise<
     defaultPath: suggestedName,
     filters: [{ name: "HTML", extensions: ["html", "htm"] }],
   });
+}
+
+export async function chooseContextFilePathsInTauri(): Promise<string[]> {
+  if (!isTauri()) return [];
+  const selected = await open({
+    multiple: true,
+    directory: false,
+  });
+  if (!selected) return [];
+  return Array.isArray(selected) ? selected : [selected];
+}
+
+export async function chooseContextDirectoryPathInTauri(): Promise<string | null> {
+  if (!isTauri()) return null;
+  const selected = await open({
+    multiple: false,
+    directory: true,
+  });
+  return typeof selected === "string" ? selected : null;
 }
 
 /** 在 Tauri 桌面端用系统默认程序打开文件（使用 Opener 插件） */

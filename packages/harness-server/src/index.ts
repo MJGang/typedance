@@ -211,12 +211,12 @@ function parsePermissionStatus(value: unknown): "approved" | "denied" {
   throw new Error("Permission status must be approved or denied");
 }
 
-function parsePermissionRemember(value: unknown): "never" | "run" | "workspace" | "always" | undefined {
+function parsePermissionRemember(value: unknown): "never" | "run" | "context" | "always" | undefined {
   if (value === undefined) {
     return undefined;
   }
-  if (value === "never" || value === "run" || value === "workspace" || value === "always") {
+  if (value === "never" || value === "run" || value === "context" || value === "always") {
     return value;
   }
-  throw new Error("Permission remember must be never, run, workspace, or always");
+  throw new Error("Permission remember must be never, run, context, or always");
 }

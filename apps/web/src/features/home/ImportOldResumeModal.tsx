@@ -21,7 +21,6 @@ const SUPPORTED_RESUME_FILE_EXTENSIONS = new Set(["pdf", "doc", "docx", "md", "m
 const IMPORT_PROGRESS_LABELS: Record<ImportOldResumeProgressStep, string> = {
   create_document: "创建工作台",
   save_source: "生成原始画布",
-  start_agent: "启动 AI 任务",
   load_workspace: "打开工作台",
 }
 

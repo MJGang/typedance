@@ -10,29 +10,29 @@ describe("harness MCP runtime", () => {
       name: "Alpha MCP",
       tools: [
         {
-          name: "alpha.readWorkspace",
-          description: "Read workspace",
+          name: "alpha.readContext",
+          description: "Read context",
         },
       ],
       callTool: async (toolName, input) => {
         calls.push({ toolName, input });
-        return { workspace_id: input.workspace_id, status: "ready" };
+        return { context_id: input.context_id, status: "ready" };
       },
     });
 
     const run = runtime.createRun({
-      user_message: "Read workspace",
+      user_message: "Read context",
     });
 
     const result = await runtime.invokeTool(run.id, {
       id: "tool_call_1",
-      name: "alpha.readWorkspace",
+      name: "alpha.readContext",
       origin: "mcp",
-      input: { workspace_id: "workspace_1" },
+      input: { context_id: "context_1" },
     });
 
     expect(result.status).toBe("completed");
-    expect(calls).toEqual([{ toolName: "alpha.readWorkspace", input: { workspace_id: "workspace_1" } }]);
+    expect(calls).toEqual([{ toolName: "alpha.readContext", input: { context_id: "context_1" } }]);
   });
 
   it("rejects duplicate MCP tool names across servers", () => {
@@ -40,7 +40,7 @@ describe("harness MCP runtime", () => {
     runtime.registerMcpServer({
       id: "alpha.mcp",
       name: "Alpha MCP",
-      tools: [{ name: "alpha.readWorkspace", description: "Read workspace" }],
+      tools: [{ name: "alpha.readContext", description: "Read context" }],
       callTool: async () => ({}),
     });
 
@@ -48,9 +48,9 @@ describe("harness MCP runtime", () => {
       runtime.registerMcpServer({
         id: "alpha.remote",
         name: "Alpha Remote MCP",
-        tools: [{ name: "alpha.readWorkspace", description: "Duplicate tool" }],
+        tools: [{ name: "alpha.readContext", description: "Duplicate tool" }],
         callTool: async () => ({}),
       })
-    ).toThrow("MCP tool alpha.readWorkspace is already registered by server alpha.mcp");
+    ).toThrow("MCP tool alpha.readContext is already registered by server alpha.mcp");
   });
 });

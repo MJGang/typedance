@@ -23,7 +23,7 @@ function renderSidebarAt(pathname: string) {
 function ChromeContextProbe() {
   const context = useOutletContext<RevisionWorkspaceChromeContext>()
 
-  return <span data-testid="review-panel-state">{context.reviewPanelVisible ? "visible" : "hidden"}</span>
+  return <span data-testid="assistant-panel-state">{context.assistantPanelVisible ? "visible" : "hidden"}</span>
 }
 
 function renderSiteLayoutAt(pathname: string) {
@@ -82,11 +82,10 @@ describe("App", () => {
     expect(screen.getByRole("link", { name: "模板" })).toHaveAttribute("data-active", "true")
   })
 
-  it("shows filled and hollow states for workspace panel toggles", () => {
+  it("uses the route-level workbench shell on workspace pages", () => {
     renderSiteLayoutAt("/packs/resume/workspaces/doc_1")
 
-    const sidebarToggle = screen.getByTestId("site-left-sidebar-toggle")
-    const reviewToggle = screen.getByTestId("site-review-panel-toggle")
+    const assistantToggle = screen.getByTestId("site-assistant-panel-toggle")
     const themeToggle = screen.getByTestId("site-theme-toggle")
     const separator = screen.getByTestId("site-chrome-control-separator")
 
@@ -94,33 +93,21 @@ describe("App", () => {
       themeToggle.compareDocumentPosition(separator) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
     expect(
-      separator.compareDocumentPosition(sidebarToggle) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy()
-    expect(
-      sidebarToggle.compareDocumentPosition(reviewToggle) & Node.DOCUMENT_POSITION_FOLLOWING,
+      separator.compareDocumentPosition(assistantToggle) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
 
-    expect(sidebarToggle).toHaveAttribute("aria-label", "隐藏左侧导航")
-    expect(sidebarToggle).toHaveAttribute("aria-pressed", "true")
-    expect(sidebarToggle).toHaveAttribute("data-panel-state", "filled")
-    expect(screen.queryByTestId("site-left-sidebar-hidden-dot")).not.toBeInTheDocument()
-    expect(reviewToggle).toHaveAttribute("aria-label", "隐藏评审栏")
-    expect(reviewToggle).toHaveAttribute("aria-pressed", "true")
-    expect(reviewToggle).toHaveAttribute("data-panel-state", "filled")
-    expect(screen.getByTestId("review-panel-state")).toHaveTextContent("visible")
+    expect(screen.queryByTestId("site-left-sidebar-toggle")).not.toBeInTheDocument()
+    expect(document.querySelector('[data-slot="sidebar"]')).not.toBeInTheDocument()
+    expect(assistantToggle).toHaveAttribute("aria-label", "隐藏 AI 面板")
+    expect(assistantToggle).toHaveAttribute("aria-pressed", "true")
+    expect(assistantToggle).toHaveAttribute("data-panel-state", "filled")
+    expect(screen.getByTestId("assistant-panel-state")).toHaveTextContent("visible")
 
-    fireEvent.click(sidebarToggle)
-    expect(sidebarToggle).toHaveAttribute("aria-label", "显示左侧导航")
-    expect(sidebarToggle).toHaveAttribute("aria-pressed", "false")
-    expect(sidebarToggle).toHaveAttribute("data-panel-state", "hollow")
-    expect(screen.getByTestId("site-left-sidebar-hidden-dot")).toBeInTheDocument()
-    expect(document.querySelector('[data-slot="sidebar"]')).toHaveAttribute("data-collapsible", "offcanvas")
-
-    fireEvent.click(reviewToggle)
-    expect(reviewToggle).toHaveAttribute("aria-label", "显示评审栏")
-    expect(reviewToggle).toHaveAttribute("aria-pressed", "false")
-    expect(reviewToggle).toHaveAttribute("data-panel-state", "hollow")
-    expect(screen.getByTestId("review-panel-state")).toHaveTextContent("hidden")
+    fireEvent.click(assistantToggle)
+    expect(assistantToggle).toHaveAttribute("aria-label", "显示 AI 面板")
+    expect(assistantToggle).toHaveAttribute("aria-pressed", "false")
+    expect(assistantToggle).toHaveAttribute("data-panel-state", "hollow")
+    expect(screen.getByTestId("assistant-panel-state")).toHaveTextContent("hidden")
   })
 
   it("does not render breadcrumbs in the site chrome", () => {

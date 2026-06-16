@@ -11,13 +11,13 @@ describe("createMcpStdioServerRegistration", () => {
         command: "node",
         args: ["server.js"],
       },
-      toolNames: ["alpha.readWorkspace"],
+      toolNames: ["alpha.readContext"],
       clientFactory: async () => ({
         listTools: async () => ({
           tools: [
             {
-              name: "alpha.readWorkspace",
-              description: "Read workspace",
+              name: "alpha.readContext",
+              description: "Read context",
             },
           ],
         }),
@@ -32,15 +32,15 @@ describe("createMcpStdioServerRegistration", () => {
 
     expect(registration.tools).toEqual([
       {
-        name: "alpha.readWorkspace",
-        description: "Read workspace",
+        name: "alpha.readContext",
+        description: "Read context",
         inputSchema: undefined,
         outputSchema: undefined,
       },
     ]);
-    await expect(registration.callTool("alpha.readWorkspace", { workspace_id: "workspace_1" })).resolves.toEqual({
-      name: "alpha.readWorkspace",
-      input: { workspace_id: "workspace_1" },
+    await expect(registration.callTool("alpha.readContext", { context_id: "context_1" })).resolves.toEqual({
+      name: "alpha.readContext",
+      input: { context_id: "context_1" },
     });
   });
 
@@ -54,12 +54,12 @@ describe("createMcpStdioServerRegistration", () => {
           command: "node",
           args: ["server.js"],
         },
-        toolNames: ["alpha.readWorkspace"],
+        toolNames: ["alpha.readContext"],
         clientFactory: async () => ({
           listTools: async () => ({ tools: [] }),
           callTool: async () => ({}),
         }),
       })
-    ).rejects.toThrow("MCP server alpha.mcp did not expose declared tool alpha.readWorkspace");
+    ).rejects.toThrow("MCP server alpha.mcp did not expose declared tool alpha.readContext");
   });
 });

@@ -15,12 +15,12 @@ const timestamp = "2026-06-15T08:00:00.000Z";
 describe("harness run event schemas", () => {
   it("models run capability boundaries without pack fields", () => {
     const policy = harnessCapabilityPolicySchema.parse({
-      scope_ids: ["workspace:alpha"],
+      scope_ids: ["context:alpha"],
       plugin_ids: ["alpha.agent"],
     });
     const request = harnessRunRequestSchema.parse({
       capability_policy: policy,
-      user_message: "Inspect this workspace",
+      user_message: "Inspect this context",
     });
     const run = harnessRunSchema.parse({
       id: "run_1",
@@ -41,7 +41,7 @@ describe("harness run event schemas", () => {
 
     expect(run).not.toHaveProperty(["pack", "id"].join("_"));
     expect(started).not.toHaveProperty(["pack", "id"].join("_"));
-    expect(started.capability_policy.scope_ids).toEqual(["workspace:alpha"]);
+    expect(started.capability_policy.scope_ids).toEqual(["context:alpha"]);
   });
 
   it("validates streaming assistant, reasoning, tool, and completion events", () => {
@@ -117,7 +117,7 @@ describe("harness plugin manifest schema", () => {
       name: "Alpha Agent",
       version: "0.1.0",
       module_format: "esm",
-      scopes: ["workspace:alpha"],
+      scopes: ["context:alpha"],
       instructions: ["instructions.md"],
       skills: [
         {
@@ -147,7 +147,7 @@ describe("harness plugin manifest schema", () => {
     });
 
     expect(manifest.module_format).toBe("esm");
-    expect(manifest.scopes).toEqual(["workspace:alpha"]);
+    expect(manifest.scopes).toEqual(["context:alpha"]);
     expect(manifest.agents[0]?.role).toBe("primary");
   });
 
@@ -158,7 +158,7 @@ describe("harness plugin manifest schema", () => {
         name: "Bad Plugin",
         version: "0.1.0",
         module_format: "commonjs",
-        scopes: ["workspace:alpha"],
+        scopes: ["context:alpha"],
       })
     ).toThrow();
   });
@@ -168,12 +168,12 @@ describe("harness tool and permission schemas", () => {
   it("validates tool calls with explicit origins", () => {
     const call = harnessToolCallSchema.parse({
       id: "tool_call_1",
-      name: "workspace.readFile",
-      origin: "workspace",
+      name: "resource.readFile",
+      origin: "resource",
       input: { path: "C:/Users/test/Documents/resume.pdf" },
     });
 
-    expect(call.origin).toBe("workspace");
+    expect(call.origin).toBe("resource");
   });
 
   it("validates permission requests and decisions", () => {
@@ -193,11 +193,11 @@ describe("harness tool and permission schemas", () => {
       id: "decision_1",
       request_id: request.id,
       status: "approved",
-      remember: "workspace",
+      remember: "context",
       created_at: timestamp,
     });
 
     expect(request.kind).toBe("filesystem.read");
-    expect(decision.remember).toBe("workspace");
+    expect(decision.remember).toBe("context");
   });
 });

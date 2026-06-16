@@ -16,14 +16,14 @@ describe("HarnessPluginFileLoader", () => {
         name: "Alpha Agent",
         version: "0.1.0",
         module_format: "esm",
-        scopes: ["workspace:alpha"],
+        scopes: ["context:alpha"],
         skills: [
           {
             id: "alpha.review",
             name: "Alpha Review",
-            description: "Review the active workspace.",
+            description: "Review the active context.",
             instruction_files: ["skills/review.md"],
-            tool_names: ["alpha.readWorkspace"],
+            tool_names: ["alpha.readContext"],
           },
         ],
         agents: [
@@ -46,7 +46,7 @@ describe("HarnessPluginFileLoader", () => {
     runtime.registerPlugin(await loader.loadPlugin("alpha"));
 
     const context = await runtime.buildAgentSkillContext({
-      policy: { scopeIds: ["workspace:alpha"] },
+      policy: { scopeIds: ["context:alpha"] },
       agentId: "alpha.primary",
     });
 
@@ -65,12 +65,12 @@ describe("HarnessPluginFileLoader", () => {
         name: "Alpha Agent",
         version: "0.1.0",
         module_format: "esm",
-        scopes: ["workspace:alpha"],
+        scopes: ["context:alpha"],
         skills: [
           {
             id: "alpha.review",
             name: "Alpha Review",
-            description: "Review the active workspace.",
+            description: "Review the active context.",
             instruction_files: ["../outside.md"],
           },
         ],
@@ -84,10 +84,10 @@ describe("HarnessPluginFileLoader", () => {
     });
     runtime.registerPlugin(await loader.loadPlugin("alpha"));
 
-    expect(runtime.resolveSkillsForPolicy({ scopeIds: ["workspace:alpha"] })).toHaveLength(1);
+    expect(runtime.resolveSkillsForPolicy({ scopeIds: ["context:alpha"] })).toHaveLength(1);
     await expect(
       runtime.buildAgentSkillContext({
-        policy: { scopeIds: ["workspace:alpha"] },
+        policy: { scopeIds: ["context:alpha"] },
         agentId: "missing",
       })
     ).rejects.toThrow();

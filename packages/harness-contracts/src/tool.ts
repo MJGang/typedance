@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const harnessToolOriginSchema = z.enum(["workspace", "mcp", "plugin", "system"]);
+export const harnessToolOriginSchema = z.enum(["resource", "mcp", "plugin", "system"]);
 
 export const harnessToolDescriptorSchema = z.object({
   id: z.string().min(1),

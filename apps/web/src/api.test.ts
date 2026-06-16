@@ -314,16 +314,6 @@ describe("revision api", () => {
         created_at: "2026-05-21T08:00:00.000Z",
       },
       {
-        id: "run_import",
-        capability_policy: {
-          scope_ids: ["pack:resume"],
-          plugin_ids: ["resume.agent"],
-        },
-        status: "running",
-        created_at: "2026-06-16T00:00:00.000Z",
-        updated_at: "2026-06-16T00:00:00.000Z",
-      },
-      {
         document: {
           id: "doc_import",
           pack_id: "resume",
@@ -399,19 +389,6 @@ describe("revision api", () => {
     })
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
-      "http://127.0.0.1:4327/packs/resume/runs",
-      expect.objectContaining({ method: "POST" }),
-    )
-    expect(requestBody(2)).toMatchObject({
-      action: "import_old_resume",
-      user_message: "导入旧简历并生成可审阅草稿",
-      context: {
-        document_id: "doc_import",
-        source_document_ids: ["src_import"],
-      },
-    })
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      4,
       "http://127.0.0.1:4317/documents/doc_import/workspace-view",
     )
     expect(workspace.document.current_draft_id).toBeUndefined()
@@ -420,7 +397,6 @@ describe("revision api", () => {
     expect(progressSteps).toEqual([
       "create_document",
       "save_source",
-      "start_agent",
       "load_workspace",
     ])
   })
@@ -449,16 +425,6 @@ describe("revision api", () => {
         file_path: "C:/Users/test/.typedance/files/sources/doc_import/resume.md",
         parse_status: "pending",
         created_at: "2026-05-21T08:00:00.000Z",
-      },
-      {
-        id: "run_import",
-        capability_policy: {
-          scope_ids: ["pack:resume"],
-          plugin_ids: ["resume.agent"],
-        },
-        status: "running",
-        created_at: "2026-06-16T00:00:00.000Z",
-        updated_at: "2026-06-16T00:00:00.000Z",
       },
       {
         document: {
@@ -525,13 +491,12 @@ describe("revision api", () => {
     expect(workspace.current_draft).toBeUndefined()
     expect(workspace.source_resume_canvas?.id).toBe("canvas_import")
     expect(fetchMock).toHaveBeenNthCalledWith(
-      4,
+      3,
       "http://127.0.0.1:4317/documents/doc_import/workspace-view",
     )
     expect(progressSteps).toEqual([
       "create_document",
       "save_source",
-      "start_agent",
       "load_workspace",
     ])
   })
@@ -558,16 +523,6 @@ describe("revision api", () => {
         raw_text: "姓名: 张三\n目标方向: 前端工程师",
         parse_status: "recognized",
         created_at: "2026-05-21T08:00:00.000Z",
-      },
-      {
-        id: "run_guided",
-        capability_policy: {
-          scope_ids: ["pack:resume"],
-          plugin_ids: ["resume.agent"],
-        },
-        status: "running",
-        created_at: "2026-06-16T00:00:00.000Z",
-        updated_at: "2026-06-16T00:00:00.000Z",
       },
       {
         document: {
@@ -616,19 +571,6 @@ describe("revision api", () => {
     })
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
-      "http://127.0.0.1:4327/packs/resume/runs",
-      expect.objectContaining({ method: "POST" }),
-    )
-    expect(requestBody(2)).toMatchObject({
-      action: "blank_guided_generate",
-      user_message: "从空白引导生成基础简历",
-      context: {
-        document_id: "doc_guided",
-        source_document_ids: ["src_guided"],
-      },
-    })
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      4,
       "http://127.0.0.1:4317/documents/doc_guided/workspace-view",
     )
     expect(workspace.document.current_draft_id).toBeUndefined()

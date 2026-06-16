@@ -4,13 +4,26 @@ from typing import Any, Literal
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
+from .context_sources import (
+    build_webpage_source,
+    file_uri,
+    list_directory_children,
+    open_context_source,
+    open_context_source_child,
+    refresh_webpage_metadata,
+    reveal_context_source,
+    reveal_context_source_child,
+    source_path,
+)
 from .import_resume_file_text import ImportResumeFileError, extract_import_resume_file_text
 from .models import Language, TemplateStyleConfig, utc_now
 from .revision_models import (
+    ContextSource,
+    ContextSourceChild,
     Document,
     DraftVersion,
     EvidenceLink,
@@ -138,6 +151,44 @@ class ConfirmClaimRequest(BaseModel):
     note: str | None = None
 
 
+class CreateLocalContextSourceRequest(BaseModel):
+    path: str = Field(min_length=1)
+
+    @field_validator("path", mode="after")
+    @classmethod
+    def validate_path(cls, path: str) -> str:
+        trimmed = path.strip()
+        if not trimmed:
+            raise ValueError("path must not be blank")
+        return trimmed
+
+
+class CreateWebpageContextSourceRequest(BaseModel):
+    url: str = Field(min_length=1)
+
+    @field_validator("url", mode="after")
+    @classmethod
+    def validate_url(cls, url: str) -> str:
+        trimmed = url.strip()
+        if not trimmed:
+            raise ValueError("url must not be blank")
+        return trimmed
+
+
+class UpdateContextSourceRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1)
+
+    @field_validator("title", mode="after")
+    @classmethod
+    def validate_title(cls, title: str | None) -> str | None:
+        if title is None:
+            return None
+        trimmed = title.strip()
+        if not trimmed:
+            raise ValueError("title must not be blank")
+        return trimmed
+
+
 def create_revision_router(
     repository_dependency: RepositoryDependency,
     export_dir_dependency: ExportDirDependency | None = None,
@@ -159,6 +210,12 @@ def create_revision_router(
         if draft is None:
             raise HTTPException(status_code=404, detail="Draft not found")
         return draft
+
+    def require_context_source(repo: RevisionRepository, source_id: str) -> ContextSource:
+        source = repo.get_context_source(source_id)
+        if source is None:
+            raise HTTPException(status_code=404, detail="Context source not found")
+        return source
 
     def require_proposal(repo: RevisionRepository, proposal_id: str) -> RevisionProposal:
         proposal = repo.get_revision_proposal(proposal_id)
@@ -336,6 +393,177 @@ def create_revision_router(
         try:
             return WorkspaceService(repo).get_workspace_view(document_id)
         except RevisionServiceError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.get("/documents/{document_id}/context-sources", response_model=list[ContextSource])
+    def list_context_sources(
+        document_id: str,
+        repo: RevisionRepository = Depends(repository),
+    ) -> list[ContextSource]:
+        require_document(repo, document_id)
+        return repo.list_context_sources(document_id)
+
+    @router.post("/documents/{document_id}/context-sources/file", response_model=ContextSource, status_code=201)
+    def create_file_context_source(
+        document_id: str,
+        payload: CreateLocalContextSourceRequest,
+        repo: RevisionRepository = Depends(repository),
+    ) -> ContextSource:
+        require_document(repo, document_id)
+        path = Path(payload.path).expanduser().resolve()
+        if not path.is_file():
+            raise HTTPException(status_code=400, detail="Path must point to an existing file")
+        now = utc_now()
+        source = ContextSource(
+            id=f"ctx_{uuid4().hex}",
+            workspace_id=document_id,
+            type="file",
+            title=path.name,
+            uri=file_uri(path),
+            metadata={"permission": "read"},
+            created_at=now,
+            updated_at=now,
+        )
+        return repo.save_context_source(source)
+
+    @router.post("/documents/{document_id}/context-sources/directory", response_model=ContextSource, status_code=201)
+    def create_directory_context_source(
+        document_id: str,
+        payload: CreateLocalContextSourceRequest,
+        repo: RevisionRepository = Depends(repository),
+    ) -> ContextSource:
+        require_document(repo, document_id)
+        path = Path(payload.path).expanduser().resolve()
+        if not path.is_dir():
+            raise HTTPException(status_code=400, detail="Path must point to an existing directory")
+        now = utc_now()
+        source = ContextSource(
+            id=f"ctx_{uuid4().hex}",
+            workspace_id=document_id,
+            type="directory",
+            title=path.name,
+            uri=file_uri(path),
+            metadata={"permission": "read"},
+            created_at=now,
+            updated_at=now,
+        )
+        return repo.save_context_source(source)
+
+    @router.post("/documents/{document_id}/context-sources/webpage", response_model=ContextSource, status_code=201)
+    def create_webpage_context_source(
+        document_id: str,
+        payload: CreateWebpageContextSourceRequest,
+        repo: RevisionRepository = Depends(repository),
+    ) -> ContextSource:
+        require_document(repo, document_id)
+        try:
+            source = build_webpage_source(f"ctx_{uuid4().hex}", document_id, payload.url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return repo.save_context_source(source)
+
+    @router.patch("/context-sources/{source_id}", response_model=ContextSource)
+    def update_context_source(
+        source_id: str,
+        payload: UpdateContextSourceRequest,
+        repo: RevisionRepository = Depends(repository),
+    ) -> ContextSource:
+        source = require_context_source(repo, source_id)
+        updates: dict[str, Any] = {"updated_at": utc_now()}
+        if payload.title is not None:
+            updates["title"] = payload.title
+        return repo.save_context_source(source.model_copy(update=updates))
+
+    @router.delete("/context-sources/{source_id}", status_code=204)
+    def remove_context_source(
+        source_id: str,
+        repo: RevisionRepository = Depends(repository),
+    ) -> None:
+        if not repo.delete_context_source(source_id):
+            raise HTTPException(status_code=404, detail="Context source not found")
+
+    @router.get("/context-sources/{source_id}/children", response_model=list[ContextSourceChild])
+    def list_context_source_children(
+        source_id: str,
+        path: str = Query(default=""),
+        repo: RevisionRepository = Depends(repository),
+    ) -> list[ContextSourceChild]:
+        source = require_context_source(repo, source_id)
+        if source.type != "directory":
+            raise HTTPException(status_code=400, detail="Context source is not a directory")
+        try:
+            return list_directory_children(source_path(source), path)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except NotADirectoryError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/context-sources/{source_id}/refresh", response_model=ContextSource)
+    def refresh_context_source(
+        source_id: str,
+        repo: RevisionRepository = Depends(repository),
+    ) -> ContextSource:
+        source = require_context_source(repo, source_id)
+        if source.type != "webpage":
+            raise HTTPException(status_code=400, detail="Only webpage context sources can be refreshed")
+        try:
+            metadata = refresh_webpage_metadata(source.uri)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Failed to refresh webpage metadata: {exc}") from exc
+        return repo.save_context_source(source.model_copy(update={
+            "title": metadata.title,
+            "description": metadata.description,
+            "summary": metadata.summary,
+            "favicon_url": metadata.favicon_url,
+            "updated_at": utc_now(),
+        }))
+
+    @router.post("/context-sources/{source_id}/open", status_code=204)
+    def open_context_source_endpoint(
+        source_id: str,
+        repo: RevisionRepository = Depends(repository),
+    ) -> None:
+        try:
+            open_context_source(require_context_source(repo, source_id))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.post("/context-sources/{source_id}/reveal", status_code=204)
+    def reveal_context_source_endpoint(
+        source_id: str,
+        repo: RevisionRepository = Depends(repository),
+    ) -> None:
+        try:
+            reveal_context_source(require_context_source(repo, source_id))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.post("/context-sources/{source_id}/children/open", status_code=204)
+    def open_context_source_child_endpoint(
+        source_id: str,
+        path: str = Query(min_length=1),
+        repo: RevisionRepository = Depends(repository),
+    ) -> None:
+        try:
+            open_context_source_child(require_context_source(repo, source_id), path)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/context-sources/{source_id}/children/reveal", status_code=204)
+    def reveal_context_source_child_endpoint(
+        source_id: str,
+        path: str = Query(min_length=1),
+        repo: RevisionRepository = Depends(repository),
+    ) -> None:
+        try:
+            reveal_context_source_child(require_context_source(repo, source_id), path)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @router.put("/documents/{document_id}/source-resume-canvas", response_model=SourceResumeCanvas)

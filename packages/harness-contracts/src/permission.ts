@@ -32,7 +32,7 @@ export const harnessPermissionDecisionSchema = z.object({
   id: z.string().min(1),
   request_id: z.string().min(1),
   status: z.enum(["approved", "denied"]),
-  remember: z.enum(["never", "run", "workspace", "always"]).default("never"),
+  remember: z.enum(["never", "run", "context", "always"]).default("never"),
   created_at: isoDateTimeSchema,
 });
 

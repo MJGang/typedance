@@ -50,7 +50,7 @@ export class HarnessPermissionEngine {
   resolve(input: {
     requestId: string;
     status: "approved" | "denied";
-    remember?: "never" | "run" | "workspace" | "always";
+    remember?: "never" | "run" | "context" | "always";
   }): { request: HarnessPermissionRequest; decision: HarnessPermissionDecision } {
     const request = this.#requests.get(input.requestId);
     if (!request) {
@@ -81,13 +81,13 @@ export class HarnessPermissionEngine {
     };
     return [
       this.#decisionKey("run", runId, request),
-      this.#decisionKey("workspace", runId, request),
+      this.#decisionKey("context", runId, request),
       this.#decisionKey("always", runId, request),
     ];
   }
 
   #decisionKey(
-    remember: "run" | "workspace" | "always",
+    remember: "run" | "context" | "always",
     runId: string,
     request: Pick<HarnessPermissionRequest, "run_id" | "kind" | "scope">
   ): string {

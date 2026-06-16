@@ -7,26 +7,26 @@ describe("createHarnessRuntime", () => {
   it("creates runs and records assistant/tool events in sequence", async () => {
     const runtime = createHarnessRuntime({ now: fixedNow });
     runtime.registerTool({
-      name: "alpha.readWorkspace",
+      name: "alpha.readContext",
       origin: "mcp",
-      handler: async (input) => ({ workspace_id: input.workspace_id, status: "ready" }),
+      handler: async (input) => ({ context_id: input.context_id, status: "ready" }),
     });
 
     const run = runtime.createRun({
       capability_policy: {
-        scope_ids: ["workspace:alpha"],
+        scope_ids: ["context:alpha"],
         plugin_ids: ["alpha.agent"],
       },
-      user_message: "Inspect this workspace",
-      context: { workspace_id: "workspace_1" },
+      user_message: "Inspect this context",
+      context: { context_id: "context_1" },
     });
 
-    runtime.appendAssistantDelta(run.id, "msg_1", "I will read the active workspace first.");
+    runtime.appendAssistantDelta(run.id, "msg_1", "I will read the active context first.");
     const toolResult = await runtime.invokeTool(run.id, {
       id: "tool_call_1",
-      name: "alpha.readWorkspace",
+      name: "alpha.readContext",
       origin: "mcp",
-      input: { workspace_id: "workspace_1" },
+      input: { context_id: "context_1" },
     });
 
     expect(toolResult.status).toBe("completed");
@@ -42,8 +42,8 @@ describe("createHarnessRuntime", () => {
   it("requests permission before invoking guarded tools", async () => {
     const runtime = createHarnessRuntime({ now: fixedNow });
     runtime.registerTool({
-      name: "workspace.readFile",
-      origin: "workspace",
+      name: "resource.readFile",
+      origin: "resource",
       requiresPermission: (input) => ({
         kind: "filesystem.read",
         reason: "Read a user-authorized local file.",
@@ -52,7 +52,7 @@ describe("createHarnessRuntime", () => {
           access: "read",
         },
       }),
-      handler: async () => ({ text: "workspace content" }),
+      handler: async () => ({ text: "context content" }),
     });
 
     const run = runtime.createRun({
@@ -61,9 +61,9 @@ describe("createHarnessRuntime", () => {
 
     const result = await runtime.invokeTool(run.id, {
       id: "tool_call_1",
-      name: "workspace.readFile",
-      origin: "workspace",
-      input: { uri: "file:///C:/Users/test/Documents/workspace.txt" },
+      name: "resource.readFile",
+      origin: "resource",
+      input: { uri: "file:///C:/Users/test/Documents/context.txt" },
     });
 
     expect(result.status).toBe("permission_required");
@@ -80,24 +80,24 @@ describe("createHarnessRuntime", () => {
       name: "Alpha Agent",
       version: "0.1.0",
       module_format: "esm",
-      scopes: ["workspace:alpha"],
+      scopes: ["context:alpha"],
     });
     runtime.registerPlugin({
       id: "beta.agent",
       name: "Beta Agent",
       version: "0.1.0",
       module_format: "esm",
-      scopes: ["workspace:beta"],
+      scopes: ["context:beta"],
     });
 
-    expect(runtime.resolvePluginsForPolicy({ scopeIds: ["workspace:alpha"] }).map((plugin) => plugin.id)).toEqual([
+    expect(runtime.resolvePluginsForPolicy({ scopeIds: ["context:alpha"] }).map((plugin) => plugin.id)).toEqual([
       "alpha.agent",
     ]);
-    expect(runtime.resolvePluginsForPolicy({ scopeIds: ["workspace:missing"] })).toEqual([]);
+    expect(runtime.resolvePluginsForPolicy({ scopeIds: ["context:missing"] })).toEqual([]);
     expect(runtime.resolvePluginsForPolicy({ pluginIds: ["beta.agent"] }).map((plugin) => plugin.id)).toEqual([
       "beta.agent",
     ]);
-    expect(runtime.resolvePluginsForPolicy({ scopeIds: ["workspace:alpha"], pluginIds: ["beta.agent"] })).toEqual([
+    expect(runtime.resolvePluginsForPolicy({ scopeIds: ["context:alpha"], pluginIds: ["beta.agent"] })).toEqual([
       expect.objectContaining({ id: "beta.agent" }),
     ]);
   });

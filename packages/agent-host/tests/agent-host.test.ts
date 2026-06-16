@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { createHarnessRuntime, type HarnessModelAdapter, type HarnessModelRequest } from "@typedance/harness-core";
+import { createHarnessRuntime } from "@typedance/harness-core";
 import { afterEach, describe, expect, it } from "vitest";
 import { createAgentHost, createAgentHostServer, type AgentHostHttpServer } from "../src";
 
@@ -10,48 +10,35 @@ afterEach(async () => {
 });
 
 describe("agent host", () => {
-  it("maps a pack run to a harness capability policy and primary agent", async () => {
-    const seenRequests: HarnessModelRequest[] = [];
-    const model: HarnessModelAdapter = {
-      stream: async function* (request) {
-        seenRequests.push(request);
-        yield {
-          type: "assistant_delta",
-          messageId: "msg_1",
-          delta: "Reading the resume workspace.",
-        };
-        yield {
-          type: "final",
-          output: { summary: "Queued resume review." },
-        };
+  it("persists workspace conversation messages and projected run events", async () => {
+    const runtime = createHarnessRuntime({
+      model: {
+        stream: async function* () {
+          yield {
+            type: "reasoning_summary_delta",
+            summaryId: "summary_1",
+            delta: "Thinking about the resume.",
+          };
+          yield {
+            type: "assistant_delta",
+            messageId: "assistant_1",
+            delta: "可以优化专业技能。",
+          };
+          yield {
+            type: "final",
+            output: { ok: true },
+          };
+        },
       },
-    };
-    const runtime = createHarnessRuntime({ model });
+    });
     runtime.registerPlugin({
       id: "resume.agent",
       name: "Resume Agent",
       version: "0.1.0",
       module_format: "esm",
       scopes: ["pack:resume"],
-      skills: [
-        {
-          id: "resume.workspace",
-          name: "Resume Workspace",
-          description: "Read resume workspace.",
-          instruction_files: ["skills/workspace.md"],
-          tool_names: ["resume.getWorkspaceView"],
-        },
-      ],
-      agents: [
-        {
-          id: "resume.primary",
-          name: "Resume Primary",
-          role: "primary",
-          skill_ids: ["resume.workspace"],
-        },
-      ],
+      agents: [{ id: "resume.primary", name: "Resume Primary", role: "primary", skill_ids: [] }],
     });
-
     const host = createAgentHost({
       runtime,
       packs: [
@@ -61,29 +48,47 @@ describe("agent host", () => {
           primaryAgentId: "resume.primary",
         },
       ],
+      now: (() => {
+        let tick = 0;
+        return () => new Date(Date.UTC(2026, 5, 16, 0, 0, tick++));
+      })(),
     });
-    const run = host.startPackRun("resume", {
-      action: "quality_review",
-      userMessage: "检查当前简历",
-      context: { document_id: "doc_1" },
+
+    const conversation = host.createConversation("doc_1");
+    const run = host.startConversationRun("doc_1", conversation.id, {
+      message: {
+        content: "参考岗位 JD 优化专业技能",
+        mentions: [{
+          context_source_id: "ctx_1",
+          type: "webpage",
+          label: "岗位 JD",
+          uri: "https://example.com/jobs/frontend",
+        }],
+      },
+      model: "gpt-5",
+      mutationMode: "review",
     });
     await host.waitForRun(run.id);
 
-    expect(run.capability_policy).toEqual({ scope_ids: ["pack:resume"], plugin_ids: [] });
-    expect(seenRequests).toHaveLength(1);
-    expect(seenRequests[0]?.agentId).toBe("resume.primary");
-    expect(seenRequests[0]?.context).toMatchObject({
-      action: "quality_review",
-      document_id: "doc_1",
-      pack_id: "resume",
-    });
-    expect(runtime.getRun(run.id).status).toBe("completed");
+    expect(host.getAgentRun(run.id).status).toBe("completed");
+    expect(host.listConversations("doc_1")[0]?.title).toBe("参考岗位 JD 优化专业技能");
+    const messages = host.listMessages(conversation.id);
+    expect(messages).toHaveLength(2);
+    expect(messages[0]?.mentions[0]?.label).toBe("岗位 JD");
+    expect(messages[1]?.content).toBe("可以优化专业技能。");
+    expect(host.listAgentRunEvents(run.id).map((event) => event.type)).toEqual([
+      "harness_event",
+      "thinking_delta",
+      "assistant_delta",
+      "run_completed",
+    ]);
   });
 
-  it("exposes pack-scoped run creation over HTTP", async () => {
+  it("exposes workspace conversation APIs over HTTP", async () => {
     const runtime = createHarnessRuntime({
       model: {
         stream: async function* () {
+          yield { type: "assistant_delta", messageId: "assistant_1", delta: "收到。" };
           yield { type: "final", output: { ok: true } };
         },
       },
@@ -101,7 +106,7 @@ describe("agent host", () => {
       packs: [
         {
           id: "resume",
-          capabilityPolicy: { scopeIds: ["pack:resume"], pluginIds: ["resume.agent"] },
+          capabilityPolicy: { scopeIds: ["pack:resume"] },
           primaryAgentId: "resume.primary",
         },
       ],
@@ -111,23 +116,25 @@ describe("agent host", () => {
     server.listen(0, "127.0.0.1");
     await once(server.nodeServer, "listening");
 
-    const response = await fetch(`${server.url}/packs/resume/runs`, {
+    const created = await fetch(`${server.url}/workspaces/doc_1/conversations`, { method: "POST" });
+    expect(created.status).toBe(201);
+    const conversation = await created.json();
+
+    const runResponse = await fetch(`${server.url}/workspaces/doc_1/conversations/${conversation.id}/runs`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        action: "import_old_resume",
-        user_message: "导入并重构旧简历",
-        context: { document_id: "doc_import" },
+        message: { content: "检查简历" },
+        mutation_mode: "suggest",
       }),
     });
-
-    expect(response.status).toBe(201);
-    const run = await response.json();
-    expect(run.capability_policy).toEqual({
-      scope_ids: ["pack:resume"],
-      plugin_ids: ["resume.agent"],
-    });
+    expect(runResponse.status).toBe(201);
+    const run = await runResponse.json();
     await host.waitForRun(run.id);
-    expect(runtime.getRun(run.id).status).toBe("completed");
+
+    const messages = await fetch(`${server.url}/conversations/${conversation.id}/messages`).then((response) => response.json());
+    expect(messages[1].content).toBe("收到。");
+    const events = await fetch(`${server.url}/agent-runs/${run.id}/events`).then((response) => response.json());
+    expect(events.some((event: { type: string }) => event.type === "assistant_delta")).toBe(true);
   });
 });

@@ -11,4 +11,3 @@ export * from "./runtime";
 export * from "./skill/skill-registry";
 export * from "./tool/tool-registry";
 export * from "./verification/verification-registry";
-export * from "./workspace/workspace-service";

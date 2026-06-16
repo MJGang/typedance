@@ -32,6 +32,16 @@
 - 历史数据或旧状态需要处理时，应通过一次性迁移、清理脚本或明确的数据修正方案完成，不得在运行时代码中长期保留兼容逻辑。
 - 发现已有旧版本兼容代码时，除非当前任务范围明确排除，否则应优先删除或改造为当前业务规则下的单一路径。
 
+## Harness / Agent Host / Sidecar 架构边界
+
+- 每次涉及 AI、Harness、Agent Host、Python Sidecar、工作台、上下文、对话、插件或画布能力的编码前，必须先明确本次改动属于哪一层，并检查是否越界。
+- `Harness Core` 必须保持可独立发布的通用 Agent Runtime，禁止出现 TypeDance、Resume、Pack、Workspace、Python API、画布、简历等业务概念；只允许包含 model loop、tool registry、plugin registry、permission engine、memory、event stream、run lifecycle 等通用能力。
+- `TS Agent Host` 是 TypeDance 侧 AI 能力宿主，可以知道当前 pack、插件绑定、Conversation、Message、Run、RunEvent、模型设置与上下文引用；可以把 Python Sidecar 能力包装为 Harness tools；不得实现 Python 业务逻辑或把业务数据规则写死在 TS 侧。
+- `Python Sidecar` 只负责业务数据、本机资源与确定性能力，包括 Workspace、ContextSource、Canvas、Artifact、本地文件/文件夹只读访问、网页链接信息抓取、导出等；禁止知道 skill 选择、agent run、thinking、model、conversation、plugin routing 等 AI 编排概念。
+- `Frontend` 可以同时调用 Python Sidecar 和 TS Agent Host：业务数据、画布和上下文走 Python；AI 设置、插件、对话、run stream 和事件展示走 TS Agent Host；页面组件不得承载 AI orchestration。
+- `ContextSource` 表示 AI 可参考的额外资料来源，只支持授权后的只读读取；从上下文移除本地文件或文件夹时只是解除引用，绝不删除用户本地真实文件或目录。
+- 任何新增代码如果引入跨层概念，必须先说明理由；默认应视为架构违规，并优先调整到正确层级。
+
 ## React 开发规范
 
 - 在编写或重构 React 代码时，必须使用 `build-web-apps:react-best-practices` skill。

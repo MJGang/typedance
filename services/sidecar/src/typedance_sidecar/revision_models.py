@@ -34,6 +34,7 @@ DraftStatus = Literal["generated", "in_review", "accepted", "exported"]
 DraftVariantType = Literal["base", "opportunity"]
 ExportFormat = Literal["pdf", "html", "markdown", "docx"]
 ExportArtifactStatus = Literal["succeeded"]
+ContextSourceType = Literal["file", "directory", "webpage"]
 
 
 class Document(BaseModel):
@@ -249,6 +250,29 @@ class ExportArtifact(BaseModel):
     file_path: str | None = None
     status: ExportArtifactStatus
     created_at: str
+
+
+class ContextSource(BaseModel):
+    id: str
+    workspace_id: str
+    type: ContextSourceType
+    title: str
+    uri: str
+    description: str | None = None
+    summary: str | None = None
+    favicon_url: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+    updated_at: str
+
+
+class ContextSourceChild(BaseModel):
+    type: Literal["file", "directory"]
+    name: str
+    path: str
+    uri: str
+    size: int | None = None
+    updated_at: str | None = None
 
 
 class QualityGateResult(BaseModel):

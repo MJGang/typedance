@@ -13,10 +13,10 @@ describe("harness run contracts", () => {
   it("uses capability policy as the only run boundary", () => {
     const request = harnessRunRequestSchema.parse({
       capability_policy: {
-        scope_ids: ["workspace:alpha"],
+        scope_ids: ["context:alpha"],
         plugin_ids: ["alpha.agent"],
       },
-      user_message: "Inspect this workspace",
+      user_message: "Inspect this context",
     });
     const run = harnessRunSchema.parse({
       id: "run_1",
@@ -36,7 +36,7 @@ describe("harness run contracts", () => {
     });
 
     expect(run).not.toHaveProperty(["pack", "id"].join("_"));
-    expect(event.capability_policy.scope_ids).toEqual(["workspace:alpha"]);
+    expect(event.capability_policy.scope_ids).toEqual(["context:alpha"]);
   });
 
   it("defaults to an empty capability policy", () => {
@@ -58,13 +58,13 @@ describe("harness plugin contracts", () => {
       name: "Alpha Agent",
       version: "0.1.0",
       module_format: "esm",
-      scopes: ["workspace:alpha"],
+      scopes: ["context:alpha"],
       skills: [
         {
           id: "alpha.review",
           name: "Alpha Review",
-          description: "Review workspace state.",
-          tool_names: ["alpha.readWorkspace"],
+          description: "Review context state.",
+          tool_names: ["alpha.readContext"],
         },
       ],
       agents: [
@@ -77,6 +77,6 @@ describe("harness plugin contracts", () => {
       ],
     });
 
-    expect(manifest.scopes).toEqual(["workspace:alpha"]);
+    expect(manifest.scopes).toEqual(["context:alpha"]);
   });
 });

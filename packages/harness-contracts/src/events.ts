@@ -103,7 +103,7 @@ const harnessEvidenceAddedEventSchema = harnessRunEventBaseSchema.extend({
 const harnessMemoryUpdatedEventSchema = harnessRunEventBaseSchema.extend({
   type: z.literal("memory.updated"),
   memory_id: z.string().min(1),
-  scope: z.enum(["run", "workspace", "user", "global"]),
+  scope: z.enum(["run", "context", "user", "global"]),
   summary: z.string().min(1),
 });
 

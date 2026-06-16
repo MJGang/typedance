@@ -10,20 +10,20 @@ describe("harness agent loop", () => {
         yield {
           type: "reasoning_summary_delta",
           summaryId: "reasoning_1",
-          delta: "Need to read the active workspace before suggesting changes.",
+          delta: "Need to read the active context before suggesting changes.",
         };
         yield {
           type: "assistant_delta",
           messageId: "msg_1",
-          delta: "I will read the active workspace first.",
+          delta: "I will read the active context first.",
         };
         yield {
           type: "tool_call",
           call: {
             id: "tool_call_1",
-            name: "alpha.readWorkspace",
+            name: "alpha.readContext",
             origin: "mcp",
-            input: { workspace_id: "workspace_1" },
+            input: { context_id: "context_1" },
           },
         };
         yield {
@@ -46,14 +46,14 @@ describe("harness agent loop", () => {
       name: "Alpha Agent",
       version: "0.1.0",
       module_format: "esm",
-      scopes: ["workspace:alpha"],
+      scopes: ["context:alpha"],
       skills: [
         {
           id: "alpha.review",
           name: "Alpha Review",
-          description: "Review workspace quality.",
+          description: "Review context quality.",
           instruction_files: ["skills/review.md"],
-          tool_names: ["alpha.readWorkspace"],
+          tool_names: ["alpha.readContext"],
         },
       ],
       agents: [
@@ -66,27 +66,27 @@ describe("harness agent loop", () => {
       ],
     });
     runtime.registerTool({
-      name: "alpha.readWorkspace",
+      name: "alpha.readContext",
       origin: "mcp",
-      handler: async () => ({ workspace_id: "workspace_1", issues: ["missing_evidence"] }),
+      handler: async () => ({ context_id: "context_1", issues: ["missing_evidence"] }),
     });
 
     const run = runtime.createRun({
-      capability_policy: { scope_ids: ["workspace:alpha"] },
-      user_message: "Inspect this workspace",
-      context: { workspace_id: "workspace_1" },
+      capability_policy: { scope_ids: ["context:alpha"] },
+      user_message: "Inspect this context",
+      context: { context_id: "context_1" },
     });
 
     const output = await runtime.runAgentTurn({
       runId: run.id,
       agentId: "alpha.primary",
-      messages: [{ role: "user", content: "Inspect this workspace" }],
+      messages: [{ role: "user", content: "Inspect this context" }],
     });
 
     expect(output).toEqual({ summary: "Inspection complete." });
-    expect(seenRequests[0]?.capabilityPolicy).toEqual({ scopeIds: ["workspace:alpha"], pluginIds: [] });
+    expect(seenRequests[0]?.capabilityPolicy).toEqual({ scopeIds: ["context:alpha"], pluginIds: [] });
     expect(seenRequests[0]?.skillContext.skills.map((skill) => skill.id)).toEqual(["alpha.review"]);
-    expect(seenRequests[0]?.availableToolNames).toEqual(["alpha.readWorkspace"]);
+    expect(seenRequests[0]?.availableToolNames).toEqual(["alpha.readContext"]);
     expect(runtime.getRun(run.id).status).toBe("completed");
     expect(runtime.getEvents(run.id).map((event) => event.type)).toEqual([
       "run.started",
@@ -102,14 +102,14 @@ describe("harness agent loop", () => {
   it("fails clearly when no model adapter is configured", async () => {
     const runtime = createHarnessRuntime();
     const run = runtime.createRun({
-      user_message: "Inspect this workspace",
+      user_message: "Inspect this context",
     });
 
     await expect(
       runtime.runAgentTurn({
         runId: run.id,
         agentId: "alpha.primary",
-        messages: [{ role: "user", content: "Inspect this workspace" }],
+        messages: [{ role: "user", content: "Inspect this context" }],
       })
     ).rejects.toThrow("Harness model adapter is not configured");
   });

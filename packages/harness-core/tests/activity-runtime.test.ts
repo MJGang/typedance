@@ -9,7 +9,7 @@ describe("harness activity runtime facade", () => {
     });
 
     runtime.updatePlan(run.id, [
-      { id: "plan_1", title: "Read current workspace", status: "completed" },
+      { id: "plan_1", title: "Read current context", status: "completed" },
       { id: "plan_2", title: "Generate a proposed change", status: "in_progress" },
     ]);
     runtime.proposeArtifactPatch(run.id, {

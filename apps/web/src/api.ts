@@ -2,6 +2,8 @@ import { z } from "zod";
 import {
   documentListItemSchema,
   documentSchema,
+  contextSourceChildSchema,
+  contextSourceSchema,
   draftVersionSchema,
   evidenceLinkSchema,
   renderProjectionSchema,
@@ -15,9 +17,10 @@ import {
   workspaceViewSchema,
   type DocumentListItem,
   type Document as RevisionDocument,
+  type ContextSource,
+  type ContextSourceChild,
   type DraftVersion,
   type EvidenceLink,
-  type HarnessRun,
   type RenderProjection,
   type RevisionIssue,
   type RevisionProposal,
@@ -28,7 +31,6 @@ import {
   type UserConfirmation,
   type WorkspaceView,
 } from "@typedance/contracts";
-import { startResumeAgentRun } from "./agentHost";
 import { chooseHtmlSavePathInTauri, choosePdfSavePathInTauri, isTauri } from "./tauri";
 const baseUrl = import.meta.env.VITE_SIDECAR_URL ?? "http://127.0.0.1:4317";
 
@@ -118,6 +120,113 @@ export async function getRevisionWorkspaceView(documentId: string): Promise<Work
   )
 }
 
+export async function listContextSources(workspaceId: string): Promise<ContextSource[]> {
+  const response = await fetch(`${baseUrl}/documents/${workspaceId}/context-sources`)
+  return parseTemplateResponse(
+    response,
+    (value) => z.array(contextSourceSchema).parse(value),
+    "Failed to list context sources",
+  )
+}
+
+export async function addFileContextSource(workspaceId: string, path: string): Promise<ContextSource> {
+  const response = await fetch(`${baseUrl}/documents/${workspaceId}/context-sources/file`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ path }),
+  })
+  return parseTemplateResponse(
+    response,
+    (value) => contextSourceSchema.parse(value),
+    "Failed to add file context source",
+  )
+}
+
+export async function addDirectoryContextSource(workspaceId: string, path: string): Promise<ContextSource> {
+  const response = await fetch(`${baseUrl}/documents/${workspaceId}/context-sources/directory`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ path }),
+  })
+  return parseTemplateResponse(
+    response,
+    (value) => contextSourceSchema.parse(value),
+    "Failed to add directory context source",
+  )
+}
+
+export async function addWebpageContextSource(workspaceId: string, url: string): Promise<ContextSource> {
+  const response = await fetch(`${baseUrl}/documents/${workspaceId}/context-sources/webpage`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ url }),
+  })
+  return parseTemplateResponse(
+    response,
+    (value) => contextSourceSchema.parse(value),
+    "Failed to add webpage context source",
+  )
+}
+
+export async function updateContextSourceTitle(sourceId: string, title: string): Promise<ContextSource> {
+  const response = await fetch(`${baseUrl}/context-sources/${sourceId}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title }),
+  })
+  return parseTemplateResponse(
+    response,
+    (value) => contextSourceSchema.parse(value),
+    "Failed to update context source",
+  )
+}
+
+export async function removeContextSource(sourceId: string): Promise<void> {
+  const response = await fetch(`${baseUrl}/context-sources/${sourceId}`, { method: "DELETE" })
+  if (!response.ok) throw new Error(`Failed to remove context source: ${response.status}`)
+}
+
+export async function listContextSourceChildren(sourceId: string, path = ""): Promise<ContextSourceChild[]> {
+  const searchParams = new URLSearchParams({ path })
+  const response = await fetch(`${baseUrl}/context-sources/${sourceId}/children?${searchParams}`)
+  return parseTemplateResponse(
+    response,
+    (value) => z.array(contextSourceChildSchema).parse(value),
+    "Failed to list context source children",
+  )
+}
+
+export async function refreshContextSource(sourceId: string): Promise<ContextSource> {
+  const response = await fetch(`${baseUrl}/context-sources/${sourceId}/refresh`, { method: "POST" })
+  return parseTemplateResponse(
+    response,
+    (value) => contextSourceSchema.parse(value),
+    "Failed to refresh context source",
+  )
+}
+
+export async function openContextSource(sourceId: string): Promise<void> {
+  const response = await fetch(`${baseUrl}/context-sources/${sourceId}/open`, { method: "POST" })
+  if (!response.ok) throw new Error(`Failed to open context source: ${response.status}`)
+}
+
+export async function revealContextSource(sourceId: string): Promise<void> {
+  const response = await fetch(`${baseUrl}/context-sources/${sourceId}/reveal`, { method: "POST" })
+  if (!response.ok) throw new Error(`Failed to reveal context source: ${response.status}`)
+}
+
+export async function openContextSourceChild(sourceId: string, path: string): Promise<void> {
+  const searchParams = new URLSearchParams({ path })
+  const response = await fetch(`${baseUrl}/context-sources/${sourceId}/children/open?${searchParams}`, { method: "POST" })
+  if (!response.ok) throw new Error(`Failed to open context source child: ${response.status}`)
+}
+
+export async function revealContextSourceChild(sourceId: string, path: string): Promise<void> {
+  const searchParams = new URLSearchParams({ path })
+  const response = await fetch(`${baseUrl}/context-sources/${sourceId}/children/reveal?${searchParams}`, { method: "POST" })
+  if (!response.ok) throw new Error(`Failed to reveal context source child: ${response.status}`)
+}
+
 export async function saveSourceResumeCanvas(
   documentId: string,
   docJson: Record<string, unknown>,
@@ -184,7 +293,6 @@ export type ImportOldResumeInput = {
 export type ImportOldResumeProgressStep =
   | "create_document"
   | "save_source"
-  | "start_agent"
   | "load_workspace"
 
 export async function importOldResume(
@@ -205,23 +313,16 @@ export async function importOldResume(
     initial_mode: "import_old_resume",
   })
   onProgress?.("save_source")
-  const source = input.file
-    ? await createRevisionUploadedSource(document.id, input.file)
-    : await createRevisionSource(document.id, {
-        source_type: "old_resume",
-        title: "旧简历",
-        raw_text: input.raw_text,
-        mime_type: "text/plain",
-      })
-  onProgress?.("start_agent")
-  await startResumeAgentRun({
-    action: "import_old_resume",
-    userMessage: "导入旧简历并生成可审阅草稿",
-    context: {
-      document_id: document.id,
-      source_document_ids: [source.id],
-    },
-  })
+  if (input.file) {
+    await createRevisionUploadedSource(document.id, input.file)
+  } else {
+    await createRevisionSource(document.id, {
+      source_type: "old_resume",
+      title: "旧简历",
+      raw_text: input.raw_text,
+      mime_type: "text/plain",
+    })
+  }
   onProgress?.("load_workspace")
   return getRevisionWorkspaceView(document.id)
 }
@@ -258,82 +359,13 @@ export async function startBlankGuidedResume(input: StartBlankGuidedResumeInput)
     .filter(([, value]) => typeof value === "string" && value.trim())
     .map(([label, value]) => `${label}: ${value}`)
     .join("\n")
-  const source = await createRevisionSource(document.id, {
+  await createRevisionSource(document.id, {
     source_type: "manual_user_input",
     title: "空白引导信息",
     raw_text: rawText,
     mime_type: "text/plain",
   })
-  await startResumeAgentRun({
-    action: "blank_guided_generate",
-    userMessage: "从空白引导生成基础简历",
-    context: {
-      document_id: document.id,
-      source_document_ids: [source.id],
-    },
-  })
   return getRevisionWorkspaceView(document.id)
-}
-
-export async function runRevisionQualityReview(
-  documentId: string,
-  baseDraftId?: string,
-): Promise<HarnessRun> {
-  return startResumeAgentRun({
-    action: "quality_review",
-    userMessage: "运行基础质量检查",
-    context: {
-      document_id: documentId,
-      ...(baseDraftId ? { base_draft_id: baseDraftId } : {}),
-    },
-  })
-}
-
-export type CalibrateRevisionOpportunityInput = {
-  title: string
-  raw_text: string
-}
-
-export async function calibrateRevisionOpportunity(
-  documentId: string,
-  baseDraftId: string,
-  input: CalibrateRevisionOpportunityInput,
-): Promise<WorkspaceView> {
-  const source = await createRevisionSource(documentId, {
-    source_type: "external_context",
-    title: input.title,
-    raw_text: input.raw_text,
-    mime_type: "text/plain",
-  })
-  await startResumeAgentRun({
-    action: "opportunity_calibrate",
-    userMessage: "生成岗位校准版本",
-    context: {
-      document_id: documentId,
-      source_document_ids: [source.id],
-      base_draft_id: baseDraftId,
-    },
-  })
-  return getRevisionWorkspaceView(documentId)
-}
-
-export async function runRevisionIssueAction(input: {
-  documentId: string
-  baseDraftId: string
-  selectedModuleId?: string
-  selectedIssueId: string
-  userIntent: string
-}): Promise<HarnessRun> {
-  return startResumeAgentRun({
-    action: "issue_action",
-    userMessage: input.userIntent,
-    context: {
-      document_id: input.documentId,
-      base_draft_id: input.baseDraftId,
-      selected_issue_id: input.selectedIssueId,
-      ...(input.selectedModuleId ? { selected_module_id: input.selectedModuleId } : {}),
-    },
-  })
 }
 
 export async function renderRevisionDraft(

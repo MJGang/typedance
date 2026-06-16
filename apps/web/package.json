@@ -11,6 +11,7 @@
     "lint": "eslint src --ext ts,tsx"
   },
   "dependencies": {
+    "@assistant-ui/react": "^0.14.22",
     "@fontsource-variable/geist": "^5.2.8",
     "@heroui/react": "3.0.4",
     "@heroui/styles": "3.0.4",

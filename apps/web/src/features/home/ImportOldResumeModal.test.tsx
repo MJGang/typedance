@@ -121,7 +121,6 @@ describe("ImportOldResumeModal", () => {
         resolveImport = resolve
         onProgress?.("create_document")
         onProgress?.("save_source")
-        onProgress?.("start_agent")
         onProgress?.("load_workspace")
       }),
     )
@@ -133,7 +132,6 @@ describe("ImportOldResumeModal", () => {
     expect(await screen.findByText("正在准备可编辑工作台")).toBeInTheDocument()
     expect(screen.getByText("创建工作台")).toBeInTheDocument()
     expect(screen.getByText("生成原始画布")).toBeInTheDocument()
-    expect(screen.getByText("启动 AI 任务")).toBeInTheDocument()
     expect(screen.getByText("打开工作台")).toBeInTheDocument()
     expect(screen.queryByText("保存旧简历")).not.toBeInTheDocument()
     expect(screen.queryByText("解析原文、生成画布并识别模块")).not.toBeInTheDocument()

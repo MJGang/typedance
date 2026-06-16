@@ -32,13 +32,11 @@ import {
   type HarnessVerificationRegistration,
   type HarnessVerificationResult,
 } from "./verification/verification-registry";
-import { HarnessWorkspaceService, type HarnessWorkspaceAdapter } from "./workspace/workspace-service";
 
 export type HarnessRuntimeOptions = {
   now?: () => Date;
   model?: HarnessModelAdapter;
   skillContentLoader?: HarnessSkillContentLoader;
-  workspace?: HarnessWorkspaceAdapter;
 };
 
 export type HarnessRuntimeToolResult =
@@ -59,7 +57,6 @@ export class HarnessRuntime {
   readonly skills: HarnessSkillRegistry;
   readonly tools = new HarnessToolRegistry();
   readonly verifications = new HarnessVerificationRegistry();
-  readonly workspace: HarnessWorkspaceService;
 
   #now: () => Date;
   #model?: HarnessModelAdapter;
@@ -72,7 +69,6 @@ export class HarnessRuntime {
     this.permissions = new HarnessPermissionEngine(this.#now);
     this.runs = new HarnessRunStore(this.#now);
     this.skills = new HarnessSkillRegistry(options.skillContentLoader);
-    this.workspace = new HarnessWorkspaceService(options.workspace);
   }
 
   createRun(request: HarnessRunRequest): HarnessRun {

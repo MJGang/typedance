@@ -14,19 +14,19 @@ describe("harness skill runtime", () => {
       name: "Alpha Agent",
       version: "0.1.0",
       module_format: "esm",
-      scopes: ["workspace:alpha"],
+      scopes: ["context:alpha"],
       skills: [
         {
           id: "alpha.review",
           name: "Alpha Review",
-          description: "Review workspace quality.",
+          description: "Review context quality.",
           instruction_files: ["skills/review.md"],
-          tool_names: ["alpha.readWorkspace", "alpha.createProposal"],
+          tool_names: ["alpha.readContext", "alpha.createProposal"],
         },
         {
           id: "alpha.export",
           name: "Alpha Export",
-          description: "Export a workspace artifact.",
+          description: "Export a context artifact.",
           instruction_files: ["skills/export.md"],
           tool_names: ["alpha.exportArtifact"],
         },
@@ -45,7 +45,7 @@ describe("harness skill runtime", () => {
       name: "Beta Agent",
       version: "0.1.0",
       module_format: "esm",
-      scopes: ["workspace:beta"],
+      scopes: ["context:beta"],
       skills: [
         {
           id: "beta.outline",
@@ -66,13 +66,13 @@ describe("harness skill runtime", () => {
     });
 
     const context = await runtime.buildAgentSkillContext({
-      policy: { scopeIds: ["workspace:alpha"] },
+      policy: { scopeIds: ["context:alpha"] },
       agentId: "alpha.primary",
     });
 
     expect(context.agent.id).toBe("alpha.primary");
     expect(context.skills.map((skill) => skill.id)).toEqual(["alpha.review"]);
-    expect(context.toolNames).toEqual(["alpha.readWorkspace", "alpha.createProposal"]);
+    expect(context.toolNames).toEqual(["alpha.readContext", "alpha.createProposal"]);
     expect(context.instructionsText).toContain("## Alpha Review");
     expect(context.instructionsText).toContain("alpha.agent:skills/review.md: instructions");
     expect(context.instructionsText).not.toContain("alpha.exportArtifact");
@@ -86,12 +86,12 @@ describe("harness skill runtime", () => {
       name: "Alpha Agent",
       version: "0.1.0",
       module_format: "esm",
-      scopes: ["workspace:alpha"],
+      scopes: ["context:alpha"],
       skills: [
         {
           id: "alpha.review",
           name: "Alpha Review",
-          description: "Review workspace quality.",
+          description: "Review context quality.",
         },
       ],
     });
@@ -100,7 +100,7 @@ describe("harness skill runtime", () => {
       name: "Beta Agent",
       version: "0.1.0",
       module_format: "esm",
-      scopes: ["workspace:beta"],
+      scopes: ["context:beta"],
       skills: [
         {
           id: "beta.plot",
@@ -110,7 +110,7 @@ describe("harness skill runtime", () => {
       ],
     });
 
-    expect(runtime.resolveSkillsForPolicy({ scopeIds: ["workspace:alpha"] }).map((skill) => skill.id)).toEqual([
+    expect(runtime.resolveSkillsForPolicy({ scopeIds: ["context:alpha"] }).map((skill) => skill.id)).toEqual([
       "alpha.review",
     ]);
   });
@@ -122,7 +122,7 @@ describe("harness skill runtime", () => {
       name: "Alpha Agent",
       version: "0.1.0",
       module_format: "esm",
-      scopes: ["workspace:alpha"],
+      scopes: ["context:alpha"],
       agents: [
         {
           id: "alpha.primary",
@@ -135,7 +135,7 @@ describe("harness skill runtime", () => {
 
     await expect(
       runtime.buildAgentSkillContext({
-        policy: { scopeIds: ["workspace:alpha"] },
+        policy: { scopeIds: ["context:alpha"] },
         agentId: "alpha.primary",
       })
     ).rejects.toThrow("Agent alpha.primary references missing skill alpha.missing");

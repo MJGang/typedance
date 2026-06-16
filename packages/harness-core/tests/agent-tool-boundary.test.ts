@@ -9,13 +9,13 @@ describe("harness agent tool boundary", () => {
       name: "Alpha Agent",
       version: "0.1.0",
       module_format: "esm",
-      scopes: ["workspace:alpha"],
+      scopes: ["context:alpha"],
       skills: [
         {
           id: "alpha.review",
           name: "Alpha Review",
-          description: "Review workspace quality.",
-          tool_names: ["alpha.readWorkspace"],
+          description: "Review context quality.",
+          tool_names: ["alpha.readContext"],
         },
       ],
       agents: [
@@ -29,9 +29,9 @@ describe("harness agent tool boundary", () => {
       ],
     });
     runtime.registerTool({
-      name: "alpha.readWorkspace",
+      name: "alpha.readContext",
       origin: "mcp",
-      handler: async () => ({ workspace_id: "workspace_1" }),
+      handler: async () => ({ context_id: "context_1" }),
     });
     runtime.registerTool({
       name: "alpha.createProposal",
@@ -45,8 +45,8 @@ describe("harness agent tool boundary", () => {
     });
 
     const run = runtime.createRun({
-      capability_policy: { scope_ids: ["workspace:alpha"] },
-      user_message: "Inspect this workspace",
+      capability_policy: { scope_ids: ["context:alpha"] },
+      user_message: "Inspect this context",
     });
 
     const skillTool = await runtime.invokeAgentTool({
@@ -54,7 +54,7 @@ describe("harness agent tool boundary", () => {
       agentId: "alpha.primary",
       call: {
         id: "tool_call_1",
-        name: "alpha.readWorkspace",
+        name: "alpha.readContext",
         origin: "mcp",
         input: {},
       },

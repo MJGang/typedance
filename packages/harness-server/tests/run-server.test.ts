@@ -49,18 +49,18 @@ describe("harness run HTTP server", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         capability_policy: {
-          scope_ids: ["workspace:alpha"],
+          scope_ids: ["context:alpha"],
           plugin_ids: ["alpha.agent"],
         },
-        user_message: "Inspect this workspace",
-        context: { workspace_id: "workspace_1" },
+        user_message: "Inspect this context",
+        context: { context_id: "context_1" },
       }),
     });
 
     expect(createdResponse.status).toBe(201);
     const created = await createdResponse.json();
     expect(created.capability_policy).toEqual({
-      scope_ids: ["workspace:alpha"],
+      scope_ids: ["context:alpha"],
       plugin_ids: ["alpha.agent"],
     });
 
@@ -73,7 +73,7 @@ describe("harness run HTTP server", () => {
   it("streams run events as SSE with replay and follow semantics", async () => {
     const { runtime, baseUrl } = await startTestServer();
     const run = runtime.createRun({
-      user_message: "Inspect this workspace",
+      user_message: "Inspect this context",
     });
 
     const replayResponse = await fetch(`${baseUrl}/runs/${run.id}/events?after=-1`);
@@ -91,8 +91,8 @@ describe("harness run HTTP server", () => {
   it("records user input, cancellation, and permission decisions", async () => {
     const { runtime, baseUrl } = await startTestServer();
     runtime.registerTool({
-      name: "workspace.readFile",
-      origin: "workspace",
+      name: "resource.readFile",
+      origin: "resource",
       requiresPermission: (input) => ({
         kind: "filesystem.read",
         reason: "Read a user-authorized file.",
@@ -101,16 +101,16 @@ describe("harness run HTTP server", () => {
           access: "read",
         },
       }),
-      handler: async () => ({ text: "workspace" }),
+      handler: async () => ({ text: "context" }),
     });
     const run = runtime.createRun({
       user_message: "Read attachment",
     });
     const permissionResult = await runtime.invokeTool(run.id, {
       id: "tool_call_1",
-      name: "workspace.readFile",
-      origin: "workspace",
-      input: { uri: "file:///workspace.txt" },
+      name: "resource.readFile",
+      origin: "resource",
+      input: { uri: "file:///context.txt" },
     });
     if (permissionResult.status !== "permission_required") {
       throw new Error("expected permission request");

@@ -1655,6 +1655,39 @@ textarea {
   cursor: grab;
 }
 
+@keyframes td-ai-canvas-flash {
+  0% {
+    background-position: 120% 0;
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--primary) 16%, transparent);
+  }
+  24% {
+    background-color: color-mix(in oklab, var(--primary) 8%, transparent);
+    background-position: -20% 0;
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--primary) 24%, transparent),
+      0 0 22px color-mix(in oklab, var(--primary) 12%, transparent);
+  }
+  100% {
+    background-position: -20% 0;
+    box-shadow: 0 0 0 1px transparent;
+  }
+}
+
+.td-ai-canvas-flash {
+  border-radius: 0.25rem;
+  animation: td-ai-canvas-flash 1.8s ease-out;
+  background-image: linear-gradient(
+    100deg,
+    transparent 0%,
+    color-mix(in oklab, var(--primary) 6%, transparent) 34%,
+    color-mix(in oklab, var(--primary) 14%, transparent) 50%,
+    color-mix(in oklab, var(--primary) 6%, transparent) 66%,
+    transparent 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 220% 100%;
+}
+
 body.td-source-canvas-cursor-text,
 body.td-source-canvas-cursor-text * {
   cursor: text !important;

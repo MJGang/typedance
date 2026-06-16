@@ -8,8 +8,8 @@ import { SiteSidebar } from "./SiteSidebar"
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react"
 
 export type RevisionWorkspaceChromeContext = {
-  reviewPanelVisible: boolean
-  setReviewPanelVisible: Dispatch<SetStateAction<boolean>>
+  assistantPanelVisible: boolean
+  setAssistantPanelVisible: Dispatch<SetStateAction<boolean>>
 }
 
 function ThemeToggle() {
@@ -98,31 +98,32 @@ function PanelToggleButton({
 }
 
 function PanelVisibilityControls({
-  reviewPanelVisible,
-  setReviewPanelVisible,
-}: RevisionWorkspaceChromeContext) {
+  assistantPanelVisible,
+  setAssistantPanelVisible,
+  isWorkbenchRoute,
+}: RevisionWorkspaceChromeContext & { isWorkbenchRoute: boolean }) {
   const { open, toggleSidebar } = useSidebar()
-  const location = useLocation()
-  const showReviewPanelToggle = /^\/packs\/resume\/workspaces\/[^/]+$/.test(location.pathname)
 
   return (
     <div className="flex items-center gap-1">
-      <PanelToggleButton
-        active={open}
-        activeLabel="隐藏左侧导航"
-        inactiveLabel="显示左侧导航"
-        side="left"
-        testId="site-left-sidebar-toggle"
-        onClick={toggleSidebar}
-      />
-      {showReviewPanelToggle ? (
+      {!isWorkbenchRoute ? (
         <PanelToggleButton
-          active={reviewPanelVisible}
-          activeLabel="隐藏评审栏"
-          inactiveLabel="显示评审栏"
+          active={open}
+          activeLabel="隐藏左侧导航"
+          inactiveLabel="显示左侧导航"
+          side="left"
+          testId="site-left-sidebar-toggle"
+          onClick={toggleSidebar}
+        />
+      ) : null}
+      {isWorkbenchRoute ? (
+        <PanelToggleButton
+          active={assistantPanelVisible}
+          activeLabel="隐藏 AI 面板"
+          inactiveLabel="显示 AI 面板"
           side="right"
-          testId="site-review-panel-toggle"
-          onClick={() => setReviewPanelVisible((visible) => !visible)}
+          testId="site-assistant-panel-toggle"
+          onClick={() => setAssistantPanelVisible((visible) => !visible)}
         />
       ) : null}
     </div>
@@ -130,12 +131,14 @@ function PanelVisibilityControls({
 }
 
 export function SiteLayout() {
-  const [reviewPanelVisible, setReviewPanelVisible] = useState(true)
+  const location = useLocation()
+  const isWorkbenchRoute = /^\/packs\/resume\/workspaces\/[^/]+$/.test(location.pathname)
+  const [assistantPanelVisible, setAssistantPanelVisible] = useState(true)
 
   return (
     <TooltipProvider>
       <SidebarProvider>
-        <SiteSidebar />
+        {!isWorkbenchRoute ? <SiteSidebar /> : null}
         <SidebarInset className="h-svh min-h-0 overflow-hidden">
           <header className="flex h-12 items-center gap-2 border-b border-border px-4">
             <div className="ml-auto flex items-center gap-1">
@@ -146,13 +149,14 @@ export function SiteLayout() {
                 className="mx-1 h-4 w-px bg-border"
               />
               <PanelVisibilityControls
-                reviewPanelVisible={reviewPanelVisible}
-                setReviewPanelVisible={setReviewPanelVisible}
+                assistantPanelVisible={assistantPanelVisible}
+                setAssistantPanelVisible={setAssistantPanelVisible}
+                isWorkbenchRoute={isWorkbenchRoute}
               />
             </div>
           </header>
           <main className="min-h-0 flex-1 overflow-auto">
-            <Outlet context={{ reviewPanelVisible, setReviewPanelVisible } satisfies RevisionWorkspaceChromeContext} />
+            <Outlet context={{ assistantPanelVisible, setAssistantPanelVisible } satisfies RevisionWorkspaceChromeContext} />
           </main>
         </SidebarInset>
       </SidebarProvider>

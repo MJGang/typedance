@@ -1,4 +1,4 @@
-export type HarnessMemoryScope = "run" | "workspace" | "user" | "global";
+export type HarnessMemoryScope = "run" | "context" | "user" | "global";
 
 export type HarnessMemoryRecord = {
   id: string;

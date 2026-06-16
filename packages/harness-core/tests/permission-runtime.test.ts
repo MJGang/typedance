@@ -7,8 +7,8 @@ describe("harness permission runtime", () => {
   it("stores approved permission decisions and bypasses repeated prompts in the same run", async () => {
     const runtime = createHarnessRuntime({ now: fixedNow });
     runtime.registerTool({
-      name: "workspace.readFile",
-      origin: "workspace",
+      name: "resource.readFile",
+      origin: "resource",
       requiresPermission: (input) => ({
         kind: "filesystem.read",
         reason: "Read a user-authorized file.",
@@ -17,7 +17,7 @@ describe("harness permission runtime", () => {
           access: "read",
         },
       }),
-      handler: async () => ({ text: "workspace content" }),
+      handler: async () => ({ text: "context content" }),
     });
 
     const run = runtime.createRun({
@@ -26,9 +26,9 @@ describe("harness permission runtime", () => {
 
     const first = await runtime.invokeTool(run.id, {
       id: "tool_call_1",
-      name: "workspace.readFile",
-      origin: "workspace",
-      input: { uri: "file:///C:/Users/test/Documents/workspace.txt" },
+      name: "resource.readFile",
+      origin: "resource",
+      input: { uri: "file:///C:/Users/test/Documents/context.txt" },
     });
 
     expect(first.status).toBe("permission_required");
@@ -45,9 +45,9 @@ describe("harness permission runtime", () => {
 
     const second = await runtime.invokeTool(run.id, {
       id: "tool_call_2",
-      name: "workspace.readFile",
-      origin: "workspace",
-      input: { uri: "file:///C:/Users/test/Documents/workspace.txt" },
+      name: "resource.readFile",
+      origin: "resource",
+      input: { uri: "file:///C:/Users/test/Documents/context.txt" },
     });
 
     expect(second.status).toBe("completed");

@@ -11,6 +11,7 @@ from .revision_models import (
     DraftVersion,
     EvidenceLink,
     ExportArtifact,
+    ContextSource,
     ParsedBlock,
     RenderProjection,
     RevisionAction,
@@ -163,6 +164,16 @@ REVISION_TABLE_DEFINITIONS = [
       id TEXT PRIMARY KEY,
       document_id TEXT NOT NULL,
       draft_id TEXT,
+      payload TEXT NOT NULL,
+      schema_version TEXT NOT NULL DEFAULT '0.1.0',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS context_sources (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
       payload TEXT NOT NULL,
       schema_version TEXT NOT NULL DEFAULT '0.1.0',
       created_at TEXT NOT NULL,
@@ -420,8 +431,10 @@ class RevisionRepository:
                 "revision_proposals",
                 "user_confirmations",
                 "export_artifacts",
+                "context_sources",
             ):
-                self.connection.execute(f"DELETE FROM {table} WHERE document_id = ?", (document_id,))
+                where_column = "workspace_id" if table == "context_sources" else "document_id"
+                self.connection.execute(f"DELETE FROM {table} WHERE {where_column} = ?", (document_id,))
             self.connection.execute("DELETE FROM documents WHERE id = ?", (document_id,))
             self.connection.commit()
         except Exception:
@@ -562,3 +575,18 @@ class RevisionRepository:
 
     def list_export_artifacts(self, document_id: str) -> list[ExportArtifact]:
         return self._list("export_artifacts", ExportArtifact, "document_id", document_id)
+
+    def save_context_source(self, source: ContextSource) -> ContextSource:
+        self._save("context_sources", source, {"workspace_id": source.workspace_id})
+        return source
+
+    def get_context_source(self, source_id: str) -> ContextSource | None:
+        return self._get("context_sources", ContextSource, source_id)
+
+    def list_context_sources(self, workspace_id: str) -> list[ContextSource]:
+        return self._list("context_sources", ContextSource, "workspace_id", workspace_id)
+
+    def delete_context_source(self, source_id: str) -> bool:
+        cursor = self.connection.execute("DELETE FROM context_sources WHERE id = ?", (source_id,))
+        self.connection.commit()
+        return cursor.rowcount > 0

@@ -282,6 +282,22 @@ describe("DraftCanvas", () => {
     expect(editorMocks.props?.cssText).toContain("line-height: 1.62;")
   })
 
+  it("flashes changed canvas nodes after an applied AI patch", async () => {
+    render(
+      <DraftCanvas
+        canvas={canvas}
+        patchFlash={{ sequence: 1, canvasNodeIds: ["node_project"] }}
+        onChange={vi.fn()}
+        saveStatus="idle"
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId("canvas-node-mod_1")).toHaveClass("td-ai-canvas-flash")
+    })
+    expect(screen.getByTestId("canvas-node-mod_2")).not.toHaveClass("td-ai-canvas-flash")
+  })
+
   it("shows draggable page margin guides with px labels", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
 
