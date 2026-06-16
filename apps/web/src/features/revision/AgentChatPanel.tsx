@@ -34,6 +34,7 @@ const mutationModeLabels: Record<CanvasMutationMode, string> = {
   review: "手动应用",
   solo: "自动修改",
 }
+const defaultAgentModel = import.meta.env.VITE_DEFAULT_AGENT_MODEL ?? "deepseek-v4-flash"
 
 const terminalEvents = new Set<AgentRunEvent["type"]>(["run_completed", "run_failed", "run_cancelled"])
 const streamedEventTypes: AgentRunEvent["type"][] = [
@@ -86,7 +87,7 @@ function AgentChatContent({
   const [mentions, setMentions] = useState<ContextMention[]>([])
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mutationMode, setMutationMode] = useState<CanvasMutationMode>("review")
-  const [model] = useState("gpt-5")
+  const [model] = useState(defaultAgentModel)
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(() => new Set())
   const inputRef = useRef<HTMLTextAreaElement>(null)
 

@@ -17,6 +17,7 @@ from .revision_models import ContextSource, ContextSourceChild
 
 MAX_WEBPAGE_BYTES = 1_000_000
 WEBPAGE_TIMEOUT_SECONDS = 8
+MAX_CONTEXT_SOURCE_TEXT_BYTES = 300_000
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,54 @@ def list_directory_children(root: Path, relative_path: str = "") -> list[Context
             )
         )
     return sorted(children, key=lambda item: (item.type != "directory", item.name.lower()))
+
+
+def read_context_source_text(source: ContextSource, relative_path: str = "") -> tuple[str, bool]:
+    if source.type == "webpage":
+        return read_webpage_text(source.uri)
+
+    path = source_path(source)
+    if source.type == "directory":
+        if relative_path:
+            path = resolve_context_source_child_path(source, relative_path)
+        if path.is_dir():
+            return format_directory_listing(path, path), False
+    if not path.is_file():
+        raise FileNotFoundError(str(path))
+    return read_local_text(path)
+
+
+def read_local_text(path: Path, max_bytes: int = MAX_CONTEXT_SOURCE_TEXT_BYTES) -> tuple[str, bool]:
+    content = path.read_bytes()
+    truncated = len(content) > max_bytes
+    text = content[:max_bytes].decode("utf-8", errors="replace")
+    return text, truncated
+
+
+def read_webpage_text(url: str, max_bytes: int = MAX_CONTEXT_SOURCE_TEXT_BYTES) -> tuple[str, bool]:
+    normalized_url = _normalize_url(url)
+    request = Request(
+        normalized_url,
+        headers={
+            "User-Agent": "TypeDance/0.1 ContextSourceBot",
+            "Accept": "text/html,application/xhtml+xml,text/plain",
+        },
+    )
+    with urlopen(request, timeout=WEBPAGE_TIMEOUT_SECONDS) as response:
+        content = response.read(max_bytes + 1)
+        charset = response.headers.get_content_charset() or "utf-8"
+    truncated = len(content) > max_bytes
+    raw = content[:max_bytes].decode(charset, errors="replace")
+    return html_to_text(raw), truncated
+
+
+def format_directory_listing(root: Path, target: Path) -> str:
+    children = list_directory_children(root, target.relative_to(root).as_posix() if target != root else "")
+    lines = [f"Directory: {target}"]
+    for child in children:
+        marker = "/" if child.type == "directory" else ""
+        lines.append(f"- {child.name}{marker}")
+    return "\n".join(lines)
 
 
 def resolve_context_source_child_path(source: ContextSource, relative_path: str) -> Path:
@@ -221,6 +270,12 @@ def _summarize_html(text: str, description: str | None) -> str | None:
     stripped = re.sub(r"<[^>]+>", " ", stripped)
     cleaned = _clean_text(stripped)
     return cleaned[:500] if cleaned else None
+
+
+def html_to_text(text: str) -> str:
+    stripped = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", text, flags=re.IGNORECASE | re.DOTALL)
+    stripped = re.sub(r"<[^>]+>", " ", stripped)
+    return _clean_text(stripped)
 
 
 def _clean_text(value: str) -> str:

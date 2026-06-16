@@ -11,8 +11,13 @@
       "import": "./src/index.ts"
     }
   },
+  "bin": {
+    "typedance-agent-host": "./dist/cli.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js",
     "test": "vitest run"
   },
   "dependencies": {
@@ -22,6 +27,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.12.3",
+    "tsx": "^4.20.6",
     "vitest": "^3.1.3"
   }
 }

@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { createHarnessRuntime } from "@typedance/harness-core";
+import { createHarnessRuntime, type HarnessModelRequest } from "@typedance/harness-core";
 import { afterEach, describe, expect, it } from "vitest";
 import { createAgentHost, createAgentHostServer, type AgentHostHttpServer } from "../src";
 
@@ -11,9 +11,11 @@ afterEach(async () => {
 
 describe("agent host", () => {
   it("persists workspace conversation messages and projected run events", async () => {
+    const seenRequests: HarnessModelRequest[] = [];
     const runtime = createHarnessRuntime({
       model: {
-        stream: async function* () {
+        stream: async function* (request) {
+          seenRequests.push(request);
           yield {
             type: "reasoning_summary_delta",
             summaryId: "summary_1",
@@ -48,6 +50,9 @@ describe("agent host", () => {
           primaryAgentId: "resume.primary",
         },
       ],
+      contextProvider: {
+        loadMentionedContext: async ({ mentions }) => `Context: ${mentions.map((mention) => mention.label).join(", ")}`,
+      },
       now: (() => {
         let tick = 0;
         return () => new Date(Date.UTC(2026, 5, 16, 0, 0, tick++));
@@ -76,6 +81,10 @@ describe("agent host", () => {
     expect(messages).toHaveLength(2);
     expect(messages[0]?.mentions[0]?.label).toBe("岗位 JD");
     expect(messages[1]?.content).toBe("可以优化专业技能。");
+    expect(seenRequests[0]?.messages).toEqual([
+      { role: "system", content: "Context: 岗位 JD" },
+      { role: "user", content: "参考岗位 JD 优化专业技能" },
+    ]);
     expect(host.listAgentRunEvents(run.id).map((event) => event.type)).toEqual([
       "harness_event",
       "thinking_delta",

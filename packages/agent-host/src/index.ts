@@ -17,6 +17,7 @@ import {
   createMemoryAgentHostStore,
   type AgentHostStore,
 } from "./store";
+import type { AgentHostContextProvider } from "./sidecar-context";
 export {
   JsonFileAgentHostStore,
   MemoryAgentHostStore,
@@ -25,6 +26,18 @@ export {
   type AgentHostStore,
   type AgentHostStoreSnapshot,
 } from "./store";
+export {
+  createSidecarContextProvider,
+  type AgentHostContextProvider,
+  type AgentHostContextProviderInput,
+  type SidecarContextProviderOptions,
+} from "./sidecar-context";
+export {
+  DEFAULT_DEEPSEEK_FLASH_MODEL,
+  assertFlashModel,
+  createDeepSeekModelAdapter,
+  type DeepSeekModelAdapterOptions,
+} from "./model/deepseek";
 
 export type AgentHostCapabilityPolicy = {
   scopeIds?: string[];
@@ -53,6 +66,8 @@ export type AgentHostOptions = {
   runtime: HarnessRuntime;
   packs: AgentHostPackDefinition[];
   store?: AgentHostStore;
+  defaultModel?: string;
+  contextProvider?: AgentHostContextProvider;
   now?: () => Date;
 };
 
@@ -62,11 +77,15 @@ export class AgentHost {
   #packs = new Map<string, AgentHostPackDefinition>();
   #runTasks = new Map<string, Promise<Record<string, unknown>>>();
   #subscribers = new Map<string, Set<(event: AgentRunEvent) => void>>();
+  #defaultModel?: string;
+  #contextProvider?: AgentHostContextProvider;
   #now: () => Date;
 
   constructor(options: AgentHostOptions) {
     this.runtime = options.runtime;
     this.store = options.store ?? createMemoryAgentHostStore();
+    this.#defaultModel = options.defaultModel;
+    this.#contextProvider = options.contextProvider;
     this.#now = options.now ?? (() => new Date());
     for (const pack of options.packs) {
       if (this.#packs.has(pack.id)) {
@@ -186,6 +205,7 @@ export class AgentHost {
       },
     });
     const mutationMode = canvasMutationModeSchema.parse(input.mutationMode ?? "review");
+    const model = input.model ?? this.#defaultModel;
     const context = {
       ...pack.defaultContext,
       ...input.context,
@@ -196,7 +216,7 @@ export class AgentHost {
       assistant_message_id: assistantMessage.id,
       mutation_mode: mutationMode,
       mentions,
-      ...(input.model ? { model: input.model } : {}),
+      ...(model ? { model } : {}),
     };
     const harnessRun = this.runtime.createRun({
       capability_policy: {
@@ -212,7 +232,7 @@ export class AgentHost {
         conversation_id: conversationId,
         assistant_message_id: assistantMessage.id,
         status: "running",
-        model: input.model,
+        model,
         mutation_mode: mutationMode,
         started_at: timestamp,
       },
@@ -225,7 +245,7 @@ export class AgentHost {
     });
 
     const projector = this.#projectHarnessEvents(agentRun.id, assistantMessage.id, conversationId);
-    const task = this.#startAgentTurn(pack, harnessRun, content, context);
+    const task = this.#startAgentTurn(pack, harnessRun, conversationId, assistantMessage.id, content, mentions, context);
     const combinedTask = task.finally(async () => {
       await projector;
     });
@@ -296,14 +316,18 @@ export class AgentHost {
   async #startAgentTurn(
     pack: AgentHostPackDefinition,
     run: HarnessRun,
+    conversationId: string,
+    assistantMessageId: string,
     userMessage: string,
+    mentions: ContextMention[],
     context: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
     try {
+      const messages = await this.#buildModelMessages(conversationId, assistantMessageId, mentions, userMessage, context);
       return await this.runtime.runAgentTurn({
         runId: run.id,
         agentId: pack.primaryAgentId,
-        messages: [{ role: "user", content: userMessage }],
+        messages,
         context,
       });
     } catch (error) {
@@ -313,6 +337,34 @@ export class AgentHost {
       });
       throw error;
     }
+  }
+
+  async #buildModelMessages(
+    conversationId: string,
+    assistantMessageId: string,
+    mentions: ContextMention[],
+    userMessage: string,
+    context: Record<string, unknown>
+  ) {
+    const history = this.store
+      .listMessages(conversationId)
+      .filter((message) => message.id !== assistantMessageId)
+      .map((message) => ({
+        role: message.role,
+        content: message.content,
+      }));
+    const fallback = [{ role: "user" as const, content: userMessage }];
+    const contextBlock = await this.#contextProvider?.loadMentionedContext({
+      workspaceId: String(context.workspace_id ?? ""),
+      mentions,
+    });
+    if (!contextBlock) {
+      return history.length > 0 ? history : fallback;
+    }
+    return [
+      { role: "system" as const, content: contextBlock },
+      ...(history.length > 0 ? history : fallback),
+    ];
   }
 
   async #projectHarnessEvents(runId: string, assistantMessageId: string, conversationId: string): Promise<void> {

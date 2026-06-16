@@ -44,6 +44,8 @@ import {
 import { chooseContextDirectoryPathInTauri, chooseContextFilePathsInTauri, isTauri } from "@/tauri"
 import type { AgentConversation, AgentPluginSummary, ContextSource, ContextSourceChild } from "@typedance/contracts"
 
+const defaultAgentModel = import.meta.env.VITE_DEFAULT_AGENT_MODEL ?? "deepseek-v4-flash"
+
 type WorkbenchSidebarProps = {
   workspaceId: string
   title: string
@@ -300,10 +302,10 @@ export function WorkbenchSidebar({
             <DialogTitle>AI 设置</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <Input placeholder="Provider" defaultValue="OpenAI Compatible" />
+            <Input placeholder="Provider" defaultValue="DeepSeek" />
             <Input placeholder="API Key" type="password" />
-            <Input placeholder="Base URL" />
-            <Input placeholder="Model" defaultValue="gpt-5" />
+            <Input placeholder="Base URL" defaultValue="https://api.deepseek.com" />
+            <Input placeholder="Model" defaultValue={defaultAgentModel} />
           </div>
         </DialogContent>
       </Dialog>

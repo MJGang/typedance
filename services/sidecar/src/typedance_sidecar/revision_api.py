@@ -14,6 +14,7 @@ from .context_sources import (
     list_directory_children,
     open_context_source,
     open_context_source_child,
+    read_context_source_text,
     refresh_webpage_metadata,
     reveal_context_source,
     reveal_context_source_child,
@@ -187,6 +188,16 @@ class UpdateContextSourceRequest(BaseModel):
         if not trimmed:
             raise ValueError("title must not be blank")
         return trimmed
+
+
+class ContextSourceContent(BaseModel):
+    source_id: str
+    type: str
+    title: str
+    uri: str
+    path: str | None = None
+    text: str
+    truncated: bool
 
 
 def create_revision_router(
@@ -499,6 +510,29 @@ def create_revision_router(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.get("/context-sources/{source_id}/content", response_model=ContextSourceContent)
+    def get_context_source_content(
+        source_id: str,
+        path: str = Query(default=""),
+        repo: RevisionRepository = Depends(repository),
+    ) -> ContextSourceContent:
+        source = require_context_source(repo, source_id)
+        try:
+            text, truncated = read_context_source_text(source, path)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return ContextSourceContent(
+            source_id=source.id,
+            type=source.type,
+            title=source.title,
+            uri=source.uri,
+            path=path or None,
+            text=text,
+            truncated=truncated,
+        )
 
     @router.post("/context-sources/{source_id}/refresh", response_model=ContextSource)
     def refresh_context_source(

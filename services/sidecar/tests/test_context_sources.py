@@ -69,6 +69,16 @@ def test_context_sources_manage_local_files_and_directories(tmp_path, monkeypatc
     ).json()
     assert nested_children[0]["name"] == "jd.md"
 
+    file_content = client.get(f"/context-sources/{directory_source['id']}/content", params={"path": "nested/jd.md"})
+    assert file_content.status_code == 200
+    assert file_content.json()["text"] == "# JD"
+    assert file_content.json()["truncated"] is False
+
+    directory_content = client.get(f"/context-sources/{directory_source['id']}/content")
+    assert directory_content.status_code == 200
+    assert "nested/" in directory_content.json()["text"]
+    assert "resume.pdf" in directory_content.json()["text"]
+
     open_child_response = client.post(
         f"/context-sources/{directory_source['id']}/children/open",
         params={"path": "nested/jd.md"},
@@ -111,6 +121,10 @@ def test_context_sources_manage_webpage_metadata(tmp_path, monkeypatch):
 
     monkeypatch.setattr("typedance_sidecar.context_sources.refresh_webpage_metadata", fake_metadata)
     monkeypatch.setattr("typedance_sidecar.revision_api.refresh_webpage_metadata", fake_metadata)
+    monkeypatch.setattr(
+        "typedance_sidecar.revision_api.read_context_source_text",
+        lambda source, path="": ("job description body", False),
+    )
 
     client = TestClient(app)
     document_id = create_document(client)
@@ -137,6 +151,10 @@ def test_context_sources_manage_webpage_metadata(tmp_path, monkeypatch):
     refreshed = client.post(f"/context-sources/{source['id']}/refresh")
     assert refreshed.status_code == 200
     assert refreshed.json()["title"] == "前端工程师岗位"
+
+    content = client.get(f"/context-sources/{source['id']}/content")
+    assert content.status_code == 200
+    assert content.json()["text"] == "job description body"
 
 
 def test_context_sources_are_removed_with_document(tmp_path, monkeypatch):
