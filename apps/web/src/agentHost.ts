@@ -112,6 +112,15 @@ export async function getAgentRun(runId: string): Promise<AgentRun> {
   )
 }
 
+export async function cancelAgentRun(runId: string): Promise<void> {
+  const response = await fetch(`${agentHostBaseUrl}/runs/${encodeURIComponent(runId)}/cancel`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ reason: "User cancelled" }),
+  })
+  if (!response.ok) throw new Error(`Failed to cancel agent run: ${response.status}`)
+}
+
 export async function listAgentRunEvents(runId: string, afterSequence = -1): Promise<AgentRunEvent[]> {
   const searchParams = new URLSearchParams({ after: String(afterSequence) })
   const response = await fetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/events?${searchParams}`)

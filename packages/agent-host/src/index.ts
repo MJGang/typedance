@@ -354,10 +354,15 @@ export class AgentHost {
         content: message.content,
       }));
     const fallback = [{ role: "user" as const, content: userMessage }];
-    const contextBlock = await this.#contextProvider?.loadMentionedContext({
+    const contextInput = {
       workspaceId: String(context.workspace_id ?? ""),
       mentions,
-    });
+    };
+    const contextBlocks = (await Promise.all([
+      this.#contextProvider?.loadWorkspaceContext?.(contextInput),
+      this.#contextProvider?.loadMentionedContext(contextInput),
+    ])).filter((block): block is string => Boolean(block));
+    const contextBlock = contextBlocks.join("\n\n");
     if (!contextBlock) {
       return history.length > 0 ? history : fallback;
     }

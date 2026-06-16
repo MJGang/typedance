@@ -231,7 +231,8 @@ def test_revision_api_creates_document_and_source(revision_client):
     assert canvas["old_resume_source_id"] == source["id"]
     assert canvas["doc_json"]["content"][0]["type"] == "heading"
     assert canvas["version"] == 1
-    assert workspace_after_source["current_draft"] is None
+    assert "current_draft" not in workspace_after_source
+    assert "render_projection" not in workspace_after_source
 
 def test_revision_api_creates_uploaded_resume_source(revision_client, monkeypatch):
     client, tmp_path = revision_client

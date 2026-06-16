@@ -1,4 +1,4 @@
-import type { ContextMention } from "@typedance/contracts";
+import { workspaceViewSchema, type ContextMention, type WorkspaceView } from "@typedance/contracts";
 
 export type AgentHostContextProviderInput = {
   workspaceId: string;
@@ -6,6 +6,7 @@ export type AgentHostContextProviderInput = {
 };
 
 export type AgentHostContextProvider = {
+  loadWorkspaceContext?(input: AgentHostContextProviderInput): Promise<string | undefined>;
   loadMentionedContext(input: AgentHostContextProviderInput): Promise<string | undefined>;
 };
 
@@ -26,6 +27,12 @@ type ContextSourceContentResponse = {
   truncated: boolean;
 };
 
+type ResumeDocNode = {
+  type?: unknown;
+  text?: unknown;
+  content?: unknown;
+};
+
 const DEFAULT_SIDECAR_BASE_URL = "http://127.0.0.1:4317";
 
 export function createSidecarContextProvider(options: SidecarContextProviderOptions = {}): AgentHostContextProvider {
@@ -35,6 +42,24 @@ export function createSidecarContextProvider(options: SidecarContextProviderOpti
   const maxCharactersPerSource = options.maxCharactersPerSource ?? 16000;
 
   return {
+    async loadWorkspaceContext(input) {
+      if (!input.workspaceId) return undefined;
+
+      try {
+        const response = await fetchImpl(`${baseUrl}/documents/${encodeURIComponent(input.workspaceId)}/workspace-view`);
+        if (!response.ok) {
+          return formatUnavailableWorkspaceContext(input.workspaceId, `sidecar returned ${response.status}`);
+        }
+
+        const workspace = workspaceViewSchema.parse(await response.json());
+        return formatWorkspaceContext(workspace, maxCharactersPerSource)
+          ?? formatUnavailableWorkspaceContext(input.workspaceId, "workspace has no readable source resume canvas content");
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "unknown error";
+        return formatUnavailableWorkspaceContext(input.workspaceId, reason);
+      }
+    },
+
     async loadMentionedContext(input) {
       const uniqueMentions = dedupeMentions(input.mentions).slice(0, maxSources);
       if (uniqueMentions.length === 0) return undefined;
@@ -59,6 +84,57 @@ export function createSidecarContextProvider(options: SidecarContextProviderOpti
       ].join("\n\n");
     },
   };
+}
+
+function formatWorkspaceContext(workspace: WorkspaceView, maxCharacters: number): string | undefined {
+  const canvas = workspace.source_resume_canvas;
+  if (!canvas) return undefined;
+
+  const nodeMapText = canvas.node_map
+    .map((node) => node.text.trim())
+    .filter(Boolean)
+    .join("\n");
+  const canvasText = nodeMapText || collectDocText(canvas.doc_json);
+  if (!canvasText.trim()) return undefined;
+
+  const text = canvasText.length > maxCharacters
+    ? `${canvasText.slice(0, maxCharacters)}\n[truncated by Agent Host]`
+    : canvasText;
+
+  return [
+    "Current active resume canvas:",
+    `  document_id: ${workspace.document.id}`,
+    `  title: ${workspace.document.title}`,
+    "  priority: This is the primary source of truth for the resume being discussed. Do not replace it with older conversation history or mentioned webpages unless the user explicitly asks.",
+    "  content:",
+    indent(text),
+  ].join("\n");
+}
+
+function formatUnavailableWorkspaceContext(workspaceId: string, reason: string): string {
+  return [
+    "Current active resume canvas: unavailable",
+    `  document_id: ${workspaceId}`,
+    `  reason: ${reason}`,
+    "  instruction: Do not summarize, score, or rewrite the current document unless current canvas content is supplied. Tell the user the current document could not be read and ask them to retry after the workspace finishes loading or saving.",
+  ].join("\n");
+}
+
+function collectDocText(value: unknown): string {
+  if (!isRecord(value)) return "";
+  const node = value as ResumeDocNode;
+  if (typeof node.text === "string") return node.text;
+  if (!Array.isArray(node.content)) return "";
+
+  const separator = node.type === "paragraph" ? "" : "\n";
+  return node.content
+    .map(collectDocText)
+    .filter(Boolean)
+    .join(separator);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object");
 }
 
 function dedupeMentions(mentions: ContextMention[]): ContextMention[] {

@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AssistantRuntimeProvider, useLocalRuntime, type ChatModelAdapter } from "@assistant-ui/react"
-import { ChevronDown, ChevronRight, Mic, Plus, Send, ShieldCheck, Square, WandSparkles } from "lucide-react"
+import { ArrowUp, ChevronDown, ChevronRight, Mic, Plus, ShieldCheck, Square, WandSparkles } from "lucide-react"
+import ReactMarkdown, { type Components } from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import {
+  cancelAgentRun,
   createWorkspaceConversation,
   createAgentRunEventSource,
   listAgentRunEvents,
@@ -52,6 +55,31 @@ const streamedEventTypes: AgentRunEvent["type"][] = [
   "harness_event",
 ]
 
+const assistantMarkdownComponents: Components = {
+  h1: ({ node: _node, ...props }) => <h1 className="mb-3 mt-5 text-lg font-semibold leading-7 text-foreground first:mt-0" {...props} />,
+  h2: ({ node: _node, ...props }) => <h2 className="mb-3 mt-5 text-base font-semibold leading-7 text-foreground first:mt-0" {...props} />,
+  h3: ({ node: _node, ...props }) => <h3 className="mb-2 mt-5 text-sm font-semibold leading-6 text-foreground first:mt-0" {...props} />,
+  p: ({ node: _node, ...props }) => <p className="my-3 text-sm leading-7 text-foreground first:mt-0 last:mb-0" {...props} />,
+  strong: ({ node: _node, ...props }) => <strong className="font-semibold text-foreground" {...props} />,
+  em: ({ node: _node, ...props }) => <em className="italic" {...props} />,
+  hr: ({ node: _node, ...props }) => <hr className="my-5 border-border" {...props} />,
+  ul: ({ node: _node, ...props }) => <ul className="my-3 list-disc space-y-1 pl-5 text-sm leading-7" {...props} />,
+  ol: ({ node: _node, ...props }) => <ol className="my-3 list-decimal space-y-1 pl-5 text-sm leading-7" {...props} />,
+  li: ({ node: _node, ...props }) => <li className="pl-1" {...props} />,
+  blockquote: ({ node: _node, ...props }) => <blockquote className="my-3 border-l-2 border-border pl-3 text-sm leading-7 text-muted-foreground" {...props} />,
+  table: ({ node: _node, ...props }) => (
+    <div className="my-3 overflow-x-auto rounded-md border border-border">
+      <table className="w-full min-w-max border-collapse text-left text-xs leading-5" {...props} />
+    </div>
+  ),
+  thead: ({ node: _node, ...props }) => <thead className="bg-muted/70 text-foreground" {...props} />,
+  th: ({ node: _node, ...props }) => <th className="border-b border-r border-border px-2.5 py-2 font-semibold last:border-r-0" {...props} />,
+  td: ({ node: _node, ...props }) => <td className="border-b border-r border-border px-2.5 py-2 align-top last:border-r-0 [&_p]:m-0" {...props} />,
+  code: ({ node: _node, ...props }) => <code className="rounded bg-muted px-1 py-0.5 text-[0.85em] text-foreground" {...props} />,
+  pre: ({ node: _node, ...props }) => <pre className="my-3 overflow-x-auto rounded-md bg-muted p-3 text-xs leading-6 text-foreground" {...props} />,
+  a: ({ node: _node, ...props }) => <a className="font-medium text-primary underline underline-offset-4" target="_blank" rel="noreferrer" {...props} />,
+}
+
 export function AgentChatPanel({
   workspaceId,
   activeConversationId,
@@ -91,14 +119,14 @@ function AgentChatContent({
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(() => new Set())
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  const loadMessages = useCallback(async () => {
-    if (!activeConversationId) {
+  const loadMessages = useCallback(async (conversationId = activeConversationId) => {
+    if (!conversationId) {
       setMessages([])
       setRunEvents({})
       return
     }
     try {
-      const nextMessages = await listConversationMessages(activeConversationId)
+      const nextMessages = await listConversationMessages(conversationId)
       setMessages(nextMessages)
       const runIds = nextMessages.map((message) => message.run_id).filter((runId): runId is string => !!runId)
       const eventEntries = await Promise.all(runIds.map(async (runId) => [runId, await listAgentRunEvents(runId)] as const))
@@ -158,6 +186,29 @@ function AgentChatContent({
     })
   }, [input])
 
+  const subscribeRun = useCallback((run: AgentRun, conversationId: string) => {
+    const source = createAgentRunEventSource(run.id)
+    const close = () => {
+      source.close()
+      setRunningRunId((current) => current === run.id ? null : current)
+      void loadMessages(conversationId)
+    }
+    for (const eventType of streamedEventTypes) {
+      source.addEventListener(eventType, (event) => {
+        const parsed = JSON.parse((event as MessageEvent).data) as AgentRunEvent
+        setRunEvents((current) => ({
+          ...current,
+          [parsed.run_id]: [...(current[parsed.run_id] ?? []), parsed],
+        }))
+        if (parsed.type === "canvas_patch_applied") {
+          onCanvasPatchApplied?.(parsed)
+        }
+        if (terminalEvents.has(parsed.type)) close()
+      })
+    }
+    source.onerror = close
+  }, [loadMessages, onCanvasPatchApplied])
+
   const handleSend = useCallback(async () => {
     const content = input.trim()
     if (!content || runningRunId) return
@@ -181,35 +232,21 @@ function AgentChatContent({
       setMentions([])
       setMentionQuery(null)
       setRunningRunId(run.id)
-      await loadMessages()
-      subscribeRun(run)
+      await loadMessages(conversationId)
+      subscribeRun(run, conversationId)
     } catch {
       toast.error("发送失败")
     }
-  }, [activeConversationId, input, loadMessages, mentions, model, mutationMode, onConversationCreated, runningRunId, workspaceId])
+  }, [activeConversationId, input, loadMessages, mentions, model, mutationMode, onConversationCreated, runningRunId, subscribeRun, workspaceId])
 
-  const subscribeRun = useCallback((run: AgentRun) => {
-    const source = createAgentRunEventSource(run.id)
-    const close = () => {
-      source.close()
-      setRunningRunId((current) => current === run.id ? null : current)
-      void loadMessages()
+  const handleCancelRun = useCallback(async () => {
+    if (!runningRunId) return
+    try {
+      await cancelAgentRun(runningRunId)
+    } catch {
+      toast.error("停止失败")
     }
-    for (const eventType of streamedEventTypes) {
-      source.addEventListener(eventType, (event) => {
-        const parsed = JSON.parse((event as MessageEvent).data) as AgentRunEvent
-        setRunEvents((current) => ({
-          ...current,
-          [parsed.run_id]: [...(current[parsed.run_id] ?? []), parsed],
-        }))
-        if (parsed.type === "canvas_patch_applied") {
-          onCanvasPatchApplied?.(parsed)
-        }
-        if (terminalEvents.has(parsed.type)) close()
-      })
-    }
-    source.onerror = close
-  }, [loadMessages, onCanvasPatchApplied])
+  }, [runningRunId])
 
   const visibleMessages = messages
 
@@ -255,8 +292,7 @@ function AgentChatContent({
               ref={inputRef}
               aria-label="AI 输入"
               value={input}
-              placeholder="随心输入"
-              className="absolute inset-0 h-full w-full resize-none bg-transparent px-3 pt-3 text-sm leading-6 text-transparent caret-foreground outline-none placeholder:text-muted-foreground/50"
+              className="absolute inset-0 h-full w-full resize-none bg-transparent px-3 pt-3 text-sm leading-6 text-transparent caret-foreground outline-none"
               onChange={(event) => handleInputChange(event.target.value, event.currentTarget.selectionStart)}
               onClick={(event) => handleInputChange(event.currentTarget.value, event.currentTarget.selectionStart)}
               onKeyUp={(event) => handleInputChange(event.currentTarget.value, event.currentTarget.selectionStart)}
@@ -287,14 +323,16 @@ function AgentChatContent({
             ) : null}
           </div>
 
-          <div className="flex h-11 items-center gap-2 px-3">
-            <Button variant="ghost" size="icon-sm" aria-label="添加" title="添加">
-              <Plus className="size-4" />
-            </Button>
-            <MutationModeMenu value={mutationMode} onChange={setMutationMode} />
-            <div className="ml-auto flex items-center gap-2">
-              <Button variant="ghost" size="sm" className="h-8 px-2 text-xs">
-                模型 {model}
+          <div className="flex h-11 min-w-0 items-center gap-2 px-3">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <Button variant="ghost" size="icon-sm" aria-label="添加" title="添加">
+                <Plus className="size-4" />
+              </Button>
+              <MutationModeMenu value={mutationMode} onChange={setMutationMode} />
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Button variant="ghost" size="sm" className="h-8 max-w-32 px-2 text-xs">
+                <span className="truncate">模型 {model}</span>
               </Button>
               <Button variant="ghost" size="icon-sm" aria-label="语音输入暂未支持" title="语音输入暂未支持" disabled>
                 <Mic className="size-4" />
@@ -302,10 +340,21 @@ function AgentChatContent({
               <Button
                 size="icon-sm"
                 aria-label={runningRunId ? "停止" : "发送"}
-                onClick={() => void handleSend()}
-                disabled={!input.trim() || !!runningRunId}
+                title={runningRunId ? "停止" : "发送"}
+                className={cn(
+                  "size-8 rounded-full bg-neutral-900 text-white hover:bg-neutral-800 disabled:bg-muted-foreground/60 disabled:text-white disabled:opacity-100",
+                  runningRunId && "hover:bg-neutral-900",
+                )}
+                onClick={() => {
+                  if (runningRunId) {
+                    void handleCancelRun()
+                    return
+                  }
+                  void handleSend()
+                }}
+                disabled={!runningRunId && !input.trim()}
               >
-                {runningRunId ? <Square className="size-4" /> : <Send className="size-4" />}
+                {runningRunId ? <Square className="size-3.5 fill-current" /> : <ArrowUp className="size-5" />}
               </Button>
             </div>
           </div>
@@ -393,13 +442,15 @@ function ChatMessage({
         </div>
       ) : null}
 
-      <div className="prose prose-sm max-w-none dark:prose-invert">
+      <div className="max-w-none">
         {message.role === "user" ? (
           <p className="m-0 whitespace-pre-wrap text-sm leading-6">
             <HighlightedMessageText text={message.content} mentions={message.mentions} />
           </p>
         ) : (
-          <p className="m-0 whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+          <ReactMarkdown skipHtml remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
+            {message.content}
+          </ReactMarkdown>
         )}
       </div>
     </article>

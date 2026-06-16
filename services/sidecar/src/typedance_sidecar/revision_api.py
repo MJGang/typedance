@@ -396,7 +396,11 @@ def create_revision_router(
     ) -> list[ParsedBlock]:
         return SourceService(repo).list_parsed_blocks(source_id)
 
-    @router.get("/documents/{document_id}/workspace-view", response_model=WorkspaceView)
+    @router.get(
+        "/documents/{document_id}/workspace-view",
+        response_model=WorkspaceView,
+        response_model_exclude_none=True,
+    )
     def get_workspace_view(
         document_id: str,
         repo: RevisionRepository = Depends(repository),

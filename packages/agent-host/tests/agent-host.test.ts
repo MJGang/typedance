@@ -93,6 +93,69 @@ describe("agent host", () => {
     ]);
   });
 
+  it("grounds resume conversations in the current workspace canvas before prior chat history", async () => {
+    const seenRequests: HarnessModelRequest[] = [];
+    const runtime = createHarnessRuntime({
+      model: {
+        stream: async function* (request) {
+          seenRequests.push(request);
+          yield { type: "assistant_delta", messageId: "assistant_1", delta: "正在检查刚铭俊的简历。" };
+          yield { type: "final", output: { ok: true } };
+        },
+      },
+    });
+    runtime.registerPlugin({
+      id: "resume.agent",
+      name: "Resume Agent",
+      version: "0.1.0",
+      module_format: "esm",
+      scopes: ["pack:resume"],
+      agents: [{ id: "resume.primary", name: "Resume Primary", role: "primary", skill_ids: [] }],
+    });
+    const host = createAgentHost({
+      runtime,
+      packs: [
+        {
+          id: "resume",
+          capabilityPolicy: { scopeIds: ["pack:resume"] },
+          primaryAgentId: "resume.primary",
+        },
+      ],
+      contextProvider: {
+        loadWorkspaceContext: async () => [
+          "Current active resume canvas:",
+          "  document_id: doc_1",
+          "  title: 刚铭俊",
+          "  content:",
+          "    刚铭俊",
+          "    前端技术负责人 / 前端架构师 / AI 应用开发",
+        ].join("\n"),
+        loadMentionedContext: async () => undefined,
+      },
+    });
+
+    const conversation = host.createConversation("doc_1");
+    host.startConversationRun("doc_1", conversation.id, {
+      message: { content: "上一份是张择天的简历" },
+      mutationMode: "suggest",
+    });
+    const run = host.startConversationRun("doc_1", conversation.id, {
+      message: { content: "检查这份简历质量" },
+      mutationMode: "suggest",
+    });
+    await host.waitForRun(run.id);
+
+    const latestRequest = seenRequests.at(-1);
+    expect(latestRequest?.messages[0]).toMatchObject({
+      role: "system",
+      content: expect.stringContaining("刚铭俊"),
+    });
+    expect(latestRequest?.messages.at(-1)).toEqual({
+      role: "user",
+      content: "检查这份简历质量",
+    });
+  });
+
   it("exposes workspace conversation APIs over HTTP", async () => {
     const runtime = createHarnessRuntime({
       model: {

@@ -114,24 +114,33 @@ function resolveModelName(request: HarnessModelRequest, defaultModel: string): s
 }
 
 function buildDeepSeekMessages(request: HarnessModelRequest): HarnessModelMessage[] {
+  const suppliedSystemMessages = request.messages
+    .filter((message) => message.role === "system")
+    .map((message) => message.content.trim())
+    .filter(Boolean);
+  const conversationMessages = request.messages
+    .filter((message) => message.role !== "system")
+    .map((message) => ({
+      role: message.role,
+      content: message.content,
+    }));
   const system = [
     "You are an AI agent running inside a desktop agent harness.",
     "Use the supplied runtime context and user-visible conversation history.",
     "When read-only context is supplied, treat it as evidence and cite it naturally in your answer.",
+    "Interactive harness tools are not exposed through this DeepSeek adapter in this turn. Do not claim you called tools. Use only the context already supplied in this request.",
+    "If the current active resume canvas content is unavailable, say that you cannot inspect the current document yet. Do not summarize, score, or rewrite a current document from document_id, title, or older conversation history alone.",
     "Do not claim that you modified local files unless the harness reports a completed tool or canvas patch event.",
     `Agent id: ${request.agentId}`,
-    request.availableToolNames.length > 0
-      ? `Available harness tools: ${request.availableToolNames.join(", ")}`
-      : "Available harness tools: none",
     `Runtime context: ${safeJsonForPrompt(request.context, 12000)}`,
-  ].join("\n");
+    suppliedSystemMessages.length > 0
+      ? `Supplied runtime evidence:\n\n${suppliedSystemMessages.join("\n\n")}`
+      : "Supplied runtime evidence: none.",
+  ].join("\n\n");
 
   return [
     { role: "system", content: system },
-    ...request.messages.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })),
+    ...conversationMessages,
   ];
 }
 
