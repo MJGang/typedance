@@ -17,6 +17,7 @@ import {
   createMemoryAgentHostStore,
   type AgentHostStore,
 } from "./store";
+import { buildAgentHostPromptBundle } from "./prompt";
 import type { AgentHostContextProvider } from "./sidecar-context";
 export {
   JsonFileAgentHostStore,
@@ -33,11 +34,19 @@ export {
   type SidecarContextProviderOptions,
 } from "./sidecar-context";
 export {
-  DEFAULT_DEEPSEEK_FLASH_MODEL,
-  assertFlashModel,
   createDeepSeekModelAdapter,
   type DeepSeekModelAdapterOptions,
 } from "./model/deepseek";
+export {
+  buildAgentHostPromptBundle,
+  collectPromptFragments,
+  createAgentHostPromptDebugSnapshot,
+  renderAgentHostPromptSections,
+  type AgentHostPromptContributor,
+  type AgentHostPromptBundleInput,
+  type AgentHostPromptDebugSnapshot,
+  type AgentHostPromptFragment,
+} from "./prompt";
 
 export type AgentHostCapabilityPolicy = {
   scopeIds?: string[];
@@ -75,7 +84,8 @@ export class AgentHost {
   readonly runtime: HarnessRuntime;
   readonly store: AgentHostStore;
   #packs = new Map<string, AgentHostPackDefinition>();
-  #runTasks = new Map<string, Promise<Record<string, unknown>>>();
+  #runTasks = new Map<string, Promise<Record<string, unknown> | undefined>>();
+  #runtimeRunIds = new Map<string, string>();
   #subscribers = new Map<string, Set<(event: AgentRunEvent) => void>>();
   #defaultModel?: string;
   #contextProvider?: AgentHostContextProvider;
@@ -93,6 +103,7 @@ export class AgentHost {
       }
       this.#packs.set(pack.id, pack);
     }
+    this.#recoverInterruptedRuns();
   }
 
   listPacks(): AgentHostPackDefinition[] {
@@ -228,7 +239,6 @@ export class AgentHost {
     });
     const agentRun = this.store.createRun({
       run: {
-        id: harnessRun.id,
         conversation_id: conversationId,
         assistant_message_id: assistantMessage.id,
         status: "running",
@@ -237,6 +247,7 @@ export class AgentHost {
         started_at: timestamp,
       },
     });
+    this.#runtimeRunIds.set(agentRun.id, harnessRun.id);
     this.store.updateMessage(assistantMessage.id, { run_id: agentRun.id });
     this.store.updateConversation(conversationId, {
       status: "running",
@@ -244,20 +255,32 @@ export class AgentHost {
       updated_at: timestamp,
     });
 
-    const projector = this.#projectHarnessEvents(agentRun.id, assistantMessage.id, conversationId);
-    const task = this.#startAgentTurn(pack, harnessRun, conversationId, assistantMessage.id, content, mentions, context);
-    const combinedTask = task.finally(async () => {
+    const projector = this.#projectHarnessEvents(harnessRun.id, agentRun.id, assistantMessage.id, conversationId);
+    const task = this.#startAgentTurn(pack, harnessRun, conversationId, assistantMessage.id, content, mentions, model, context);
+    const combinedTask = (async () => {
+      let output: Record<string, unknown> | undefined;
+      try {
+        output = await task;
+      } catch {
+        output = undefined;
+      }
       await projector;
-    });
+      return output;
+    })();
     this.#runTasks.set(agentRun.id, combinedTask);
     void combinedTask.finally(() => {
       this.#runTasks.delete(agentRun.id);
+      this.#runtimeRunIds.delete(agentRun.id);
     });
     return agentRun;
   }
 
   async waitForRun(runId: string): Promise<Record<string, unknown> | undefined> {
     return this.#runTasks.get(runId);
+  }
+
+  cancelAgentRun(runId: string, reason?: string): HarnessRunEvent {
+    return this.runtime.cancelRun(this.#runtimeRunIds.get(runId) ?? runId, reason);
   }
 
   streamAgentRunEvents(runId: string, options: { afterSequence?: number } = {}): AsyncIterableIterator<AgentRunEvent> {
@@ -320,21 +343,36 @@ export class AgentHost {
     assistantMessageId: string,
     userMessage: string,
     mentions: ContextMention[],
+    model: string | undefined,
     context: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
     try {
       const messages = await this.#buildModelMessages(conversationId, assistantMessageId, mentions, userMessage, context);
+      const skillContext = await this.runtime.buildAgentSkillContext({
+        policy: {
+          scopeIds: pack.capabilityPolicy.scopeIds ?? [],
+          pluginIds: pack.capabilityPolicy.pluginIds ?? [],
+        },
+        agentId: pack.primaryAgentId,
+      });
+      const prompt = buildAgentHostPromptBundle({
+        messages,
+        skillContext,
+      });
       return await this.runtime.runAgentTurn({
         runId: run.id,
         agentId: pack.primaryAgentId,
+        model,
         messages,
-        context,
+        prompt,
       });
     } catch (error) {
-      this.runtime.failRun(run.id, {
-        code: "agent_turn_failed",
-        message: error instanceof Error ? error.message : "Agent turn failed",
-      });
+      if (!isTerminalHarnessRunStatus(this.runtime.getRun(run.id).status)) {
+        this.runtime.failRun(run.id, {
+          code: "agent_turn_failed",
+          message: error instanceof Error ? error.message : "Agent turn failed",
+        });
+      }
       throw error;
     }
   }
@@ -372,10 +410,15 @@ export class AgentHost {
     ];
   }
 
-  async #projectHarnessEvents(runId: string, assistantMessageId: string, conversationId: string): Promise<void> {
-    const stream = this.runtime.streamEvents(runId, { afterSequence: -1 });
+  async #projectHarnessEvents(
+    runtimeRunId: string,
+    agentRunId: string,
+    assistantMessageId: string,
+    conversationId: string
+  ): Promise<void> {
+    const stream = this.runtime.streamEvents(runtimeRunId, { afterSequence: -1 });
     for await (const event of stream) {
-      this.#recordProjectedEvent(runId, assistantMessageId, conversationId, event);
+      this.#recordProjectedEvent(agentRunId, assistantMessageId, conversationId, event);
       if (event.type === "run.completed" || event.type === "run.failed" || event.type === "run.canceled") {
         await stream.return?.();
         return;
@@ -411,7 +454,12 @@ export class AgentHost {
       return;
     }
     if (event.type === "tool.call.completed") {
-      this.#appendAgentRunEvent(runId, "tool_call_completed", { result: event.result }, timestamp);
+      this.#appendAgentRunEvent(
+        runId,
+        event.result.status === "failed" ? "tool_call_failed" : "tool_call_completed",
+        { result: event.result },
+        timestamp
+      );
       return;
     }
     if (event.type === "artifact.patch.proposed") {
@@ -432,8 +480,8 @@ export class AgentHost {
     }
     if (event.type === "run.completed") {
       this.#completeProjectedRun(runId, conversationId, "completed", timestamp);
-      this.#appendAgentRunEvent(runId, "run_completed", { output: event.output }, timestamp);
       this.#maybeGenerateConversationTitle(conversationId, timestamp);
+      this.#appendAgentRunEvent(runId, "run_completed", { output: event.output }, timestamp);
       return;
     }
     if (event.type === "run.failed") {
@@ -468,6 +516,20 @@ export class AgentHost {
       last_message_at: timestamp,
       updated_at: timestamp,
     });
+  }
+
+  #recoverInterruptedRuns(): void {
+    const timestamp = this.#timestamp();
+    const runningRuns = this.store.listRuns().filter((run) => run.status === "running");
+    for (const run of runningRuns) {
+      this.#completeProjectedRun(run.id, run.conversation_id, "failed", timestamp);
+      this.#appendAgentRunEvent(run.id, "run_failed", {
+        error: {
+          code: "agent_host_restarted",
+          message: "Agent Host restarted before the run finished.",
+        },
+      }, timestamp);
+    }
   }
 
   #maybeGenerateConversationTitle(conversationId: string, timestamp: string): void {
@@ -505,6 +567,10 @@ export class AgentHost {
   #messageId(): string {
     return `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   }
+}
+
+function isTerminalHarnessRunStatus(status: HarnessRun["status"]): boolean {
+  return status === "completed" || status === "failed" || status === "canceled";
 }
 
 export function createAgentHost(options: AgentHostOptions): AgentHost {
@@ -674,6 +740,14 @@ async function route(context: RouteContext): Promise<boolean> {
   const agentRunMatch = /^\/agent-runs\/([^/]+)$/.exec(pathname);
   if (request.method === "GET" && agentRunMatch) {
     writeJson(response, 200, host.getAgentRun(decodeURIComponent(agentRunMatch[1] ?? "")));
+    return true;
+  }
+
+  const agentRunCancelMatch = /^\/agent-runs\/([^/]+)\/cancel$/.exec(pathname);
+  if (request.method === "POST" && agentRunCancelMatch) {
+    const body = await readJson(request);
+    const event = host.cancelAgentRun(decodeURIComponent(agentRunCancelMatch[1] ?? ""), optionalString(body.reason));
+    writeJson(response, 200, event);
     return true;
   }
 

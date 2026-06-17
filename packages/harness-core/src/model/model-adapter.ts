@@ -1,20 +1,64 @@
-import type { HarnessToolCall } from "@typedance/harness-contracts";
+import type { HarnessToolCall, HarnessToolOrigin } from "@typedance/harness-contracts";
 import type { HarnessResolvedCapabilityPolicy } from "../plugin/plugin-registry";
-import type { HarnessAgentSkillContext } from "../skill/skill-registry";
 
-export type HarnessModelMessage = {
-  role: "system" | "user" | "assistant" | "tool";
+export type HarnessModelMessage =
+  | {
+      role: "system" | "user";
+      content: string;
+    }
+  | {
+      role: "assistant";
+      content: string;
+      toolCalls?: HarnessToolCall[];
+    }
+  | {
+      role: "tool";
+      content: string;
+      toolCallId: string;
+      toolName: string;
+    };
+
+export type HarnessPromptSectionSlot = "developer" | "contextual";
+
+export type HarnessPromptSection = {
+  slot: HarnessPromptSectionSlot;
+  source: string;
   content: string;
+  priority?: number;
+  budget?: {
+    maxChars: number;
+    originalChars: number;
+    truncated: boolean;
+  };
+  provenance?: {
+    kind: string;
+    sourceId?: string;
+    path?: string;
+    metadata?: Record<string, string>;
+  };
+};
+
+export type HarnessPromptBundle = {
+  developer: HarnessPromptSection[];
+  contextual: HarnessPromptSection[];
+  conversation: HarnessModelMessage[];
 };
 
 export type HarnessModelRequest = {
   runId: string;
   capabilityPolicy: HarnessResolvedCapabilityPolicy;
   agentId: string;
-  messages: HarnessModelMessage[];
-  skillContext: HarnessAgentSkillContext;
+  model?: string;
+  prompt: HarnessPromptBundle;
   availableToolNames: string[];
-  context: Record<string, unknown>;
+  availableTools: HarnessModelTool[];
+};
+
+export type HarnessModelTool = {
+  name: string;
+  origin: HarnessToolOrigin;
+  description: string;
+  inputSchema?: Record<string, unknown>;
 };
 
 export type HarnessModelStreamEvent =

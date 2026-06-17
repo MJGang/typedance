@@ -246,6 +246,40 @@ function renderPage(assistantPanelVisible = true) {
   )
 }
 
+function controllableEventSource() {
+  const listeners = new Map<string, Array<(event: MessageEvent) => void>>()
+  return {
+    source: {
+      addEventListener: vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {
+        const current = listeners.get(type) ?? []
+        current.push(listener as (event: MessageEvent) => void)
+        listeners.set(type, current)
+      }),
+      close: vi.fn(),
+    } as unknown as EventSource,
+    dispatch(type: string, payload: Record<string, unknown>) {
+      for (const listener of listeners.get(type) ?? []) {
+        listener(new MessageEvent(type, { data: JSON.stringify(payload) }))
+      }
+    },
+  }
+}
+
+function typeComposerText(composer: HTMLElement, value: string) {
+  composer.textContent = value
+  composer.focus()
+
+  const range = document.createRange()
+  const textNode = composer.firstChild ?? composer.appendChild(document.createTextNode(""))
+  range.setStart(textNode, value.length)
+  range.collapse(true)
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+
+  fireEvent.input(composer)
+}
+
 describe("RevisionWorkspacePage", () => {
   beforeEach(() => {
     vi.useRealTimers()
@@ -310,7 +344,8 @@ describe("RevisionWorkspacePage", () => {
     expect(screen.getByText("工作区")).toBeInTheDocument()
     expect(screen.getByText("上下文")).toBeInTheDocument()
     expect(screen.getByText("对话")).toBeInTheDocument()
-    expect(screen.getByText("AI 助手")).toBeInTheDocument()
+    expect(screen.getByText("未选择对话")).toBeInTheDocument()
+    expect(screen.queryByText("AI 助手")).not.toBeInTheDocument()
     expect(screen.getByText("Original canvas text")).toBeInTheDocument()
     expect(screen.queryByTestId("revision-review-panel")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "质量检查" })).not.toBeInTheDocument()
@@ -346,6 +381,67 @@ describe("RevisionWorkspacePage", () => {
 
     await waitFor(() => expect(agentHostMocks.createWorkspaceConversation).toHaveBeenCalledWith("doc_1"))
     await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledTimes(2))
+  })
+
+  it("refreshes the sidebar conversation title after an agent run completes", async () => {
+    const eventSource = controllableEventSource()
+    agentHostMocks.listWorkspaceConversations
+      .mockResolvedValueOnce([
+        {
+          id: "conv_1",
+          workspace_id: "doc_1",
+          title: "Old chat",
+          pinned: false,
+          status: "idle",
+          last_message_at: "2026-05-21T08:00:00.000Z",
+          created_at: "2026-05-21T08:00:00.000Z",
+          updated_at: "2026-05-21T08:00:00.000Z",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "conv_1",
+          workspace_id: "doc_1",
+          title: "Generated chat title",
+          pinned: false,
+          status: "idle",
+          last_message_at: "2026-05-21T08:01:00.000Z",
+          created_at: "2026-05-21T08:00:00.000Z",
+          updated_at: "2026-05-21T08:01:00.000Z",
+        },
+      ])
+    agentHostMocks.createAgentRunEventSource.mockReturnValue(eventSource.source)
+    agentHostMocks.startConversationRun.mockResolvedValue({
+      id: "run_1",
+      conversation_id: "conv_1",
+      assistant_message_id: "msg_assistant",
+      status: "running",
+      model: "deepseek-v4-flash",
+      mutation_mode: "review",
+      started_at: "2026-05-21T08:00:00.000Z",
+    })
+    agentHostMocks.listConversationMessages.mockResolvedValue([])
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole("button", { name: "Old chat" }))
+    const composer = screen.getByRole("textbox")
+    typeComposerText(composer, "Check title refresh")
+    fireEvent.keyDown(composer, { key: "Enter" })
+
+    await waitFor(() => expect(agentHostMocks.createAgentRunEventSource).toHaveBeenCalledWith("run_1"))
+    await act(async () => {
+      eventSource.dispatch("run_completed", {
+        id: "evt_run_1_1",
+        run_id: "run_1",
+        sequence: 1,
+        created_at: "2026-05-21T08:01:00.000Z",
+        type: "run_completed",
+        payload: { output: { ok: true } },
+      })
+    })
+
+    expect(await screen.findAllByText("Generated chat title")).toHaveLength(2)
   })
 
   it("edits the workspace title inline", async () => {

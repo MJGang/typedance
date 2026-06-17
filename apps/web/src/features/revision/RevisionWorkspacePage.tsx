@@ -20,7 +20,7 @@ import { defaultClassicA4Style } from "../templates/data"
 import { useSourceCanvasAutosave } from "./useSourceCanvasAutosave"
 import { WorkbenchSidebar } from "./WorkbenchSidebar"
 import type { RevisionWorkspaceChromeContext } from "@/components/SiteLayout"
-import type { AgentRunEvent, ContextSource, SourceResumeCanvas, WorkspaceView } from "@typedance/contracts"
+import type { AgentConversation, AgentRunEvent, ContextSource, SourceResumeCanvas, WorkspaceView } from "@typedance/contracts"
 
 type LoadState =
   | { status: "loading" }
@@ -78,6 +78,8 @@ export function RevisionWorkspacePage() {
   const [titleSaveError, setTitleSaveError] = useState<string | null>(null)
   const [isSavingTitle, setIsSavingTitle] = useState(false)
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>()
+  const [conversations, setConversations] = useState<AgentConversation[]>([])
+  const [conversationRefreshToken, setConversationRefreshToken] = useState(0)
   const [contextSources, setContextSources] = useState<ContextSource[]>([])
   const [canvasPatchFlash, setCanvasPatchFlash] = useState<CanvasPatchFlash | null>(null)
   const canvasPatchFlashSequenceRef = useRef(0)
@@ -120,6 +122,15 @@ export function RevisionWorkspacePage() {
     canvasPatchFlashSequenceRef.current += 1
     setCanvasPatchFlash(patchFlashFromRunEvent(event, canvasPatchFlashSequenceRef.current))
   }, [])
+
+  const refreshConversations = useCallback(() => {
+    setConversationRefreshToken((current) => current + 1)
+  }, [])
+
+  const handleConversationCreated = useCallback((conversationId: string) => {
+    setActiveConversationId(conversationId)
+    refreshConversations()
+  }, [refreshConversations])
 
   const {
     flush: flushCanvasSaves,
@@ -170,6 +181,7 @@ export function RevisionWorkspacePage() {
     const requestEpoch = ++loadRequestEpochRef.current
     setState({ status: "loading" })
     setActiveConversationId(undefined)
+    setConversations([])
     setContextSources([])
     void (async () => {
       await flushCanvasSaves()
@@ -373,6 +385,7 @@ export function RevisionWorkspacePage() {
 
   if (!workspace) return null
   const exportDisabled = !sourceCanvas || exportingFormat !== null
+  const activeConversationTitle = conversations.find((conversation) => conversation.id === activeConversationId)?.title
 
   return (
     <div className="flex h-[calc(100svh-3rem)] min-h-0 overflow-hidden bg-background">
@@ -380,8 +393,10 @@ export function RevisionWorkspacePage() {
         workspaceId={workspace.document.id}
         title={workspace.document.title}
         activeConversationId={activeConversationId}
+        conversationRefreshToken={conversationRefreshToken}
         onSelectConversation={setActiveConversationId}
         onContextSourcesChange={setContextSources}
+        onConversationsChange={setConversations}
       />
       <main
         data-testid="revision-workspace-grid"
@@ -490,8 +505,10 @@ export function RevisionWorkspacePage() {
           <AgentChatPanel
             workspaceId={workspace.document.id}
             activeConversationId={activeConversationId}
+            activeConversationTitle={activeConversationTitle}
             contextSources={contextSources}
-            onConversationCreated={setActiveConversationId}
+            onConversationCreated={handleConversationCreated}
+            onConversationUpdated={refreshConversations}
             onCanvasPatchApplied={handleCanvasPatchApplied}
           />
         ) : null}

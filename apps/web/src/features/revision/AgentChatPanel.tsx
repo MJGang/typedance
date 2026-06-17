@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { AssistantRuntimeProvider, useLocalRuntime, type ChatModelAdapter } from "@assistant-ui/react"
 import { ArrowUp, ChevronDown, ChevronRight, Mic, Plus, ShieldCheck, Square, WandSparkles } from "lucide-react"
 import ReactMarkdown, { type Components } from "react-markdown"
@@ -27,8 +27,10 @@ import type {
 type AgentChatPanelProps = {
   workspaceId: string
   activeConversationId?: string
+  activeConversationTitle?: string
   contextSources: ContextSource[]
   onConversationCreated: (conversationId: string) => void
+  onConversationUpdated?: () => void
   onCanvasPatchApplied?: (event: AgentRunEvent) => void
 }
 
@@ -37,7 +39,7 @@ const mutationModeLabels: Record<CanvasMutationMode, string> = {
   review: "手动应用",
   solo: "自动修改",
 }
-const defaultAgentModel = import.meta.env.VITE_DEFAULT_AGENT_MODEL ?? "deepseek-v4-flash"
+const defaultAgentModel = import.meta.env.VITE_DEFAULT_AGENT_MODEL?.trim() || undefined
 
 const terminalEvents = new Set<AgentRunEvent["type"]>(["run_completed", "run_failed", "run_cancelled"])
 const streamedEventTypes: AgentRunEvent["type"][] = [
@@ -54,6 +56,20 @@ const streamedEventTypes: AgentRunEvent["type"][] = [
   "run_cancelled",
   "harness_event",
 ]
+
+function getRunStatusLabel(terminal: AgentRunEvent, message: AgentMessage): string {
+  if (terminal.type === "run_failed") return "处理失败"
+  if (terminal.type === "run_cancelled") return "已停止"
+
+  if (terminal.type === "run_completed") {
+    const output = terminal.payload.output
+    const isEmptyOutput = typeof output === "object" && output !== null && "empty" in output && (output as { empty?: unknown }).empty === true
+    if (isEmptyOutput || message.content.trim().length === 0) return "未生成回复"
+    return "已处理"
+  }
+
+  return "状态未知"
+}
 
 const assistantMarkdownComponents: Components = {
   h1: ({ node: _node, ...props }) => <h1 className="mb-3 mt-5 text-lg font-semibold leading-7 text-foreground first:mt-0" {...props} />,
@@ -83,8 +99,10 @@ const assistantMarkdownComponents: Components = {
 export function AgentChatPanel({
   workspaceId,
   activeConversationId,
+  activeConversationTitle,
   contextSources,
   onConversationCreated,
+  onConversationUpdated,
   onCanvasPatchApplied,
 }: AgentChatPanelProps) {
   const runtime = useAssistantUiShellRuntime()
@@ -93,8 +111,10 @@ export function AgentChatPanel({
       <AgentChatContent
         workspaceId={workspaceId}
         activeConversationId={activeConversationId}
+        activeConversationTitle={activeConversationTitle}
         contextSources={contextSources}
         onConversationCreated={onConversationCreated}
+        onConversationUpdated={onConversationUpdated}
         onCanvasPatchApplied={onCanvasPatchApplied}
       />
     </AssistantRuntimeProvider>
@@ -104,8 +124,10 @@ export function AgentChatPanel({
 function AgentChatContent({
   workspaceId,
   activeConversationId,
+  activeConversationTitle,
   contextSources,
   onConversationCreated,
+  onConversationUpdated,
   onCanvasPatchApplied,
 }: AgentChatPanelProps) {
   const [messages, setMessages] = useState<AgentMessage[]>([])
@@ -117,12 +139,14 @@ function AgentChatContent({
   const [mutationMode, setMutationMode] = useState<CanvasMutationMode>("review")
   const [model] = useState(defaultAgentModel)
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(() => new Set())
-  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const composerRef = useRef<HTMLDivElement>(null)
+  const knownRunEventIdsRef = useRef<Set<string>>(new Set())
 
   const loadMessages = useCallback(async (conversationId = activeConversationId) => {
     if (!conversationId) {
       setMessages([])
       setRunEvents({})
+      knownRunEventIdsRef.current.clear()
       return
     }
     try {
@@ -130,6 +154,7 @@ function AgentChatContent({
       setMessages(nextMessages)
       const runIds = nextMessages.map((message) => message.run_id).filter((runId): runId is string => !!runId)
       const eventEntries = await Promise.all(runIds.map(async (runId) => [runId, await listAgentRunEvents(runId)] as const))
+      knownRunEventIdsRef.current = new Set(eventEntries.flatMap(([, events]) => events.map((event) => event.id)))
       setRunEvents(Object.fromEntries(eventEntries))
     } catch {
       toast.error("消息加载失败")
@@ -139,6 +164,13 @@ function AgentChatContent({
   useEffect(() => {
     void loadMessages()
   }, [loadMessages])
+
+  useLayoutEffect(() => {
+    const composer = composerRef.current
+    if (!composer) return
+    if (document.activeElement === composer && getComposerPlainText(composer) === input) return
+    syncComposerContent(composer, input, mentions)
+  }, [input, mentions])
 
   const filteredMentionSources = useMemo(() => {
     if (mentionQuery === null) return []
@@ -155,18 +187,22 @@ function AgentChatContent({
 
   const handleInputChange = useCallback((value: string, caret: number | null) => {
     setInput(value)
+    setMentions((current) => current.filter((mention) => value.includes(`@${mention.label}`)))
     const beforeCaret = value.slice(0, caret ?? value.length)
     const match = /(^|\s)@([^\s@]*)$/.exec(beforeCaret)
     setMentionQuery(match ? match[2] : null)
   }, [])
 
   const selectMention = useCallback((source: ContextSource) => {
-    const textarea = inputRef.current
-    const caret = textarea?.selectionStart ?? input.length
+    const composer = composerRef.current
+    const caret = composer ? getComposerCaretOffset(composer) : input.length
     const beforeCaret = input.slice(0, caret)
     const afterCaret = input.slice(caret)
     const match = /(^|\s)@([^\s@]*)$/.exec(beforeCaret)
     const mentionText = `@${source.title}`
+    const nextCaret = match
+      ? beforeCaret.slice(0, match.index).length + match[1].length + mentionText.length + 1
+      : beforeCaret.length + mentionText.length + 1
     const nextInput = match
       ? `${beforeCaret.slice(0, match.index)}${match[1]}${mentionText} ${afterCaret}`
       : `${beforeCaret}${mentionText} ${afterCaret}`
@@ -182,7 +218,9 @@ function AgentChatContent({
     ])
     setMentionQuery(null)
     requestAnimationFrame(() => {
-      inputRef.current?.focus()
+      const nextComposer = composerRef.current
+      nextComposer?.focus()
+      if (nextComposer) setComposerCaretOffset(nextComposer, nextCaret)
     })
   }, [input])
 
@@ -191,15 +229,27 @@ function AgentChatContent({
     const close = () => {
       source.close()
       setRunningRunId((current) => current === run.id ? null : current)
-      void loadMessages(conversationId)
+      void loadMessages(conversationId).finally(() => {
+        onConversationUpdated?.()
+      })
     }
     for (const eventType of streamedEventTypes) {
       source.addEventListener(eventType, (event) => {
         const parsed = JSON.parse((event as MessageEvent).data) as AgentRunEvent
+        if (knownRunEventIdsRef.current.has(parsed.id)) return
+        knownRunEventIdsRef.current.add(parsed.id)
         setRunEvents((current) => ({
           ...current,
           [parsed.run_id]: [...(current[parsed.run_id] ?? []), parsed],
         }))
+        if (parsed.type === "assistant_delta") {
+          const delta = typeof parsed.payload.delta === "string" ? parsed.payload.delta : ""
+          if (delta) {
+            setMessages((current) => current.map((message) => (
+              message.run_id === parsed.run_id ? { ...message, content: `${message.content}${delta}` } : message
+            )))
+          }
+        }
         if (parsed.type === "canvas_patch_applied") {
           onCanvasPatchApplied?.(parsed)
         }
@@ -207,7 +257,7 @@ function AgentChatContent({
       })
     }
     source.onerror = close
-  }, [loadMessages, onCanvasPatchApplied])
+  }, [loadMessages, onCanvasPatchApplied, onConversationUpdated])
 
   const handleSend = useCallback(async () => {
     const content = input.trim()
@@ -249,13 +299,15 @@ function AgentChatContent({
   }, [runningRunId])
 
   const visibleMessages = messages
+  const headerTitle = activeConversationTitle?.trim() || (activeConversationId ? "当前对话" : "未选择对话")
+  const headerSubtitle = activeConversationId ? "会话" : "新建或选择会话"
 
   return (
     <aside className="flex min-h-0 w-[24rem] shrink-0 flex-col border-l border-border bg-background">
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
         <div>
-          <p className="text-sm font-semibold">AI 助手</p>
-          <p className="text-xs text-muted-foreground">{activeConversationId ? "当前对话" : "未选择对话"}</p>
+          <p className="max-w-[18rem] truncate text-sm font-semibold" title={headerTitle}>{headerTitle}</p>
+          <p className="text-xs text-muted-foreground">{headerSubtitle}</p>
         </div>
         {runningRunId ? <span className="size-2 rounded-full bg-sky-500" /> : null}
       </div>
@@ -284,18 +336,22 @@ function AgentChatContent({
 
       <div className="shrink-0 border-t border-border p-3">
         <div className="rounded-2xl border border-border bg-background shadow-sm">
-          <div className="relative min-h-24 px-3 pt-3">
-            <div className="pointer-events-none whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
-              <HighlightedComposerText text={input} mentions={mentions} />
-            </div>
-            <textarea
-              ref={inputRef}
+          <div className="relative min-h-24">
+            <div
+              ref={composerRef}
+              role="textbox"
               aria-label="AI 输入"
-              value={input}
-              className="absolute inset-0 h-full w-full resize-none bg-transparent px-3 pt-3 text-sm leading-6 text-transparent caret-foreground outline-none"
-              onChange={(event) => handleInputChange(event.target.value, event.currentTarget.selectionStart)}
-              onClick={(event) => handleInputChange(event.currentTarget.value, event.currentTarget.selectionStart)}
-              onKeyUp={(event) => handleInputChange(event.currentTarget.value, event.currentTarget.selectionStart)}
+              aria-multiline="true"
+              contentEditable
+              suppressContentEditableWarning
+              data-placeholder="随心输入"
+              className="block min-h-24 w-full whitespace-pre-wrap break-words bg-transparent px-3 pt-3 text-sm leading-6 text-foreground caret-foreground outline-none empty:before:pointer-events-none empty:before:text-muted-foreground/50 empty:before:content-[attr(data-placeholder)]"
+              onInput={(event) => {
+                const composer = event.currentTarget
+                handleInputChange(getComposerPlainText(composer), getComposerCaretOffset(composer))
+              }}
+              onClick={(event) => handleInputChange(input, getComposerCaretOffset(event.currentTarget))}
+              onKeyUp={(event) => handleInputChange(input, getComposerCaretOffset(event.currentTarget))}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault()
@@ -310,6 +366,7 @@ function AgentChatContent({
                     key={source.id}
                     type="button"
                     className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
+                    onMouseDown={(event) => event.preventDefault()}
                     onClick={() => selectMention(source)}
                   >
                     <MentionIcon source={source} />
@@ -332,7 +389,7 @@ function AgentChatContent({
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
               <Button variant="ghost" size="sm" className="h-8 max-w-32 px-2 text-xs">
-                <span className="truncate">模型 {model}</span>
+                <span className="truncate">模型 {model ?? "默认"}</span>
               </Button>
               <Button variant="ghost" size="icon-sm" aria-label="语音输入暂未支持" title="语音输入暂未支持" disabled>
                 <Mic className="size-4" />
@@ -409,36 +466,37 @@ function ChatMessage({
   onToggleExpanded: () => void
 }) {
   const isAssistant = message.role === "assistant"
-  const terminal = events.find((event) => terminalEvents.has(event.type))
-  const thinkingText = events.filter((event) => event.type === "thinking_delta").map((event) => String(event.payload.delta ?? "")).join("")
-  const toolEvents = events.filter((event) => event.type.startsWith("tool_call") || event.type.startsWith("canvas_patch"))
-  const duration = terminal && events[0] ? formatDuration(Date.parse(terminal.created_at) - Date.parse(events[0].created_at)) : null
+  const orderedEvents = useMemo(() => [...events].sort((a, b) => a.sequence - b.sequence), [events])
+  const terminal = orderedEvents.find((event) => terminalEvents.has(event.type))
+  const startedAt = orderedEvents[0]?.created_at ?? message.created_at
+  const elapsedMs = useElapsedMs(startedAt, terminal?.created_at)
+  const duration = formatDuration(elapsedMs)
+  const statusLabel = terminal ? getRunStatusLabel(terminal, message) : "已处理"
+  const traceItems = useMemo(() => buildRunTraceItems(orderedEvents), [orderedEvents])
+  const traceOpen = isAssistant && !!message.run_id && (!terminal || expanded)
+  const hasConclusion = isAssistant && message.content.trim().length > 0
 
   return (
-    <article className={cn("space-y-2", message.role === "user" && "rounded-lg bg-muted/60 p-3")}>
+    <article className={cn("space-y-3", message.role === "user" && "rounded-lg bg-muted/60 p-3")}>
       {isAssistant && message.run_id ? (
         <button
           type="button"
           className="flex items-center gap-1 text-xs text-muted-foreground"
           onClick={onToggleExpanded}
+          aria-expanded={traceOpen}
         >
-          {terminal ? (
-            <>
-              已处理 {duration ?? ""}
-              {expanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-            </>
-          ) : (
-            <span className="animate-pulse">正在思考</span>
-          )}
+          <span>{statusLabel}{duration ? ` ${duration}` : ""}</span>
+          {traceOpen ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
         </button>
       ) : null}
 
-      {expanded ? (
-        <div className="space-y-2 rounded-md border border-border/70 bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
-          {thinkingText ? <p>{thinkingText}</p> : null}
-          {toolEvents.map((event) => (
-            <p key={event.id}>{toolEventLabel(event)}</p>
-          ))}
+      {traceOpen ? (
+        <div className="space-y-3 border-b border-border pb-4 text-sm leading-7 text-foreground">
+          {traceItems.length > 0 ? traceItems.map((item) => (
+            <RunTraceItemView key={item.id} item={item} />
+          )) : (
+            <p className="text-muted-foreground">正在准备上下文</p>
+          )}
         </div>
       ) : null}
 
@@ -448,13 +506,152 @@ function ChatMessage({
             <HighlightedMessageText text={message.content} mentions={message.mentions} />
           </p>
         ) : (
-          <ReactMarkdown skipHtml remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
-            {message.content}
-          </ReactMarkdown>
+          <>
+            {hasConclusion ? <p className="mb-2 text-sm font-semibold text-foreground">结论</p> : null}
+            <ReactMarkdown skipHtml remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
+              {message.content}
+            </ReactMarkdown>
+          </>
         )}
       </div>
     </article>
   )
+}
+
+type RunTraceItem =
+  | {
+      id: string;
+      kind: "thinking";
+      text: string;
+    }
+  | {
+      id: string;
+      kind: "tool";
+      label: string;
+      detail?: string;
+      durationMs?: number;
+      status: "running" | "completed" | "failed";
+    }
+  | {
+      id: string;
+      kind: "event";
+      label: string;
+      detail?: string;
+    };
+
+function RunTraceItemView({ item }: { item: RunTraceItem }) {
+  if (item.kind === "thinking") {
+    return <p>{item.text}</p>
+  }
+
+  if (item.kind === "tool") {
+    return (
+      <div className="space-y-1 text-muted-foreground">
+        <p>
+          {item.status === "running" ? "正在运行" : "已运行"} <code className="rounded bg-muted px-1 py-0.5 text-[0.85em] text-foreground">{item.label}</code>
+          {item.durationMs !== undefined ? `，已持续 ${formatDuration(item.durationMs)}` : ""}
+        </p>
+        {item.detail ? <p className="break-words text-xs leading-5">{item.detail}</p> : null}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-1 text-muted-foreground">
+      <p>{item.label}</p>
+      {item.detail ? <p className="break-words text-xs leading-5">{item.detail}</p> : null}
+    </div>
+  )
+}
+
+function useElapsedMs(startedAt: string, completedAt?: string): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (completedAt) return
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [completedAt])
+
+  const start = Date.parse(startedAt)
+  const end = completedAt ? Date.parse(completedAt) : now
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0
+  return Math.max(0, end - start)
+}
+
+function buildRunTraceItems(events: AgentRunEvent[]): RunTraceItem[] {
+  const items: RunTraceItem[] = []
+  const toolStarts = new Map<string, AgentRunEvent>()
+
+  for (const event of events) {
+    if (event.type === "thinking_delta") {
+      const text = String(event.payload.delta ?? "").trim()
+      if (text) {
+        items.push({
+          id: event.id,
+          kind: "thinking",
+          text,
+        })
+      }
+      continue
+    }
+
+    if (event.type === "tool_call_started") {
+      const toolCall = event.payload.tool_call
+      const toolCallId = getRecordString(toolCall, "id") || event.id
+      toolStarts.set(toolCallId, event)
+      items.push({
+        id: event.id,
+        kind: "tool",
+        label: getRecordString(toolCall, "name") || "tool",
+        detail: summarizeRecord(getRecord(toolCall, "input")),
+        status: "running",
+      })
+      continue
+    }
+
+    if (event.type === "tool_call_completed" || event.type === "tool_call_failed") {
+      const result = getRecord(event.payload.result)
+      const toolCallId = getRecordString(result, "tool_call_id")
+      const start = toolCallId ? toolStarts.get(toolCallId) : undefined
+      const startedTool = getRecord(start?.payload.tool_call)
+      const status = getRecordString(result, "status") === "failed" || event.type === "tool_call_failed" ? "failed" : "completed"
+      const completedItem: RunTraceItem = {
+        id: start?.id ?? event.id,
+        kind: "tool",
+        label: getRecordString(startedTool, "name") || toolCallId || "tool",
+        detail: summarizeToolResult(result),
+        durationMs: start ? Date.parse(event.created_at) - Date.parse(start.created_at) : undefined,
+        status,
+      }
+      const existingIndex = start ? items.findIndex((item) => item.id === start.id) : -1
+      if (existingIndex >= 0) {
+        items[existingIndex] = completedItem
+      } else {
+        items.push(completedItem)
+      }
+      continue
+    }
+
+    if (event.type === "canvas_patch_proposed") {
+      items.push({
+        id: event.id,
+        kind: "event",
+        label: "已生成修改建议",
+        detail: String(event.payload.summary ?? ""),
+      })
+      continue
+    }
+
+    if (event.type === "canvas_patch_applied") {
+      items.push({
+        id: event.id,
+        kind: "event",
+        label: "已更新画布",
+      })
+    }
+  }
+
+  return items
 }
 
 function MutationModeMenu({
@@ -528,11 +725,6 @@ function ModeItem({
   )
 }
 
-function HighlightedComposerText({ text, mentions }: { text: string; mentions: ContextMention[] }) {
-  if (!text) return <span className="text-muted-foreground/50">随心输入</span>
-  return <HighlightedMessageText text={text} mentions={mentions} />
-}
-
 function HighlightedMessageText({ text, mentions }: { text: string; mentions: ContextMention[] }) {
   if (mentions.length === 0) return <>{text}</>
   const mentionLabels = [...new Set(mentions.map((mention) => mention.label).filter(Boolean))]
@@ -548,6 +740,188 @@ function HighlightedMessageText({ text, mentions }: { text: string; mentions: Co
   })
 }
 
+function syncComposerContent(root: HTMLElement, text: string, mentions: ContextMention[]): void {
+  root.replaceChildren(...createComposerNodes(text, mentions))
+}
+
+function createComposerNodes(text: string, mentions: ContextMention[]): Node[] {
+  if (!text) return []
+  if (mentions.length === 0) return [document.createTextNode(text)]
+
+  const mentionLabels = [...new Set(mentions.map((mention) => mention.label).filter(Boolean))]
+  if (mentionLabels.length === 0) return [document.createTextNode(text)]
+
+  const pattern = new RegExp(`(@(?:${mentionLabels.map(escapeRegExp).join("|")}))`, "g")
+  return text.split(pattern).filter(Boolean).map((part) => {
+    const mention = mentions.find((item) => part === `@${item.label}`)
+    return mention ? createMentionToken(mention) : document.createTextNode(part)
+  })
+}
+
+function createMentionToken(mention: ContextMention): HTMLElement {
+  const token = document.createElement("span")
+  token.dataset.mentionToken = "true"
+  token.dataset.mentionLabel = mention.label
+  token.title = mention.uri ?? ""
+  token.contentEditable = "false"
+  token.className = "mx-0.5 inline-flex select-none items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 align-baseline font-medium text-primary"
+
+  const icon = document.createElement("span")
+  icon.setAttribute("aria-hidden", "true")
+  icon.className = "inline-flex size-3.5 shrink-0 items-center justify-center rounded-[3px] bg-primary text-primary-foreground"
+  icon.innerHTML = '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2.5h4l2 2V13H5z"/><path d="M9 2.5v2h2"/><path d="M6.5 7h3"/><path d="M6.5 9.5h3"/></svg>'
+
+  const label = document.createElement("span")
+  label.textContent = mention.label
+
+  token.append(icon, label)
+  return token
+}
+
+function getComposerPlainText(root: HTMLElement): string {
+  let text = ""
+
+  const visit = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.textContent ?? ""
+      return
+    }
+
+    if (!(node instanceof HTMLElement)) return
+    if (node.dataset.mentionToken === "true") {
+      text += `@${node.dataset.mentionLabel ?? ""}`
+      return
+    }
+    if (node.tagName === "BR") {
+      text += "\n"
+      return
+    }
+    node.childNodes.forEach(visit)
+  }
+
+  root.childNodes.forEach(visit)
+  return text
+}
+
+function getComposerCaretOffset(root: HTMLElement): number {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) return getComposerPlainText(root).length
+
+  const range = selection.getRangeAt(0)
+  if (!root.contains(range.startContainer)) return getComposerPlainText(root).length
+
+  let offset = 0
+  let found = false
+
+  const nodeTextLength = (node: Node): number => {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent?.length ?? 0
+    if (!(node instanceof HTMLElement)) return 0
+    if (node.dataset.mentionToken === "true") return `@${node.dataset.mentionLabel ?? ""}`.length
+    if (node.tagName === "BR") return 1
+    return Array.from(node.childNodes).reduce((sum, child) => sum + nodeTextLength(child), 0)
+  }
+
+  const visit = (node: Node): boolean => {
+    if (node === range.startContainer) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        offset += range.startOffset
+        found = true
+        return true
+      }
+      if (node instanceof HTMLElement) {
+        for (let index = 0; index < range.startOffset; index += 1) {
+          const child = node.childNodes[index]
+          if (child) offset += nodeTextLength(child)
+        }
+        found = true
+        return true
+      }
+    }
+
+    if (node.nodeType === Node.TEXT_NODE) {
+      offset += node.textContent?.length ?? 0
+      return false
+    }
+    if (!(node instanceof HTMLElement)) return false
+    if (node.dataset.mentionToken === "true") {
+      offset += `@${node.dataset.mentionLabel ?? ""}`.length
+      return false
+    }
+    if (node.tagName === "BR") {
+      offset += 1
+      return false
+    }
+    for (const child of Array.from(node.childNodes)) {
+      if (visit(child)) return true
+    }
+    return false
+  }
+
+  for (const child of Array.from(root.childNodes)) {
+    if (visit(child)) break
+  }
+  return found ? offset : getComposerPlainText(root).length
+}
+
+function setComposerCaretOffset(root: HTMLElement, targetOffset: number): void {
+  const selection = window.getSelection()
+  if (!selection) return
+
+  const range = document.createRange()
+  let remaining = Math.max(0, targetOffset)
+  let placed = false
+
+  const place = (node: Node): boolean => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const length = node.textContent?.length ?? 0
+      if (remaining <= length) {
+        range.setStart(node, remaining)
+        placed = true
+        return true
+      }
+      remaining -= length
+      return false
+    }
+
+    if (!(node instanceof HTMLElement)) return false
+    if (node.dataset.mentionToken === "true") {
+      const length = `@${node.dataset.mentionLabel ?? ""}`.length
+      if (remaining <= length) {
+        range.setStartAfter(node)
+        placed = true
+        return true
+      }
+      remaining -= length
+      return false
+    }
+    if (node.tagName === "BR") {
+      if (remaining <= 1) {
+        range.setStartAfter(node)
+        placed = true
+        return true
+      }
+      remaining -= 1
+      return false
+    }
+    for (const child of Array.from(node.childNodes)) {
+      if (place(child)) return true
+    }
+    return false
+  }
+
+  for (const child of Array.from(root.childNodes)) {
+    if (place(child)) break
+  }
+
+  if (!placed) {
+    range.selectNodeContents(root)
+    range.collapse(false)
+  }
+
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
 function MentionIcon({ source }: { source: ContextSource }) {
   if (source.type === "webpage" && source.favicon_url) {
     return <img src={source.favicon_url} alt="" className="size-4 rounded-sm" />
@@ -555,17 +929,48 @@ function MentionIcon({ source }: { source: ContextSource }) {
   return <span className="size-2 rounded-full bg-primary/70" />
 }
 
-function toolEventLabel(event: AgentRunEvent): string {
-  if (event.type === "tool_call_started") return "已开始工具调用"
-  if (event.type === "tool_call_completed") return "已完成工具调用"
-  if (event.type === "canvas_patch_proposed") return `已生成修改建议：${String(event.payload.summary ?? "")}`
-  if (event.type === "canvas_patch_applied") return "已更新画布"
-  return event.type
+function formatDuration(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs < 1000) return "0s"
+  const totalSeconds = Math.floor(durationMs / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes <= 0) return `${seconds}s`
+  return `${minutes}m ${seconds}s`
 }
 
-function formatDuration(durationMs: number): string {
-  if (!Number.isFinite(durationMs) || durationMs < 1000) return ""
-  return `${Math.round(durationMs / 1000)}s`
+function getRecord(value: unknown, key?: string): Record<string, unknown> | undefined {
+  const target = key && value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)[key]
+    : value
+  return target && typeof target === "object" && !Array.isArray(target)
+    ? target as Record<string, unknown>
+    : undefined
+}
+
+function getRecordString(value: unknown, key: string): string | undefined {
+  const record = getRecord(value)
+  const next = record?.[key]
+  return typeof next === "string" && next.trim() ? next : undefined
+}
+
+function summarizeToolResult(result: Record<string, unknown> | undefined): string | undefined {
+  if (!result) return undefined
+  const error = getRecord(result.error)
+  if (error) {
+    return getRecordString(error, "message") ?? "工具调用失败"
+  }
+  return summarizeRecord(result.output)
+}
+
+function summarizeRecord(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined
+  if (typeof value === "string") return value.length > 180 ? `${value.slice(0, 180)}...` : value
+  try {
+    const text = JSON.stringify(value)
+    return text.length > 180 ? `${text.slice(0, 180)}...` : text
+  } catch {
+    return undefined
+  }
 }
 
 function escapeRegExp(value: string): string {

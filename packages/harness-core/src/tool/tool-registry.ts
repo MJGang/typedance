@@ -15,6 +15,9 @@ export type HarnessToolHandler = (
 export type HarnessToolRegistration = {
   name: string;
   origin: HarnessToolOrigin;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
   handler: HarnessToolHandler;
   requiresPermission?: (input: Record<string, unknown>, call: HarnessToolCall) => HarnessPermissionRequirement | undefined;
 };
@@ -31,12 +34,33 @@ export class HarnessToolRegistry {
     return registration;
   }
 
+  has(name: string): boolean {
+    return this.#tools.has(name);
+  }
+
   get(name: string): HarnessToolRegistration {
     const registration = this.#tools.get(name);
     if (!registration) {
       throw new Error(`Unknown harness tool: ${name}`);
     }
     return registration;
+  }
+
+  describe(name: string): {
+    name: string;
+    origin: HarnessToolOrigin;
+    description: string;
+    inputSchema?: Record<string, unknown>;
+    outputSchema?: Record<string, unknown>;
+  } {
+    const registration = this.get(name);
+    return {
+      name: registration.name,
+      origin: registration.origin,
+      description: registration.description ?? `Harness tool ${registration.name}`,
+      inputSchema: registration.inputSchema,
+      outputSchema: registration.outputSchema,
+    };
   }
 
   parseCall(input: HarnessToolCall): HarnessToolCall {

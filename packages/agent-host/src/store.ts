@@ -29,7 +29,7 @@ export type AppendMessageInput = {
 };
 
 export type CreateRunInput = {
-  run: AgentRun;
+  run: Omit<AgentRun, "id"> & { id?: string };
 };
 
 export type AppendRunEventInput = {
@@ -51,6 +51,7 @@ export type AgentHostStore = {
   updateMessage(messageId: string, patch: Partial<Pick<AgentMessage, "content" | "run_id">>): AgentMessage;
   createRun(input: CreateRunInput): AgentRun;
   getRun(runId: string): AgentRun | undefined;
+  listRuns(conversationId?: string): AgentRun[];
   updateRun(runId: string, patch: Partial<Pick<AgentRun, "status" | "completed_at" | "duration_ms">>): AgentRun;
   listRunEvents(runId: string, afterSequence?: number): AgentRunEvent[];
   appendRunEvent(input: AppendRunEventInput): AgentRunEvent;
@@ -63,6 +64,7 @@ type MutableSnapshot = {
   events: AgentRunEvent[];
   nextConversationId: number;
   nextMessageId: number;
+  nextRunId: number;
   nextEventId: number;
 };
 
@@ -77,6 +79,7 @@ export class MemoryAgentHostStore implements AgentHostStore {
       events: [...(snapshot?.events ?? [])],
       nextConversationId: nextNumericId(snapshot?.conversations?.map((item) => item.id) ?? [], "conv_"),
       nextMessageId: nextNumericId(snapshot?.messages?.map((item) => item.id) ?? [], "msg_"),
+      nextRunId: nextNumericId(snapshot?.runs?.map((item) => item.id) ?? [], "arun_"),
       nextEventId: nextNumericId(snapshot?.events?.map((item) => item.id) ?? [], "aevt_"),
     };
   }
@@ -178,7 +181,14 @@ export class MemoryAgentHostStore implements AgentHostStore {
   }
 
   createRun(input: CreateRunInput): AgentRun {
-    const run = agentRunSchema.parse(input.run);
+    const id = input.run.id || `arun_${this.data.nextRunId++}`;
+    if (this.data.runs.some((run) => run.id === id)) {
+      throw new Error(`Duplicate agent run: ${id}`);
+    }
+    const run = agentRunSchema.parse({
+      ...input.run,
+      id,
+    });
     this.data.runs.push(run);
     this.persist();
     return run;
@@ -186,6 +196,12 @@ export class MemoryAgentHostStore implements AgentHostStore {
 
   getRun(runId: string): AgentRun | undefined {
     return this.data.runs.find((run) => run.id === runId);
+  }
+
+  listRuns(conversationId?: string): AgentRun[] {
+    return this.data.runs
+      .filter((run) => conversationId === undefined || run.conversation_id === conversationId)
+      .sort((left, right) => timestampValue(left.started_at) - timestampValue(right.started_at));
   }
 
   updateRun(runId: string, patch: Partial<Pick<AgentRun, "status" | "completed_at" | "duration_ms">>): AgentRun {

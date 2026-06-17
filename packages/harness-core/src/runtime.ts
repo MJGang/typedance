@@ -10,7 +10,7 @@ import type {
 import { HarnessEventLog } from "./event/event-log";
 import { HarnessMemoryStore, type HarnessMemoryRecord, type HarnessMemoryScope } from "./memory/memory-store";
 import { HarnessMcpManager, type HarnessMcpServerRegistration } from "./mcp/mcp-manager";
-import type { HarnessModelAdapter, HarnessModelMessage } from "./model/model-adapter";
+import type { HarnessModelAdapter, HarnessModelMessage, HarnessModelTool, HarnessPromptBundle } from "./model/model-adapter";
 import { HarnessPermissionEngine, type HarnessPermissionRequirement } from "./permission/permission-engine";
 import {
   HarnessPluginRegistry,
@@ -246,6 +246,9 @@ export class HarnessRuntime {
       this.registerTool({
         name: tool.name,
         origin: "mcp",
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        outputSchema: tool.outputSchema,
         handler: (input) => registered.callTool(tool.name, input),
       });
     }
@@ -332,9 +335,11 @@ export class HarnessRuntime {
       policy: this.#resolveRunPolicy(input.runId),
       agentId: input.agentId,
     });
-    const allowedTools = new Set([...context.toolNames, ...context.agent.allowed_tool_names]);
-    if (!allowedTools.has(input.call.name)) {
-      throw new Error(`Tool ${input.call.name} is not allowed for agent ${input.agentId} by the active capability policy`);
+    const availableTools = new Set(this.#modelVisibleToolNames(context));
+    if (!availableTools.has(input.call.name)) {
+      throw new Error(
+        `Tool ${input.call.name} is not available for agent ${input.agentId} by the active capability policy and registered tool surface`
+      );
     }
     return this.invokeTool(input.runId, input.call);
   }
@@ -342,8 +347,9 @@ export class HarnessRuntime {
   async runAgentTurn(input: {
     runId: string;
     agentId: string;
+    model?: string;
     messages: HarnessModelMessage[];
-    context?: Record<string, unknown>;
+    prompt?: HarnessPromptBundle;
   }): Promise<Record<string, unknown>> {
     if (!this.#model) {
       throw new Error("Harness model adapter is not configured");
@@ -354,44 +360,102 @@ export class HarnessRuntime {
       policy,
       agentId: input.agentId,
     });
-    const availableToolNames = [...new Set([...skillContext.toolNames, ...skillContext.agent.allowed_tool_names])];
-    const stream = this.#model.stream({
-      runId: input.runId,
-      capabilityPolicy: skillContext.policy,
-      agentId: input.agentId,
-      messages: input.messages,
-      skillContext,
-      availableToolNames,
-      context: input.context ?? {},
-    });
+    const availableTools = this.#modelVisibleTools(skillContext);
+    const availableToolNames = availableTools.map((tool) => tool.name);
+    const basePrompt = input.prompt ?? {
+      developer: [],
+      contextual: [],
+      conversation: input.messages,
+    };
+    const conversation = [...basePrompt.conversation];
+    const maxModelPasses = 8;
 
-    for await (const event of stream) {
-      if (event.type === "reasoning_summary_delta") {
-        this.appendReasoningSummaryDelta(input.runId, event.summaryId, event.delta);
-        continue;
+    for (let pass = 0; pass < maxModelPasses; pass += 1) {
+      let assistantContent = "";
+      const toolCalls: HarnessToolCall[] = [];
+      let finalOutput: Record<string, unknown> | undefined;
+      const prompt: HarnessPromptBundle = pass === 0
+        ? basePrompt
+        : {
+            developer: basePrompt.developer,
+            contextual: basePrompt.contextual,
+            conversation: [...conversation],
+          };
+      const stream = this.#model.stream({
+        runId: input.runId,
+        capabilityPolicy: skillContext.policy,
+        agentId: input.agentId,
+        model: input.model,
+        prompt,
+        availableToolNames,
+        availableTools,
+      });
+
+      for await (const event of stream) {
+        if (event.type === "reasoning_summary_delta") {
+          this.appendReasoningSummaryDelta(input.runId, event.summaryId, event.delta);
+          continue;
+        }
+
+        if (event.type === "assistant_delta") {
+          assistantContent += event.delta;
+          this.appendAssistantDelta(input.runId, event.messageId, event.delta);
+          continue;
+        }
+
+        if (event.type === "tool_call") {
+          toolCalls.push(event.call);
+          continue;
+        }
+
+        finalOutput = event.output;
       }
 
-      if (event.type === "assistant_delta") {
-        this.appendAssistantDelta(input.runId, event.messageId, event.delta);
-        continue;
-      }
-
-      if (event.type === "tool_call") {
-        await this.invokeAgentTool({
-          runId: input.runId,
-          agentId: input.agentId,
-          call: event.call,
+      if (toolCalls.length > 0) {
+        conversation.push({
+          role: "assistant",
+          content: assistantContent,
+          toolCalls,
         });
+        for (const call of toolCalls) {
+          const result = await this.invokeAgentTool({
+            runId: input.runId,
+            agentId: input.agentId,
+            call,
+          });
+          if (result.status === "permission_required") {
+            const error = {
+              code: "agent_tool_permission_required",
+              message: `Tool ${call.name} requires permission before the agent can continue.`,
+              details: {
+                tool_call_id: call.id,
+                permission_request_id: result.request.id,
+              },
+            };
+            this.failRun(input.runId, error);
+            throw new Error(error.message);
+          }
+          conversation.push({
+            role: "tool",
+            toolCallId: call.id,
+            toolName: call.name,
+            content: serializeToolResultForModel(result),
+          });
+        }
         continue;
       }
 
-      this.completeRun(input.runId, event.output);
-      return event.output;
+      const output = finalOutput ?? {};
+      this.completeRun(input.runId, output);
+      return output;
     }
 
-    const output = {};
-    this.completeRun(input.runId, output);
-    return output;
+    const error = {
+      code: "agent_loop_limit_exceeded",
+      message: `Agent turn exceeded ${maxModelPasses} model passes.`,
+    };
+    this.failRun(input.runId, error);
+    throw new Error(error.message);
   }
 
   remember(input: {
@@ -447,6 +511,23 @@ export class HarnessRuntime {
     return normalizeContractCapabilityPolicy(this.runs.get(runId).capability_policy);
   }
 
+  #modelVisibleToolNames(context: HarnessAgentSkillContext): string[] {
+    const policyAllowedNames = [...new Set([...context.toolNames, ...context.agent.allowed_tool_names])];
+    return policyAllowedNames.filter((name) => this.tools.has(name));
+  }
+
+  #modelVisibleTools(context: HarnessAgentSkillContext): HarnessModelTool[] {
+    return this.#modelVisibleToolNames(context).map((name) => {
+      const descriptor = this.tools.describe(name);
+      return {
+        name: descriptor.name,
+        origin: descriptor.origin,
+        description: descriptor.description,
+        inputSchema: descriptor.inputSchema,
+      };
+    });
+  }
+
   #appendEvent(runId: string, event: Record<string, unknown>): HarnessRunEvent {
     const fullEvent = {
       id: `evt_${runId}_${this.events.nextSequence(runId)}`,
@@ -458,6 +539,25 @@ export class HarnessRuntime {
 
     return this.events.append(fullEvent);
   }
+}
+
+function serializeToolResultForModel(result: HarnessRuntimeToolResult): string {
+  if (result.status === "permission_required") {
+    return JSON.stringify({
+      status: "permission_required",
+      request_id: result.request.id,
+    });
+  }
+  if (result.status === "completed") {
+    return JSON.stringify({
+      status: result.result.status,
+      output: result.result.output,
+    });
+  }
+  return JSON.stringify({
+    status: result.result.status,
+    error: result.result.error,
+  });
 }
 
 export function createHarnessRuntime(options: HarnessRuntimeOptions = {}): HarnessRuntime {
