@@ -226,9 +226,30 @@ function AgentChatContent({
 
   const subscribeRun = useCallback((run: AgentRun, conversationId: string) => {
     const source = createAgentRunEventSource(run.id)
-    const close = () => {
+    const close = (fallbackError?: { code: string; message: string }) => {
       source.close()
       setRunningRunId((current) => current === run.id ? null : current)
+      if (fallbackError) {
+        const timestamp = new Date().toISOString()
+        setRunEvents((current) => {
+          const currentEvents = current[run.id] ?? []
+          if (currentEvents.some((event) => terminalEvents.has(event.type))) return current
+          return {
+            ...current,
+            [run.id]: [
+              ...currentEvents,
+              {
+                id: `local_${run.id}_stream_failed`,
+                run_id: run.id,
+                sequence: currentEvents.length,
+                type: "run_failed",
+                payload: { error: fallbackError },
+                created_at: timestamp,
+              },
+            ],
+          }
+        })
+      }
       void loadMessages(conversationId).finally(() => {
         onConversationUpdated?.()
       })
@@ -256,7 +277,10 @@ function AgentChatContent({
         if (terminalEvents.has(parsed.type)) close()
       })
     }
-    source.onerror = close
+    source.onerror = () => close({
+      code: "agent_event_stream_disconnected",
+      message: "Agent event stream disconnected before the run finished.",
+    })
   }, [loadMessages, onCanvasPatchApplied, onConversationUpdated])
 
   const handleSend = useCallback(async () => {
@@ -581,19 +605,27 @@ function useElapsedMs(startedAt: string, completedAt?: string): number {
 function buildRunTraceItems(events: AgentRunEvent[]): RunTraceItem[] {
   const items: RunTraceItem[] = []
   const toolStarts = new Map<string, AgentRunEvent>()
+  let thinkingItem: Extract<RunTraceItem, { kind: "thinking" }> | undefined
 
   for (const event of events) {
     if (event.type === "thinking_delta") {
-      const text = String(event.payload.delta ?? "").trim()
+      const text = String(event.payload.delta ?? "")
       if (text) {
-        items.push({
-          id: event.id,
-          kind: "thinking",
-          text,
-        })
+        if (thinkingItem) {
+          thinkingItem.text += text
+        } else {
+          thinkingItem = {
+            id: event.id,
+            kind: "thinking",
+            text,
+          }
+          items.push(thinkingItem)
+        }
       }
       continue
     }
+
+    thinkingItem = undefined
 
     if (event.type === "tool_call_started") {
       const toolCall = event.payload.tool_call

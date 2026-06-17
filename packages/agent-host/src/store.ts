@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   agentConversationSchema,
@@ -256,6 +256,7 @@ export class MemoryAgentHostStore implements AgentHostStore {
 
 export class JsonFileAgentHostStore extends MemoryAgentHostStore {
   readonly filePath: string;
+  #nextPersistId = 1;
 
   constructor(filePath: string) {
     super(loadSnapshot(filePath));
@@ -264,9 +265,18 @@ export class JsonFileAgentHostStore extends MemoryAgentHostStore {
 
   protected override persist(): void {
     mkdirSync(dirname(this.filePath), { recursive: true });
-    const temporaryPath = `${this.filePath}.tmp`;
+    const temporaryPath = `${this.filePath}.${process.pid}.${this.#nextPersistId++}.tmp`;
     writeFileSync(temporaryPath, JSON.stringify(this.snapshot(), null, 2), "utf8");
-    renameSync(temporaryPath, this.filePath);
+    try {
+      renameWithWindowsRetry(temporaryPath, this.filePath);
+    } catch (error) {
+      try {
+        unlinkSync(temporaryPath);
+      } catch {
+        // Best effort cleanup after a failed atomic replace.
+      }
+      throw error;
+    }
   }
 }
 
@@ -300,4 +310,30 @@ function nextNumericId(ids: string[], prefix: string): number {
 function timestampValue(value: string): number {
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function renameWithWindowsRetry(from: string, to: string): void {
+  const retryDelaysMs = [5, 10, 20, 40, 80, 120, 160, 240, 320, 500];
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      renameSync(from, to);
+      return;
+    } catch (error) {
+      if (!isRetryableFileReplaceError(error) || attempt >= retryDelaysMs.length) {
+        throw error;
+      }
+      sleepSync(retryDelaysMs[attempt] ?? 500);
+    }
+  }
+}
+
+function isRetryableFileReplaceError(error: unknown): boolean {
+  if (!error || typeof error !== "object" || !("code" in error)) return false;
+  return error.code === "EPERM" || error.code === "EBUSY" || error.code === "EACCES";
+}
+
+function sleepSync(ms: number): void {
+  const buffer = new SharedArrayBuffer(4);
+  const view = new Int32Array(buffer);
+  Atomics.wait(view, 0, 0, ms);
 }
