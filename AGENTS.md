@@ -42,6 +42,24 @@
 - `ContextSource` 表示 AI 可参考的额外资料来源，只支持授权后的只读读取；从上下文移除本地文件或文件夹时只是解除引用，绝不删除用户本地真实文件或目录。
 - 任何新增代码如果引入跨层概念，必须先说明理由；默认应视为架构违规，并优先调整到正确层级。
 
+## CodeGraph 使用规范
+
+- 涉及跨包调用链、架构边界、影响面评估、符号关系梳理、测试影响分析，或需要调研 `E:\workspaces\codex`、`E:\workspaces\mimo-code`、`E:\workspaces\kimi-code` 等大型参考仓库时，必须优先使用 `codegraph`，不要只依赖逐文件 `rg`，以降低 token 消耗。
+- 进入分析前先检查索引状态：`codegraph status E:\workspaces\typedance`。如果提示未初始化，先执行 `codegraph init E:\workspaces\typedance`；如果提示有 pending changes，先执行 `codegraph sync E:\workspaces\typedance`。
+- 分析其它本地仓库时必须显式传入路径，例如：`codegraph status E:\workspaces\codex`、`codegraph init E:\workspaces\codex`、`codegraph sync E:\workspaces\codex`。
+- 常用查询命令：`codegraph query -p <repo> <symbol> --limit 20`、`codegraph callers -p <repo> <symbol>`、`codegraph callees -p <repo> <symbol>`、`codegraph impact -p <repo> <symbol>`、`codegraph files -p <repo> --filter <dir>`、`codegraph affected -p <repo> <files...>`。
+- 做大型任务上下文收集时，优先使用 `codegraph context -p <repo> "<task>"` 生成任务相关上下文，再按需用 `rg` 精确补证据。
+- 如果当前 Codex 会话没有暴露 CodeGraph MCP 工具，应直接通过 CLI 使用；需要长期接入时，在 `C:\Users\51149\.codex\config.toml` 配置 `[mcp_servers.codegraph] command = "codegraph"` 与 `args = ["serve", "--mcp"]`，或运行 `codegraph install --target codex --location global --yes` 后重启 Codex。
+
+## RTK 节省 Token 规范
+
+- 默认使用 `rtk` 执行高输出 shell 命令，减少无效日志进入上下文；尤其是 `git`、`pnpm`、`npm`、`pytest`、`vitest`、`tsc`、`lint`、`cargo`、`diff`、`log`、`tree`、`ls`、`read` 等命令。
+- 优先使用 RTK 专用子命令，而不是裸命令：`rtk git status`、`rtk git diff`、`rtk pnpm --filter @typedance/web build`、`rtk vitest run <files...>`、`rtk pytest -q`、`rtk tsc`、`rtk lint`、`rtk diff`。
+- 需要完整原始输出、交互式命令、PowerShell 内建语法、管道/重定向复杂命令，或 RTK 代理行为不符合预期时，可以直接使用原命令；但应优先缩小范围、增加过滤条件，并在必要时说明未使用 RTK 的原因。
+- 文件编辑必须继续使用 `apply_patch`；不要为了使用 RTK 而用 shell 重写文件。
+- 检查 RTK 可用性与节省效果：`rtk --version`、`rtk gain`、`rtk gain --history`。需要绕过过滤但记录用量时使用 `rtk proxy <cmd>`。
+- CodeGraph 与 RTK 配合使用：先用 `codegraph` 定位结构和影响面，再用 `rtk` 执行测试、构建、diff、日志读取等高输出命令。
+
 ## React 开发规范
 
 - 在编写或重构 React 代码时，必须使用 `build-web-apps:react-best-practices` skill。
