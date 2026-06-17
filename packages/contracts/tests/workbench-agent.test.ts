@@ -54,12 +54,18 @@ describe("workbench agent contracts", () => {
     const conversation = agentConversationSchema.parse({
       id: "conv_1",
       workspace_id: "doc_1",
-      title: "新对话",
+      name: null,
+      preview: "参考 @Frontend JD 优化专业技能",
+      first_user_message: "参考 @Frontend JD 优化专业技能",
       pinned: false,
       status: "running",
       created_at: now,
       updated_at: now,
     });
+
+    expect(conversation.name).toBeNull();
+    expect(conversation.preview).toBe("参考 @Frontend JD 优化专业技能");
+    expect(conversation.first_user_message).toBe("参考 @Frontend JD 优化专业技能");
 
     const message = agentMessageSchema.parse({
       id: "msg_1",

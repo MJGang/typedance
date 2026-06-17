@@ -76,7 +76,9 @@ describe("agent host", () => {
     await host.waitForRun(run.id);
 
     expect(host.getAgentRun(run.id).status).toBe("completed");
-    expect(host.listConversations("doc_1")[0]?.title).toBe("参考岗位 JD 优化专业技能");
+    expect(host.listConversations("doc_1")[0]?.preview).toBe("参考岗位 JD 优化专业技能");
+    expect(host.listConversations("doc_1")[0]?.first_user_message).toBe("参考岗位 JD 优化专业技能");
+    expect(host.listConversations("doc_1")[0]?.name).toBeNull();
     const messages = host.listMessages(conversation.id);
     expect(messages).toHaveLength(2);
     expect(messages[0]?.mentions[0]?.label).toBe("岗位 JD");
@@ -97,6 +99,112 @@ describe("agent host", () => {
       "assistant_delta",
       "run_completed",
     ]);
+  });
+
+  it("derives the conversation preview from the first user message before the model finishes", async () => {
+    let finishModel: (() => void) | undefined;
+    const modelCanFinish = new Promise<void>((resolve) => {
+      finishModel = resolve;
+    });
+    const runtime = createHarnessRuntime({
+      model: {
+        stream: async function* () {
+          await modelCanFinish;
+          yield { type: "final", output: { ok: true } };
+        },
+      },
+    });
+    runtime.registerPlugin({
+      id: "resume.agent",
+      name: "Resume Agent",
+      version: "0.1.0",
+      module_format: "esm",
+      scopes: ["pack:resume"],
+      agents: [{ id: "resume.primary", name: "Resume Primary", role: "primary", skill_ids: [] }],
+    });
+    const host = createAgentHost({
+      runtime,
+      packs: [
+        {
+          id: "resume",
+          capabilityPolicy: { scopeIds: ["pack:resume"] },
+          primaryAgentId: "resume.primary",
+        },
+      ],
+      now: (() => {
+        let tick = 0;
+        return () => new Date(Date.UTC(2026, 5, 16, 1, 0, tick++));
+      })(),
+    });
+
+    const conversation = host.createConversation("doc_1");
+    expect(conversation.name).toBeNull();
+    expect(conversation.preview).toBe("");
+
+    const run = host.startConversationRun("doc_1", conversation.id, {
+      message: {
+        content: "检查这份简历质量，并指出最影响求职成功率的问题",
+        mentions: [],
+      },
+      mutationMode: "review",
+    });
+
+    const updatedConversation = host.listConversations("doc_1")[0];
+    expect(updatedConversation?.name).toBeNull();
+    expect(updatedConversation?.preview).toBe("检查这份简历质量，并指出最影响求职成功率的问题");
+    expect(updatedConversation?.first_user_message).toBe("检查这份简历质量，并指出最影响求职成功率的问题");
+    expect(updatedConversation?.status).toBe("running");
+
+    finishModel?.();
+    await host.waitForRun(run.id);
+  });
+
+  it("keeps an explicit conversation name when deriving the preview", async () => {
+    const runtime = createHarnessRuntime({
+      model: {
+        stream: async function* () {
+          yield { type: "final", output: { ok: true } };
+        },
+      },
+    });
+    runtime.registerPlugin({
+      id: "resume.agent",
+      name: "Resume Agent",
+      version: "0.1.0",
+      module_format: "esm",
+      scopes: ["pack:resume"],
+      agents: [{ id: "resume.primary", name: "Resume Primary", role: "primary", skill_ids: [] }],
+    });
+    const host = createAgentHost({
+      runtime,
+      packs: [
+        {
+          id: "resume",
+          capabilityPolicy: { scopeIds: ["pack:resume"] },
+          primaryAgentId: "resume.primary",
+        },
+      ],
+      now: (() => {
+        let tick = 0;
+        return () => new Date(Date.UTC(2026, 5, 16, 1, 30, tick++));
+      })(),
+    });
+
+    const conversation = host.createConversation("doc_1", "Quality Check");
+    const run = host.startConversationRun("doc_1", conversation.id, {
+      message: {
+        content: "Check the resume against the frontend lead role",
+        mentions: [],
+      },
+      mutationMode: "review",
+    });
+
+    const runningConversation = host.listConversations("doc_1")[0];
+    expect(runningConversation?.name).toBe("Quality Check");
+    expect(runningConversation?.preview).toBe("Check the resume against the frontend lead role");
+
+    await host.waitForRun(run.id);
+    expect(host.listConversations("doc_1")[0]?.name).toBe("Quality Check");
   });
 
   it("grounds resume conversations in the current workspace canvas before prior chat history", async () => {
@@ -294,7 +402,8 @@ describe("agent host", () => {
       conversations: [{
         id: "conv_1",
         workspace_id: "doc_1",
-        title: "Stale run",
+        name: "Stale run",
+        preview: "",
         pinned: false,
         status: "running",
         created_at: "2026-06-16T08:00:00.000Z",
@@ -361,7 +470,8 @@ describe("agent host", () => {
       conversations: [{
         id: "conv_1",
         workspace_id: "doc_1",
-        title: "Old conversation",
+        name: "Old conversation",
+        preview: "",
         pinned: false,
         status: "idle",
         created_at: "2026-06-16T08:00:00.000Z",

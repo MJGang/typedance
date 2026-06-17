@@ -16,7 +16,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
@@ -80,6 +80,9 @@ export function WorkbenchSidebar({
   const [webUrl, setWebUrl] = useState("")
   const [pluginDialogOpen, setPluginDialogOpen] = useState(false)
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false)
+  const [renamingConversation, setRenamingConversation] = useState<AgentConversation | null>(null)
+  const [renameDraft, setRenameDraft] = useState("")
+  const [savingConversationName, setSavingConversationName] = useState(false)
   const [addingWebpage, setAddingWebpage] = useState(false)
 
   const loadContextSources = useCallback(async () => {
@@ -178,6 +181,28 @@ export function WorkbenchSidebar({
     }
   }, [workspaceId])
 
+  const openRenameConversation = useCallback((conversation: AgentConversation) => {
+    setRenamingConversation(conversation)
+    setRenameDraft(conversation.name?.trim() || conversation.preview.trim() || "")
+  }, [])
+
+  const handleRenameConversation = useCallback(async () => {
+    if (!renamingConversation) return
+    const nextName = renameDraft.trim()
+    if (!nextName) return
+    setSavingConversationName(true)
+    try {
+      await updateWorkspaceConversation(renamingConversation.id, { name: nextName })
+      setRenamingConversation(null)
+      setRenameDraft("")
+      await loadConversations()
+    } catch {
+      toast.error("重命名对话失败")
+    } finally {
+      setSavingConversationName(false)
+    }
+  }, [loadConversations, renameDraft, renamingConversation])
+
   return (
     <aside className="flex h-full w-[17rem] shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
       <div className="border-b border-sidebar-border px-4 py-3">
@@ -248,6 +273,7 @@ export function WorkbenchSidebar({
                   conversation={conversation}
                   active={conversation.id === activeConversationId}
                   onSelect={() => onSelectConversation(conversation.id)}
+                  onRename={() => openRenameConversation(conversation)}
                   onChanged={loadConversations}
                 />
               ))}
@@ -264,6 +290,7 @@ export function WorkbenchSidebar({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>添加网页链接</DialogTitle>
+            <DialogDescription>添加可供 AI 参考的只读网页资料</DialogDescription>
           </DialogHeader>
           <Input
             autoFocus
@@ -291,6 +318,7 @@ export function WorkbenchSidebar({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>插件</DialogTitle>
+            <DialogDescription>查看当前工作区可用的 Agent 插件</DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
             {plugins.length === 0 ? (
@@ -309,6 +337,7 @@ export function WorkbenchSidebar({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>AI 设置</DialogTitle>
+            <DialogDescription>配置当前工作区的模型连接参数</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <Input placeholder="Provider" />
@@ -316,6 +345,36 @@ export function WorkbenchSidebar({
             <Input placeholder="Base URL" />
             <Input placeholder="Model" defaultValue={defaultAgentModel} />
           </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={renamingConversation !== null} onOpenChange={(open) => {
+        if (!open) {
+          setRenamingConversation(null)
+          setRenameDraft("")
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>重命名对话</DialogTitle>
+            <DialogDescription>保持简短且易于识别</DialogDescription>
+          </DialogHeader>
+          <Input
+            aria-label="对话名称"
+            value={renameDraft}
+            onChange={(event) => setRenameDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void handleRenameConversation()
+            }}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenamingConversation(null)}>
+              取消
+            </Button>
+            <Button disabled={!renameDraft.trim() || savingConversationName} onClick={() => void handleRenameConversation()}>
+              保存
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </aside>
@@ -568,17 +627,26 @@ function ConversationRow({
   conversation,
   active,
   onSelect,
+  onRename,
   onChanged,
 }: {
   conversation: AgentConversation
   active: boolean
   onSelect: () => void
+  onRename: () => void
   onChanged: () => Promise<void>
 }) {
+  const displayTitle = conversationDisplayTitle(conversation)
   return (
-    <div className={cn("group flex h-8 items-center rounded-md px-2 text-sm transition-colors", active ? "bg-sidebar-accent" : "hover:bg-sidebar-accent")}>
-      <button type="button" className="min-w-0 flex-1 truncate text-left" onClick={onSelect}>
-        {conversation.title}
+    <div
+      className={cn("group flex h-8 items-center rounded-md px-2 text-sm transition-colors", active ? "bg-sidebar-accent" : "hover:bg-sidebar-accent")}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        onRename()
+      }}
+    >
+      <button type="button" className="min-w-0 flex-1 truncate text-left" title={displayTitle} onClick={onSelect}>
+        {displayTitle}
       </button>
       <div className="flex shrink-0 items-center gap-1 text-muted-foreground">
         {conversation.status === "running" ? <Loader2 className="size-3.5 animate-spin" /> : null}
@@ -610,6 +678,10 @@ function ConversationRow({
       </div>
     </div>
   )
+}
+
+function conversationDisplayTitle(conversation: AgentConversation): string {
+  return conversation.name?.trim() || conversation.preview.trim() || "新对话"
 }
 
 function relativeTime(value: string): string {

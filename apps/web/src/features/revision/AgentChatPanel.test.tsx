@@ -268,10 +268,12 @@ describe("AgentChatPanel", () => {
   })
 
   it("loads the newly created conversation after sending the first prompt", async () => {
+    const onConversationUpdated = vi.fn()
     agentHostMocks.createWorkspaceConversation.mockResolvedValue({
       id: "conv_new",
       workspace_id: "doc_1",
-      title: "新对话",
+      name: null,
+      preview: "",
       pinned: false,
       status: "idle",
       created_at: "2026-06-16T08:00:00.000Z",
@@ -298,6 +300,7 @@ describe("AgentChatPanel", () => {
         activeConversationId={undefined}
         contextSources={[]}
         onConversationCreated={() => {}}
+        onConversationUpdated={onConversationUpdated}
       />,
     )
 
@@ -306,6 +309,7 @@ describe("AgentChatPanel", () => {
 
     await waitFor(() => expect(agentHostMocks.startConversationRun).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(agentHostMocks.listConversationMessages).toHaveBeenCalledWith("conv_new"))
+    await waitFor(() => expect(onConversationUpdated).toHaveBeenCalled())
     expect(screen.getByText("检查这份简历质量")).toBeInTheDocument()
     expect(agentHostMocks.startConversationRun).toHaveBeenCalledWith(expect.objectContaining({
       conversationId: "conv_new",
@@ -366,7 +370,137 @@ describe("AgentChatPanel", () => {
     expect(await screen.findByText("Streaming answer")).toBeInTheDocument()
   })
 
-  it("collapses completed reasoning traces and expands tool details on demand", async () => {
+  it("lets users inspect live thinking while a run is still in progress", async () => {
+    const eventSource = controllableEventSource()
+    agentHostMocks.createAgentRunEventSource.mockReturnValue(eventSource.source)
+    agentHostMocks.startConversationRun.mockResolvedValue({
+      id: "run_thinking",
+      conversation_id: "conv_1",
+      assistant_message_id: "msg_assistant_run_thinking",
+      status: "running",
+      model: "deepseek-v4-flash",
+      mutation_mode: "review",
+      started_at: "2026-06-16T08:00:00.000Z",
+    })
+    agentHostMocks.listConversationMessages
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([userMessage("Check this resume"), assistantMessage("", "run_thinking")])
+
+    render(
+      <AgentChatPanel
+        workspaceId="doc_1"
+        activeConversationId="conv_1"
+        contextSources={[]}
+        onConversationCreated={() => {}}
+      />,
+    )
+
+    const input = screen.getByRole("textbox")
+    typeComposerText(input, "Check this resume")
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await waitFor(() => expect(agentHostMocks.createAgentRunEventSource).toHaveBeenCalledWith("run_thinking"))
+
+    act(() => {
+      eventSource.dispatch("thinking_delta", {
+        id: "evt_thinking_1",
+        run_id: "run_thinking",
+        sequence: 0,
+        type: "thinking_delta",
+        created_at: "2026-06-16T08:00:01.000Z",
+        payload: { delta: "Reading the resume and job context." },
+      })
+    })
+
+    const toggle = await screen.findByRole("button", { name: /正在思考/ })
+    expect(screen.queryByText("Reading the resume and job context.")).not.toBeInTheDocument()
+
+    fireEvent.click(toggle)
+
+    expect(screen.getByText("思考内容")).toBeInTheDocument()
+    expect(screen.getByText("Reading the resume and job context.")).toBeInTheDocument()
+
+    act(() => {
+      eventSource.dispatch("harness_event", {
+        id: "evt_plan_1",
+        run_id: "run_thinking",
+        sequence: 1,
+        type: "harness_event",
+        created_at: "2026-06-16T08:00:02.000Z",
+        payload: { event: { type: "plan.updated" } },
+      })
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /正在思考/ })).not.toBeInTheDocument()
+    })
+    expect(screen.queryByText("Reading the resume and job context.")).not.toBeInTheDocument()
+  })
+
+  it("hides the in-progress status after assistant output starts", async () => {
+    const eventSource = controllableEventSource()
+    agentHostMocks.createAgentRunEventSource.mockReturnValue(eventSource.source)
+    agentHostMocks.startConversationRun.mockResolvedValue({
+      id: "run_output",
+      conversation_id: "conv_1",
+      assistant_message_id: "msg_assistant_run_output",
+      status: "running",
+      model: "deepseek-v4-flash",
+      mutation_mode: "review",
+      started_at: "2026-06-16T08:00:00.000Z",
+    })
+    agentHostMocks.listConversationMessages
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([userMessage("Check this resume"), assistantMessage("", "run_output")])
+
+    render(
+      <AgentChatPanel
+        workspaceId="doc_1"
+        activeConversationId="conv_1"
+        contextSources={[]}
+        onConversationCreated={() => {}}
+      />,
+    )
+
+    const input = screen.getByRole("textbox")
+    typeComposerText(input, "Check this resume")
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await waitFor(() => expect(agentHostMocks.createAgentRunEventSource).toHaveBeenCalledWith("run_output"))
+
+    act(() => {
+      eventSource.dispatch("thinking_delta", {
+        id: "evt_output_thinking",
+        run_id: "run_output",
+        sequence: 0,
+        type: "thinking_delta",
+        created_at: "2026-06-16T08:00:01.000Z",
+        payload: { delta: "Inspecting the resume." },
+      })
+    })
+
+    expect(await screen.findByRole("button", { name: /正在思考/ })).toBeInTheDocument()
+
+    act(() => {
+      eventSource.dispatch("assistant_delta", {
+        id: "evt_output_answer",
+        run_id: "run_output",
+        sequence: 1,
+        type: "assistant_delta",
+        created_at: "2026-06-16T08:00:02.000Z",
+        payload: { delta: "Here is the review." },
+      })
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /正在思考/ })).not.toBeInTheDocument()
+    })
+    expect(screen.queryByRole("button", { name: /正在处理/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /正在回复/ })).not.toBeInTheDocument()
+    expect(screen.getByText("Here is the review.")).toBeInTheDocument()
+  })
+
+  it("shows completed processing traces without exposing raw thinking", async () => {
     agentHostMocks.listConversationMessages.mockResolvedValue([
       assistantMessage("可以优化专业技能。", "run_trace"),
     ])
@@ -441,7 +575,8 @@ describe("AgentChatPanel", () => {
 
     fireEvent.click(toggle)
 
-    expect(screen.getByText("我会先读取上下文。")).toBeInTheDocument()
+    expect(screen.getByText("分析请求与上下文")).toBeInTheDocument()
+    expect(screen.queryByText("我会先读取上下文。")).not.toBeInTheDocument()
     expect(screen.getByText("alpha.readContext")).toBeInTheDocument()
     expect(screen.getByText(/已持续 3s/)).toBeInTheDocument()
   })

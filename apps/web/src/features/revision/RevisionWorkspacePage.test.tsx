@@ -313,7 +313,8 @@ describe("RevisionWorkspacePage", () => {
       {
         id: "conv_1",
         workspace_id: "doc_1",
-        title: "优化简历",
+        name: "优化简历",
+        preview: "",
         pinned: false,
         status: "idle",
         last_message_at: "2026-05-21T08:00:00.000Z",
@@ -324,7 +325,8 @@ describe("RevisionWorkspacePage", () => {
     agentHostMocks.createWorkspaceConversation.mockResolvedValue({
       id: "conv_new",
       workspace_id: "doc_1",
-      title: "新对话",
+      name: null,
+      preview: "",
       pinned: false,
       status: "idle",
       created_at: "2026-05-21T08:00:00.000Z",
@@ -383,14 +385,15 @@ describe("RevisionWorkspacePage", () => {
     await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledTimes(2))
   })
 
-  it("refreshes the sidebar conversation title after an agent run completes", async () => {
-    const eventSource = controllableEventSource()
+  it("clears the active conversation when the selected conversation is deleted", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
     agentHostMocks.listWorkspaceConversations
       .mockResolvedValueOnce([
         {
           id: "conv_1",
           workspace_id: "doc_1",
-          title: "Old chat",
+          name: "Optimize resume",
+          preview: "",
           pinned: false,
           status: "idle",
           last_message_at: "2026-05-21T08:00:00.000Z",
@@ -398,19 +401,70 @@ describe("RevisionWorkspacePage", () => {
           updated_at: "2026-05-21T08:00:00.000Z",
         },
       ])
-      .mockResolvedValueOnce([
+      .mockResolvedValue([])
+    agentHostMocks.listConversationMessages.mockResolvedValue([
+      {
+        id: "msg_user",
+        conversation_id: "conv_1",
+        role: "user",
+        content: "Check this resume",
+        mentions: [],
+        created_at: "2026-05-21T08:01:00.000Z",
+      },
+      {
+        id: "msg_assistant",
+        conversation_id: "conv_1",
+        role: "assistant",
+        content: "Assistant answer",
+        mentions: [],
+        created_at: "2026-05-21T08:02:00.000Z",
+      },
+    ])
+    agentHostMocks.deleteWorkspaceConversation.mockResolvedValue(undefined)
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole("button", { name: "Optimize resume" }))
+    expect(await screen.findByText("Assistant answer")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "删除对话" }))
+
+    await waitFor(() => expect(agentHostMocks.deleteWorkspaceConversation).toHaveBeenCalledWith("conv_1"))
+    await waitFor(() => expect(screen.queryByText("Assistant answer")).not.toBeInTheDocument())
+    expect(screen.getByText("未选择对话")).toBeInTheDocument()
+
+    confirmSpy.mockRestore()
+  })
+
+  it("refreshes the sidebar conversation preview immediately after sending", async () => {
+    agentHostMocks.listWorkspaceConversations
+      .mockResolvedValue([
         {
           id: "conv_1",
           workspace_id: "doc_1",
-          title: "Generated chat title",
+          name: null,
+          preview: "Check title refresh",
+          first_user_message: "Check title refresh",
           pinned: false,
-          status: "idle",
+          status: "running",
           last_message_at: "2026-05-21T08:01:00.000Z",
           created_at: "2026-05-21T08:00:00.000Z",
           updated_at: "2026-05-21T08:01:00.000Z",
         },
       ])
-    agentHostMocks.createAgentRunEventSource.mockReturnValue(eventSource.source)
+      .mockResolvedValueOnce([
+        {
+          id: "conv_1",
+          workspace_id: "doc_1",
+          name: null,
+          preview: "",
+          pinned: false,
+          status: "idle",
+          last_message_at: "2026-05-21T08:00:00.000Z",
+          created_at: "2026-05-21T08:00:00.000Z",
+          updated_at: "2026-05-21T08:00:00.000Z",
+        },
+      ])
     agentHostMocks.startConversationRun.mockResolvedValue({
       id: "run_1",
       conversation_id: "conv_1",
@@ -424,24 +478,15 @@ describe("RevisionWorkspacePage", () => {
 
     renderPage()
 
-    fireEvent.click(await screen.findByRole("button", { name: "Old chat" }))
+    fireEvent.click(await screen.findByRole("button", { name: "新对话" }))
     const composer = screen.getByRole("textbox")
     typeComposerText(composer, "Check title refresh")
     fireEvent.keyDown(composer, { key: "Enter" })
 
     await waitFor(() => expect(agentHostMocks.createAgentRunEventSource).toHaveBeenCalledWith("run_1"))
-    await act(async () => {
-      eventSource.dispatch("run_completed", {
-        id: "evt_run_1_1",
-        run_id: "run_1",
-        sequence: 1,
-        created_at: "2026-05-21T08:01:00.000Z",
-        type: "run_completed",
-        payload: { output: { ok: true } },
-      })
-    })
-
-    expect(await screen.findAllByText("Generated chat title")).toHaveLength(2)
+    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations.mock.calls.length).toBeGreaterThanOrEqual(2))
+    const refreshedConversation = await screen.findByRole("button", { name: "Check title refresh" })
+    expect(refreshedConversation).toHaveClass("truncate")
   })
 
   it("edits the workspace title inline", async () => {

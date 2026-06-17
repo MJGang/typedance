@@ -132,6 +132,15 @@ export function RevisionWorkspacePage() {
     refreshConversations()
   }, [refreshConversations])
 
+  const handleConversationsChange = useCallback((nextConversations: AgentConversation[]) => {
+    setConversations(nextConversations)
+    setActiveConversationId((currentConversationId) => (
+      currentConversationId && nextConversations.some((conversation) => conversation.id === currentConversationId)
+        ? currentConversationId
+        : undefined
+    ))
+  }, [])
+
   const {
     flush: flushCanvasSaves,
     handleChange: handleCanvasChange,
@@ -385,7 +394,7 @@ export function RevisionWorkspacePage() {
 
   if (!workspace) return null
   const exportDisabled = !sourceCanvas || exportingFormat !== null
-  const activeConversationTitle = conversations.find((conversation) => conversation.id === activeConversationId)?.title
+  const activeConversationTitle = conversationDisplayTitle(conversations.find((conversation) => conversation.id === activeConversationId))
 
   return (
     <div className="flex h-[calc(100svh-3rem)] min-h-0 overflow-hidden bg-background">
@@ -396,7 +405,7 @@ export function RevisionWorkspacePage() {
         conversationRefreshToken={conversationRefreshToken}
         onSelectConversation={setActiveConversationId}
         onContextSourcesChange={setContextSources}
-        onConversationsChange={setConversations}
+        onConversationsChange={handleConversationsChange}
       />
       <main
         data-testid="revision-workspace-grid"
@@ -515,4 +524,9 @@ export function RevisionWorkspacePage() {
       </main>
     </div>
   )
+}
+
+function conversationDisplayTitle(conversation: AgentConversation | undefined): string | undefined {
+  if (!conversation) return undefined
+  return conversation.name?.trim() || conversation.preview.trim() || "新对话"
 }

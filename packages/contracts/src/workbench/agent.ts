@@ -41,7 +41,9 @@ export const agentConversationStatusSchema = z.enum(["idle", "running", "failed"
 export const agentConversationSchema = z.object({
   id: z.string().min(1),
   workspace_id: z.string().min(1),
-  title: z.string().min(1),
+  name: z.string().min(1).nullable(),
+  preview: z.string().default(""),
+  first_user_message: z.string().min(1).optional(),
   pinned: z.boolean().default(false),
   status: agentConversationStatusSchema.default("idle"),
   last_message_at: isoDateTimeSchema.optional(),

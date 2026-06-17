@@ -20,7 +20,7 @@ export type AgentHostStoreSnapshot = {
 
 export type CreateConversationInput = {
   workspaceId: string;
-  title?: string;
+  name?: string | null;
   timestamp: string;
 };
 
@@ -43,7 +43,7 @@ export type AgentHostStore = {
   listConversations(workspaceId: string): AgentConversation[];
   getConversation(conversationId: string): AgentConversation | undefined;
   createConversation(input: CreateConversationInput): AgentConversation;
-  updateConversation(conversationId: string, patch: Partial<Pick<AgentConversation, "title" | "pinned" | "status" | "last_message_at" | "updated_at">>): AgentConversation;
+  updateConversation(conversationId: string, patch: Partial<Pick<AgentConversation, "name" | "preview" | "first_user_message" | "pinned" | "status" | "last_message_at" | "updated_at">>): AgentConversation;
   deleteConversation(conversationId: string): boolean;
   listMessages(conversationId: string): AgentMessage[];
   getMessage(messageId: string): AgentMessage | undefined;
@@ -101,7 +101,8 @@ export class MemoryAgentHostStore implements AgentHostStore {
     const conversation = agentConversationSchema.parse({
       id: `conv_${this.data.nextConversationId++}`,
       workspace_id: input.workspaceId,
-      title: input.title?.trim() || "新对话",
+      name: normalizeConversationName(input.name),
+      preview: "",
       pinned: false,
       status: "idle",
       created_at: input.timestamp,
@@ -114,13 +115,14 @@ export class MemoryAgentHostStore implements AgentHostStore {
 
   updateConversation(
     conversationId: string,
-    patch: Partial<Pick<AgentConversation, "title" | "pinned" | "status" | "last_message_at" | "updated_at">>
+    patch: Partial<Pick<AgentConversation, "name" | "preview" | "first_user_message" | "pinned" | "status" | "last_message_at" | "updated_at">>
   ): AgentConversation {
     const index = this.data.conversations.findIndex((conversation) => conversation.id === conversationId);
     if (index < 0) throw new Error(`Unknown conversation: ${conversationId}`);
     const updated = agentConversationSchema.parse({
       ...this.data.conversations[index],
       ...patch,
+      ...(patch.name !== undefined ? { name: normalizeConversationName(patch.name) } : {}),
     });
     this.data.conversations[index] = updated;
     this.persist();
@@ -310,6 +312,11 @@ function nextNumericId(ids: string[], prefix: string): number {
 function timestampValue(value: string): number {
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function normalizeConversationName(name: string | null | undefined): string | null {
+  const trimmed = name?.trim();
+  return trimmed ? trimmed : null;
 }
 
 function renameWithWindowsRetry(from: string, to: string): void {

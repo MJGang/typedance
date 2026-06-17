@@ -26,11 +26,11 @@ export async function listWorkspaceConversations(workspaceId: string): Promise<A
   )
 }
 
-export async function createWorkspaceConversation(workspaceId: string, title?: string): Promise<AgentConversation> {
+export async function createWorkspaceConversation(workspaceId: string, name?: string | null): Promise<AgentConversation> {
   const response = await fetch(`${agentHostBaseUrl}/workspaces/${encodeURIComponent(workspaceId)}/conversations`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(title ? { title } : {}),
+    body: JSON.stringify(name ? { name } : {}),
   })
   return parseAgentHostResponse(
     response,
@@ -41,7 +41,7 @@ export async function createWorkspaceConversation(workspaceId: string, title?: s
 
 export async function updateWorkspaceConversation(
   conversationId: string,
-  patch: Partial<Pick<AgentConversation, "title" | "pinned">>,
+  patch: Partial<Pick<AgentConversation, "name" | "pinned">>,
 ): Promise<AgentConversation> {
   const response = await fetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}`, {
     method: "PATCH",

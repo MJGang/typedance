@@ -136,20 +136,20 @@ export class AgentHost {
     return this.store.listConversations(workspaceId);
   }
 
-  createConversation(workspaceId: string, title?: string): AgentConversation {
+  createConversation(workspaceId: string, name?: string | null): AgentConversation {
     return this.store.createConversation({
       workspaceId,
-      title,
+      name,
       timestamp: this.#timestamp(),
     });
   }
 
   updateConversation(
     conversationId: string,
-    patch: Partial<Pick<AgentConversation, "title" | "pinned">>
+    patch: Partial<Pick<AgentConversation, "name" | "pinned">>
   ): AgentConversation {
-    const cleanedPatch: Partial<Pick<AgentConversation, "title" | "pinned">> = {};
-    if (patch.title !== undefined) cleanedPatch.title = patch.title;
+    const cleanedPatch: Partial<Pick<AgentConversation, "name" | "pinned">> = {};
+    if (patch.name !== undefined) cleanedPatch.name = patch.name;
     if (patch.pinned !== undefined) cleanedPatch.pinned = patch.pinned;
     return this.store.updateConversation(conversationId, {
       ...cleanedPatch,
@@ -249,7 +249,10 @@ export class AgentHost {
     });
     this.#runtimeRunIds.set(agentRun.id, harnessRun.id);
     this.store.updateMessage(assistantMessage.id, { run_id: agentRun.id });
+    const firstUserMessage = conversation.first_user_message ?? content;
     this.store.updateConversation(conversationId, {
+      first_user_message: firstUserMessage,
+      preview: conversation.preview.trim() ? conversation.preview : firstUserMessage,
       status: "running",
       last_message_at: timestamp,
       updated_at: timestamp,
@@ -480,7 +483,6 @@ export class AgentHost {
     }
     if (event.type === "run.completed") {
       this.#completeProjectedRun(runId, conversationId, "completed", timestamp);
-      this.#maybeGenerateConversationTitle(conversationId, timestamp);
       this.#appendAgentRunEvent(runId, "run_completed", { output: event.output }, timestamp);
       return;
     }
@@ -530,18 +532,6 @@ export class AgentHost {
         },
       }, timestamp);
     }
-  }
-
-  #maybeGenerateConversationTitle(conversationId: string, timestamp: string): void {
-    const conversation = this.store.getConversation(conversationId);
-    if (!conversation || conversation.title !== "新对话") return;
-    const firstUserMessage = this.store.listMessages(conversationId).find((message) => message.role === "user");
-    const title = firstUserMessage ? compactTitle(firstUserMessage.content) : "";
-    if (!title) return;
-    this.store.updateConversation(conversationId, {
-      title,
-      updated_at: timestamp,
-    });
   }
 
   #appendAgentRunEvent(
@@ -664,7 +654,7 @@ async function route(context: RouteContext): Promise<boolean> {
     }
     if (request.method === "POST") {
       const body = await readJson(request);
-      writeJson(response, 201, host.createConversation(workspaceId, optionalString(body.title)));
+      writeJson(response, 201, host.createConversation(workspaceId, optionalName(body.name)));
       return true;
     }
   }
@@ -683,7 +673,7 @@ async function route(context: RouteContext): Promise<boolean> {
     if (request.method === "PATCH") {
       const body = await readJson(request);
       writeJson(response, 200, host.updateConversation(conversationId, {
-        title: optionalString(body.title),
+        name: optionalName(body.name),
         pinned: optionalBoolean(body.pinned),
       }));
       return true;
@@ -898,6 +888,11 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
+function optionalName(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  return optionalString(value);
+}
+
 function optionalBoolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
 }
@@ -944,11 +939,4 @@ function parsePermissionRemember(value: unknown): "never" | "run" | "context" | 
     return value;
   }
   throw new Error("Permission remember must be never, run, context, or always");
-}
-
-function compactTitle(content: string): string {
-  return content
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 24) || "新对话";
 }

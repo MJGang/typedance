@@ -57,6 +57,14 @@ const streamedEventTypes: AgentRunEvent["type"][] = [
   "harness_event",
 ]
 
+const RUN_TRACE_COPY = {
+  thinkingStatus: "正在思考",
+  thinkingHeading: "思考内容",
+  preparingContext: "正在准备上下文",
+  emptyCompletedTrace: "暂无处理过程",
+  reasoningSummaryStep: "分析请求与上下文",
+}
+
 function getRunStatusLabel(terminal: AgentRunEvent, message: AgentMessage): string {
   if (terminal.type === "run_failed") return "处理失败"
   if (terminal.type === "run_cancelled") return "已停止"
@@ -69,6 +77,11 @@ function getRunStatusLabel(terminal: AgentRunEvent, message: AgentMessage): stri
   }
 
   return "状态未知"
+}
+
+function getInProgressRunStatusLabel(events: AgentRunEvent[]): string | null {
+  if (events[events.length - 1]?.type === "thinking_delta") return RUN_TRACE_COPY.thinkingStatus
+  return null
 }
 
 const assistantMarkdownComponents: Components = {
@@ -307,11 +320,12 @@ function AgentChatContent({
       setMentionQuery(null)
       setRunningRunId(run.id)
       await loadMessages(conversationId)
+      onConversationUpdated?.()
       subscribeRun(run, conversationId)
     } catch {
       toast.error("发送失败")
     }
-  }, [activeConversationId, input, loadMessages, mentions, model, mutationMode, onConversationCreated, runningRunId, subscribeRun, workspaceId])
+  }, [activeConversationId, input, loadMessages, mentions, model, mutationMode, onConversationCreated, onConversationUpdated, runningRunId, subscribeRun, workspaceId])
 
   const handleCancelRun = useCallback(async () => {
     if (!runningRunId) return
@@ -495,14 +509,15 @@ function ChatMessage({
   const startedAt = orderedEvents[0]?.created_at ?? message.created_at
   const elapsedMs = useElapsedMs(startedAt, terminal?.created_at)
   const duration = formatDuration(elapsedMs)
-  const statusLabel = terminal ? getRunStatusLabel(terminal, message) : "已处理"
-  const traceItems = useMemo(() => buildRunTraceItems(orderedEvents), [orderedEvents])
-  const traceOpen = isAssistant && !!message.run_id && (!terminal || expanded)
+  const statusLabel = terminal ? getRunStatusLabel(terminal, message) : getInProgressRunStatusLabel(orderedEvents)
+  const traceItems = useMemo(() => buildRunTraceItems(orderedEvents, { includeRawThinking: !terminal }), [orderedEvents, terminal])
+  const showTraceToggle = isAssistant && !!message.run_id && statusLabel !== null
+  const traceOpen = showTraceToggle && expanded
   const hasConclusion = isAssistant && message.content.trim().length > 0
 
   return (
     <article className={cn("space-y-3", message.role === "user" && "rounded-lg bg-muted/60 p-3")}>
-      {isAssistant && message.run_id ? (
+      {showTraceToggle ? (
         <button
           type="button"
           className="flex items-center gap-1 text-xs text-muted-foreground"
@@ -519,7 +534,7 @@ function ChatMessage({
           {traceItems.length > 0 ? traceItems.map((item) => (
             <RunTraceItemView key={item.id} item={item} />
           )) : (
-            <p className="text-muted-foreground">正在准备上下文</p>
+            <p className="text-muted-foreground">{terminal ? RUN_TRACE_COPY.emptyCompletedTrace : RUN_TRACE_COPY.preparingContext}</p>
           )}
         </div>
       ) : null}
@@ -565,7 +580,12 @@ type RunTraceItem =
 
 function RunTraceItemView({ item }: { item: RunTraceItem }) {
   if (item.kind === "thinking") {
-    return <p>{item.text}</p>
+    return (
+      <div className="space-y-1">
+        <p className="text-xs font-medium text-muted-foreground">{RUN_TRACE_COPY.thinkingHeading}</p>
+        <p className="whitespace-pre-wrap rounded-md border border-border bg-muted/40 px-3 py-2 text-sm leading-6 text-muted-foreground">{item.text}</p>
+      </div>
+    )
   }
 
   if (item.kind === "tool") {
@@ -602,15 +622,16 @@ function useElapsedMs(startedAt: string, completedAt?: string): number {
   return Math.max(0, end - start)
 }
 
-function buildRunTraceItems(events: AgentRunEvent[]): RunTraceItem[] {
+function buildRunTraceItems(events: AgentRunEvent[], options: { includeRawThinking: boolean }): RunTraceItem[] {
   const items: RunTraceItem[] = []
   const toolStarts = new Map<string, AgentRunEvent>()
   let thinkingItem: Extract<RunTraceItem, { kind: "thinking" }> | undefined
+  let summarizedThinking = false
 
   for (const event of events) {
     if (event.type === "thinking_delta") {
       const text = String(event.payload.delta ?? "")
-      if (text) {
+      if (text && options.includeRawThinking) {
         if (thinkingItem) {
           thinkingItem.text += text
         } else {
@@ -621,6 +642,13 @@ function buildRunTraceItems(events: AgentRunEvent[]): RunTraceItem[] {
           }
           items.push(thinkingItem)
         }
+      } else if (text && !summarizedThinking) {
+        items.push({
+          id: event.id,
+          kind: "event",
+          label: RUN_TRACE_COPY.reasoningSummaryStep,
+        })
+        summarizedThinking = true
       }
       continue
     }
