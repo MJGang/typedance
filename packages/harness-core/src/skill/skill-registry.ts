@@ -38,7 +38,6 @@ export type HarnessAgentSkillContext = {
   }>;
   skills: HarnessResolvedSkill[];
   toolNames: string[];
-  instructionsText: string;
 };
 
 export type HarnessBuildAgentSkillContextInput = {
@@ -104,7 +103,6 @@ export class HarnessSkillRegistry {
       pluginInstructions,
       skills: skillsWithInstructions,
       toolNames: this.#collectToolNames(skillsWithInstructions),
-      instructionsText: this.#formatInstructions(pluginInstructions, skillsWithInstructions),
     };
   }
 
@@ -143,25 +141,5 @@ export class HarnessSkillRegistry {
       )
     );
     return instructions;
-  }
-
-  #formatInstructions(
-    pluginInstructions: Array<{ pluginId: string; path: string; content: string }>,
-    skills: HarnessResolvedSkill[]
-  ): string {
-    const pluginBlocks = pluginInstructions
-      .map((instruction) => [`## Plugin Instructions`, `### ${instruction.path}`, instruction.content].join("\n\n"))
-      .join("\n\n");
-    const skillBlocks = skills
-      .map((skill) => {
-        const fileBlocks = skill.instructions
-          .map((instruction) => [`### ${instruction.path}`, instruction.content].filter(Boolean).join("\n"))
-          .join("\n\n");
-        const tools = skill.tool_names.length > 0 ? `Tools: ${skill.tool_names.join(", ")}` : "";
-
-        return [`## ${skill.name}`, skill.description, tools, fileBlocks].filter(Boolean).join("\n\n");
-      })
-      .join("\n\n");
-    return [pluginBlocks, skillBlocks].filter(Boolean).join("\n\n");
   }
 }

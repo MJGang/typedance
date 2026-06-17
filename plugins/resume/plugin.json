@@ -10,37 +10,23 @@
     {
       "id": "resume.workspace",
       "name": "Resume Workspace",
-      "description": "Read and update the current resume workspace through Python MCP tools.",
+      "description": "Ground responses in the current resume workspace context supplied by TypeDance.",
       "instruction_files": ["skills/workspace.md"],
-      "tool_names": [
-        "resume.getDocument",
-        "resume.getWorkspaceView",
-        "resume.saveSourceResumeCanvas"
-      ]
+      "tool_names": []
     },
     {
       "id": "resume.review",
       "name": "Resume Review",
       "description": "Review resume quality with evidence-first, conservative revision behavior.",
       "instruction_files": ["skills/review.md"],
-      "tool_names": [
-        "resume.getWorkspaceView",
-        "resume.dismissIssue",
-        "resume.confirmClaim",
-        "resume.confirmEvidenceLink"
-      ]
+      "tool_names": []
     },
     {
       "id": "resume.revision",
       "name": "Resume Revision",
-      "description": "Apply user-approved resume revision proposals and render/export artifacts.",
+      "description": "Draft user-approved resume revision guidance and artifact-ready responses.",
       "instruction_files": ["skills/revision.md"],
-      "tool_names": [
-        "resume.acceptProposal",
-        "resume.rejectProposal",
-        "resume.renderDraft",
-        "resume.exportDocument"
-      ]
+      "tool_names": []
     }
   ],
   "agents": [
@@ -61,19 +47,6 @@
       "allowed_tool_names": []
     }
   ],
-  "mcp_servers": [
-    {
-      "id": "resume.python",
-      "name": "TypeDance Resume Python MCP",
-      "transport": "stdio",
-      "command": "python",
-      "args": ["-m", "typedance_sidecar.mcp.resume_server"]
-    }
-  ],
-  "permissions": [
-    "mcp.tool",
-    "artifact.write",
-    "memory.read",
-    "memory.write"
-  ]
+  "mcp_servers": [],
+  "permissions": []
 }

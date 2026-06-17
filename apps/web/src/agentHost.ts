@@ -113,7 +113,7 @@ export async function getAgentRun(runId: string): Promise<AgentRun> {
 }
 
 export async function cancelAgentRun(runId: string): Promise<void> {
-  const response = await fetch(`${agentHostBaseUrl}/runs/${encodeURIComponent(runId)}/cancel`, {
+  const response = await fetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/cancel`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ reason: "User cancelled" }),

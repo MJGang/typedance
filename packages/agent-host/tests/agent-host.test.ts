@@ -1,7 +1,7 @@
 import { once } from "node:events";
 import { createHarnessRuntime, type HarnessModelRequest } from "@typedance/harness-core";
 import { afterEach, describe, expect, it } from "vitest";
-import { createAgentHost, createAgentHostServer, type AgentHostHttpServer } from "../src";
+import { createAgentHost, createAgentHostServer, createMemoryAgentHostStore, type AgentHostHttpServer } from "../src";
 
 const servers: AgentHostHttpServer[] = [];
 
@@ -81,10 +81,16 @@ describe("agent host", () => {
     expect(messages).toHaveLength(2);
     expect(messages[0]?.mentions[0]?.label).toBe("岗位 JD");
     expect(messages[1]?.content).toBe("可以优化专业技能。");
-    expect(seenRequests[0]?.messages).toEqual([
-      { role: "system", content: "Context: 岗位 JD" },
+    expect("messages" in (seenRequests[0] ?? {})).toBe(false);
+    expect(seenRequests[0]?.prompt.contextual[0]).toMatchObject({
+      slot: "contextual",
+      source: "message.system",
+    });
+    expect(seenRequests[0]?.prompt.contextual[0]?.content).toContain("Context:");
+    expect(seenRequests[0]?.prompt.conversation).toEqual([
       { role: "user", content: "参考岗位 JD 优化专业技能" },
     ]);
+    expect(JSON.stringify(seenRequests[0]?.prompt)).not.toContain("workspace_id");
     expect(host.listAgentRunEvents(run.id).map((event) => event.type)).toEqual([
       "harness_event",
       "thinking_delta",
@@ -146,14 +152,284 @@ describe("agent host", () => {
     await host.waitForRun(run.id);
 
     const latestRequest = seenRequests.at(-1);
-    expect(latestRequest?.messages[0]).toMatchObject({
-      role: "system",
+    expect("messages" in (latestRequest ?? {})).toBe(false);
+    expect(latestRequest?.prompt.contextual[0]).toMatchObject({
+      slot: "contextual",
       content: expect.stringContaining("刚铭俊"),
     });
-    expect(latestRequest?.messages.at(-1)).toEqual({
+    expect(latestRequest?.prompt.conversation.at(-1)).toEqual({
       role: "user",
       content: "检查这份简历质量",
     });
+  });
+
+  it("records model stream failures without rejecting the background run task", async () => {
+    const runtime = createHarnessRuntime({
+      model: {
+        stream: async function* () {
+          throw new Error("socket closed");
+        },
+      },
+    });
+    runtime.registerPlugin({
+      id: "resume.agent",
+      name: "Resume Agent",
+      version: "0.1.0",
+      module_format: "esm",
+      scopes: ["pack:resume"],
+      agents: [{ id: "resume.primary", name: "Resume Primary", role: "primary", skill_ids: [] }],
+    });
+    const host = createAgentHost({
+      runtime,
+      packs: [
+        {
+          id: "resume",
+          capabilityPolicy: { scopeIds: ["pack:resume"] },
+          primaryAgentId: "resume.primary",
+        },
+      ],
+    });
+    const conversation = host.createConversation("doc_1");
+
+    const run = host.startConversationRun("doc_1", conversation.id, {
+      message: { content: "Check this resume" },
+    });
+
+    await expect(host.waitForRun(run.id)).resolves.toBeUndefined();
+    expect(host.getAgentRun(run.id).status).toBe("failed");
+    expect(host.listAgentRunEvents(run.id).some((event) => event.type === "run_failed")).toBe(true);
+  });
+
+  it("projects a runtime-handled permission failure once with the original error code", async () => {
+    const runtime = createHarnessRuntime({
+      model: {
+        stream: async function* () {
+          yield {
+            type: "tool_call",
+            call: {
+              id: "tool_call_permission",
+              name: "resume.readProtectedContext",
+              origin: "resource",
+              input: { uri: "file:///protected.txt" },
+            },
+          };
+          yield { type: "final", output: { ok: false } };
+        },
+      },
+    });
+    runtime.registerPlugin({
+      id: "resume.agent",
+      name: "Resume Agent",
+      version: "0.1.0",
+      module_format: "esm",
+      scopes: ["pack:resume"],
+      skills: [
+        {
+          id: "resume.context",
+          name: "Resume Context",
+          description: "Read resume context.",
+          instruction_files: [],
+          tool_names: ["resume.readProtectedContext"],
+        },
+      ],
+      agents: [{
+        id: "resume.primary",
+        name: "Resume Primary",
+        role: "primary",
+        skill_ids: ["resume.context"],
+      }],
+    });
+    runtime.registerTool({
+      name: "resume.readProtectedContext",
+      origin: "resource",
+      requiresPermission: (input) => ({
+        kind: "filesystem.read",
+        reason: "Read protected context.",
+        scope: {
+          uri: String(input.uri),
+          access: "read",
+        },
+      }),
+      handler: async () => ({ ok: true }),
+    });
+    const host = createAgentHost({
+      runtime,
+      packs: [
+        {
+          id: "resume",
+          capabilityPolicy: { scopeIds: ["pack:resume"] },
+          primaryAgentId: "resume.primary",
+        },
+      ],
+    });
+    const conversation = host.createConversation("doc_1");
+
+    const run = host.startConversationRun("doc_1", conversation.id, {
+      message: { content: "读取受保护上下文" },
+    });
+
+    await expect(host.waitForRun(run.id)).resolves.toBeUndefined();
+    const failedEvents = host.listAgentRunEvents(run.id).filter((event) => event.type === "run_failed");
+    expect(failedEvents).toHaveLength(1);
+    expect((failedEvents[0]?.payload.error as { code?: string } | undefined)?.code).toBe("agent_tool_permission_required");
+  });
+
+  it("recovers persisted running runs as failed after the host restarts", () => {
+    const runtime = createHarnessRuntime({
+      model: {
+        stream: async function* () {
+          yield { type: "final", output: { ok: true } };
+        },
+      },
+    });
+    runtime.registerPlugin({
+      id: "resume.agent",
+      name: "Resume Agent",
+      version: "0.1.0",
+      module_format: "esm",
+      scopes: ["pack:resume"],
+      agents: [{ id: "resume.primary", name: "Resume Primary", role: "primary", skill_ids: [] }],
+    });
+    const store = createMemoryAgentHostStore({
+      conversations: [{
+        id: "conv_1",
+        workspace_id: "doc_1",
+        title: "Stale run",
+        pinned: false,
+        status: "running",
+        created_at: "2026-06-16T08:00:00.000Z",
+        updated_at: "2026-06-16T08:00:00.000Z",
+        last_message_at: "2026-06-16T08:00:00.000Z",
+      }],
+      messages: [{
+        id: "msg_1",
+        conversation_id: "conv_1",
+        role: "assistant",
+        content: "",
+        mentions: [],
+        created_at: "2026-06-16T08:00:00.000Z",
+        run_id: "run_1",
+      }],
+      runs: [{
+        id: "run_1",
+        conversation_id: "conv_1",
+        assistant_message_id: "msg_1",
+        status: "running",
+        model: "deepseek-v4-flash",
+        mutation_mode: "review",
+        started_at: "2026-06-16T08:00:00.000Z",
+      }],
+      events: [],
+    });
+
+    const host = createAgentHost({
+      runtime,
+      store,
+      packs: [
+        {
+          id: "resume",
+          capabilityPolicy: { scopeIds: ["pack:resume"] },
+          primaryAgentId: "resume.primary",
+        },
+      ],
+      now: () => new Date("2026-06-16T08:30:00.000Z"),
+    });
+
+    expect(host.getAgentRun("run_1").status).toBe("failed");
+    expect(host.listConversations("doc_1")[0]?.status).toBe("failed");
+    expect(host.listAgentRunEvents("run_1").map((event) => event.type)).toEqual(["run_failed"]);
+  });
+
+  it("does not reuse persisted run events when the harness run id resets after restart", async () => {
+    const runtime = createHarnessRuntime({
+      model: {
+        stream: async function* () {
+          yield { type: "assistant_delta", messageId: "assistant_1", delta: "new answer" };
+          yield { type: "final", output: { ok: true } };
+        },
+      },
+    });
+    runtime.registerPlugin({
+      id: "resume.agent",
+      name: "Resume Agent",
+      version: "0.1.0",
+      module_format: "esm",
+      scopes: ["pack:resume"],
+      agents: [{ id: "resume.primary", name: "Resume Primary", role: "primary", skill_ids: [] }],
+    });
+    const store = createMemoryAgentHostStore({
+      conversations: [{
+        id: "conv_1",
+        workspace_id: "doc_1",
+        title: "Old conversation",
+        pinned: false,
+        status: "idle",
+        created_at: "2026-06-16T08:00:00.000Z",
+        updated_at: "2026-06-16T08:00:51.000Z",
+        last_message_at: "2026-06-16T08:00:51.000Z",
+      }],
+      messages: [{
+        id: "msg_old_assistant",
+        conversation_id: "conv_1",
+        role: "assistant",
+        content: "",
+        mentions: [],
+        created_at: "2026-06-16T08:00:00.000Z",
+        run_id: "run_1",
+      }],
+      runs: [{
+        id: "run_1",
+        conversation_id: "conv_1",
+        assistant_message_id: "msg_old_assistant",
+        status: "completed",
+        model: "deepseek-v4-flash",
+        mutation_mode: "review",
+        started_at: "2026-06-16T08:00:00.000Z",
+        completed_at: "2026-06-16T08:00:51.000Z",
+        duration_ms: 51000,
+      }],
+      events: [
+        {
+          id: "aevt_1",
+          run_id: "run_1",
+          sequence: 0,
+          type: "thinking_delta",
+          payload: { delta: "old thinking about 这个简历怎么样" },
+          created_at: "2026-06-16T08:00:00.000Z",
+        },
+        {
+          id: "aevt_2",
+          run_id: "run_1",
+          sequence: 1,
+          type: "run_completed",
+          payload: { output: { ok: true } },
+          created_at: "2026-06-16T08:00:51.000Z",
+        },
+      ],
+    });
+    const host = createAgentHost({
+      runtime,
+      store,
+      packs: [
+        {
+          id: "resume",
+          capabilityPolicy: { scopeIds: ["pack:resume"] },
+          primaryAgentId: "resume.primary",
+        },
+      ],
+    });
+    const conversation = host.createConversation("doc_1");
+
+    const run = host.startConversationRun("doc_1", conversation.id, {
+      message: { content: "检查这份简历质量" },
+    });
+    await host.waitForRun(run.id);
+
+    expect(run.id).not.toBe("run_1");
+    const events = host.listAgentRunEvents(run.id);
+    expect(events.map((event) => event.type)).toEqual(["harness_event", "assistant_delta", "run_completed"]);
+    expect(JSON.stringify(events)).not.toContain("这个简历怎么样");
+    expect(host.listMessages(conversation.id)[1]?.content).toBe("new answer");
   });
 
   it("exposes workspace conversation APIs over HTTP", async () => {

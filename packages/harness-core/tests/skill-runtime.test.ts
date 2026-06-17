@@ -73,10 +73,13 @@ describe("harness skill runtime", () => {
     expect(context.agent.id).toBe("alpha.primary");
     expect(context.skills.map((skill) => skill.id)).toEqual(["alpha.review"]);
     expect(context.toolNames).toEqual(["alpha.readContext", "alpha.createProposal"]);
-    expect(context.instructionsText).toContain("## Alpha Review");
-    expect(context.instructionsText).toContain("alpha.agent:skills/review.md: instructions");
-    expect(context.instructionsText).not.toContain("alpha.exportArtifact");
-    expect(context.instructionsText).not.toContain("beta.createOutline");
+    expect("instructionsText" in context).toBe(false);
+    expect(context.skills[0]?.instructions).toEqual([
+      {
+        path: "skills/review.md",
+        content: "alpha.agent:skills/review.md: instructions",
+      },
+    ]);
   });
 
   it("can resolve all skills available to a capability policy", () => {

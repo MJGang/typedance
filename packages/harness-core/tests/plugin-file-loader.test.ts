@@ -51,7 +51,8 @@ describe("HarnessPluginFileLoader", () => {
     });
 
     expect(context.skills.map((skill) => skill.id)).toEqual(["alpha.review"]);
-    expect(context.instructionsText).toContain("Use evidence-first review.");
+    expect("instructionsText" in context).toBe(false);
+    expect(context.skills[0]?.instructions[0]?.content).toBe("Use evidence-first review.");
   });
 
   it("rejects skill instruction path traversal", async () => {

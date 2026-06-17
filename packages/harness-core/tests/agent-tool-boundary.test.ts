@@ -24,7 +24,7 @@ describe("harness agent tool boundary", () => {
           name: "Alpha Primary Agent",
           role: "primary",
           skill_ids: ["alpha.review"],
-          allowed_tool_names: ["alpha.createProposal"],
+          allowed_tool_names: ["alpha.createProposal", "alpha.unregisteredAllowed"],
         },
       ],
     });
@@ -83,6 +83,22 @@ describe("harness agent tool boundary", () => {
           input: {},
         },
       })
-    ).rejects.toThrow("Tool alpha.exportArtifact is not allowed for agent alpha.primary by the active capability policy");
+    ).rejects.toThrow(
+      "Tool alpha.exportArtifact is not available for agent alpha.primary by the active capability policy and registered tool surface"
+    );
+    await expect(
+      runtime.invokeAgentTool({
+        runId: run.id,
+        agentId: "alpha.primary",
+        call: {
+          id: "tool_call_4",
+          name: "alpha.unregisteredAllowed",
+          origin: "mcp",
+          input: {},
+        },
+      })
+    ).rejects.toThrow(
+      "Tool alpha.unregisteredAllowed is not available for agent alpha.primary by the active capability policy and registered tool surface"
+    );
   });
 });

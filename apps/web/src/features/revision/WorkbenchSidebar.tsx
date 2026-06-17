@@ -44,14 +44,16 @@ import {
 import { chooseContextDirectoryPathInTauri, chooseContextFilePathsInTauri, isTauri } from "@/tauri"
 import type { AgentConversation, AgentPluginSummary, ContextSource, ContextSourceChild } from "@typedance/contracts"
 
-const defaultAgentModel = import.meta.env.VITE_DEFAULT_AGENT_MODEL ?? "deepseek-v4-flash"
+const defaultAgentModel = import.meta.env.VITE_DEFAULT_AGENT_MODEL?.trim() ?? ""
 
 type WorkbenchSidebarProps = {
   workspaceId: string
   title: string
   activeConversationId?: string
+  conversationRefreshToken?: number
   onSelectConversation: (conversationId: string) => void
   onContextSourcesChange: (sources: ContextSource[]) => void
+  onConversationsChange?: (conversations: AgentConversation[]) => void
 }
 
 type DirectoryNodeProps = {
@@ -64,8 +66,10 @@ export function WorkbenchSidebar({
   workspaceId,
   title,
   activeConversationId,
+  conversationRefreshToken = 0,
   onSelectConversation,
   onContextSourcesChange,
+  onConversationsChange,
 }: WorkbenchSidebarProps) {
   const [contextSources, setContextSources] = useState<ContextSource[]>([])
   const [conversations, setConversations] = useState<AgentConversation[]>([])
@@ -94,18 +98,23 @@ export function WorkbenchSidebar({
   const loadConversations = useCallback(async () => {
     setLoadingConversations(true)
     try {
-      setConversations(await listWorkspaceConversations(workspaceId))
+      const nextConversations = await listWorkspaceConversations(workspaceId)
+      setConversations(nextConversations)
+      onConversationsChange?.(nextConversations)
     } catch {
       toast.error("对话加载失败")
     } finally {
       setLoadingConversations(false)
     }
-  }, [workspaceId])
+  }, [onConversationsChange, workspaceId])
 
   useEffect(() => {
     void loadContextSources()
+  }, [loadContextSources])
+
+  useEffect(() => {
     void loadConversations()
-  }, [loadContextSources, loadConversations])
+  }, [conversationRefreshToken, loadConversations])
 
   const handleNewConversation = useCallback(async () => {
     try {
@@ -302,9 +311,9 @@ export function WorkbenchSidebar({
             <DialogTitle>AI 设置</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <Input placeholder="Provider" defaultValue="DeepSeek" />
+            <Input placeholder="Provider" />
             <Input placeholder="API Key" type="password" />
-            <Input placeholder="Base URL" defaultValue="https://api.deepseek.com" />
+            <Input placeholder="Base URL" />
             <Input placeholder="Model" defaultValue={defaultAgentModel} />
           </div>
         </DialogContent>
