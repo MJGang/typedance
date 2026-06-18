@@ -65,6 +65,12 @@ const RUN_TRACE_COPY = {
   reasoningSummaryStep: "分析请求与上下文",
 }
 
+const CHAT_BOTTOM_THRESHOLD_PX = 24
+
+function isNearChatBottom(element: HTMLElement): boolean {
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= CHAT_BOTTOM_THRESHOLD_PX
+}
+
 function getRunStatusLabel(terminal: AgentRunEvent, message: AgentMessage): string {
   if (terminal.type === "run_failed") return "处理失败"
   if (terminal.type === "run_cancelled") return "已停止"
@@ -152,7 +158,10 @@ function AgentChatContent({
   const [mutationMode, setMutationMode] = useState<CanvasMutationMode>("review")
   const [model] = useState(defaultAgentModel)
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(() => new Set())
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const composerRef = useRef<HTMLDivElement>(null)
+  const messageListRef = useRef<HTMLDivElement>(null)
+  const shouldFollowLatestRef = useRef(true)
   const knownRunEventIdsRef = useRef<Set<string>>(new Set())
 
   const loadMessages = useCallback(async (conversationId = activeConversationId) => {
@@ -175,8 +184,19 @@ function AgentChatContent({
   }, [activeConversationId])
 
   useEffect(() => {
+    shouldFollowLatestRef.current = true
+    setShowScrollToBottom(false)
+  }, [activeConversationId])
+
+  useEffect(() => {
     void loadMessages()
   }, [loadMessages])
+
+  useLayoutEffect(() => {
+    const messageList = messageListRef.current
+    if (!messageList || !shouldFollowLatestRef.current) return
+    messageList.scrollTop = messageList.scrollHeight
+  }, [messages, runEvents])
 
   useLayoutEffect(() => {
     const composer = composerRef.current
@@ -204,6 +224,12 @@ function AgentChatContent({
     const beforeCaret = value.slice(0, caret ?? value.length)
     const match = /(^|\s)@([^\s@]*)$/.exec(beforeCaret)
     setMentionQuery(match ? match[2] : null)
+  }, [])
+
+  const handleMessageListScroll = useCallback((element: HTMLDivElement) => {
+    const isAtBottom = isNearChatBottom(element)
+    shouldFollowLatestRef.current = isAtBottom
+    setShowScrollToBottom(!isAtBottom)
   }, [])
 
   const selectMention = useCallback((source: ContextSource) => {
@@ -350,26 +376,49 @@ function AgentChatContent({
         {runningRunId ? <span className="size-2 rounded-full bg-sky-500" /> : null}
       </div>
 
-      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
-        {visibleMessages.length === 0 ? (
-          <EmptyChatState onPrompt={(prompt) => setInput(prompt)} />
-        ) : visibleMessages.map((message) => (
-          <ChatMessage
-            key={message.id}
-            message={message}
-            events={message.run_id ? runEvents[message.run_id] ?? [] : []}
-            expanded={!!message.run_id && expandedRuns.has(message.run_id)}
-            onToggleExpanded={() => {
-              if (!message.run_id) return
-              setExpandedRuns((current) => {
-                const next = new Set(current)
-                if (next.has(message.run_id!)) next.delete(message.run_id!)
-                else next.add(message.run_id!)
-                return next
-              })
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={messageListRef}
+          data-testid="agent-chat-messages"
+          className="h-full space-y-5 overflow-y-auto px-4 py-4"
+          onScroll={(event) => handleMessageListScroll(event.currentTarget)}
+        >
+          {visibleMessages.length === 0 ? (
+            <EmptyChatState onPrompt={(prompt) => setInput(prompt)} />
+          ) : visibleMessages.map((message) => (
+            <ChatMessage
+              key={message.id}
+              message={message}
+              events={message.run_id ? runEvents[message.run_id] ?? [] : []}
+              expanded={!!message.run_id && expandedRuns.has(message.run_id)}
+              onToggleExpanded={() => {
+                if (!message.run_id) return
+                setExpandedRuns((current) => {
+                  const next = new Set(current)
+                  if (next.has(message.run_id!)) next.delete(message.run_id!)
+                  else next.add(message.run_id!)
+                  return next
+                })
+              }}
+            />
+          ))}
+        </div>
+        {showScrollToBottom ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            aria-label="回到底部"
+            title="回到底部"
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-background shadow-md"
+            onClick={() => {
+              const messageList = messageListRef.current
+              messageList?.scrollTo({ top: messageList.scrollHeight, behavior: "smooth" })
             }}
-          />
-        ))}
+          >
+            <ChevronDown data-icon="inline-start" />
+          </Button>
+        ) : null}
       </div>
 
       <div className="shrink-0 border-t border-border p-3">

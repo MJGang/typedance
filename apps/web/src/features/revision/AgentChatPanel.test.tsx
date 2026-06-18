@@ -92,6 +92,24 @@ function typeComposerText(composer: HTMLElement, value: string) {
   fireEvent.input(composer)
 }
 
+function mockMessageListScroll(
+  element: HTMLElement,
+  metrics: { clientHeight: number; scrollHeight: number; scrollTop: number },
+) {
+  Object.defineProperty(element, "clientHeight", { configurable: true, value: metrics.clientHeight })
+  Object.defineProperty(element, "scrollHeight", { configurable: true, writable: true, value: metrics.scrollHeight })
+  Object.defineProperty(element, "scrollTop", { configurable: true, writable: true, value: metrics.scrollTop })
+  const scrollTo = vi.fn()
+  Object.defineProperty(element, "scrollTo", { configurable: true, value: scrollTo })
+
+  return {
+    scrollTo,
+    setScrollHeight(value: number) {
+      Object.defineProperty(element, "scrollHeight", { configurable: true, writable: true, value })
+    },
+  }
+}
+
 describe("AgentChatPanel", () => {
   beforeEach(() => {
     Object.values(agentHostMocks).forEach((mock) => mock.mockReset())
@@ -368,6 +386,123 @@ describe("AgentChatPanel", () => {
     })
 
     expect(await screen.findByText("Streaming answer")).toBeInTheDocument()
+  })
+
+  it("keeps the message list pinned to the bottom while assistant output streams", async () => {
+    const eventSource = controllableEventSource()
+    agentHostMocks.createAgentRunEventSource.mockReturnValue(eventSource.source)
+    agentHostMocks.startConversationRun.mockResolvedValue({
+      id: "run_scroll_follow",
+      conversation_id: "conv_1",
+      assistant_message_id: "msg_assistant_run_scroll_follow",
+      status: "running",
+      model: "deepseek-v4-flash",
+      mutation_mode: "review",
+      started_at: "2026-06-16T08:00:00.000Z",
+    })
+    agentHostMocks.listConversationMessages
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([userMessage("Check this resume"), assistantMessage("", "run_scroll_follow")])
+
+    render(
+      <AgentChatPanel
+        workspaceId="doc_1"
+        activeConversationId="conv_1"
+        contextSources={[]}
+        onConversationCreated={() => {}}
+      />,
+    )
+
+    const input = screen.getByRole("textbox")
+    typeComposerText(input, "Check this resume")
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await waitFor(() => expect(agentHostMocks.createAgentRunEventSource).toHaveBeenCalledWith("run_scroll_follow"))
+    const messageList = screen.getByTestId("agent-chat-messages")
+    const scroll = mockMessageListScroll(messageList, { clientHeight: 200, scrollHeight: 400, scrollTop: 200 })
+    scroll.setScrollHeight(460)
+
+    act(() => {
+      eventSource.dispatch("assistant_delta", {
+        id: "evt_scroll_follow_1",
+        run_id: "run_scroll_follow",
+        sequence: 0,
+        type: "assistant_delta",
+        created_at: "2026-06-16T08:00:01.000Z",
+        payload: { delta: "Streaming answer" },
+      })
+    })
+
+    expect(messageList.scrollTop).toBe(460)
+  })
+
+  it("pauses auto-follow after manual scrolling and restores it from the bottom button", async () => {
+    const eventSource = controllableEventSource()
+    agentHostMocks.createAgentRunEventSource.mockReturnValue(eventSource.source)
+    agentHostMocks.startConversationRun.mockResolvedValue({
+      id: "run_scroll_resume",
+      conversation_id: "conv_1",
+      assistant_message_id: "msg_assistant_run_scroll_resume",
+      status: "running",
+      model: "deepseek-v4-flash",
+      mutation_mode: "review",
+      started_at: "2026-06-16T08:00:00.000Z",
+    })
+    agentHostMocks.listConversationMessages
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([userMessage("Check this resume"), assistantMessage("", "run_scroll_resume")])
+
+    render(
+      <AgentChatPanel
+        workspaceId="doc_1"
+        activeConversationId="conv_1"
+        contextSources={[]}
+        onConversationCreated={() => {}}
+      />,
+    )
+
+    const input = screen.getByRole("textbox")
+    typeComposerText(input, "Check this resume")
+    fireEvent.keyDown(input, { key: "Enter" })
+
+    await waitFor(() => expect(agentHostMocks.createAgentRunEventSource).toHaveBeenCalledWith("run_scroll_resume"))
+    const messageList = screen.getByTestId("agent-chat-messages")
+    const scroll = mockMessageListScroll(messageList, { clientHeight: 200, scrollHeight: 500, scrollTop: 80 })
+    fireEvent.scroll(messageList)
+
+    const returnToBottom = await screen.findByRole("button", { name: "回到底部" })
+    scroll.setScrollHeight(560)
+    act(() => {
+      eventSource.dispatch("assistant_delta", {
+        id: "evt_scroll_resume_1",
+        run_id: "run_scroll_resume",
+        sequence: 0,
+        type: "assistant_delta",
+        created_at: "2026-06-16T08:00:01.000Z",
+        payload: { delta: "First chunk" },
+      })
+    })
+    expect(messageList.scrollTop).toBe(80)
+
+    fireEvent.click(returnToBottom)
+    expect(scroll.scrollTo).toHaveBeenCalledWith({ top: 560, behavior: "smooth" })
+
+    messageList.scrollTop = 360
+    fireEvent.scroll(messageList)
+    expect(screen.queryByRole("button", { name: "回到底部" })).not.toBeInTheDocument()
+
+    scroll.setScrollHeight(620)
+    act(() => {
+      eventSource.dispatch("assistant_delta", {
+        id: "evt_scroll_resume_2",
+        run_id: "run_scroll_resume",
+        sequence: 1,
+        type: "assistant_delta",
+        created_at: "2026-06-16T08:00:02.000Z",
+        payload: { delta: " second chunk" },
+      })
+    })
+    expect(messageList.scrollTop).toBe(620)
   })
 
   it("lets users inspect live thinking while a run is still in progress", async () => {
