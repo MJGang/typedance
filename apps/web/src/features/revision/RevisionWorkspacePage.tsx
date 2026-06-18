@@ -94,6 +94,7 @@ export function RevisionWorkspacePage() {
   const currentDocumentIdRef = useRef(documentId)
   const latestSavedCanvasRef = useRef<SourceResumeCanvas | null>(null)
   const loadRequestEpochRef = useRef(0)
+  const renameRequestEpochRef = useRef(0)
   const draftPanelRef = useRef<HTMLDivElement>(null)
   const titleSaveInFlightRef = useRef(false)
   currentDocumentIdRef.current = documentId
@@ -103,8 +104,18 @@ export function RevisionWorkspacePage() {
     return () => {
       mountedRef.current = false
       loadRequestEpochRef.current += 1
+      renameRequestEpochRef.current += 1
     }
   }, [])
+
+  useEffect(() => {
+    renameRequestEpochRef.current += 1
+    titleSaveInFlightRef.current = false
+    setRenameDialogOpen(false)
+    setTitleDraft("")
+    setTitleSaveError(null)
+    setIsSavingTitle(false)
+  }, [documentId])
 
   const handleSavedCanvas = useCallback((savedCanvas: SourceResumeCanvas) => {
     latestSavedCanvasRef.current = savedCanvas
@@ -269,8 +280,11 @@ export function RevisionWorkspacePage() {
   }, [isSavingTitle, workspace])
 
   const cancelRenameDialog = useCallback(() => {
+    renameRequestEpochRef.current += 1
+    titleSaveInFlightRef.current = false
     setTitleDraft(workspace?.document.title ?? "")
     setTitleSaveError(null)
+    setIsSavingTitle(false)
     setRenameDialogOpen(false)
   }, [workspace])
 
@@ -287,12 +301,20 @@ export function RevisionWorkspacePage() {
     }
 
     titleSaveInFlightRef.current = true
+    const capturedDocumentId = workspace.document.id
+    const requestEpoch = ++renameRequestEpochRef.current
     setIsSavingTitle(true)
     setTitleSaveError(null)
 
+    const requestIsCurrent = () => (
+      mountedRef.current
+      && currentDocumentIdRef.current === capturedDocumentId
+      && renameRequestEpochRef.current === requestEpoch
+    )
+
     try {
-      const updatedDocument = await updateRevisionDocument(workspace.document.id, { title: trimmed })
-      if (!mountedRef.current || currentDocumentIdRef.current !== updatedDocument.id) return
+      const updatedDocument = await updateRevisionDocument(capturedDocumentId, { title: trimmed })
+      if (!requestIsCurrent() || updatedDocument.id !== capturedDocumentId) return
       setState((currentState) => {
         if (currentState.status !== "loaded" || currentState.workspace.document.id !== updatedDocument.id) {
           return currentState
@@ -308,11 +330,14 @@ export function RevisionWorkspacePage() {
       setTitleDraft(updatedDocument.title)
       setRenameDialogOpen(false)
     } catch {
+      if (!requestIsCurrent()) return
       setTitleSaveError("标题保存失败，请稍后重试。")
       setRenameDialogOpen(true)
     } finally {
-      titleSaveInFlightRef.current = false
-      setIsSavingTitle(false)
+      if (requestIsCurrent()) {
+        titleSaveInFlightRef.current = false
+        setIsSavingTitle(false)
+      }
     }
   }, [titleDraft, workspace])
 
@@ -524,10 +549,18 @@ export function RevisionWorkspacePage() {
       <Dialog
         open={renameDialogOpen}
         onOpenChange={(open) => {
-          if (!open) cancelRenameDialog()
+          if (!open && !isSavingTitle) cancelRenameDialog()
         }}
       >
-        <DialogContent>
+        <DialogContent
+          showCloseButton={!isSavingTitle}
+          onEscapeKeyDown={(event) => {
+            if (isSavingTitle) event.preventDefault()
+          }}
+          onPointerDownOutside={(event) => {
+            if (isSavingTitle) event.preventDefault()
+          }}
+        >
           <form
             className="flex flex-col gap-4"
             onSubmit={(event) => {
@@ -543,6 +576,7 @@ export function RevisionWorkspacePage() {
               <Field data-invalid={titleSaveError ? true : undefined}>
                 <Input
                   aria-label="工作区标题"
+                  aria-errormessage={titleSaveError ? "workspace-title-error" : undefined}
                   aria-invalid={titleSaveError ? true : undefined}
                   autoFocus
                   disabled={isSavingTitle}
@@ -550,7 +584,11 @@ export function RevisionWorkspacePage() {
                   onChange={(event) => setTitleDraft(limitWorkspaceTitle(event.target.value))}
                 />
                 <FieldDescription className="flex justify-between gap-2" aria-live="polite">
-                  <span className="text-destructive">{titleSaveError}</span>
+                  {titleSaveError ? (
+                    <span id="workspace-title-error" role="alert" className="text-destructive">
+                      {titleSaveError}
+                    </span>
+                  ) : <span />}
                   <span className="ml-auto shrink-0 tabular-nums">{Array.from(titleDraft).length}/10</span>
                 </FieldDescription>
               </Field>
