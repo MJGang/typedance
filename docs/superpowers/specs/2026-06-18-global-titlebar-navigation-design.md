@@ -52,7 +52,7 @@
 
 ### AI 面板标题栏
 
-`AgentChatPanel` 标题右侧接收并渲染 AI 面板隐藏按钮。`RevisionWorkspacePage` 继续通过 `RevisionWorkspaceChromeContext` 读取和更新显隐状态，不把 AI 面板状态下沉到 Tauri 层。
+`AgentChatPanel` 标题右侧接收并渲染 AI 面板隐藏按钮。`RevisionWorkspacePage` 继续通过 `RevisionWorkspaceChromeContext` 读取和更新左右面板显隐状态，不把面板状态下沉到 Tauri 层。
 
 AI 面板隐藏后，在工作台最右侧同一标题高度保留窄的恢复入口，用于重新显示 AI 面板。恢复入口属于工作台布局，不进入全局标题栏。
 
@@ -93,7 +93,7 @@ AI 面板隐藏后，在工作台最右侧同一标题高度保留窄的恢复�
 
 ### 面板显隐
 
-- 左侧导航显隐按钮始终位于全局标题栏左侧。
+- 左侧导航显隐按钮始终位于全局标题栏左侧。在普通页面控制 `SiteSidebar`，在工作台页面控制 `WorkbenchSidebar`，同一时刻只控制当前路由实际展示的左栏。
 - AI 面板可见时，隐藏按钮位于 AI 标题右侧。
 - AI 面板隐藏时，工作台右缘展示恢复按钮；点击后恢复面板，标题内按钮随面板重新出现。
 
