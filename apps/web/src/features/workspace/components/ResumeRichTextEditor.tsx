@@ -17,6 +17,7 @@ import {
   AlignmentToolbarButton,
   BulletListToolbarButton,
   DividerToolbarButton,
+  EditorToolbar,
   IndentToolbarButton,
   LineHeightToolbarButton,
   OrderedListToolbarButton,
@@ -1009,7 +1010,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         onPointerLeave={handleRichEditorPointerLeave}
       >
         {editable && (
-          <div className="td-rich-editor-toolbar" role="toolbar" aria-label="简历格式工具栏">
+          <EditorToolbar>
             <ToolbarGroup>
               <ToolbarSelect
                 ariaLabel="正文与标题"
@@ -1175,7 +1176,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
               </>
             )}
             {toolbarEnd ? <div className="ml-auto flex shrink-0 items-center">{toolbarEnd}</div> : null}
-          </div>
+          </EditorToolbar>
         )}
         <style>{cssText}</style>
         {editable && (

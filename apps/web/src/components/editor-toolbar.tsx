@@ -15,7 +15,7 @@ import {
 
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
 type ToolbarIcon = ComponentType<SVGProps<SVGSVGElement>>
@@ -71,6 +71,16 @@ const LINE_HEIGHT_OPTIONS: Array<{ value: ToolbarLineHeight; label: string }> = 
   { value: "2.5", label: "2.5" },
   { value: "3", label: "3" },
 ]
+
+export function EditorToolbar({ children }: { children: ReactNode }) {
+  return (
+    <TooltipProvider delayDuration={500}>
+      <div className="td-rich-editor-toolbar" role="toolbar" aria-label="简历格式工具栏">
+        {children}
+      </div>
+    </TooltipProvider>
+  )
+}
 
 export function ToolbarIconButton({
   label,

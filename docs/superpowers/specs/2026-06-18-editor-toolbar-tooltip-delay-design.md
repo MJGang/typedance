@@ -24,8 +24,9 @@
 
 预计修改：
 
-- `apps/web/src/features/workspace/components/ResumeRichTextEditor.tsx`：在顶部工具栏范围增加局部 `TooltipProvider`。
-- `apps/web/src/features/workspace/components/ResumeRichTextEditor.toolbar.test.tsx`：验证顶部工具栏使用 500ms 延迟，并避免误改全局 Tooltip 默认值。
+- `apps/web/src/components/editor-toolbar.tsx`：由 `EditorToolbar` 统一提供工具栏语义与固定为 500ms 的 Tooltip 作用域。
+- `apps/web/src/components/editor-toolbar.test.tsx`：验证工具栏作用域覆盖外层即时显示设置。
+- `apps/web/src/features/workspace/components/ResumeRichTextEditor.tsx`：将顶部工具栏接入局部 Tooltip 作用域。
 
 ## 验证
 
