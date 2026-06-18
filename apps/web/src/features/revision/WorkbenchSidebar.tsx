@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ComponentType } from "react"
 import {
-  ArrowLeft,
   ChevronDown,
   ChevronRight,
   File,
@@ -60,7 +59,6 @@ type WorkbenchSidebarProps = {
   onTitleDraftChange: (title: string) => void
   onCommitTitleEditing: () => void
   onCancelTitleEditing: () => void
-  onBack: () => void
   activeConversationId?: string
   conversationRefreshToken?: number
   onSelectConversation: (conversationId: string) => void
@@ -85,7 +83,6 @@ export function WorkbenchSidebar({
   onTitleDraftChange,
   onCommitTitleEditing,
   onCancelTitleEditing,
-  onBack,
   activeConversationId,
   conversationRefreshToken = 0,
   onSelectConversation,
@@ -282,14 +279,6 @@ export function WorkbenchSidebar({
             </Tooltip>
           </div>
         )}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button type="button" variant="ghost" size="icon-sm" aria-label="返回工作区列表" onClick={onBack}>
-              <ArrowLeft />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>返回工作区列表</TooltipContent>
-        </Tooltip>
       </div>
 
       <div className="flex shrink-0 flex-col gap-1 px-2 py-3">

@@ -531,12 +531,11 @@ describe("RevisionWorkspacePage", () => {
     })
   })
 
-  it("returns to the workspace list from the sidebar header", async () => {
+  it("does not keep a duplicate return action in the workbench sidebar", async () => {
     renderPage()
 
-    fireEvent.click(await screen.findByRole("button", { name: "返回工作区列表" }))
-
-    expect(await screen.findByText("工作区列表")).toBeInTheDocument()
+    expect(await screen.findByTestId("revision-draft-panel")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "返回工作区列表" })).not.toBeInTheDocument()
   })
 
   it("exports from the editor toolbar with current canvas and page margins", async () => {

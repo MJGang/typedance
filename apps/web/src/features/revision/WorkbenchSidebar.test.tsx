@@ -64,7 +64,6 @@ const titleControlProps = {
   onTitleDraftChange: () => {},
   onCommitTitleEditing: () => {},
   onCancelTitleEditing: () => {},
-  onBack: () => {},
 }
 
 describe("WorkbenchSidebar", () => {
@@ -98,12 +97,11 @@ describe("WorkbenchSidebar", () => {
     expect(screen.queryByDisplayValue("https://api.deepseek.com")).not.toBeInTheDocument()
   })
 
-  it("renders controlled workspace title editing and the back action", async () => {
+  it("renders controlled workspace title editing without a local back action", async () => {
     const onStartTitleEditing = vi.fn()
     const onTitleDraftChange = vi.fn()
     const onCommitTitleEditing = vi.fn()
     const onCancelTitleEditing = vi.fn()
-    const onBack = vi.fn()
     const onSelectConversation = vi.fn()
     const onContextSourcesChange = vi.fn()
 
@@ -119,7 +117,6 @@ describe("WorkbenchSidebar", () => {
           onTitleDraftChange={onTitleDraftChange}
           onCommitTitleEditing={onCommitTitleEditing}
           onCancelTitleEditing={onCancelTitleEditing}
-          onBack={onBack}
           onSelectConversation={onSelectConversation}
           onContextSourcesChange={onContextSourcesChange}
         />
@@ -139,8 +136,7 @@ describe("WorkbenchSidebar", () => {
     expect(titleButton.parentElement?.parentElement).toHaveClass("items-center")
     fireEvent.click(titleButton)
     expect(onStartTitleEditing).toHaveBeenCalledOnce()
-    fireEvent.click(screen.getByRole("button", { name: "返回工作区列表" }))
-    expect(onBack).toHaveBeenCalledOnce()
+    expect(screen.queryByRole("button", { name: "返回工作区列表" })).not.toBeInTheDocument()
 
     rerender(
       <TooltipProvider>
@@ -154,7 +150,6 @@ describe("WorkbenchSidebar", () => {
           onTitleDraftChange={onTitleDraftChange}
           onCommitTitleEditing={onCommitTitleEditing}
           onCancelTitleEditing={onCancelTitleEditing}
-          onBack={onBack}
           onSelectConversation={onSelectConversation}
           onContextSourcesChange={onContextSourcesChange}
         />

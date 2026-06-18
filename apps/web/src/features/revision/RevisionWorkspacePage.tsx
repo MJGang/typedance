@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useNavigate, useOutletContext, useParams } from "react-router-dom"
+import { useOutletContext, useParams } from "react-router-dom"
 import { AlertCircle, Download, FileText, Loader2, PanelRightOpen, RefreshCcw } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -12,7 +12,6 @@ import {
   getRevisionWorkspaceView,
   updateRevisionDocument,
 } from "@/api"
-import { resumePackPaths } from "../resume-pack/routes"
 import { AgentChatPanel } from "./AgentChatPanel"
 import { DraftCanvas, type CanvasPatchFlash } from "./DraftCanvas"
 import { DEFAULT_SOURCE_CANVAS_PAGE_MARGINS, type PageMargins } from "./pageMargins"
@@ -72,7 +71,6 @@ function mergeLatestSavedCanvas(workspace: WorkspaceView, latestSavedCanvas: Sou
 
 export function RevisionWorkspacePage() {
   const { documentId } = useParams<{ documentId: string }>()
-  const navigate = useNavigate()
   const chromeContext = useOutletContext<Partial<RevisionWorkspaceChromeContext> | undefined>()
   const assistantPanelVisible = chromeContext?.assistantPanelVisible ?? true
   const workbenchSidebarVisible = chromeContext?.workbenchSidebarVisible ?? true
@@ -438,7 +436,6 @@ export function RevisionWorkspacePage() {
           onTitleDraftChange={(nextTitle) => setTitleDraft(limitWorkspaceTitle(nextTitle))}
           onCommitTitleEditing={() => void commitTitleEditing()}
           onCancelTitleEditing={cancelTitleEditing}
-          onBack={() => navigate(resumePackPaths.workspaces)}
           activeConversationId={activeConversationId}
           conversationRefreshToken={conversationRefreshToken}
           onSelectConversation={setActiveConversationId}
