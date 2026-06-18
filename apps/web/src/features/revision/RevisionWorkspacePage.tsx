@@ -421,6 +421,28 @@ export function RevisionWorkspacePage() {
       </DropdownMenuContent>
     </DropdownMenu>
   )
+  const toolbarEndActions = (
+    <div className="flex items-center gap-1">
+      {!assistantPanelVisible ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="显示 AI 面板"
+              className="td-editor-toolbar-button"
+              onClick={() => chromeContext?.setAssistantPanelVisible?.(true)}
+            >
+              <PanelRightOpen data-icon="inline-start" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>显示 AI 面板</TooltipContent>
+        </Tooltip>
+      ) : null}
+      {exportToolbarAction}
+    </div>
+  )
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden bg-background">
@@ -468,7 +490,7 @@ export function RevisionWorkspacePage() {
                   onRetrySave={retryCanvasSave}
                   saveStatus={canvasSaveStatus}
                   templateStyle={defaultClassicA4Style}
-                  toolbarEnd={exportToolbarAction}
+                  toolbarEnd={toolbarEndActions}
                 />
               ) : (
                 <div className="m-4 rounded-md border border-border bg-muted/30 p-4">
@@ -489,18 +511,7 @@ export function RevisionWorkspacePage() {
             onCanvasPatchApplied={handleCanvasPatchApplied}
             onHide={() => chromeContext?.setAssistantPanelVisible?.(false)}
           />
-        ) : (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label="显示 AI 面板"
-            className="absolute right-2 top-2 z-20"
-            onClick={() => chromeContext?.setAssistantPanelVisible?.(true)}
-          >
-            <PanelRightOpen data-icon="inline-start" />
-          </Button>
-        )}
+        ) : null}
       </main>
     </div>
   )

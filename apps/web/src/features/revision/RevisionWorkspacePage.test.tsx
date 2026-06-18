@@ -379,7 +379,10 @@ describe("RevisionWorkspacePage", () => {
     expect(workspaceGrid).not.toHaveClass("grid-cols-[minmax(48rem,1fr)_24rem]")
     expect(screen.queryByRole("button", { name: "隐藏 AI 面板" })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole("button", { name: "显示 AI 面板" }))
+    const toolbar = screen.getByRole("toolbar", { name: "简历格式工具栏" })
+    const showAssistantButton = within(toolbar).getByRole("button", { name: "显示 AI 面板" })
+    expect(within(toolbar).getByRole("button", { name: "导出" })).toBeInTheDocument()
+    fireEvent.click(showAssistantButton)
     expect(await screen.findByRole("button", { name: "隐藏 AI 面板" })).toBeInTheDocument()
     expect(workspaceGrid).toHaveClass("grid-cols-[minmax(48rem,1fr)_24rem]")
   })
