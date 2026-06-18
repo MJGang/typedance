@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useOutletContext, useParams } from "react-router-dom"
-import { AlertCircle, Download, FileText, Loader2, PanelRightOpen, RefreshCcw } from "lucide-react"
+import { AlertCircle, Download, FileText, Loader2, MoreHorizontal, PanelRightOpen, RefreshCcw } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Field, FieldDescription, FieldGroup } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import {
@@ -77,7 +80,7 @@ export function RevisionWorkspacePage() {
   const [state, setState] = useState<LoadState>({ status: "loading" })
   const [exportingFormat, setExportingFormat] = useState<RevisionExportFormat | null>(null)
   const [sourceCanvasPageMargins, setSourceCanvasPageMargins] = useState<PageMargins | null>(null)
-  const [editingTitle, setEditingTitle] = useState(false)
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false)
   const [titleDraft, setTitleDraft] = useState("")
   const [titleSaveError, setTitleSaveError] = useState<string | null>(null)
   const [isSavingTitle, setIsSavingTitle] = useState(false)
@@ -92,7 +95,6 @@ export function RevisionWorkspacePage() {
   const latestSavedCanvasRef = useRef<SourceResumeCanvas | null>(null)
   const loadRequestEpochRef = useRef(0)
   const draftPanelRef = useRef<HTMLDivElement>(null)
-  const cancelTitleEditRef = useRef(false)
   const titleSaveInFlightRef = useRef(false)
   currentDocumentIdRef.current = documentId
 
@@ -259,34 +261,28 @@ export function RevisionWorkspacePage() {
     }
   }, [exportingFormat, sourceCanvas, sourceCanvasPageMargins, workspace])
 
-  const startTitleEditing = useCallback(() => {
+  const openRenameDialog = useCallback(() => {
     if (!workspace || isSavingTitle) return
-    cancelTitleEditRef.current = false
     setTitleDraft(workspace.document.title)
     setTitleSaveError(null)
-    setEditingTitle(true)
+    setRenameDialogOpen(true)
   }, [isSavingTitle, workspace])
 
-  const cancelTitleEditing = useCallback(() => {
-    cancelTitleEditRef.current = true
+  const cancelRenameDialog = useCallback(() => {
     setTitleDraft(workspace?.document.title ?? "")
     setTitleSaveError(null)
-    setEditingTitle(false)
+    setRenameDialogOpen(false)
   }, [workspace])
 
-  const commitTitleEditing = useCallback(async () => {
+  const saveWorkspaceTitle = useCallback(async () => {
     if (!workspace) return
-    if (cancelTitleEditRef.current) {
-      cancelTitleEditRef.current = false
-      return
-    }
     if (titleSaveInFlightRef.current) return
 
     const trimmed = limitWorkspaceTitle(titleDraft.trim())
     if (!trimmed || trimmed === workspace.document.title) {
       setTitleDraft(workspace.document.title)
       setTitleSaveError(null)
-      setEditingTitle(false)
+      setRenameDialogOpen(false)
       return
     }
 
@@ -310,10 +306,10 @@ export function RevisionWorkspacePage() {
         }
       })
       setTitleDraft(updatedDocument.title)
-      setEditingTitle(false)
+      setRenameDialogOpen(false)
     } catch {
       setTitleSaveError("标题保存失败，请稍后重试。")
-      setEditingTitle(true)
+      setRenameDialogOpen(true)
     } finally {
       titleSaveInFlightRef.current = false
       setIsSavingTitle(false)
@@ -449,15 +445,6 @@ export function RevisionWorkspacePage() {
       {workbenchSidebarVisible ? (
         <WorkbenchSidebar
           workspaceId={workspace.document.id}
-          title={workspace.document.title}
-          editingTitle={editingTitle}
-          titleDraft={titleDraft}
-          titleSaveError={titleSaveError}
-          isSavingTitle={isSavingTitle}
-          onStartTitleEditing={startTitleEditing}
-          onTitleDraftChange={(nextTitle) => setTitleDraft(limitWorkspaceTitle(nextTitle))}
-          onCommitTitleEditing={() => void commitTitleEditing()}
-          onCancelTitleEditing={cancelTitleEditing}
           activeConversationId={activeConversationId}
           conversationRefreshToken={conversationRefreshToken}
           onSelectConversation={setActiveConversationId}
@@ -475,6 +462,27 @@ export function RevisionWorkspacePage() {
         )}
       >
         <section data-testid="revision-draft-column" className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+          <div
+            data-testid="revision-workspace-titlebar"
+            className="flex h-12 shrink-0 items-center border-b border-border px-3"
+          >
+            <div className="flex min-w-0 items-center gap-1">
+              <h1 className="truncate text-sm font-semibold">{workspace.document.title}</h1>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button type="button" variant="ghost" size="icon-xs" aria-label="工作区操作">
+                    <MoreHorizontal />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem onSelect={openRenameDialog}>重命名</DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+            <div className="ml-auto flex items-center gap-1" />
+          </div>
           <div
             ref={draftPanelRef}
             data-testid="revision-draft-panel"
@@ -513,6 +521,51 @@ export function RevisionWorkspacePage() {
           />
         ) : null}
       </main>
+      <Dialog
+        open={renameDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) cancelRenameDialog()
+        }}
+      >
+        <DialogContent>
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void saveWorkspaceTitle()
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>重命名工作区</DialogTitle>
+              <DialogDescription>输入新的工作区标题，最多 10 个字符。</DialogDescription>
+            </DialogHeader>
+            <FieldGroup>
+              <Field data-invalid={titleSaveError ? true : undefined}>
+                <Input
+                  aria-label="工作区标题"
+                  aria-invalid={titleSaveError ? true : undefined}
+                  autoFocus
+                  disabled={isSavingTitle}
+                  value={titleDraft}
+                  onChange={(event) => setTitleDraft(limitWorkspaceTitle(event.target.value))}
+                />
+                <FieldDescription className="flex justify-between gap-2" aria-live="polite">
+                  <span className="text-destructive">{titleSaveError}</span>
+                  <span className="ml-auto shrink-0 tabular-nums">{Array.from(titleDraft).length}/10</span>
+                </FieldDescription>
+              </Field>
+            </FieldGroup>
+            <DialogFooter>
+              <Button type="button" variant="outline" disabled={isSavingTitle} onClick={cancelRenameDialog}>
+                取消
+              </Button>
+              <Button type="submit" disabled={isSavingTitle}>
+                {isSavingTitle ? "保存中" : "保存"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

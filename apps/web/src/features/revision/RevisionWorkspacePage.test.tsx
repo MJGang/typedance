@@ -517,17 +517,29 @@ describe("RevisionWorkspacePage", () => {
     expect(refreshedConversation).toHaveClass("truncate")
   })
 
-  it("edits the workspace title inline", async () => {
+  it("renames the workspace from the draft-column title bar", async () => {
     renderPage()
 
-    const titleButton = await screen.findByTestId("revision-workspace-title-button")
-    fireEvent.click(titleButton)
+    const titlebar = await screen.findByTestId("revision-workspace-titlebar")
+    expect(within(titlebar).getByText("旧简历重构1")).toBeInTheDocument()
+
+    const sidebar = screen.getByRole("button", { name: "新对话" }).closest("aside")
+    expect(sidebar).not.toBeNull()
+    if (!sidebar) throw new Error("Workbench sidebar is missing")
+    expect(within(sidebar).queryByText("旧简历重构1")).not.toBeInTheDocument()
+    expect(within(sidebar).queryByRole("button", { name: "工作区操作" })).not.toBeInTheDocument()
+
+    const workspaceActions = within(titlebar).getByRole("button", { name: "工作区操作" })
+    fireEvent.click(workspaceActions)
+    fireEvent.keyDown(workspaceActions, { key: "ArrowDown" })
+    fireEvent.click(await screen.findByRole("menuitem", { name: "重命名" }))
+
     const titleInput = screen.getByLabelText("工作区标题")
     expect(screen.getByText("6/10")).toBeInTheDocument()
     fireEvent.change(titleInput, { target: { value: "一二三四五六七八九十十一" } })
     expect(titleInput).toHaveValue("一二三四五六七八九十")
     expect(screen.getByText("10/10")).toBeInTheDocument()
-    fireEvent.blur(titleInput)
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
 
     await waitFor(() => {
       expect(apiMocks.updateRevisionDocument).toHaveBeenCalledWith("doc_1", { title: "一二三四五六七八九十" })
