@@ -2,7 +2,7 @@ import "@testing-library/jest-dom/vitest"
 import { createRef } from "react"
 import { Editor } from "@tiptap/core"
 import StarterKit from "@tiptap/starter-kit"
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { beforeAll, describe, expect, it, vi } from "vitest"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -57,6 +57,22 @@ beforeAll(() => {
 })
 
 describe("ResumeRichTextEditor toolbar", () => {
+  it("renders a supplied end action inside the toolbar", () => {
+    render(
+      <TooltipProvider>
+        <ResumeRichTextEditor
+          ariaLabel="Resume text"
+          docJson={{ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "正文" }] }] }}
+          onChange={() => {}}
+          toolbarEnd={<button type="button">尾部操作</button>}
+        />
+      </TooltipProvider>,
+    )
+
+    const toolbar = screen.getByRole("toolbar", { name: "简历格式工具栏" })
+    expect(within(toolbar).getByRole("button", { name: "尾部操作" })).toBeInTheDocument()
+  })
+
   it("renders the updated toolbar labels and grouped separators", () => {
     render(
       <TooltipProvider>

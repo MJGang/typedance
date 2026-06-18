@@ -7,6 +7,7 @@ import {
   useState,
   type CSSProperties,
   type PointerEvent,
+  type ReactNode,
 } from "react"
 import { ChevronDown, ChevronUp } from "lucide-react"
 import type { ModuleAnchor, SourceResumeCanvas } from "@typedance/contracts"
@@ -50,6 +51,7 @@ type DraftCanvasProps = {
   onRetrySave?: () => void
   saveStatus: DraftCanvasSaveStatus
   templateStyle?: TemplateStyleConfig
+  toolbarEnd?: ReactNode
 }
 
 type Size = { width: number; height: number }
@@ -375,6 +377,7 @@ function DraftCanvasWorkspace({
   onRetrySave,
   saveStatus,
   templateStyle = defaultClassicA4Style,
+  toolbarEnd,
 }: DraftCanvasProps) {
   const editorRef = useRef<ResumeRichTextEditorHandle>(null)
   const canvasRootRef = useRef<HTMLDivElement>(null)
@@ -652,6 +655,7 @@ function DraftCanvasWorkspace({
         onModuleOutlineVisibleChange={setOutlineVisible}
         onPageMarginGuidesVisibleChange={setPageMarginGuidesVisible}
         onSourceCanvasModuleChange={setActiveModuleId}
+        toolbarEnd={toolbarEnd}
       />
       {pageMarginGuidesVisible && pageBounds ? (
         <PageMarginGuides

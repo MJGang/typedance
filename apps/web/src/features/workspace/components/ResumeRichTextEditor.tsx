@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type PointerEvent } from "react"
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type PointerEvent, type ReactNode } from "react"
 import { Extension, Mark, type Editor } from "@tiptap/core"
 import { Markdown } from "@tiptap/markdown"
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
@@ -55,6 +55,7 @@ type ResumeRichTextEditorProps = {
   onPageMarginGuidesVisibleChange?: (visible: boolean) => void
   moduleOutlineVisible?: boolean
   onModuleOutlineVisibleChange?: (visible: boolean) => void
+  toolbarEnd?: ReactNode
 }
 
 export type ResumeSelectionContext = {
@@ -681,6 +682,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       onPageMarginGuidesVisibleChange,
       moduleOutlineVisible = false,
       onModuleOutlineVisibleChange,
+      toolbarEnd,
     },
     ref,
   ) {
@@ -1172,6 +1174,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                 </ToolbarGroup>
               </>
             )}
+            {toolbarEnd ? <div className="ml-auto flex shrink-0 items-center">{toolbarEnd}</div> : null}
           </div>
         )}
         <style>{cssText}</style>

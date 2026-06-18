@@ -1,9 +1,10 @@
 import "@testing-library/jest-dom/vitest"
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import type { ContextSource, ContextSourceChild, WorkspaceView } from "@typedance/contracts"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { RevisionWorkspacePage } from "./RevisionWorkspacePage"
 
 const apiMocks = vi.hoisted(() => ({
@@ -99,15 +100,18 @@ vi.mock("./DraftCanvas", () => ({
     onPageMarginsChange,
     onRetrySave,
     saveStatus,
+    toolbarEnd,
   }: {
     canvas: WorkspaceView["source_resume_canvas"]
     onChange: (change: { plainText: string; docJson: { type: "doc"; content: unknown[] } }) => void
     onPageMarginsChange?: (margins: { top: number; bottom: number; left: number; right: number }) => void
     onRetrySave: () => void
     saveStatus: "idle" | "saving" | "saved" | "error"
+    toolbarEnd?: ReactNode
   }) => (
     draftCanvasMocks.render(canvas?.document_id),
     <section aria-label="原始简历画布">
+      <div role="toolbar" aria-label="简历格式工具栏">{toolbarEnd}</div>
       <p>{canvasText(canvas?.doc_json)}</p>
       {canvas?.module_anchors.map((anchor) => <button key={anchor.module_id} type="button">{anchor.title}</button>)}
       <button
@@ -236,33 +240,17 @@ const directoryChildren: ContextSourceChild[] = [
 
 function renderPage(assistantPanelVisible = true) {
   return render(
-    <MemoryRouter initialEntries={["/packs/resume/workspaces/doc_1"]}>
-      <Routes>
-        <Route element={<Outlet context={{ assistantPanelVisible, setAssistantPanelVisible: vi.fn() }} />}>
-          <Route path="/packs/resume/workspaces/:documentId" element={<RevisionWorkspacePage />} />
-        </Route>
-      </Routes>
-    </MemoryRouter>,
+    <TooltipProvider>
+      <MemoryRouter initialEntries={["/packs/resume/workspaces/doc_1"]}>
+        <Routes>
+          <Route element={<Outlet context={{ assistantPanelVisible, setAssistantPanelVisible: vi.fn() }} />}>
+            <Route path="/packs/resume/workspaces/:documentId" element={<RevisionWorkspacePage />} />
+            <Route path="/packs/resume/workspaces" element={<div>工作区列表</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </TooltipProvider>,
   )
-}
-
-function controllableEventSource() {
-  const listeners = new Map<string, Array<(event: MessageEvent) => void>>()
-  return {
-    source: {
-      addEventListener: vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {
-        const current = listeners.get(type) ?? []
-        current.push(listener as (event: MessageEvent) => void)
-        listeners.set(type, current)
-      }),
-      close: vi.fn(),
-    } as unknown as EventSource,
-    dispatch(type: string, payload: Record<string, unknown>) {
-      for (const listener of listeners.get(type) ?? []) {
-        listener(new MessageEvent(type, { data: JSON.stringify(payload) }))
-      }
-    },
-  }
 }
 
 function typeComposerText(composer: HTMLElement, value: string) {
@@ -279,6 +267,16 @@ function typeComposerText(composer: HTMLElement, value: string) {
 
   fireEvent.input(composer)
 }
+
+beforeAll(() => {
+  class ResizeObserverMock {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+
+  globalThis.ResizeObserver = ResizeObserverMock
+})
 
 describe("RevisionWorkspacePage", () => {
   beforeEach(() => {
@@ -342,8 +340,9 @@ describe("RevisionWorkspacePage", () => {
 
     expect(screen.getByText("加载工作台")).toBeInTheDocument()
     expect(await screen.findByTestId("revision-draft-panel")).toBeInTheDocument()
-    expect(screen.getAllByText("旧简历重构1").length).toBeGreaterThanOrEqual(2)
-    expect(screen.getByText("工作区")).toBeInTheDocument()
+    expect(screen.getAllByText("旧简历重构1")).toHaveLength(1)
+    expect(screen.queryByText("工作区")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("revision-workspace-header")).not.toBeInTheDocument()
     expect(screen.getByText("上下文")).toBeInTheDocument()
     expect(screen.getByText("对话")).toBeInTheDocument()
     expect(screen.getByText("未选择对话")).toBeInTheDocument()
@@ -494,21 +493,34 @@ describe("RevisionWorkspacePage", () => {
 
     const titleButton = await screen.findByTestId("revision-workspace-title-button")
     fireEvent.click(titleButton)
-    const titleInput = screen.getByLabelText("工作台标题")
-    fireEvent.change(titleInput, { target: { value: "前端负责人简历" } })
+    const titleInput = screen.getByLabelText("工作区标题")
+    expect(screen.getByText("6/10")).toBeInTheDocument()
+    fireEvent.change(titleInput, { target: { value: "一二三四五六七八九十十一" } })
+    expect(titleInput).toHaveValue("一二三四五六七八九十")
+    expect(screen.getByText("10/10")).toBeInTheDocument()
     fireEvent.blur(titleInput)
 
     await waitFor(() => {
-      expect(apiMocks.updateRevisionDocument).toHaveBeenCalledWith("doc_1", { title: "前端负责人简历" })
+      expect(apiMocks.updateRevisionDocument).toHaveBeenCalledWith("doc_1", { title: "一二三四五六七八九十" })
     })
-    await waitFor(() => expect(screen.getAllByText("前端负责人简历").length).toBeGreaterThanOrEqual(2))
   })
 
-  it("exports from the title bar with current canvas and page margins", async () => {
+  it("returns to the workspace list from the sidebar header", async () => {
+    renderPage()
+
+    fireEvent.click(await screen.findByRole("button", { name: "返回工作区列表" }))
+
+    expect(await screen.findByText("工作区列表")).toBeInTheDocument()
+  })
+
+  it("exports from the editor toolbar with current canvas and page margins", async () => {
     renderPage()
 
     fireEvent.click(await screen.findByRole("button", { name: "调整页边距" }))
-    fireEvent.keyDown(await screen.findByRole("button", { name: "导出" }), { key: "ArrowDown" })
+    const toolbar = await screen.findByRole("toolbar", { name: "简历格式工具栏" })
+    const exportButton = within(toolbar).getByRole("button", { name: "导出" })
+    expect(exportButton).not.toHaveTextContent("导出")
+    fireEvent.keyDown(exportButton, { key: "ArrowDown" })
     fireEvent.click(await screen.findByRole("menuitem", { name: "导出 PDF" }))
 
     await waitFor(() => expect(apiMocks.exportRevisionDocumentPdf).toHaveBeenCalledWith(

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate, useOutletContext, useParams } from "react-router-dom"
-import { AlertCircle, ArrowLeft, ChevronDown, Download, FileText, Loader2, Pencil, RefreshCcw } from "lucide-react"
+import { AlertCircle, Download, FileText, Loader2, RefreshCcw } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import {
   exportRevisionDocumentHtml,
@@ -30,6 +30,11 @@ type LoadState =
 type RevisionExportFormat = "pdf" | "html"
 
 const SOURCE_CANVAS_TEXT_CURSOR_CLASS = "td-source-canvas-cursor-text"
+const WORKSPACE_TITLE_MAX_LENGTH = 10
+
+function limitWorkspaceTitle(value: string) {
+  return Array.from(value).slice(0, WORKSPACE_TITLE_MAX_LENGTH).join("")
+}
 
 function stringArrayFromPayload(payload: Record<string, unknown>, key: string): string[] {
   const value = payload[key]
@@ -88,7 +93,6 @@ export function RevisionWorkspacePage() {
   const latestSavedCanvasRef = useRef<SourceResumeCanvas | null>(null)
   const loadRequestEpochRef = useRef(0)
   const draftPanelRef = useRef<HTMLDivElement>(null)
-  const titleInputRef = useRef<HTMLInputElement>(null)
   const cancelTitleEditRef = useRef(false)
   const titleSaveInFlightRef = useRef(false)
   currentDocumentIdRef.current = documentId
@@ -279,7 +283,7 @@ export function RevisionWorkspacePage() {
     }
     if (titleSaveInFlightRef.current) return
 
-    const trimmed = titleDraft.trim()
+    const trimmed = limitWorkspaceTitle(titleDraft.trim())
     if (!trimmed || trimmed === workspace.document.title) {
       setTitleDraft(workspace.document.title)
       setTitleSaveError(null)
@@ -311,21 +315,11 @@ export function RevisionWorkspacePage() {
     } catch {
       setTitleSaveError("标题保存失败，请稍后重试。")
       setEditingTitle(true)
-      requestAnimationFrame(() => {
-        titleInputRef.current?.focus()
-        titleInputRef.current?.select()
-      })
     } finally {
       titleSaveInFlightRef.current = false
       setIsSavingTitle(false)
     }
   }, [titleDraft, workspace])
-
-  useEffect(() => {
-    if (!editingTitle) return
-    titleInputRef.current?.focus()
-    titleInputRef.current?.select()
-  }, [editingTitle])
 
   useEffect(() => {
     const syncSourceCanvasCursor = (event: PointerEvent) => {
@@ -395,12 +389,54 @@ export function RevisionWorkspacePage() {
   if (!workspace) return null
   const exportDisabled = !sourceCanvas || exportingFormat !== null
   const activeConversationTitle = conversationDisplayTitle(conversations.find((conversation) => conversation.id === activeConversationId))
+  const exportToolbarAction = (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              aria-label="导出"
+              disabled={exportDisabled}
+              className="td-editor-toolbar-button"
+            >
+              {exportingFormat ? <Loader2 className="animate-spin" /> : <Download />}
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>导出</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end">
+        <DropdownMenuGroup>
+          <DropdownMenuItem disabled={exportDisabled} onSelect={() => void handleExport("pdf")}>
+            <Download />
+            导出 PDF
+          </DropdownMenuItem>
+          <DropdownMenuItem disabled={exportDisabled} onSelect={() => void handleExport("html")}>
+            <FileText />
+            导出 HTML
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
 
   return (
     <div className="flex h-[calc(100svh-3rem)] min-h-0 overflow-hidden bg-background">
       <WorkbenchSidebar
         workspaceId={workspace.document.id}
         title={workspace.document.title}
+        editingTitle={editingTitle}
+        titleDraft={titleDraft}
+        titleSaveError={titleSaveError}
+        isSavingTitle={isSavingTitle}
+        onStartTitleEditing={startTitleEditing}
+        onTitleDraftChange={(nextTitle) => setTitleDraft(limitWorkspaceTitle(nextTitle))}
+        onCommitTitleEditing={() => void commitTitleEditing()}
+        onCancelTitleEditing={cancelTitleEditing}
+        onBack={() => navigate(resumePackPaths.workspaces)}
         activeConversationId={activeConversationId}
         conversationRefreshToken={conversationRefreshToken}
         onSelectConversation={setActiveConversationId}
@@ -417,75 +453,6 @@ export function RevisionWorkspacePage() {
         )}
       >
         <section data-testid="revision-draft-column" className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-          <header data-testid="revision-workspace-header" className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
-            <Button variant="ghost" size="icon" aria-label="返回工作台" onClick={() => navigate(resumePackPaths.workspaces)}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div className="min-w-0 flex-1">
-              {editingTitle ? (
-                <div className="max-w-xl">
-                  <Input
-                    ref={titleInputRef}
-                    aria-label="工作台标题"
-                    className="h-8 rounded-md bg-background px-2 text-sm font-semibold"
-                    value={titleDraft}
-                    disabled={isSavingTitle}
-                    onChange={(event) => setTitleDraft(event.target.value)}
-                    onBlur={() => void commitTitleEditing()}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault()
-                        event.currentTarget.blur()
-                      }
-                      if (event.key === "Escape") {
-                        event.preventDefault()
-                        cancelTitleEditing()
-                      }
-                    }}
-                  />
-                  {titleSaveError ? <p className="mt-1 text-xs text-destructive">{titleSaveError}</p> : null}
-                </div>
-              ) : (
-                <h1 className="min-w-0">
-                  <button
-                    type="button"
-                    data-testid="revision-workspace-title-button"
-                    title="编辑标题"
-                    className="group flex max-w-full items-center gap-1.5 rounded-md px-1 py-1 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={startTitleEditing}
-                  >
-                    <span className="truncate text-sm font-semibold">{workspace.document.title}</span>
-                    <Pencil className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
-                  </button>
-                </h1>
-              )}
-            </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" disabled={exportDisabled}>
-                  {exportingFormat ? (
-                    <Loader2 data-icon="inline-start" className="animate-spin" />
-                  ) : (
-                    <Download data-icon="inline-start" />
-                  )}
-                  {exportingFormat ? "导出中..." : "导出"}
-                  <ChevronDown data-icon="inline-end" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuGroup>
-                  <DropdownMenuItem disabled={exportDisabled} onSelect={() => void handleExport("pdf")}>
-                    <Download />
-                    导出 PDF
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled={exportDisabled} onSelect={() => void handleExport("html")}>
-                    <FileText />
-                    导出 HTML
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </header>
           <div
             ref={draftPanelRef}
             data-testid="revision-draft-panel"
@@ -501,6 +468,7 @@ export function RevisionWorkspacePage() {
                   onRetrySave={retryCanvasSave}
                   saveStatus={canvasSaveStatus}
                   templateStyle={defaultClassicA4Style}
+                  toolbarEnd={exportToolbarAction}
                 />
               ) : (
                 <div className="m-4 rounded-md border border-border bg-muted/30 p-4">

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState, type ComponentType } from "react"
+import { useCallback, useEffect, useRef, useState, type ComponentType } from "react"
 import {
+  ArrowLeft,
   ChevronDown,
   ChevronRight,
   File,
@@ -9,6 +10,7 @@ import {
   MessageSquarePlus,
   MoreHorizontal,
   Pin,
+  Pencil,
   Plug,
   Plus,
   Settings,
@@ -19,6 +21,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import {
   addDirectoryContextSource,
@@ -49,6 +52,15 @@ const defaultAgentModel = import.meta.env.VITE_DEFAULT_AGENT_MODEL?.trim() ?? ""
 type WorkbenchSidebarProps = {
   workspaceId: string
   title: string
+  editingTitle: boolean
+  titleDraft: string
+  titleSaveError?: string | null
+  isSavingTitle: boolean
+  onStartTitleEditing: () => void
+  onTitleDraftChange: (title: string) => void
+  onCommitTitleEditing: () => void
+  onCancelTitleEditing: () => void
+  onBack: () => void
   activeConversationId?: string
   conversationRefreshToken?: number
   onSelectConversation: (conversationId: string) => void
@@ -65,6 +77,15 @@ type DirectoryNodeProps = {
 export function WorkbenchSidebar({
   workspaceId,
   title,
+  editingTitle,
+  titleDraft,
+  titleSaveError,
+  isSavingTitle,
+  onStartTitleEditing,
+  onTitleDraftChange,
+  onCommitTitleEditing,
+  onCancelTitleEditing,
+  onBack,
   activeConversationId,
   conversationRefreshToken = 0,
   onSelectConversation,
@@ -84,6 +105,13 @@ export function WorkbenchSidebar({
   const [renameDraft, setRenameDraft] = useState("")
   const [savingConversationName, setSavingConversationName] = useState(false)
   const [addingWebpage, setAddingWebpage] = useState(false)
+  const titleInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!editingTitle) return
+    titleInputRef.current?.focus()
+    titleInputRef.current?.select()
+  }, [editingTitle, titleSaveError])
 
   const loadContextSources = useCallback(async () => {
     setLoadingContext(true)
@@ -205,9 +233,63 @@ export function WorkbenchSidebar({
 
   return (
     <aside className="flex h-full w-[17rem] shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
-      <div className="border-b border-sidebar-border px-4 py-3">
-        <p className="truncate text-sm font-semibold">{title}</p>
-        <p className="text-xs text-muted-foreground">工作区</p>
+      <div className="flex min-h-14 items-center gap-1 border-b border-sidebar-border px-3 py-3">
+        {editingTitle ? (
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <Input
+                ref={titleInputRef}
+                aria-label="工作区标题"
+                className="h-8 min-w-0 px-2 text-sm font-semibold"
+                value={titleDraft}
+                disabled={isSavingTitle}
+                onChange={(event) => onTitleDraftChange(event.target.value)}
+                onBlur={onCommitTitleEditing}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault()
+                    event.currentTarget.blur()
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault()
+                    onCancelTitleEditing()
+                  }
+                }}
+              />
+              <span className="shrink-0 text-xs tabular-nums text-muted-foreground" aria-live="polite">
+                {Array.from(titleDraft).length}/10
+              </span>
+            </div>
+            {titleSaveError ? <p className="mt-1 text-xs text-destructive">{titleSaveError}</p> : null}
+          </div>
+        ) : (
+          <div className="flex min-w-0 flex-1 items-center gap-0.5">
+            <p className="min-w-0 truncate text-sm font-semibold">{title}</p>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  data-testid="revision-workspace-title-button"
+                  aria-label="修改工作区标题"
+                  onClick={onStartTitleEditing}
+                >
+                  <Pencil />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>修改工作区标题</TooltipContent>
+            </Tooltip>
+          </div>
+        )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button type="button" variant="ghost" size="icon-sm" aria-label="返回工作区列表" onClick={onBack}>
+              <ArrowLeft />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>返回工作区列表</TooltipContent>
+        </Tooltip>
       </div>
 
       <div className="flex shrink-0 flex-col gap-1 px-2 py-3">

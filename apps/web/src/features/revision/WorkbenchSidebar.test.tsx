@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { WorkbenchSidebar } from "./WorkbenchSidebar"
 
 const apiMocks = vi.hoisted(() => ({
@@ -55,6 +56,17 @@ vi.mock("@/tauri", () => ({
   isTauri: () => false,
 }))
 
+const titleControlProps = {
+  editingTitle: false,
+  titleDraft: "旧简历重构1",
+  isSavingTitle: false,
+  onStartTitleEditing: () => {},
+  onTitleDraftChange: () => {},
+  onCommitTitleEditing: () => {},
+  onCancelTitleEditing: () => {},
+  onBack: () => {},
+}
+
 describe("WorkbenchSidebar", () => {
   beforeEach(() => {
     Object.values(apiMocks).forEach((mock) => mock.mockReset())
@@ -65,12 +77,15 @@ describe("WorkbenchSidebar", () => {
 
   it("does not render provider-specific defaults in AI settings", async () => {
     render(
-      <WorkbenchSidebar
-        workspaceId="doc_1"
-        title="旧简历重构1"
-        onSelectConversation={() => {}}
-        onContextSourcesChange={() => {}}
-      />,
+      <TooltipProvider>
+        <WorkbenchSidebar
+          {...titleControlProps}
+          workspaceId="doc_1"
+          title="旧简历重构1"
+          onSelectConversation={() => {}}
+          onContextSourcesChange={() => {}}
+        />
+      </TooltipProvider>,
     )
 
     await waitFor(() => expect(apiMocks.listContextSources).toHaveBeenCalledWith("doc_1"))
@@ -81,6 +96,77 @@ describe("WorkbenchSidebar", () => {
     expect(screen.getByPlaceholderText("Base URL")).toHaveValue("")
     expect(screen.queryByDisplayValue("DeepSeek")).not.toBeInTheDocument()
     expect(screen.queryByDisplayValue("https://api.deepseek.com")).not.toBeInTheDocument()
+  })
+
+  it("renders controlled workspace title editing and the back action", async () => {
+    const onStartTitleEditing = vi.fn()
+    const onTitleDraftChange = vi.fn()
+    const onCommitTitleEditing = vi.fn()
+    const onCancelTitleEditing = vi.fn()
+    const onBack = vi.fn()
+    const onSelectConversation = vi.fn()
+    const onContextSourcesChange = vi.fn()
+
+    const { rerender } = render(
+      <TooltipProvider>
+        <WorkbenchSidebar
+          workspaceId="doc_1"
+          title="旧简历重构1"
+          editingTitle={false}
+          titleDraft="旧简历重构1"
+          isSavingTitle={false}
+          onStartTitleEditing={onStartTitleEditing}
+          onTitleDraftChange={onTitleDraftChange}
+          onCommitTitleEditing={onCommitTitleEditing}
+          onCancelTitleEditing={onCancelTitleEditing}
+          onBack={onBack}
+          onSelectConversation={onSelectConversation}
+          onContextSourcesChange={onContextSourcesChange}
+        />
+      </TooltipProvider>,
+    )
+
+    await waitFor(() => expect(apiMocks.listContextSources).toHaveBeenCalledWith("doc_1"))
+    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1"))
+    await waitFor(() => expect(screen.queryByText("加载上下文")).not.toBeInTheDocument())
+    await screen.findByText("还没有对话。")
+
+    const titleButton = screen.getByTestId("revision-workspace-title-button")
+    expect(titleButton).toHaveAttribute("data-size", "icon-xs")
+    expect(titleButton.previousElementSibling).toHaveTextContent("旧简历重构1")
+    expect(titleButton.previousElementSibling).not.toHaveClass("flex-1")
+    expect(titleButton.parentElement).toHaveClass("items-center")
+    expect(titleButton.parentElement?.parentElement).toHaveClass("items-center")
+    fireEvent.click(titleButton)
+    expect(onStartTitleEditing).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole("button", { name: "返回工作区列表" }))
+    expect(onBack).toHaveBeenCalledOnce()
+
+    rerender(
+      <TooltipProvider>
+        <WorkbenchSidebar
+          workspaceId="doc_1"
+          title="旧简历重构1"
+          editingTitle
+          titleDraft="一二三"
+          isSavingTitle={false}
+          onStartTitleEditing={onStartTitleEditing}
+          onTitleDraftChange={onTitleDraftChange}
+          onCommitTitleEditing={onCommitTitleEditing}
+          onCancelTitleEditing={onCancelTitleEditing}
+          onBack={onBack}
+          onSelectConversation={onSelectConversation}
+          onContextSourcesChange={onContextSourcesChange}
+        />
+      </TooltipProvider>,
+    )
+
+    const input = screen.getByLabelText("工作区标题")
+    expect(screen.getByText("3/10")).toBeInTheDocument()
+    fireEvent.change(input, { target: { value: "一二三四" } })
+    expect(onTitleDraftChange).toHaveBeenCalledWith("一二三四")
+    fireEvent.keyDown(input, { key: "Escape" })
+    expect(onCancelTitleEditing).toHaveBeenCalledOnce()
   })
 
   it("shows conversation names with preview fallback and truncates long rows", async () => {
@@ -109,12 +195,15 @@ describe("WorkbenchSidebar", () => {
     ])
 
     render(
-      <WorkbenchSidebar
-        workspaceId="doc_1"
-        title="旧简历重构1"
-        onSelectConversation={() => {}}
-        onContextSourcesChange={() => {}}
-      />,
+      <TooltipProvider>
+        <WorkbenchSidebar
+          {...titleControlProps}
+          workspaceId="doc_1"
+          title="旧简历重构1"
+          onSelectConversation={() => {}}
+          onContextSourcesChange={() => {}}
+        />
+      </TooltipProvider>,
     )
 
     const namedRow = await screen.findByRole("button", { name: "查明提示词管理方式" })
@@ -150,12 +239,15 @@ describe("WorkbenchSidebar", () => {
     })
 
     render(
-      <WorkbenchSidebar
-        workspaceId="doc_1"
-        title="旧简历重构1"
-        onSelectConversation={() => {}}
-        onContextSourcesChange={() => {}}
-      />,
+      <TooltipProvider>
+        <WorkbenchSidebar
+          {...titleControlProps}
+          workspaceId="doc_1"
+          title="旧简历重构1"
+          onSelectConversation={() => {}}
+          onContextSourcesChange={() => {}}
+        />
+      </TooltipProvider>,
     )
 
     fireEvent.contextMenu(await screen.findByRole("button", { name: "检查这份简历质量" }))
