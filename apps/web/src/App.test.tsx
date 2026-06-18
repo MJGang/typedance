@@ -85,6 +85,7 @@ describe("App", () => {
 
     expect(screen.getByRole("link", { name: "工作台" })).not.toHaveAttribute("data-active")
     expect(screen.getByRole("link", { name: "模板" })).toHaveAttribute("data-active", "true")
+    expect(document.querySelector('[data-slot="sidebar-container"]')).toHaveClass("!top-9", "!bottom-0", "!h-auto")
   })
 
   it("uses the route-level workbench shell on workspace pages", () => {

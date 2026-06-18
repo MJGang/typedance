@@ -17,7 +17,7 @@ export function SiteSidebar() {
   const canSwitchPacks = false
 
   return (
-    <Sidebar collapsible="offcanvas" variant="sidebar" className="bottom-0 top-9 h-auto">
+    <Sidebar collapsible="offcanvas" variant="sidebar" className="!bottom-0 !top-9 !h-auto">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
