@@ -101,11 +101,76 @@ describe("WorkbenchSidebar", () => {
     await waitFor(() => expect(screen.queryByText("加载上下文")).not.toBeInTheDocument())
     await screen.findByText("还没有对话。")
 
-    expect(screen.getByRole("button", { name: "新对话" })).toBeInTheDocument()
+    expect(screen.getAllByRole("button", { name: "新对话" })).toHaveLength(2)
     expect(screen.queryByText("旧简历重构1")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "工作区操作" })).not.toBeInTheDocument()
     expect(screen.queryByTestId("revision-workspace-title-button")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "返回工作区列表" })).not.toBeInTheDocument()
+  })
+
+  it("uses matching compose icons for both conversation actions and a four-dot plugin icon", async () => {
+    const onSelectConversation = vi.fn()
+    agentHostMocks.createWorkspaceConversation
+      .mockResolvedValueOnce({
+        id: "conv_top",
+        workspace_id: "doc_1",
+        name: null,
+        preview: "",
+        pinned: false,
+        status: "idle",
+        created_at: "2026-06-18T08:00:00.000Z",
+        updated_at: "2026-06-18T08:00:00.000Z",
+      })
+      .mockResolvedValueOnce({
+        id: "conv_heading",
+        workspace_id: "doc_1",
+        name: null,
+        preview: "",
+        pinned: false,
+        status: "idle",
+        created_at: "2026-06-18T08:01:00.000Z",
+        updated_at: "2026-06-18T08:01:00.000Z",
+      })
+
+    render(
+      <TooltipProvider>
+        <WorkbenchSidebar
+          workspaceId="doc_1"
+          onSelectConversation={onSelectConversation}
+          onContextSourcesChange={() => {}}
+        />
+      </TooltipProvider>,
+    )
+
+    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1"))
+    await waitFor(() => expect(screen.queryByText("加载上下文")).not.toBeInTheDocument())
+    await screen.findByText("还没有对话。")
+
+    const createButtons = screen.getAllByRole("button", { name: "新对话" })
+    expect(createButtons).toHaveLength(2)
+    expect(createButtons[0].querySelector('[data-icon-name="new-conversation"]')).toBeInTheDocument()
+    expect(createButtons[1].querySelector('[data-icon-name="new-conversation"]')).toBeInTheDocument()
+    expect(createButtons[1]).toHaveClass(
+      "pointer-events-none",
+      "opacity-0",
+      "group-hover:pointer-events-auto",
+      "group-hover:opacity-100",
+      "group-focus-within:pointer-events-auto",
+      "group-focus-within:opacity-100",
+    )
+
+    const conversationHeading = screen.getByText("对话").parentElement
+    expect(conversationHeading).toHaveClass("group")
+
+    fireEvent.click(createButtons[0])
+    await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith("conv_top"))
+    fireEvent.click(screen.getAllByRole("button", { name: "新对话" })[1])
+    await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith("conv_heading"))
+    expect(agentHostMocks.createWorkspaceConversation).toHaveBeenCalledTimes(2)
+
+    const pluginButton = screen.getByRole("button", { name: "插件" })
+    expect(pluginButton.querySelector('[data-icon-name="plugin-grid"]')).toBeInTheDocument()
+    expect(pluginButton.querySelectorAll('[data-icon-name="plugin-grid"] circle')).toHaveLength(4)
   })
 
   it("shows conversation names with preview fallback and truncates long rows", async () => {

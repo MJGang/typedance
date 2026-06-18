@@ -6,12 +6,11 @@ import {
   Folder,
   LinkIcon,
   Loader2,
-  MessageSquarePlus,
   MoreHorizontal,
   Pin,
-  Plug,
   Plus,
   Settings,
+  SquarePen,
   Trash2,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -19,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import {
   addDirectoryContextSource,
@@ -203,8 +203,8 @@ export function WorkbenchSidebar({
   return (
     <aside className="flex h-full w-[17rem] shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
       <div className="flex shrink-0 flex-col gap-1 px-2 py-3">
-        <SidebarAction icon={MessageSquarePlus} label="新对话" onClick={() => void handleNewConversation()} />
-        <SidebarAction icon={Plug} label="插件" onClick={() => void openPlugins()} />
+        <SidebarAction icon={SquarePen} iconName="new-conversation" label="新对话" onClick={() => void handleNewConversation()} />
+        <SidebarAction icon={PluginGridIcon} iconName="plugin-grid" label="插件" onClick={() => void openPlugins()} />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
@@ -251,9 +251,27 @@ export function WorkbenchSidebar({
         </section>
 
         <section>
-          <div className="mb-1 flex items-center justify-between px-2">
+          <div className="group mb-1 flex items-center justify-between px-2">
             <p className="text-xs font-medium text-muted-foreground">对话</p>
-            {loadingConversations ? <Loader2 className="size-3 animate-spin text-muted-foreground" /> : null}
+            <div className="flex items-center gap-1">
+              {loadingConversations ? <Loader2 className="size-3 animate-spin text-muted-foreground" /> : null}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="新对话"
+                    disabled={loadingConversations}
+                    className="pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
+                    onClick={() => void handleNewConversation()}
+                  >
+                    <SquarePen data-icon-name="new-conversation" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>新对话</TooltipContent>
+              </Tooltip>
+            </div>
           </div>
           {conversations.length === 0 ? (
             <p className="px-2 py-2 text-xs leading-5 text-muted-foreground">还没有对话。</p>
@@ -375,10 +393,12 @@ export function WorkbenchSidebar({
 
 function SidebarAction({
   icon: Icon,
+  iconName,
   label,
   onClick,
 }: {
-  icon: ComponentType<{ className?: string }>
+  icon: ComponentType<{ className?: string; "data-icon-name"?: string }>
+  iconName?: string
   label: string
   onClick: () => void
 }) {
@@ -388,9 +408,28 @@ function SidebarAction({
       className="flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm transition-colors hover:bg-sidebar-accent"
       onClick={onClick}
     >
-      <Icon className="size-4" />
+      <Icon className="size-4" data-icon-name={iconName} />
       <span>{label}</span>
     </button>
+  )
+}
+
+function PluginGridIcon({ className, "data-icon-name": iconName }: { className?: string; "data-icon-name"?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      data-icon-name={iconName}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth="1.75"
+    >
+      <circle cx="7" cy="7" r="2.25" />
+      <circle cx="17" cy="7" r="2.25" />
+      <circle cx="7" cy="17" r="2.25" />
+      <circle cx="17" cy="17" r="2.25" />
+    </svg>
   )
 }
 
