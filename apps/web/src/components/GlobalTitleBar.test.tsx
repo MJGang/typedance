@@ -60,8 +60,17 @@ describe("GlobalTitleBar", () => {
 
     expect(buttons[1]).toBeDisabled()
     expect(buttons[2]).toBeDisabled()
+    expect(screen.queryByTestId("site-left-sidebar-hidden-dot")).not.toBeInTheDocument()
     expect(buttons[3].nextElementSibling).toHaveAttribute("data-testid", "titlebar-window-separator")
     expect(buttons[3].nextElementSibling?.nextElementSibling).toBe(buttons[4])
+  })
+
+  it("shows a blue status dot only while the left sidebar is hidden", () => {
+    renderTitleBar({ workbenchSidebarVisible: false })
+
+    const dot = screen.getByTestId("site-left-sidebar-hidden-dot")
+    expect(dot).toHaveClass("bg-sky-500", "rounded-full")
+    expect(screen.getByRole("button", { name: "显示左侧导航" })).toContainElement(dot)
   })
 
   it("controls the workbench sidebar, theme, drag region, and desktop window", () => {

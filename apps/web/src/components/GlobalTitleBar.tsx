@@ -63,9 +63,17 @@ export function GlobalTitleBar({
           aria-pressed={leftSidebarVisible}
           data-control-order="0"
           data-testid="global-left-sidebar-toggle"
+          className="relative"
           onClick={toggleLeftSidebar}
         >
           <PanelLeft data-icon="inline-start" />
+          {!leftSidebarVisible ? (
+            <span
+              aria-hidden="true"
+              data-testid="site-left-sidebar-hidden-dot"
+              className="absolute right-1 top-1 size-2 rounded-full bg-sky-500 ring-2 ring-background"
+            />
+          ) : null}
         </Button>
         <Button
           type="button"
