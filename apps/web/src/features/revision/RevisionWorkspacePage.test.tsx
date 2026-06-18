@@ -443,7 +443,7 @@ describe("RevisionWorkspacePage", () => {
   it("creates and selects a new conversation from the workbench sidebar", async () => {
     renderPage()
 
-    fireEvent.click(await screen.findByRole("button", { name: "新对话" }))
+    fireEvent.click((await screen.findAllByRole("button", { name: "新对话" }))[0])
 
     await waitFor(() => expect(agentHostMocks.createWorkspaceConversation).toHaveBeenCalledWith("doc_1"))
     await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledTimes(2))
@@ -542,7 +542,7 @@ describe("RevisionWorkspacePage", () => {
 
     renderPage()
 
-    fireEvent.click(await screen.findByRole("button", { name: "新对话" }))
+    fireEvent.click((await screen.findAllByRole("button", { name: "新对话" }))[0])
     const composer = screen.getByRole("textbox")
     typeComposerText(composer, "Check title refresh")
     fireEvent.keyDown(composer, { key: "Enter" })
@@ -561,7 +561,7 @@ describe("RevisionWorkspacePage", () => {
     const titlebar = await screen.findByTestId("revision-workspace-titlebar")
     expect(within(titlebar).getByText("旧简历重构1")).toBeInTheDocument()
 
-    const sidebar = screen.getByRole("button", { name: "新对话" }).closest("aside")
+    const sidebar = screen.getAllByRole("button", { name: "新对话" })[0].closest("aside")
     expect(sidebar).not.toBeNull()
     if (!sidebar) throw new Error("Workbench sidebar is missing")
     expect(within(sidebar).queryByText("旧简历重构1")).not.toBeInTheDocument()
