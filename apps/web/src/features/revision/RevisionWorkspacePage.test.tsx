@@ -423,6 +423,17 @@ describe("RevisionWorkspacePage", () => {
     expect(workspaceGrid).toHaveClass("grid-cols-[minmax(48rem,1fr)_24rem]")
   })
 
+  it("expands the assistant panel when selecting a conversation", async () => {
+    renderPage(false)
+
+    const workspaceGrid = await screen.findByTestId("revision-workspace-grid")
+    fireEvent.click(await screen.findByRole("button", { name: "优化简历" }))
+
+    expect(await screen.findByRole("button", { name: "隐藏 AI 面板" })).toBeInTheDocument()
+    expect(workspaceGrid).toHaveClass("grid-cols-[minmax(48rem,1fr)_24rem]")
+    expect(screen.getAllByText("优化简历")).toHaveLength(2)
+  })
+
   it("removes the workbench sidebar when the global shell hides the left navigation", async () => {
     renderPage(true, false)
 

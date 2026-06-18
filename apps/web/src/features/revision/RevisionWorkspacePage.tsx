@@ -76,6 +76,7 @@ export function RevisionWorkspacePage() {
   const { documentId } = useParams<{ documentId: string }>()
   const chromeContext = useOutletContext<Partial<RevisionWorkspaceChromeContext> | undefined>()
   const assistantPanelVisible = chromeContext?.assistantPanelVisible ?? true
+  const setAssistantPanelVisible = chromeContext?.setAssistantPanelVisible
   const workbenchSidebarVisible = chromeContext?.workbenchSidebarVisible ?? true
   const [state, setState] = useState<LoadState>({ status: "loading" })
   const [exportingFormat, setExportingFormat] = useState<RevisionExportFormat | null>(null)
@@ -147,6 +148,11 @@ export function RevisionWorkspacePage() {
     setActiveConversationId(conversationId)
     refreshConversations()
   }, [refreshConversations])
+
+  const handleSelectConversation = useCallback((conversationId: string) => {
+    setActiveConversationId(conversationId)
+    setAssistantPanelVisible?.(true)
+  }, [setAssistantPanelVisible])
 
   const handleConversationsChange = useCallback((nextConversations: AgentConversation[]) => {
     setConversations(nextConversations)
@@ -448,7 +454,7 @@ export function RevisionWorkspacePage() {
           workspaceId={workspace.document.id}
           activeConversationId={activeConversationId}
           conversationRefreshToken={conversationRefreshToken}
-          onSelectConversation={setActiveConversationId}
+          onSelectConversation={handleSelectConversation}
           onContextSourcesChange={setContextSources}
           onConversationsChange={handleConversationsChange}
         />
@@ -492,7 +498,7 @@ export function RevisionWorkspacePage() {
                       variant="ghost"
                       size="icon-sm"
                       aria-label="显示 AI 面板"
-                      onClick={() => chromeContext?.setAssistantPanelVisible?.(true)}
+                      onClick={() => setAssistantPanelVisible?.(true)}
                     >
                       <PanelRight data-icon-name="panel-right" />
                     </Button>
@@ -535,7 +541,7 @@ export function RevisionWorkspacePage() {
             onConversationCreated={handleConversationCreated}
             onConversationUpdated={refreshConversations}
             onCanvasPatchApplied={handleCanvasPatchApplied}
-            onHide={() => chromeContext?.setAssistantPanelVisible?.(false)}
+            onHide={() => setAssistantPanelVisible?.(false)}
           />
         ) : null}
       </main>
