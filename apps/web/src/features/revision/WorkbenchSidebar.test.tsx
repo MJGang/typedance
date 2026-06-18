@@ -56,16 +56,6 @@ vi.mock("@/tauri", () => ({
   isTauri: () => false,
 }))
 
-const titleControlProps = {
-  editingTitle: false,
-  titleDraft: "旧简历重构1",
-  isSavingTitle: false,
-  onStartTitleEditing: () => {},
-  onTitleDraftChange: () => {},
-  onCommitTitleEditing: () => {},
-  onCancelTitleEditing: () => {},
-}
-
 describe("WorkbenchSidebar", () => {
   beforeEach(() => {
     Object.values(apiMocks).forEach((mock) => mock.mockReset())
@@ -78,9 +68,7 @@ describe("WorkbenchSidebar", () => {
     render(
       <TooltipProvider>
         <WorkbenchSidebar
-          {...titleControlProps}
           workspaceId="doc_1"
-          title="旧简历重构1"
           onSelectConversation={() => {}}
           onContextSourcesChange={() => {}}
         />
@@ -97,28 +85,13 @@ describe("WorkbenchSidebar", () => {
     expect(screen.queryByDisplayValue("https://api.deepseek.com")).not.toBeInTheDocument()
   })
 
-  it("renders controlled workspace title editing without a local back action", async () => {
-    const onStartTitleEditing = vi.fn()
-    const onTitleDraftChange = vi.fn()
-    const onCommitTitleEditing = vi.fn()
-    const onCancelTitleEditing = vi.fn()
-    const onSelectConversation = vi.fn()
-    const onContextSourcesChange = vi.fn()
-
-    const { rerender } = render(
+  it("starts with primary actions and omits workspace title controls", async () => {
+    render(
       <TooltipProvider>
         <WorkbenchSidebar
           workspaceId="doc_1"
-          title="旧简历重构1"
-          editingTitle={false}
-          titleDraft="旧简历重构1"
-          isSavingTitle={false}
-          onStartTitleEditing={onStartTitleEditing}
-          onTitleDraftChange={onTitleDraftChange}
-          onCommitTitleEditing={onCommitTitleEditing}
-          onCancelTitleEditing={onCancelTitleEditing}
-          onSelectConversation={onSelectConversation}
-          onContextSourcesChange={onContextSourcesChange}
+          onSelectConversation={() => {}}
+          onContextSourcesChange={() => {}}
         />
       </TooltipProvider>,
     )
@@ -128,40 +101,76 @@ describe("WorkbenchSidebar", () => {
     await waitFor(() => expect(screen.queryByText("加载上下文")).not.toBeInTheDocument())
     await screen.findByText("还没有对话。")
 
-    const titleButton = screen.getByTestId("revision-workspace-title-button")
-    expect(titleButton).toHaveAttribute("data-size", "icon-xs")
-    expect(titleButton.previousElementSibling).toHaveTextContent("旧简历重构1")
-    expect(titleButton.previousElementSibling).not.toHaveClass("flex-1")
-    expect(titleButton.parentElement).toHaveClass("items-center")
-    expect(titleButton.parentElement?.parentElement).toHaveClass("items-center")
-    fireEvent.click(titleButton)
-    expect(onStartTitleEditing).toHaveBeenCalledOnce()
+    expect(screen.getAllByRole("button", { name: "新对话" })).toHaveLength(2)
+    expect(screen.queryByText("旧简历重构1")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "工作区操作" })).not.toBeInTheDocument()
+    expect(screen.queryByTestId("revision-workspace-title-button")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "返回工作区列表" })).not.toBeInTheDocument()
+  })
 
-    rerender(
+  it("uses matching compose icons for both conversation actions and a four-dot plugin icon", async () => {
+    const onSelectConversation = vi.fn()
+    agentHostMocks.createWorkspaceConversation
+      .mockResolvedValueOnce({
+        id: "conv_top",
+        workspace_id: "doc_1",
+        name: null,
+        preview: "",
+        pinned: false,
+        status: "idle",
+        created_at: "2026-06-18T08:00:00.000Z",
+        updated_at: "2026-06-18T08:00:00.000Z",
+      })
+      .mockResolvedValueOnce({
+        id: "conv_heading",
+        workspace_id: "doc_1",
+        name: null,
+        preview: "",
+        pinned: false,
+        status: "idle",
+        created_at: "2026-06-18T08:01:00.000Z",
+        updated_at: "2026-06-18T08:01:00.000Z",
+      })
+
+    render(
       <TooltipProvider>
         <WorkbenchSidebar
           workspaceId="doc_1"
-          title="旧简历重构1"
-          editingTitle
-          titleDraft="一二三"
-          isSavingTitle={false}
-          onStartTitleEditing={onStartTitleEditing}
-          onTitleDraftChange={onTitleDraftChange}
-          onCommitTitleEditing={onCommitTitleEditing}
-          onCancelTitleEditing={onCancelTitleEditing}
           onSelectConversation={onSelectConversation}
-          onContextSourcesChange={onContextSourcesChange}
+          onContextSourcesChange={() => {}}
         />
       </TooltipProvider>,
     )
 
-    const input = screen.getByLabelText("工作区标题")
-    expect(screen.getByText("3/10")).toBeInTheDocument()
-    fireEvent.change(input, { target: { value: "一二三四" } })
-    expect(onTitleDraftChange).toHaveBeenCalledWith("一二三四")
-    fireEvent.keyDown(input, { key: "Escape" })
-    expect(onCancelTitleEditing).toHaveBeenCalledOnce()
+    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1"))
+    await waitFor(() => expect(screen.queryByText("加载上下文")).not.toBeInTheDocument())
+    await screen.findByText("还没有对话。")
+
+    const createButtons = screen.getAllByRole("button", { name: "新对话" })
+    expect(createButtons).toHaveLength(2)
+    expect(createButtons[0].querySelector('[data-icon-name="new-conversation"]')).toBeInTheDocument()
+    expect(createButtons[1].querySelector('[data-icon-name="new-conversation"]')).toBeInTheDocument()
+    expect(createButtons[1]).toHaveClass(
+      "pointer-events-none",
+      "opacity-0",
+      "group-hover:pointer-events-auto",
+      "group-hover:opacity-100",
+      "group-focus-within:pointer-events-auto",
+      "group-focus-within:opacity-100",
+    )
+
+    const conversationHeading = screen.getByText("对话").parentElement
+    expect(conversationHeading).toHaveClass("group")
+
+    fireEvent.click(createButtons[0])
+    await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith("conv_top"))
+    fireEvent.click(screen.getAllByRole("button", { name: "新对话" })[1])
+    await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith("conv_heading"))
+    expect(agentHostMocks.createWorkspaceConversation).toHaveBeenCalledTimes(2)
+
+    const pluginButton = screen.getByRole("button", { name: "插件" })
+    expect(pluginButton.querySelector('[data-icon-name="plugin-grid"]')).toBeInTheDocument()
+    expect(pluginButton.querySelectorAll('[data-icon-name="plugin-grid"] circle')).toHaveLength(4)
   })
 
   it("shows conversation names with preview fallback and truncates long rows", async () => {
@@ -192,9 +201,7 @@ describe("WorkbenchSidebar", () => {
     render(
       <TooltipProvider>
         <WorkbenchSidebar
-          {...titleControlProps}
           workspaceId="doc_1"
-          title="旧简历重构1"
           onSelectConversation={() => {}}
           onContextSourcesChange={() => {}}
         />
@@ -236,9 +243,7 @@ describe("WorkbenchSidebar", () => {
     render(
       <TooltipProvider>
         <WorkbenchSidebar
-          {...titleControlProps}
           workspaceId="doc_1"
-          title="旧简历重构1"
           onSelectConversation={() => {}}
           onContextSourcesChange={() => {}}
         />

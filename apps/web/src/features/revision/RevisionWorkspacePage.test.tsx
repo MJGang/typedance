@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest"
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { useState, type ReactNode } from "react"
-import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom"
+import { MemoryRouter, Outlet, Route, Routes, useNavigate } from "react-router-dom"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import type { ContextSource, ContextSourceChild, WorkspaceView } from "@typedance/contracts"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -239,16 +239,20 @@ const directoryChildren: ContextSourceChild[] = [
 ]
 
 function ChromeHarness({ assistantVisible, sidebarVisible }: { assistantVisible: boolean; sidebarVisible: boolean }) {
+  const navigate = useNavigate()
   const [assistantPanelVisible, setAssistantPanelVisible] = useState(assistantVisible)
   const [workbenchSidebarVisible, setWorkbenchSidebarVisible] = useState(sidebarVisible)
 
   return (
-    <Outlet context={{
-      assistantPanelVisible,
-      setAssistantPanelVisible,
-      workbenchSidebarVisible,
-      setWorkbenchSidebarVisible,
-    }} />
+    <>
+      <button type="button" onClick={() => navigate("/packs/resume/workspaces/doc_2")}>切换工作区</button>
+      <Outlet context={{
+        assistantPanelVisible,
+        setAssistantPanelVisible,
+        workbenchSidebarVisible,
+        setWorkbenchSidebarVisible,
+      }} />
+    </>
   )
 }
 
@@ -280,6 +284,25 @@ function typeComposerText(composer: HTMLElement, value: string) {
   selection?.addRange(range)
 
   fireEvent.input(composer)
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, reject, resolve }
+}
+
+async function openWorkspaceRenameDialog() {
+  const titlebar = await screen.findByTestId("revision-workspace-titlebar")
+  const workspaceActions = within(titlebar).getByRole("button", { name: "工作区操作" })
+  fireEvent.click(workspaceActions)
+  fireEvent.keyDown(workspaceActions, { key: "ArrowDown" })
+  fireEvent.click(await screen.findByRole("menuitem", { name: "重命名" }))
+  return screen.getByRole("dialog", { name: "重命名工作区" })
 }
 
 beforeAll(() => {
@@ -374,14 +397,27 @@ describe("RevisionWorkspacePage", () => {
     renderPage()
 
     const workspaceGrid = await screen.findByTestId("revision-workspace-grid")
-    fireEvent.click(await screen.findByRole("button", { name: "隐藏 AI 面板" }))
+    const titlebar = screen.getByTestId("revision-workspace-titlebar")
+    const titlebarActions = within(titlebar).getByTestId("revision-workspace-actions")
+    expect(within(titlebarActions).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["导出"])
+    expect(within(titlebar).queryByRole("button", { name: "显示 AI 面板" })).not.toBeInTheDocument()
+
+    const hideAssistantButton = await screen.findByRole("button", { name: "隐藏 AI 面板" })
+    expect(hideAssistantButton.querySelector('[data-icon-name="panel-right"]')).toBeInTheDocument()
+    fireEvent.click(hideAssistantButton)
     expect(workspaceGrid).toHaveClass("grid-cols-[minmax(0,1fr)]")
     expect(workspaceGrid).not.toHaveClass("grid-cols-[minmax(48rem,1fr)_24rem]")
     expect(screen.queryByRole("button", { name: "隐藏 AI 面板" })).not.toBeInTheDocument()
 
     const toolbar = screen.getByRole("toolbar", { name: "简历格式工具栏" })
-    const showAssistantButton = within(toolbar).getByRole("button", { name: "显示 AI 面板" })
-    expect(within(toolbar).getByRole("button", { name: "导出" })).toBeInTheDocument()
+    expect(within(toolbar).queryByRole("button", { name: "显示 AI 面板" })).not.toBeInTheDocument()
+    expect(within(toolbar).queryByRole("button", { name: "导出" })).not.toBeInTheDocument()
+    expect(within(titlebarActions).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
+      "导出",
+      "显示 AI 面板",
+    ])
+    const showAssistantButton = within(titlebarActions).getByRole("button", { name: "显示 AI 面板" })
+    expect(showAssistantButton.querySelector('[data-icon-name="panel-right"]')).toBeInTheDocument()
     fireEvent.click(showAssistantButton)
     expect(await screen.findByRole("button", { name: "隐藏 AI 面板" })).toBeInTheDocument()
     expect(workspaceGrid).toHaveClass("grid-cols-[minmax(48rem,1fr)_24rem]")
@@ -407,7 +443,7 @@ describe("RevisionWorkspacePage", () => {
   it("creates and selects a new conversation from the workbench sidebar", async () => {
     renderPage()
 
-    fireEvent.click(await screen.findByRole("button", { name: "新对话" }))
+    fireEvent.click((await screen.findAllByRole("button", { name: "新对话" }))[0])
 
     await waitFor(() => expect(agentHostMocks.createWorkspaceConversation).toHaveBeenCalledWith("doc_1"))
     await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledTimes(2))
@@ -506,7 +542,7 @@ describe("RevisionWorkspacePage", () => {
 
     renderPage()
 
-    fireEvent.click(await screen.findByRole("button", { name: "新对话" }))
+    fireEvent.click((await screen.findAllByRole("button", { name: "新对话" }))[0])
     const composer = screen.getByRole("textbox")
     typeComposerText(composer, "Check title refresh")
     fireEvent.keyDown(composer, { key: "Enter" })
@@ -517,21 +553,139 @@ describe("RevisionWorkspacePage", () => {
     expect(refreshedConversation).toHaveClass("truncate")
   })
 
-  it("edits the workspace title inline", async () => {
+  it("closes the dialog and updates the title after a successful rename", async () => {
+    const request = deferred<WorkspaceView["document"]>()
+    apiMocks.updateRevisionDocument.mockReturnValue(request.promise)
     renderPage()
 
-    const titleButton = await screen.findByTestId("revision-workspace-title-button")
-    fireEvent.click(titleButton)
+    const titlebar = await screen.findByTestId("revision-workspace-titlebar")
+    expect(within(titlebar).getByText("旧简历重构1")).toBeInTheDocument()
+
+    const sidebar = screen.getAllByRole("button", { name: "新对话" })[0].closest("aside")
+    expect(sidebar).not.toBeNull()
+    if (!sidebar) throw new Error("Workbench sidebar is missing")
+    expect(within(sidebar).queryByText("旧简历重构1")).not.toBeInTheDocument()
+    expect(within(sidebar).queryByRole("button", { name: "工作区操作" })).not.toBeInTheDocument()
+
+    await openWorkspaceRenameDialog()
     const titleInput = screen.getByLabelText("工作区标题")
     expect(screen.getByText("6/10")).toBeInTheDocument()
     fireEvent.change(titleInput, { target: { value: "一二三四五六七八九十十一" } })
     expect(titleInput).toHaveValue("一二三四五六七八九十")
     expect(screen.getByText("10/10")).toBeInTheDocument()
-    fireEvent.blur(titleInput)
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+    expect(apiMocks.updateRevisionDocument).toHaveBeenCalledWith("doc_1", { title: "一二三四五六七八九十" })
 
-    await waitFor(() => {
-      expect(apiMocks.updateRevisionDocument).toHaveBeenCalledWith("doc_1", { title: "一二三四五六七八九十" })
+    await act(async () => {
+      request.resolve({ ...workspace.document, title: "一二三四五六七八九十" })
     })
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "重命名工作区" })).not.toBeInTheDocument())
+    expect(within(titlebar).getByText("一二三四五六七八九十")).toBeInTheDocument()
+  })
+
+  it("keeps the dialog open and exposes an accessible error after rename failure", async () => {
+    const request = deferred<WorkspaceView["document"]>()
+    apiMocks.updateRevisionDocument.mockReturnValue(request.promise)
+    renderPage()
+
+    const dialog = await openWorkspaceRenameDialog()
+    const titleInput = within(dialog).getByLabelText("工作区标题")
+    fireEvent.change(titleInput, { target: { value: "新标题" } })
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存" }))
+
+    await act(async () => {
+      request.reject(new Error("save failed"))
+    })
+
+    const error = await within(dialog).findByRole("alert")
+    expect(error).toHaveTextContent("标题保存失败，请稍后重试。")
+    expect(error).toHaveAttribute("id", "workspace-title-error")
+    expect(titleInput).toHaveAttribute("aria-invalid", "true")
+    expect(titleInput).toHaveAttribute("aria-errormessage", "workspace-title-error")
+    expect(screen.getByRole("dialog", { name: "重命名工作区" })).toBeInTheDocument()
+  })
+
+  it("cancels the rename dialog and clears the previous error", async () => {
+    const request = deferred<WorkspaceView["document"]>()
+    apiMocks.updateRevisionDocument.mockReturnValue(request.promise)
+    renderPage()
+
+    let dialog = await openWorkspaceRenameDialog()
+    fireEvent.change(within(dialog).getByLabelText("工作区标题"), { target: { value: "新标题" } })
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存" }))
+    await act(async () => {
+      request.reject(new Error("save failed"))
+    })
+    expect(await within(dialog).findByRole("alert")).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消" }))
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "重命名工作区" })).not.toBeInTheDocument())
+
+    dialog = await openWorkspaceRenameDialog()
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument()
+    expect(within(dialog).getByLabelText("工作区标题")).toHaveValue("旧简历重构1")
+  })
+
+  it("submits a pending rename only once and prevents every dismiss path", async () => {
+    const request = deferred<WorkspaceView["document"]>()
+    apiMocks.updateRevisionDocument.mockReturnValue(request.promise)
+    renderPage()
+
+    const dialog = await openWorkspaceRenameDialog()
+    const titleInput = within(dialog).getByLabelText("工作区标题")
+    fireEvent.change(titleInput, { target: { value: "新标题" } })
+    fireEvent.keyDown(titleInput, { key: "Enter" })
+    fireEvent.submit(titleInput.closest("form")!)
+    fireEvent.submit(titleInput.closest("form")!)
+
+    expect(apiMocks.updateRevisionDocument).toHaveBeenCalledTimes(1)
+    expect(within(dialog).queryByRole("button", { name: "Close" })).not.toBeInTheDocument()
+    fireEvent.keyDown(document, { key: "Escape" })
+    fireEvent.pointerDown(document.body)
+    expect(screen.getByRole("dialog", { name: "重命名工作区" })).toBeInTheDocument()
+
+    await act(async () => {
+      request.resolve({ ...workspace.document, title: "新标题" })
+    })
+  })
+
+  it.each(["resolve", "reject"] as const)("ignores a stale rename %s after switching workspaces", async (outcome) => {
+    const request = deferred<WorkspaceView["document"]>()
+    const nextWorkspace: WorkspaceView = {
+      ...workspace,
+      document: { ...workspace.document, id: "doc_2", title: "第二工作区" },
+      current_draft: workspace.current_draft ? { ...workspace.current_draft, id: "draft_2", document_id: "doc_2" } : undefined,
+      source_resume_canvas: workspace.source_resume_canvas
+        ? { ...workspace.source_resume_canvas, id: "canvas_2", document_id: "doc_2" }
+        : undefined,
+    }
+    apiMocks.getRevisionWorkspaceView.mockImplementation(async (documentId: string) => (
+      documentId === "doc_2" ? nextWorkspace : workspace
+    ))
+    apiMocks.updateRevisionDocument.mockReturnValue(request.promise)
+    renderPage()
+
+    const dialog = await openWorkspaceRenameDialog()
+    fireEvent.change(within(dialog).getByLabelText("工作区标题"), { target: { value: "过期标题" } })
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存" }))
+    fireEvent.click(screen.getByText("切换工作区"))
+
+    const nextTitlebar = await screen.findByTestId("revision-workspace-titlebar")
+    await waitFor(() => expect(within(nextTitlebar).getByText("第二工作区")).toBeInTheDocument())
+    expect(screen.queryByRole("dialog", { name: "重命名工作区" })).not.toBeInTheDocument()
+
+    await act(async () => {
+      if (outcome === "resolve") {
+        request.resolve({ ...workspace.document, title: "过期标题" })
+      } else {
+        request.reject(new Error("stale failure"))
+      }
+    })
+
+    expect(within(nextTitlebar).getByText("第二工作区")).toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: "重命名工作区" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   })
 
   it("does not keep a duplicate return action in the workbench sidebar", async () => {
@@ -541,17 +695,31 @@ describe("RevisionWorkspacePage", () => {
     expect(screen.queryByRole("button", { name: "返回工作区列表" })).not.toBeInTheDocument()
   })
 
-  it("exports from the editor toolbar with current canvas and page margins", async () => {
+  it("exports PDF and HTML from the workspace titlebar with current canvas and page margins", async () => {
     renderPage()
 
     fireEvent.click(await screen.findByRole("button", { name: "调整页边距" }))
     const toolbar = await screen.findByRole("toolbar", { name: "简历格式工具栏" })
-    const exportButton = within(toolbar).getByRole("button", { name: "导出" })
+    const titlebar = screen.getByTestId("revision-workspace-titlebar")
+    const exportButton = within(titlebar).getByRole("button", { name: "导出" })
+    expect(within(toolbar).queryByRole("button", { name: "导出" })).not.toBeInTheDocument()
     expect(exportButton).not.toHaveTextContent("导出")
     fireEvent.keyDown(exportButton, { key: "ArrowDown" })
     fireEvent.click(await screen.findByRole("menuitem", { name: "导出 PDF" }))
 
     await waitFor(() => expect(apiMocks.exportRevisionDocumentPdf).toHaveBeenCalledWith(
+      "doc_1",
+      "旧简历重构1",
+      expect.objectContaining({
+        docJson: workspace.source_resume_canvas?.doc_json,
+        pageMargins: { top: 88, bottom: 72, left: 42, right: 48 },
+        templateStyle: expect.objectContaining({ template_id: "classic-a4" }),
+      }),
+    ))
+
+    fireEvent.keyDown(exportButton, { key: "ArrowDown" })
+    fireEvent.click(await screen.findByRole("menuitem", { name: "导出 HTML" }))
+    await waitFor(() => expect(apiMocks.exportRevisionDocumentHtml).toHaveBeenCalledWith(
       "doc_1",
       "旧简历重构1",
       expect.objectContaining({
