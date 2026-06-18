@@ -397,14 +397,27 @@ describe("RevisionWorkspacePage", () => {
     renderPage()
 
     const workspaceGrid = await screen.findByTestId("revision-workspace-grid")
-    fireEvent.click(await screen.findByRole("button", { name: "隐藏 AI 面板" }))
+    const titlebar = screen.getByTestId("revision-workspace-titlebar")
+    const titlebarActions = within(titlebar).getByTestId("revision-workspace-actions")
+    expect(within(titlebarActions).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["导出"])
+    expect(within(titlebar).queryByRole("button", { name: "显示 AI 面板" })).not.toBeInTheDocument()
+
+    const hideAssistantButton = await screen.findByRole("button", { name: "隐藏 AI 面板" })
+    expect(hideAssistantButton.querySelector('[data-icon-name="panel-right"]')).toBeInTheDocument()
+    fireEvent.click(hideAssistantButton)
     expect(workspaceGrid).toHaveClass("grid-cols-[minmax(0,1fr)]")
     expect(workspaceGrid).not.toHaveClass("grid-cols-[minmax(48rem,1fr)_24rem]")
     expect(screen.queryByRole("button", { name: "隐藏 AI 面板" })).not.toBeInTheDocument()
 
     const toolbar = screen.getByRole("toolbar", { name: "简历格式工具栏" })
-    const showAssistantButton = within(toolbar).getByRole("button", { name: "显示 AI 面板" })
-    expect(within(toolbar).getByRole("button", { name: "导出" })).toBeInTheDocument()
+    expect(within(toolbar).queryByRole("button", { name: "显示 AI 面板" })).not.toBeInTheDocument()
+    expect(within(toolbar).queryByRole("button", { name: "导出" })).not.toBeInTheDocument()
+    expect(within(titlebarActions).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
+      "导出",
+      "显示 AI 面板",
+    ])
+    const showAssistantButton = within(titlebarActions).getByRole("button", { name: "显示 AI 面板" })
+    expect(showAssistantButton.querySelector('[data-icon-name="panel-right"]')).toBeInTheDocument()
     fireEvent.click(showAssistantButton)
     expect(await screen.findByRole("button", { name: "隐藏 AI 面板" })).toBeInTheDocument()
     expect(workspaceGrid).toHaveClass("grid-cols-[minmax(48rem,1fr)_24rem]")
@@ -682,17 +695,31 @@ describe("RevisionWorkspacePage", () => {
     expect(screen.queryByRole("button", { name: "返回工作区列表" })).not.toBeInTheDocument()
   })
 
-  it("exports from the editor toolbar with current canvas and page margins", async () => {
+  it("exports PDF and HTML from the workspace titlebar with current canvas and page margins", async () => {
     renderPage()
 
     fireEvent.click(await screen.findByRole("button", { name: "调整页边距" }))
     const toolbar = await screen.findByRole("toolbar", { name: "简历格式工具栏" })
-    const exportButton = within(toolbar).getByRole("button", { name: "导出" })
+    const titlebar = screen.getByTestId("revision-workspace-titlebar")
+    const exportButton = within(titlebar).getByRole("button", { name: "导出" })
+    expect(within(toolbar).queryByRole("button", { name: "导出" })).not.toBeInTheDocument()
     expect(exportButton).not.toHaveTextContent("导出")
     fireEvent.keyDown(exportButton, { key: "ArrowDown" })
     fireEvent.click(await screen.findByRole("menuitem", { name: "导出 PDF" }))
 
     await waitFor(() => expect(apiMocks.exportRevisionDocumentPdf).toHaveBeenCalledWith(
+      "doc_1",
+      "旧简历重构1",
+      expect.objectContaining({
+        docJson: workspace.source_resume_canvas?.doc_json,
+        pageMargins: { top: 88, bottom: 72, left: 42, right: 48 },
+        templateStyle: expect.objectContaining({ template_id: "classic-a4" }),
+      }),
+    ))
+
+    fireEvent.keyDown(exportButton, { key: "ArrowDown" })
+    fireEvent.click(await screen.findByRole("menuitem", { name: "导出 HTML" }))
+    await waitFor(() => expect(apiMocks.exportRevisionDocumentHtml).toHaveBeenCalledWith(
       "doc_1",
       "旧简历重构1",
       expect.objectContaining({

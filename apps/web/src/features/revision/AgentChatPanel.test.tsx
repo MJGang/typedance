@@ -147,7 +147,9 @@ describe("AgentChatPanel", () => {
       />,
     )
 
-    fireEvent.click(await screen.findByRole("button", { name: "隐藏 AI 面板" }))
+    const hideButton = await screen.findByRole("button", { name: "隐藏 AI 面板" })
+    expect(hideButton.querySelector('[data-icon-name="panel-right"]')).toBeInTheDocument()
+    fireEvent.click(hideButton)
     expect(onHide).toHaveBeenCalledOnce()
   })
 

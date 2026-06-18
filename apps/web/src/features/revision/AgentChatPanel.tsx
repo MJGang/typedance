@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { AssistantRuntimeProvider, useLocalRuntime, type ChatModelAdapter } from "@assistant-ui/react"
-import { ArrowUp, ChevronDown, ChevronRight, Mic, PanelRightClose, Plus, ShieldCheck, Square, WandSparkles } from "lucide-react"
+import { ArrowUp, ChevronDown, ChevronRight, Mic, PanelRight, Plus, ShieldCheck, Square, WandSparkles } from "lucide-react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { toast } from "sonner"
@@ -381,7 +381,7 @@ function AgentChatContent({
           {runningRunId ? <span className="size-2 rounded-full bg-sky-500" /> : null}
           {onHide ? (
             <Button type="button" variant="ghost" size="icon-sm" aria-label="隐藏 AI 面板" onClick={onHide}>
-              <PanelRightClose data-icon="inline-start" />
+              <PanelRight data-icon-name="panel-right" />
             </Button>
           ) : null}
         </div>

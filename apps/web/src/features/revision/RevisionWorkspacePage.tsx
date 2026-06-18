@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useOutletContext, useParams } from "react-router-dom"
-import { AlertCircle, Download, FileText, Loader2, MoreHorizontal, PanelRightOpen, RefreshCcw } from "lucide-react"
+import { AlertCircle, Download, FileText, Loader2, MoreHorizontal, PanelRight, RefreshCcw } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -409,7 +409,7 @@ export function RevisionWorkspacePage() {
   if (!workspace) return null
   const exportDisabled = !sourceCanvas || exportingFormat !== null
   const activeConversationTitle = conversationDisplayTitle(conversations.find((conversation) => conversation.id === activeConversationId))
-  const exportToolbarAction = (
+  const exportTitlebarAction = (
     <DropdownMenu>
       <Tooltip>
         <TooltipTrigger asChild>
@@ -420,7 +420,6 @@ export function RevisionWorkspacePage() {
               size="icon-sm"
               aria-label="导出"
               disabled={exportDisabled}
-              className="td-editor-toolbar-button"
             >
               {exportingFormat ? <Loader2 className="animate-spin" /> : <Download />}
             </Button>
@@ -442,29 +441,6 @@ export function RevisionWorkspacePage() {
       </DropdownMenuContent>
     </DropdownMenu>
   )
-  const toolbarEndActions = (
-    <div className="flex items-center gap-1">
-      {!assistantPanelVisible ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label="显示 AI 面板"
-              className="td-editor-toolbar-button"
-              onClick={() => chromeContext?.setAssistantPanelVisible?.(true)}
-            >
-              <PanelRightOpen data-icon="inline-start" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>显示 AI 面板</TooltipContent>
-        </Tooltip>
-      ) : null}
-      {exportToolbarAction}
-    </div>
-  )
-
   return (
     <div className="flex h-full min-h-0 overflow-hidden bg-background">
       {workbenchSidebarVisible ? (
@@ -506,7 +482,25 @@ export function RevisionWorkspacePage() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-            <div className="ml-auto flex items-center gap-1" />
+            <div data-testid="revision-workspace-actions" className="ml-auto flex items-center gap-1">
+              {exportTitlebarAction}
+              {!assistantPanelVisible ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="显示 AI 面板"
+                      onClick={() => chromeContext?.setAssistantPanelVisible?.(true)}
+                    >
+                      <PanelRight data-icon-name="panel-right" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>显示 AI 面板</TooltipContent>
+                </Tooltip>
+              ) : null}
+            </div>
           </div>
           <div
             ref={draftPanelRef}
@@ -523,7 +517,6 @@ export function RevisionWorkspacePage() {
                   onRetrySave={retryCanvasSave}
                   saveStatus={canvasSaveStatus}
                   templateStyle={defaultClassicA4Style}
-                  toolbarEnd={toolbarEndActions}
                 />
               ) : (
                 <div className="m-4 rounded-md border border-border bg-muted/30 p-4">
