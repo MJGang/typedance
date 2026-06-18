@@ -14,9 +14,19 @@ import {
   Trash2,
 } from "lucide-react"
 import { toast } from "sonner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
@@ -79,8 +89,10 @@ export function WorkbenchSidebar({
   const [pluginDialogOpen, setPluginDialogOpen] = useState(false)
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false)
   const [renamingConversation, setRenamingConversation] = useState<AgentConversation | null>(null)
+  const [deletingConversation, setDeletingConversation] = useState<AgentConversation | null>(null)
   const [renameDraft, setRenameDraft] = useState("")
   const [savingConversationName, setSavingConversationName] = useState(false)
+  const [deletingConversationPending, setDeletingConversationPending] = useState(false)
   const [addingWebpage, setAddingWebpage] = useState(false)
   const loadContextSources = useCallback(async () => {
     setLoadingContext(true)
@@ -200,6 +212,20 @@ export function WorkbenchSidebar({
     }
   }, [loadConversations, renameDraft, renamingConversation])
 
+  const handleDeleteConversation = useCallback(async () => {
+    if (!deletingConversation || deletingConversationPending) return
+    setDeletingConversationPending(true)
+    try {
+      await deleteWorkspaceConversation(deletingConversation.id)
+      setDeletingConversation(null)
+      await loadConversations()
+    } catch {
+      toast.error("删除对话失败")
+    } finally {
+      setDeletingConversationPending(false)
+    }
+  }, [deletingConversation, deletingConversationPending, loadConversations])
+
   return (
     <aside className="flex h-full w-[17rem] shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
       <div className="flex shrink-0 flex-col gap-1 px-2 py-3">
@@ -284,6 +310,7 @@ export function WorkbenchSidebar({
                   active={conversation.id === activeConversationId}
                   onSelect={() => onSelectConversation(conversation.id)}
                   onRename={() => openRenameConversation(conversation)}
+                  onRequestDelete={() => setDeletingConversation(conversation)}
                   onChanged={loadConversations}
                 />
               ))}
@@ -387,6 +414,32 @@ export function WorkbenchSidebar({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AlertDialog open={deletingConversation !== null} onOpenChange={(open) => {
+        if (!open && !deletingConversationPending) setDeletingConversation(null)
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除对话？</AlertDialogTitle>
+            <AlertDialogDescription>
+              确定删除“{deletingConversation ? conversationDisplayTitle(deletingConversation) : ""}”吗？此操作无法撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingConversationPending}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deletingConversationPending}
+              onClick={(event) => {
+                event.preventDefault()
+                void handleDeleteConversation()
+              }}
+            >
+              {deletingConversationPending ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}
+              删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </aside>
   )
 }
@@ -659,17 +712,20 @@ function ConversationRow({
   active,
   onSelect,
   onRename,
+  onRequestDelete,
   onChanged,
 }: {
   conversation: AgentConversation
   active: boolean
   onSelect: () => void
   onRename: () => void
+  onRequestDelete: () => void
   onChanged: () => Promise<void>
 }) {
   const displayTitle = conversationDisplayTitle(conversation)
   return (
     <div
+      data-conversation-row
       className={cn("group flex h-8 items-center rounded-md px-2 text-sm transition-colors", active ? "bg-sidebar-accent" : "hover:bg-sidebar-accent")}
       onContextMenu={(event) => {
         event.preventDefault()
@@ -679,33 +735,50 @@ function ConversationRow({
       <button type="button" className="min-w-0 flex-1 truncate text-left" title={displayTitle} onClick={onSelect}>
         {displayTitle}
       </button>
-      <div className="flex shrink-0 items-center gap-1 text-muted-foreground">
+      <div className="ml-auto flex shrink-0 items-center gap-1 text-muted-foreground">
         {conversation.status === "running" ? <Loader2 className="size-3.5 animate-spin" /> : null}
-        {conversation.pinned ? <Pin className="size-3.5" /> : null}
-        <span className="text-xs group-hover:hidden">{conversation.last_message_at ? relativeTime(conversation.last_message_at) : ""}</span>
-        <button
+        {conversation.pinned ? <Pin data-pinned="true" fill="currentColor" /> : null}
+        <span data-testid="conversation-time" className="ml-auto text-xs group-hover:hidden">
+          {conversation.last_message_at ? relativeTime(conversation.last_message_at) : ""}
+        </span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label={`${displayTitle}操作`}
+              className="hidden group-hover:inline-flex"
+            >
+              <MoreHorizontal />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuGroup>
+              <DropdownMenuItem onSelect={async () => {
+                await updateWorkspaceConversation(conversation.id, { pinned: !conversation.pinned })
+                await onChanged()
+              }}>
+                <Pin fill={conversation.pinned ? "none" : "currentColor"} />
+                {conversation.pinned ? "取消置顶对话" : "置顶对话"}
+              </DropdownMenuItem>
+              <DropdownMenuItem variant="destructive" onSelect={onRequestDelete}>
+                <Trash2 />
+                删除对话
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Button
           type="button"
-          aria-label="钉住对话"
-          className="hidden rounded-sm p-0.5 hover:bg-background group-hover:inline-flex"
-          onClick={async () => {
-            await updateWorkspaceConversation(conversation.id, { pinned: !conversation.pinned })
-            await onChanged()
-          }}
+          variant="ghost"
+          size="icon-xs"
+          aria-label={`重命名${displayTitle}`}
+          className="hidden group-hover:inline-flex"
+          onClick={onRename}
         >
-          <Pin className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          aria-label="删除对话"
-          className="hidden rounded-sm p-0.5 hover:bg-background group-hover:inline-flex"
-          onClick={async () => {
-            if (!window.confirm("确定删除这条对话吗？")) return
-            await deleteWorkspaceConversation(conversation.id)
-            await onChanged()
-          }}
-        >
-          <Trash2 className="size-3.5" />
-        </button>
+          <SquarePen />
+        </Button>
       </div>
     </div>
   )

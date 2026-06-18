@@ -298,10 +298,7 @@ function deferred<T>() {
 
 async function openWorkspaceRenameDialog() {
   const titlebar = await screen.findByTestId("revision-workspace-titlebar")
-  const workspaceActions = within(titlebar).getByRole("button", { name: "工作区操作" })
-  fireEvent.click(workspaceActions)
-  fireEvent.keyDown(workspaceActions, { key: "ArrowDown" })
-  fireEvent.click(await screen.findByRole("menuitem", { name: "重命名" }))
+  fireEvent.click(within(titlebar).getByRole("button", { name: "重命名工作区" }))
   return screen.getByRole("dialog", { name: "重命名工作区" })
 }
 
@@ -382,7 +379,7 @@ describe("RevisionWorkspacePage", () => {
     expect(screen.queryByTestId("revision-workspace-header")).not.toBeInTheDocument()
     expect(screen.getByText("上下文")).toBeInTheDocument()
     expect(screen.getByText("对话")).toBeInTheDocument()
-    expect(screen.getByText("未选择对话")).toBeInTheDocument()
+    expect(screen.queryByText("未选择对话")).not.toBeInTheDocument()
     expect(screen.queryByText("AI 助手")).not.toBeInTheDocument()
     expect(screen.getByText("Original canvas text")).toBeInTheDocument()
     expect(screen.queryByTestId("revision-review-panel")).not.toBeInTheDocument()
@@ -434,6 +431,25 @@ describe("RevisionWorkspacePage", () => {
     expect(screen.getAllByText("优化简历")).toHaveLength(2)
   })
 
+  it("updates and renames the active conversation from the AI panel header", async () => {
+    renderPage()
+
+    fireEvent.click(await screen.findByRole("button", { name: "优化简历" }))
+    fireEvent.keyDown(await screen.findByRole("button", { name: "对话操作" }), { key: "Enter" })
+    fireEvent.click(await screen.findByRole("menuitem", { name: "置顶对话" }))
+
+    await waitFor(() => expect(agentHostMocks.updateWorkspaceConversation).toHaveBeenCalledWith("conv_1", { pinned: true }))
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "对话操作" }), { key: "Enter" })
+    fireEvent.click(await screen.findByRole("menuitem", { name: "重命名对话" }))
+    const dialog = await screen.findByRole("dialog", { name: "重命名对话" })
+    fireEvent.change(within(dialog).getByLabelText("对话名称"), { target: { value: "重点优化" } })
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存" }))
+
+    await waitFor(() => expect(agentHostMocks.updateWorkspaceConversation).toHaveBeenCalledWith("conv_1", { name: "重点优化" }))
+    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations.mock.calls.length).toBeGreaterThanOrEqual(3))
+  })
+
   it("removes the workbench sidebar when the global shell hides the left navigation", async () => {
     renderPage(true, false)
 
@@ -461,7 +477,6 @@ describe("RevisionWorkspacePage", () => {
   })
 
   it("clears the active conversation when the selected conversation is deleted", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
     agentHostMocks.listWorkspaceConversations
       .mockResolvedValueOnce([
         {
@@ -502,13 +517,14 @@ describe("RevisionWorkspacePage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Optimize resume" }))
     expect(await screen.findByText("Assistant answer")).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole("button", { name: "删除对话" }))
+    fireEvent.keyDown(screen.getByRole("button", { name: "Optimize resume操作" }), { key: "Enter" })
+    fireEvent.click(await screen.findByRole("menuitem", { name: "删除对话" }))
+    const confirmation = await screen.findByRole("alertdialog")
+    fireEvent.click(within(confirmation).getByRole("button", { name: "删除" }))
 
     await waitFor(() => expect(agentHostMocks.deleteWorkspaceConversation).toHaveBeenCalledWith("conv_1"))
     await waitFor(() => expect(screen.queryByText("Assistant answer")).not.toBeInTheDocument())
-    expect(screen.getByText("未选择对话")).toBeInTheDocument()
-
-    confirmSpy.mockRestore()
+    expect(screen.queryByText("未选择对话")).not.toBeInTheDocument()
   })
 
   it("refreshes the sidebar conversation preview immediately after sending", async () => {
@@ -571,6 +587,8 @@ describe("RevisionWorkspacePage", () => {
 
     const titlebar = await screen.findByTestId("revision-workspace-titlebar")
     expect(within(titlebar).getByText("旧简历重构1")).toBeInTheDocument()
+    expect(within(titlebar).getByRole("button", { name: "重命名工作区" })).toBeInTheDocument()
+    expect(within(titlebar).queryByRole("button", { name: "工作区操作" })).not.toBeInTheDocument()
 
     const sidebar = screen.getAllByRole("button", { name: "新对话" })[0].closest("aside")
     expect(sidebar).not.toBeNull()

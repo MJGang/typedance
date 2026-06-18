@@ -119,19 +119,70 @@ describe("AgentChatPanel", () => {
 
   it("shows the active conversation title in the chat header", async () => {
     agentHostMocks.listConversationMessages.mockResolvedValue([])
+    const onToggleConversationPinned = vi.fn()
+    const onRenameConversation = vi.fn()
 
     render(
       <AgentChatPanel
         workspaceId="doc_1"
         activeConversationId="conv_1"
         activeConversationTitle="Resume quality review"
+        activeConversationPinned={false}
         contextSources={[]}
         onConversationCreated={() => {}}
+        onToggleConversationPinned={onToggleConversationPinned}
+        onRenameConversation={onRenameConversation}
       />,
     )
 
     expect(await screen.findByText("Resume quality review")).toBeInTheDocument()
     expect(screen.queryByText("AI 助手")).not.toBeInTheDocument()
+    expect(screen.queryByText("会话")).not.toBeInTheDocument()
+
+    const menuButton = screen.getByRole("button", { name: "对话操作" })
+    fireEvent.keyDown(menuButton, { key: "Enter" })
+    fireEvent.click(await screen.findByRole("menuitem", { name: "置顶对话" }))
+    expect(onToggleConversationPinned).toHaveBeenCalledOnce()
+
+    fireEvent.keyDown(menuButton, { key: "Enter" })
+    fireEvent.click(await screen.findByRole("menuitem", { name: "重命名对话" }))
+    expect(onRenameConversation).toHaveBeenCalledOnce()
+  })
+
+  it("leaves the chat title area empty without an active conversation", async () => {
+    agentHostMocks.listConversationMessages.mockResolvedValue([])
+
+    render(
+      <AgentChatPanel
+        workspaceId="doc_1"
+        contextSources={[]}
+        onConversationCreated={() => {}}
+      />,
+    )
+
+    await screen.findByRole("textbox")
+    expect(screen.queryByText("未选择对话")).not.toBeInTheDocument()
+    expect(screen.queryByText("新建或选择会话")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "对话操作" })).not.toBeInTheDocument()
+  })
+
+  it("shows cancel pinning for the active pinned conversation", async () => {
+    agentHostMocks.listConversationMessages.mockResolvedValue([])
+
+    render(
+      <AgentChatPanel
+        workspaceId="doc_1"
+        activeConversationId="conv_1"
+        activeConversationTitle="Pinned conversation"
+        activeConversationPinned
+        contextSources={[]}
+        onConversationCreated={() => {}}
+        onToggleConversationPinned={() => {}}
+      />,
+    )
+
+    fireEvent.keyDown(await screen.findByRole("button", { name: "对话操作" }), { key: "Enter" })
+    expect(await screen.findByRole("menuitem", { name: "取消置顶对话" })).toBeInTheDocument()
   })
 
   it("hides the AI panel from the chat header", async () => {

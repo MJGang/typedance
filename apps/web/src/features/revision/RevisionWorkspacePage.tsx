@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useOutletContext, useParams } from "react-router-dom"
-import { AlertCircle, Download, FileText, Loader2, MoreHorizontal, PanelRight, RefreshCcw } from "lucide-react"
+import { AlertCircle, Download, FileText, Loader2, PanelRight, RefreshCcw, SquarePen } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -15,6 +15,7 @@ import {
   getRevisionWorkspaceView,
   updateRevisionDocument,
 } from "@/api"
+import { updateWorkspaceConversation } from "@/agentHost"
 import { AgentChatPanel } from "./AgentChatPanel"
 import { DraftCanvas, type CanvasPatchFlash } from "./DraftCanvas"
 import { DEFAULT_SOURCE_CANVAS_PAGE_MARGINS, type PageMargins } from "./pageMargins"
@@ -87,6 +88,9 @@ export function RevisionWorkspacePage() {
   const [isSavingTitle, setIsSavingTitle] = useState(false)
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>()
   const [conversations, setConversations] = useState<AgentConversation[]>([])
+  const [renamingConversation, setRenamingConversation] = useState<AgentConversation | null>(null)
+  const [conversationNameDraft, setConversationNameDraft] = useState("")
+  const [savingConversationName, setSavingConversationName] = useState(false)
   const [conversationRefreshToken, setConversationRefreshToken] = useState(0)
   const [contextSources, setContextSources] = useState<ContextSource[]>([])
   const [canvasPatchFlash, setCanvasPatchFlash] = useState<CanvasPatchFlash | null>(null)
@@ -162,6 +166,41 @@ export function RevisionWorkspacePage() {
         : undefined
     ))
   }, [])
+
+  const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId)
+
+  const handleToggleActiveConversationPinned = useCallback(async () => {
+    if (!activeConversation) return
+    try {
+      await updateWorkspaceConversation(activeConversation.id, { pinned: !activeConversation.pinned })
+      refreshConversations()
+    } catch {
+      toast.error("更新对话置顶状态失败")
+    }
+  }, [activeConversation, refreshConversations])
+
+  const openConversationRenameDialog = useCallback(() => {
+    if (!activeConversation) return
+    setRenamingConversation(activeConversation)
+    setConversationNameDraft(conversationDisplayTitle(activeConversation) ?? "")
+  }, [activeConversation])
+
+  const saveConversationName = useCallback(async () => {
+    if (!renamingConversation || savingConversationName) return
+    const name = conversationNameDraft.trim()
+    if (!name) return
+    setSavingConversationName(true)
+    try {
+      await updateWorkspaceConversation(renamingConversation.id, { name })
+      setRenamingConversation(null)
+      setConversationNameDraft("")
+      refreshConversations()
+    } catch {
+      toast.error("重命名对话失败")
+    } finally {
+      setSavingConversationName(false)
+    }
+  }, [conversationNameDraft, refreshConversations, renamingConversation, savingConversationName])
 
   const {
     flush: flushCanvasSaves,
@@ -414,7 +453,6 @@ export function RevisionWorkspacePage() {
 
   if (!workspace) return null
   const exportDisabled = !sourceCanvas || exportingFormat !== null
-  const activeConversationTitle = conversationDisplayTitle(conversations.find((conversation) => conversation.id === activeConversationId))
   const exportTitlebarAction = (
     <DropdownMenu>
       <Tooltip>
@@ -475,18 +513,9 @@ export function RevisionWorkspacePage() {
           >
             <div className="flex min-w-0 items-center gap-1">
               <h1 className="truncate text-sm font-semibold">{workspace.document.title}</h1>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button type="button" variant="ghost" size="icon-xs" aria-label="工作区操作">
-                    <MoreHorizontal />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem onSelect={openRenameDialog}>重命名</DropdownMenuItem>
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <Button type="button" variant="ghost" size="icon-xs" aria-label="重命名工作区" onClick={openRenameDialog}>
+                <SquarePen />
+              </Button>
             </div>
             <div data-testid="revision-workspace-actions" className="ml-auto flex items-center gap-1">
               {exportTitlebarAction}
@@ -535,16 +564,48 @@ export function RevisionWorkspacePage() {
         {assistantPanelVisible ? (
           <AgentChatPanel
             workspaceId={workspace.document.id}
-            activeConversationId={activeConversationId}
-            activeConversationTitle={activeConversationTitle}
+            activeConversationId={activeConversation?.id}
+            activeConversationTitle={conversationDisplayTitle(activeConversation)}
+            activeConversationPinned={activeConversation?.pinned}
             contextSources={contextSources}
             onConversationCreated={handleConversationCreated}
             onConversationUpdated={refreshConversations}
+            onToggleConversationPinned={handleToggleActiveConversationPinned}
+            onRenameConversation={openConversationRenameDialog}
             onCanvasPatchApplied={handleCanvasPatchApplied}
             onHide={() => setAssistantPanelVisible?.(false)}
           />
         ) : null}
       </main>
+      <Dialog open={renamingConversation !== null} onOpenChange={(open) => {
+        if (!open && !savingConversationName) {
+          setRenamingConversation(null)
+          setConversationNameDraft("")
+        }
+      }}>
+        <DialogContent showCloseButton={!savingConversationName}>
+          <DialogHeader>
+            <DialogTitle>重命名对话</DialogTitle>
+            <DialogDescription>保持简短且易于识别</DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            aria-label="对话名称"
+            value={conversationNameDraft}
+            onChange={(event) => setConversationNameDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void saveConversationName()
+            }}
+          />
+          <DialogFooter>
+            <Button variant="outline" disabled={savingConversationName} onClick={() => setRenamingConversation(null)}>取消</Button>
+            <Button disabled={!conversationNameDraft.trim() || savingConversationName} onClick={() => void saveConversationName()}>
+              {savingConversationName ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={renameDialogOpen}
         onOpenChange={(open) => {

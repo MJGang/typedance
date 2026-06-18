@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { AssistantRuntimeProvider, useLocalRuntime, type ChatModelAdapter } from "@assistant-ui/react"
-import { ArrowUp, ChevronDown, ChevronRight, Mic, PanelRight, Plus, ShieldCheck, Square, WandSparkles } from "lucide-react"
+import { ArrowUp, ChevronDown, ChevronRight, Mic, MoreHorizontal, PanelRight, Pin, Plus, ShieldCheck, Square, SquarePen, WandSparkles } from "lucide-react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import {
   cancelAgentRun,
@@ -28,9 +28,12 @@ type AgentChatPanelProps = {
   workspaceId: string
   activeConversationId?: string
   activeConversationTitle?: string
+  activeConversationPinned?: boolean
   contextSources: ContextSource[]
   onConversationCreated: (conversationId: string) => void
   onConversationUpdated?: () => void
+  onToggleConversationPinned?: () => void
+  onRenameConversation?: () => void
   onCanvasPatchApplied?: (event: AgentRunEvent) => void
   onHide?: () => void
 }
@@ -120,9 +123,12 @@ export function AgentChatPanel({
   workspaceId,
   activeConversationId,
   activeConversationTitle,
+  activeConversationPinned,
   contextSources,
   onConversationCreated,
   onConversationUpdated,
+  onToggleConversationPinned,
+  onRenameConversation,
   onCanvasPatchApplied,
   onHide,
 }: AgentChatPanelProps) {
@@ -133,9 +139,12 @@ export function AgentChatPanel({
         workspaceId={workspaceId}
         activeConversationId={activeConversationId}
         activeConversationTitle={activeConversationTitle}
+        activeConversationPinned={activeConversationPinned}
         contextSources={contextSources}
         onConversationCreated={onConversationCreated}
         onConversationUpdated={onConversationUpdated}
+        onToggleConversationPinned={onToggleConversationPinned}
+        onRenameConversation={onRenameConversation}
         onCanvasPatchApplied={onCanvasPatchApplied}
         onHide={onHide}
       />
@@ -147,9 +156,12 @@ function AgentChatContent({
   workspaceId,
   activeConversationId,
   activeConversationTitle,
+  activeConversationPinned,
   contextSources,
   onConversationCreated,
   onConversationUpdated,
+  onToggleConversationPinned,
+  onRenameConversation,
   onCanvasPatchApplied,
   onHide,
 }: AgentChatPanelProps) {
@@ -367,16 +379,35 @@ function AgentChatContent({
   }, [runningRunId])
 
   const visibleMessages = messages
-  const headerTitle = activeConversationTitle?.trim() || (activeConversationId ? "当前对话" : "未选择对话")
-  const headerSubtitle = activeConversationId ? "会话" : "新建或选择会话"
+  const headerTitle = activeConversationTitle?.trim() || "当前对话"
 
   return (
     <aside className="flex min-h-0 w-[24rem] shrink-0 flex-col border-l border-border bg-background">
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
-        <div>
-          <p className="max-w-[18rem] truncate text-sm font-semibold" title={headerTitle}>{headerTitle}</p>
-          <p className="text-xs text-muted-foreground">{headerSubtitle}</p>
-        </div>
+        {activeConversationId ? (
+          <div className="flex min-w-0 items-center gap-1">
+            <p className="max-w-[15rem] truncate text-sm font-semibold" title={headerTitle}>{headerTitle}</p>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="ghost" size="icon-xs" aria-label="对话操作">
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuGroup>
+                  <DropdownMenuItem disabled={!onToggleConversationPinned} onSelect={onToggleConversationPinned}>
+                    <Pin fill={activeConversationPinned ? "none" : "currentColor"} />
+                    {activeConversationPinned ? "取消置顶对话" : "置顶对话"}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!onRenameConversation} onSelect={onRenameConversation}>
+                    <SquarePen />
+                    重命名对话
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        ) : <div />}
         <div className="flex items-center gap-2">
           {runningRunId ? <span className="size-2 rounded-full bg-sky-500" /> : null}
           {onHide ? (

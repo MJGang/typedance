@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { WorkbenchSidebar } from "./WorkbenchSidebar"
@@ -259,5 +259,92 @@ describe("WorkbenchSidebar", () => {
 
     await waitFor(() => expect(agentHostMocks.updateWorkspaceConversation).toHaveBeenCalledWith("conv_1", { name: "质量检查" }))
     await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledTimes(2))
+  })
+
+  it("shows the conversation menu before rename and confirms deletion", async () => {
+    agentHostMocks.listWorkspaceConversations.mockResolvedValue([
+      {
+        id: "conv_1",
+        workspace_id: "doc_1",
+        name: "质量检查",
+        preview: "检查这份简历质量",
+        pinned: false,
+        status: "idle",
+        created_at: "2026-06-16T08:00:00.000Z",
+        updated_at: "2026-06-16T08:00:00.000Z",
+      },
+    ])
+    agentHostMocks.deleteWorkspaceConversation.mockResolvedValue(undefined)
+
+    render(
+      <TooltipProvider>
+        <WorkbenchSidebar
+          workspaceId="doc_1"
+          onSelectConversation={() => {}}
+          onContextSourcesChange={() => {}}
+        />
+      </TooltipProvider>,
+    )
+
+    const row = (await screen.findByRole("button", { name: "质量检查" })).closest("[data-conversation-row]") as HTMLElement | null
+    expect(row).not.toBeNull()
+    expect(within(row!).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
+      null,
+      "质量检查操作",
+      "重命名质量检查",
+    ])
+    expect(within(row!).getByRole("button", { name: "质量检查操作" })).toHaveClass("hidden", "group-hover:inline-flex")
+    expect(within(row!).getByRole("button", { name: "重命名质量检查" })).toHaveClass("hidden", "group-hover:inline-flex")
+    expect(within(row!).getByTestId("conversation-time")).toHaveClass("ml-auto", "group-hover:hidden")
+
+    fireEvent.keyDown(within(row!).getByRole("button", { name: "质量检查操作" }), { key: "Enter" })
+    const pinItem = await screen.findByRole("menuitem", { name: "置顶对话" })
+    expect(pinItem.querySelector("svg")).toHaveAttribute("fill", "currentColor")
+    fireEvent.click(screen.getByRole("menuitem", { name: "删除对话" }))
+
+    expect(agentHostMocks.deleteWorkspaceConversation).not.toHaveBeenCalled()
+    const confirmation = await screen.findByRole("alertdialog")
+    expect(confirmation).toHaveTextContent("质量检查")
+    fireEvent.click(within(confirmation).getByRole("button", { name: "删除" }))
+
+    await waitFor(() => expect(agentHostMocks.deleteWorkspaceConversation).toHaveBeenCalledWith("conv_1"))
+    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledTimes(2))
+  })
+
+  it("shows cancel pinning for a pinned conversation", async () => {
+    agentHostMocks.listWorkspaceConversations.mockResolvedValue([
+      {
+        id: "conv_1",
+        workspace_id: "doc_1",
+        name: "已置顶对话",
+        preview: "",
+        pinned: true,
+        status: "idle",
+        last_message_at: "2026-06-18T08:00:00.000Z",
+        created_at: "2026-06-16T08:00:00.000Z",
+        updated_at: "2026-06-16T08:00:00.000Z",
+      },
+    ])
+
+    render(
+      <TooltipProvider>
+        <WorkbenchSidebar
+          workspaceId="doc_1"
+          onSelectConversation={() => {}}
+          onContextSourcesChange={() => {}}
+        />
+      </TooltipProvider>,
+    )
+
+    const row = (await screen.findByRole("button", { name: "已置顶对话" })).closest("[data-conversation-row]")
+    expect(row).not.toBeNull()
+    expect(row!.querySelector('[data-pinned="true"]')).toHaveAttribute("fill", "currentColor")
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "已置顶对话操作" }), { key: "Enter" })
+    const cancelPinItem = await screen.findByRole("menuitem", { name: "取消置顶对话" })
+    expect(cancelPinItem.querySelector("svg")).not.toHaveAttribute("fill", "currentColor")
+    fireEvent.click(cancelPinItem)
+
+    await waitFor(() => expect(agentHostMocks.updateWorkspaceConversation).toHaveBeenCalledWith("conv_1", { pinned: false }))
   })
 })
