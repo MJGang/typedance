@@ -134,6 +134,23 @@ describe("AgentChatPanel", () => {
     expect(screen.queryByText("AI 助手")).not.toBeInTheDocument()
   })
 
+  it("hides the AI panel from the chat header", async () => {
+    const onHide = vi.fn()
+    agentHostMocks.listConversationMessages.mockResolvedValue([])
+
+    render(
+      <AgentChatPanel
+        workspaceId="doc_1"
+        contextSources={[]}
+        onConversationCreated={() => {}}
+        onHide={onHide}
+      />,
+    )
+
+    fireEvent.click(await screen.findByRole("button", { name: "隐藏 AI 面板" }))
+    expect(onHide).toHaveBeenCalledOnce()
+  })
+
   it("renders the composer as an editable textbox", async () => {
     agentHostMocks.listConversationMessages.mockResolvedValue([])
 

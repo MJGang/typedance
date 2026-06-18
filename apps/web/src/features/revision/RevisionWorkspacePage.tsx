@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate, useOutletContext, useParams } from "react-router-dom"
-import { AlertCircle, Download, FileText, Loader2, RefreshCcw } from "lucide-react"
+import { AlertCircle, Download, FileText, Loader2, PanelRightOpen, RefreshCcw } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -75,6 +75,7 @@ export function RevisionWorkspacePage() {
   const navigate = useNavigate()
   const chromeContext = useOutletContext<Partial<RevisionWorkspaceChromeContext> | undefined>()
   const assistantPanelVisible = chromeContext?.assistantPanelVisible ?? true
+  const workbenchSidebarVisible = chromeContext?.workbenchSidebarVisible ?? true
   const [state, setState] = useState<LoadState>({ status: "loading" })
   const [exportingFormat, setExportingFormat] = useState<RevisionExportFormat | null>(null)
   const [sourceCanvasPageMargins, setSourceCanvasPageMargins] = useState<PageMargins | null>(null)
@@ -424,29 +425,31 @@ export function RevisionWorkspacePage() {
   )
 
   return (
-    <div className="flex h-[calc(100svh-3rem)] min-h-0 overflow-hidden bg-background">
-      <WorkbenchSidebar
-        workspaceId={workspace.document.id}
-        title={workspace.document.title}
-        editingTitle={editingTitle}
-        titleDraft={titleDraft}
-        titleSaveError={titleSaveError}
-        isSavingTitle={isSavingTitle}
-        onStartTitleEditing={startTitleEditing}
-        onTitleDraftChange={(nextTitle) => setTitleDraft(limitWorkspaceTitle(nextTitle))}
-        onCommitTitleEditing={() => void commitTitleEditing()}
-        onCancelTitleEditing={cancelTitleEditing}
-        onBack={() => navigate(resumePackPaths.workspaces)}
-        activeConversationId={activeConversationId}
-        conversationRefreshToken={conversationRefreshToken}
-        onSelectConversation={setActiveConversationId}
-        onContextSourcesChange={setContextSources}
-        onConversationsChange={handleConversationsChange}
-      />
+    <div className="flex h-full min-h-0 overflow-hidden bg-background">
+      {workbenchSidebarVisible ? (
+        <WorkbenchSidebar
+          workspaceId={workspace.document.id}
+          title={workspace.document.title}
+          editingTitle={editingTitle}
+          titleDraft={titleDraft}
+          titleSaveError={titleSaveError}
+          isSavingTitle={isSavingTitle}
+          onStartTitleEditing={startTitleEditing}
+          onTitleDraftChange={(nextTitle) => setTitleDraft(limitWorkspaceTitle(nextTitle))}
+          onCommitTitleEditing={() => void commitTitleEditing()}
+          onCancelTitleEditing={cancelTitleEditing}
+          onBack={() => navigate(resumePackPaths.workspaces)}
+          activeConversationId={activeConversationId}
+          conversationRefreshToken={conversationRefreshToken}
+          onSelectConversation={setActiveConversationId}
+          onContextSourcesChange={setContextSources}
+          onConversationsChange={handleConversationsChange}
+        />
+      ) : null}
       <main
         data-testid="revision-workspace-grid"
         className={cn(
-          "grid min-h-0 min-w-0 flex-1 overflow-hidden",
+          "relative grid min-h-0 min-w-0 flex-1 overflow-hidden",
           assistantPanelVisible
             ? "grid-cols-[minmax(48rem,1fr)_24rem]"
             : "grid-cols-[minmax(0,1fr)]",
@@ -487,8 +490,20 @@ export function RevisionWorkspacePage() {
             onConversationCreated={handleConversationCreated}
             onConversationUpdated={refreshConversations}
             onCanvasPatchApplied={handleCanvasPatchApplied}
+            onHide={() => chromeContext?.setAssistantPanelVisible?.(false)}
           />
-        ) : null}
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="显示 AI 面板"
+            className="absolute right-2 top-2 z-20"
+            onClick={() => chromeContext?.setAssistantPanelVisible?.(true)}
+          >
+            <PanelRightOpen data-icon="inline-start" />
+          </Button>
+        )}
       </main>
     </div>
   )

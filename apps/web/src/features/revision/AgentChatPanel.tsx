@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { AssistantRuntimeProvider, useLocalRuntime, type ChatModelAdapter } from "@assistant-ui/react"
-import { ArrowUp, ChevronDown, ChevronRight, Mic, Plus, ShieldCheck, Square, WandSparkles } from "lucide-react"
+import { ArrowUp, ChevronDown, ChevronRight, Mic, PanelRightClose, Plus, ShieldCheck, Square, WandSparkles } from "lucide-react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { toast } from "sonner"
@@ -32,6 +32,7 @@ type AgentChatPanelProps = {
   onConversationCreated: (conversationId: string) => void
   onConversationUpdated?: () => void
   onCanvasPatchApplied?: (event: AgentRunEvent) => void
+  onHide?: () => void
 }
 
 const mutationModeLabels: Record<CanvasMutationMode, string> = {
@@ -123,6 +124,7 @@ export function AgentChatPanel({
   onConversationCreated,
   onConversationUpdated,
   onCanvasPatchApplied,
+  onHide,
 }: AgentChatPanelProps) {
   const runtime = useAssistantUiShellRuntime()
   return (
@@ -135,6 +137,7 @@ export function AgentChatPanel({
         onConversationCreated={onConversationCreated}
         onConversationUpdated={onConversationUpdated}
         onCanvasPatchApplied={onCanvasPatchApplied}
+        onHide={onHide}
       />
     </AssistantRuntimeProvider>
   )
@@ -148,6 +151,7 @@ function AgentChatContent({
   onConversationCreated,
   onConversationUpdated,
   onCanvasPatchApplied,
+  onHide,
 }: AgentChatPanelProps) {
   const [messages, setMessages] = useState<AgentMessage[]>([])
   const [runEvents, setRunEvents] = useState<Record<string, AgentRunEvent[]>>({})
@@ -373,7 +377,14 @@ function AgentChatContent({
           <p className="max-w-[18rem] truncate text-sm font-semibold" title={headerTitle}>{headerTitle}</p>
           <p className="text-xs text-muted-foreground">{headerSubtitle}</p>
         </div>
-        {runningRunId ? <span className="size-2 rounded-full bg-sky-500" /> : null}
+        <div className="flex items-center gap-2">
+          {runningRunId ? <span className="size-2 rounded-full bg-sky-500" /> : null}
+          {onHide ? (
+            <Button type="button" variant="ghost" size="icon-sm" aria-label="隐藏 AI 面板" onClick={onHide}>
+              <PanelRightClose data-icon="inline-start" />
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <div className="relative min-h-0 flex-1">

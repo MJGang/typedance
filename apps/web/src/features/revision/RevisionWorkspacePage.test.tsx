@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest"
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import type { ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import type { ContextSource, ContextSourceChild, WorkspaceView } from "@typedance/contracts"
@@ -238,12 +238,26 @@ const directoryChildren: ContextSourceChild[] = [
   },
 ]
 
-function renderPage(assistantPanelVisible = true) {
+function ChromeHarness({ assistantVisible, sidebarVisible }: { assistantVisible: boolean; sidebarVisible: boolean }) {
+  const [assistantPanelVisible, setAssistantPanelVisible] = useState(assistantVisible)
+  const [workbenchSidebarVisible, setWorkbenchSidebarVisible] = useState(sidebarVisible)
+
+  return (
+    <Outlet context={{
+      assistantPanelVisible,
+      setAssistantPanelVisible,
+      workbenchSidebarVisible,
+      setWorkbenchSidebarVisible,
+    }} />
+  )
+}
+
+function renderPage(assistantPanelVisible = true, workbenchSidebarVisible = true) {
   return render(
     <TooltipProvider>
       <MemoryRouter initialEntries={["/packs/resume/workspaces/doc_1"]}>
         <Routes>
-          <Route element={<Outlet context={{ assistantPanelVisible, setAssistantPanelVisible: vi.fn() }} />}>
+          <Route element={<ChromeHarness assistantVisible={assistantPanelVisible} sidebarVisible={workbenchSidebarVisible} />}>
             <Route path="/packs/resume/workspaces/:documentId" element={<RevisionWorkspacePage />} />
             <Route path="/packs/resume/workspaces" element={<div>工作区列表</div>} />
           </Route>
@@ -356,13 +370,25 @@ describe("RevisionWorkspacePage", () => {
     await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1"))
   })
 
-  it("removes the assistant column when the shell hides the AI panel", async () => {
-    renderPage(false)
+  it("hides and restores the assistant panel from workbench controls", async () => {
+    renderPage()
 
     const workspaceGrid = await screen.findByTestId("revision-workspace-grid")
+    fireEvent.click(await screen.findByRole("button", { name: "隐藏 AI 面板" }))
     expect(workspaceGrid).toHaveClass("grid-cols-[minmax(0,1fr)]")
     expect(workspaceGrid).not.toHaveClass("grid-cols-[minmax(48rem,1fr)_24rem]")
-    expect(screen.queryByText("AI 助手")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "隐藏 AI 面板" })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "显示 AI 面板" }))
+    expect(await screen.findByRole("button", { name: "隐藏 AI 面板" })).toBeInTheDocument()
+    expect(workspaceGrid).toHaveClass("grid-cols-[minmax(48rem,1fr)_24rem]")
+  })
+
+  it("removes the workbench sidebar when the global shell hides the left navigation", async () => {
+    renderPage(true, false)
+
+    expect(await screen.findByTestId("revision-draft-panel")).toBeInTheDocument()
+    expect(screen.queryByText("上下文")).not.toBeInTheDocument()
   })
 
   it("lazily expands local directory context sources", async () => {
