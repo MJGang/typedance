@@ -95,3 +95,35 @@ test("JavaScript and Rust Tauri runtimes stay on the same release line", () => {
   assert.equal(desktopVersion, rustVersion)
   assert.equal(webVersion, rustVersion)
 })
+
+test("root release commands use the checked-in PowerShell pipeline", () => {
+  const packageJson = JSON.parse(readFileSync(resolve(repositoryRoot, "package.json"), "utf8"))
+  const releaseScript = readFileSync(
+    resolve(repositoryRoot, "scripts/release-windows.ps1"),
+    "utf8",
+  )
+
+  assert.equal(
+    packageJson.scripts.release,
+    "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-windows.ps1",
+  )
+  assert.match(packageJson.scripts["release:smoke"], /smoke-installer\.ps1$/)
+  assert.match(packageJson.scripts["release:publish"], /publish-release\.ps1$/)
+  assert.match(releaseScript, /tauri\.release\.conf\.json/)
+  assert.match(releaseScript, /--bundles", "nsis"/)
+  assert.match(releaseScript, /Assert-NoForbiddenReleaseInputs/)
+  assert.doesNotMatch(releaseScript, /Get-Content[^\r\n]*\.env/i)
+})
+
+test("tag workflow builds through pnpm release without application secrets", () => {
+  const workflow = readFileSync(
+    resolve(repositoryRoot, ".github/workflows/release-windows.yml"),
+    "utf8",
+  )
+
+  assert.match(workflow, /tags:\s*\r?\n\s*- "v\*"/)
+  assert.match(workflow, /contents: write/)
+  assert.match(workflow, /run: pnpm release/)
+  assert.match(workflow, /gh release create/)
+  assert.doesNotMatch(workflow, /DEEPSEEK|API_KEY|\.env(?:\.|\s|$)/i)
+})
