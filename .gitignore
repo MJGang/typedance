@@ -17,6 +17,7 @@ apps/desktop/src-tauri/gen/
 apps/desktop/src-tauri/binaries/*.exe
 apps/desktop/src-tauri/resources/
 artifacts/
+services/sidecar/build/
 .gstack/
 .codegraph/
 .env
