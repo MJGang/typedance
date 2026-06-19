@@ -1,15 +1,72 @@
 import { once } from "node:events";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createHarnessRuntime, type HarnessModelRequest } from "@typedance/harness-core";
 import { afterEach, describe, expect, it } from "vitest";
 import { createAgentHost, createAgentHostServer, createMemoryAgentHostStore, type AgentHostHttpServer } from "../src";
+import { createFileModelSettings } from "../src/model-settings";
 
 const servers: AgentHostHttpServer[] = [];
+const tempDirectories: string[] = [];
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => server.close()));
+  await Promise.all(tempDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
 describe("agent host", () => {
+  it("serves health and redacted model settings", async () => {
+    const runtime = createHarnessRuntime({
+      model: {
+        stream: async function* () {
+          yield { type: "final", output: {} };
+        },
+      },
+    });
+    const host = createAgentHost({ runtime, packs: [] });
+    const dataDir = await mkdtemp(join(tmpdir(), "typedance-agent-host-http-"));
+    tempDirectories.push(dataDir);
+    const modelSettings = createFileModelSettings(dataDir, {});
+    const server = createAgentHostServer({ host, modelSettings });
+    servers.push(server);
+    server.listen(0, "127.0.0.1");
+    await once(server.nodeServer, "listening");
+
+    expect(await fetch(`${server.url}/health`).then((response) => response.json())).toEqual({
+      status: "ok",
+      service: "agent-host",
+    });
+
+    const updated = await fetch(`${server.url}/settings/model`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "deepseek-v4-flash",
+        base_url: "https://api.deepseek.com",
+        api_key: "sk-http-a9f2",
+      }),
+    });
+    expect(updated.status).toBe(200);
+    expect(await updated.json()).toEqual({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      base_url: "https://api.deepseek.com",
+      api_key: { configured: true, preview: "...a9f2" },
+    });
+
+    const invalid = await fetch(`${server.url}/settings/model`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "", base_url: "not-a-url" }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toEqual({ error: "invalid_model_settings" });
+
+    const cleared = await fetch(`${server.url}/settings/model/api-key`, { method: "DELETE" });
+    expect(cleared.status).toBe(200);
+    expect((await cleared.json()).api_key).toEqual({ configured: false, preview: null });
+  });
   it("persists workspace conversation messages and projected run events", async () => {
     const seenRequests: HarnessModelRequest[] = [];
     const runtime = createHarnessRuntime({

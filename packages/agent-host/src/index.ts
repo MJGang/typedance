@@ -5,6 +5,7 @@ import type { HarnessRuntime } from "@typedance/harness-core";
 import {
   canvasMutationModeSchema,
   contextMentionSchema,
+  modelSettingsUpdateSchema,
   type AgentConversation,
   type AgentMessage,
   type AgentPluginSummary,
@@ -19,6 +20,7 @@ import {
 } from "./store";
 import { buildAgentHostPromptBundle } from "./prompt";
 import type { AgentHostContextProvider } from "./sidecar-context";
+import type { ModelSettingsService } from "./model-settings";
 export {
   JsonFileAgentHostStore,
   MemoryAgentHostStore,
@@ -27,6 +29,11 @@ export {
   type AgentHostStore,
   type AgentHostStoreSnapshot,
 } from "./store";
+export {
+  createFileModelSettings,
+  type ModelSettingsService,
+  type ResolvedModelSettings,
+} from "./model-settings";
 export {
   createSidecarContextProvider,
   type AgentHostContextProvider,
@@ -569,6 +576,7 @@ export function createAgentHost(options: AgentHostOptions): AgentHost {
 
 export type AgentHostServerOptions = {
   host: AgentHost;
+  modelSettings?: ModelSettingsService;
 };
 
 export type AgentHostHttpServer = {
@@ -580,6 +588,7 @@ export type AgentHostHttpServer = {
 
 type RouteContext = {
   host: AgentHost;
+  modelSettings?: ModelSettingsService;
   request: IncomingMessage;
   response: ServerResponse;
   pathname: string;
@@ -589,6 +598,7 @@ export function createAgentHostServer(options: AgentHostServerOptions): AgentHos
   const nodeServer = createServer((request, response) => {
     void handleRequest({
       host: options.host,
+      modelSettings: options.modelSettings,
       request,
       response,
       pathname: new URL(request.url ?? "/", "http://localhost").pathname,
@@ -635,6 +645,10 @@ async function handleRequest(context: RouteContext): Promise<void> {
       writeJson(context.response, 404, { error: "not_found" });
     }
   } catch (error) {
+    if (error instanceof HttpError) {
+      writeJson(context.response, error.status, { error: error.code });
+      return;
+    }
     writeJson(context.response, 500, {
       error: "agent_host_error",
       message: error instanceof Error ? error.message : "Unknown agent host error",
@@ -643,7 +657,30 @@ async function handleRequest(context: RouteContext): Promise<void> {
 }
 
 async function route(context: RouteContext): Promise<boolean> {
-  const { host, request, response, pathname } = context;
+  const { host, modelSettings, request, response, pathname } = context;
+
+  if (request.method === "GET" && pathname === "/health") {
+    writeJson(response, 200, { status: "ok", service: "agent-host" });
+    return true;
+  }
+
+  if (modelSettings && pathname === "/settings/model") {
+    if (request.method === "GET") {
+      writeJson(response, 200, await modelSettings.get());
+      return true;
+    }
+    if (request.method === "PUT") {
+      const parsed = modelSettingsUpdateSchema.safeParse(await readJson(request));
+      if (!parsed.success) throw new HttpError(400, "invalid_model_settings");
+      writeJson(response, 200, await modelSettings.update(parsed.data));
+      return true;
+    }
+  }
+
+  if (modelSettings && request.method === "DELETE" && pathname === "/settings/model/api-key") {
+    writeJson(response, 200, await modelSettings.clearApiKey());
+    return true;
+  }
 
   const workspaceConversationsMatch = /^\/workspaces\/([^/]+)\/conversations$/.exec(pathname);
   if (workspaceConversationsMatch) {
@@ -844,6 +881,15 @@ function setCorsHeaders(response: ServerResponse): void {
   response.setHeader("access-control-allow-origin", "*");
   response.setHeader("access-control-allow-methods", "GET,POST,PATCH,DELETE,OPTIONS");
   response.setHeader("access-control-allow-headers", "content-type");
+}
+
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+  ) {
+    super(code);
+  }
 }
 
 function writeJson(response: ServerResponse, status: number, body: unknown): void {
