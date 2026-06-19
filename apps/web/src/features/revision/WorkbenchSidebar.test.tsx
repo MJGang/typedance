@@ -70,6 +70,7 @@ describe("WorkbenchSidebar", () => {
         <WorkbenchSidebar
           workspaceId="doc_1"
           onSelectConversation={() => {}}
+          onStartNewConversation={() => {}}
           onContextSourcesChange={() => {}}
         />
       </TooltipProvider>,
