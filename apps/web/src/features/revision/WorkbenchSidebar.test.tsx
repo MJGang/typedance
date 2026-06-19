@@ -20,10 +20,13 @@ const apiMocks = vi.hoisted(() => ({
 }))
 
 const agentHostMocks = vi.hoisted(() => ({
+  clearModelApiKey: vi.fn(),
   createWorkspaceConversation: vi.fn(),
   deleteWorkspaceConversation: vi.fn(),
+  getModelSettings: vi.fn(),
   listWorkspaceConversations: vi.fn(),
   listWorkspacePlugins: vi.fn(),
+  updateModelSettings: vi.fn(),
   updateWorkspaceConversation: vi.fn(),
 }))
 
@@ -43,10 +46,13 @@ vi.mock("@/api", () => ({
 }))
 
 vi.mock("@/agentHost", () => ({
+  clearModelApiKey: (...args: unknown[]) => agentHostMocks.clearModelApiKey(...args),
   createWorkspaceConversation: (...args: unknown[]) => agentHostMocks.createWorkspaceConversation(...args),
   deleteWorkspaceConversation: (...args: unknown[]) => agentHostMocks.deleteWorkspaceConversation(...args),
+  getModelSettings: (...args: unknown[]) => agentHostMocks.getModelSettings(...args),
   listWorkspaceConversations: (...args: unknown[]) => agentHostMocks.listWorkspaceConversations(...args),
   listWorkspacePlugins: (...args: unknown[]) => agentHostMocks.listWorkspacePlugins(...args),
+  updateModelSettings: (...args: unknown[]) => agentHostMocks.updateModelSettings(...args),
   updateWorkspaceConversation: (...args: unknown[]) => agentHostMocks.updateWorkspaceConversation(...args),
 }))
 
@@ -62,9 +68,15 @@ describe("WorkbenchSidebar", () => {
     Object.values(agentHostMocks).forEach((mock) => mock.mockReset())
     apiMocks.listContextSources.mockResolvedValue([])
     agentHostMocks.listWorkspaceConversations.mockResolvedValue([])
+    agentHostMocks.getModelSettings.mockResolvedValue({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      base_url: "https://api.deepseek.com",
+      api_key: { configured: false, preview: null },
+    })
   })
 
-  it("does not render provider-specific defaults in AI settings", async () => {
+  it("loads AI settings from Agent Host instead of hardcoded frontend defaults", async () => {
     render(
       <TooltipProvider>
         <WorkbenchSidebar
@@ -80,10 +92,9 @@ describe("WorkbenchSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "设置" }))
 
     expect(await screen.findByText("AI 设置")).toBeInTheDocument()
-    expect(screen.getByPlaceholderText("Provider")).toHaveValue("")
-    expect(screen.getByPlaceholderText("Base URL")).toHaveValue("")
-    expect(screen.queryByDisplayValue("DeepSeek")).not.toBeInTheDocument()
-    expect(screen.queryByDisplayValue("https://api.deepseek.com")).not.toBeInTheDocument()
+    expect(await screen.findByDisplayValue("deepseek-v4-flash")).toBeInTheDocument()
+    expect(screen.getByDisplayValue("https://api.deepseek.com")).toBeInTheDocument()
+    expect(agentHostMocks.getModelSettings).toHaveBeenCalledTimes(1)
   })
 
   it("starts with primary actions and omits workspace title controls", async () => {

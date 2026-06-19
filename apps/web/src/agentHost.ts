@@ -5,6 +5,8 @@ import {
   agentPluginSummarySchema,
   agentRunEventSchema,
   agentRunSchema,
+  modelSettingsResponseSchema,
+  modelSettingsUpdateSchema,
   canvasMutationModeSchema,
   type AgentConversation,
   type AgentMessage,
@@ -13,6 +15,8 @@ import {
   type AgentRunEvent,
   type CanvasMutationMode,
   type ContextMention,
+  type ModelSettingsResponse,
+  type ModelSettingsUpdate,
 } from "@typedance/contracts"
 
 const agentHostBaseUrl = import.meta.env.VITE_AGENT_HOST_URL ?? "http://127.0.0.1:4327"
@@ -142,6 +146,38 @@ export async function listWorkspacePlugins(workspaceId: string): Promise<AgentPl
     response,
     (value) => z.array(agentPluginSummarySchema).parse(value),
     "Failed to list workspace plugins",
+  )
+}
+
+export async function getModelSettings(): Promise<ModelSettingsResponse> {
+  const response = await fetch(`${agentHostBaseUrl}/settings/model`)
+  return parseAgentHostResponse(
+    response,
+    (value) => modelSettingsResponseSchema.parse(value),
+    "Failed to load model settings",
+  )
+}
+
+export async function updateModelSettings(input: ModelSettingsUpdate): Promise<ModelSettingsResponse> {
+  const payload = modelSettingsUpdateSchema.parse(input)
+  const response = await fetch(`${agentHostBaseUrl}/settings/model`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  return parseAgentHostResponse(
+    response,
+    (value) => modelSettingsResponseSchema.parse(value),
+    "Failed to update model settings",
+  )
+}
+
+export async function clearModelApiKey(): Promise<ModelSettingsResponse> {
+  const response = await fetch(`${agentHostBaseUrl}/settings/model/api-key`, { method: "DELETE" })
+  return parseAgentHostResponse(
+    response,
+    (value) => modelSettingsResponseSchema.parse(value),
+    "Failed to clear model API key",
   )
 }
 

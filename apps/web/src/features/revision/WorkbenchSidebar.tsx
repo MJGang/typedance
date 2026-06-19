@@ -30,6 +30,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import { AiSettingsDialog } from "@/features/settings/AiSettingsDialog"
 import {
   addDirectoryContextSource,
   addFileContextSource,
@@ -52,8 +53,6 @@ import {
 } from "@/agentHost"
 import { chooseContextDirectoryPathInTauri, chooseContextFilePathsInTauri, isTauri } from "@/tauri"
 import type { AgentConversation, AgentPluginSummary, ContextSource, ContextSourceChild } from "@typedance/contracts"
-
-const defaultAgentModel = import.meta.env.VITE_DEFAULT_AGENT_MODEL?.trim() ?? ""
 
 type WorkbenchSidebarProps = {
   workspaceId: string
@@ -365,20 +364,7 @@ export function WorkbenchSidebar({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={aiSettingsOpen} onOpenChange={setAiSettingsOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>AI 设置</DialogTitle>
-            <DialogDescription>配置当前工作区的模型连接参数</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Input placeholder="Provider" />
-            <Input placeholder="API Key" type="password" />
-            <Input placeholder="Base URL" />
-            <Input placeholder="Model" defaultValue={defaultAgentModel} />
-          </div>
-        </DialogContent>
-      </Dialog>
+      <AiSettingsDialog open={aiSettingsOpen} onOpenChange={setAiSettingsOpen} />
       <Dialog open={renamingConversation !== null} onOpenChange={(open) => {
         if (!open) {
           setRenamingConversation(null)
