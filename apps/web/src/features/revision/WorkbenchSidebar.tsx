@@ -45,7 +45,6 @@ import {
   updateContextSourceTitle,
 } from "@/api"
 import {
-  createWorkspaceConversation,
   deleteWorkspaceConversation,
   listWorkspaceConversations,
   listWorkspacePlugins,
@@ -61,6 +60,7 @@ type WorkbenchSidebarProps = {
   activeConversationId?: string
   conversationRefreshToken?: number
   onSelectConversation: (conversationId: string) => void
+  onStartNewConversation: () => void
   onContextSourcesChange: (sources: ContextSource[]) => void
   onConversationsChange?: (conversations: AgentConversation[]) => void
 }
@@ -76,6 +76,7 @@ export function WorkbenchSidebar({
   activeConversationId,
   conversationRefreshToken = 0,
   onSelectConversation,
+  onStartNewConversation,
   onContextSourcesChange,
   onConversationsChange,
 }: WorkbenchSidebarProps) {
@@ -110,7 +111,7 @@ export function WorkbenchSidebar({
   const loadConversations = useCallback(async () => {
     setLoadingConversations(true)
     try {
-      const nextConversations = await listWorkspaceConversations(workspaceId)
+      const nextConversations = (await listWorkspaceConversations(workspaceId)).filter(hasConversationTitle)
       setConversations(nextConversations)
       onConversationsChange?.(nextConversations)
     } catch {
@@ -128,15 +129,9 @@ export function WorkbenchSidebar({
     void loadConversations()
   }, [conversationRefreshToken, loadConversations])
 
-  const handleNewConversation = useCallback(async () => {
-    try {
-      const conversation = await createWorkspaceConversation(workspaceId)
-      await loadConversations()
-      onSelectConversation(conversation.id)
-    } catch {
-      toast.error("新对话创建失败")
-    }
-  }, [loadConversations, onSelectConversation, workspaceId])
+  const handleNewConversation = useCallback(() => {
+    onStartNewConversation()
+  }, [onStartNewConversation])
 
   const handleAddFiles = useCallback(async () => {
     const paths = isTauri()
@@ -319,7 +314,7 @@ export function WorkbenchSidebar({
         </section>
       </div>
 
-      <div className="border-t border-sidebar-border p-2">
+      <div className="p-2">
         <SidebarAction icon={Settings} label="设置" onClick={() => setAiSettingsOpen(true)} />
       </div>
 
@@ -737,7 +732,7 @@ function ConversationRow({
       </button>
       <div className="ml-auto flex shrink-0 items-center gap-1 text-muted-foreground">
         {conversation.status === "running" ? <Loader2 className="size-3.5 animate-spin" /> : null}
-        {conversation.pinned ? <Pin data-pinned="true" fill="currentColor" /> : null}
+        {conversation.pinned ? <Pin data-pinned="true" className="size-3" fill="currentColor" /> : null}
         <span data-testid="conversation-time" className="ml-auto text-xs group-hover:hidden">
           {conversation.last_message_at ? relativeTime(conversation.last_message_at) : ""}
         </span>
@@ -785,7 +780,11 @@ function ConversationRow({
 }
 
 function conversationDisplayTitle(conversation: AgentConversation): string {
-  return conversation.name?.trim() || conversation.preview.trim() || "新对话"
+  return conversation.name?.trim() || conversation.preview.trim()
+}
+
+function hasConversationTitle(conversation: AgentConversation): boolean {
+  return conversationDisplayTitle(conversation).length > 0
 }
 
 function relativeTime(value: string): string {

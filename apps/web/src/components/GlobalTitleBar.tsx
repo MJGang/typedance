@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, Minus, Moon, PanelLeft, Square, Sun, X } from "l
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useSidebar } from "@/components/ui/sidebar"
+import { cn } from "@/lib/utils"
 import {
   closeDesktopWindow,
   minimizeDesktopWindow,
@@ -52,7 +53,10 @@ export function GlobalTitleBar({
   return (
     <header
       data-testid="global-titlebar"
-      className="fixed inset-x-0 top-0 z-30 flex h-9 items-center border-b border-border bg-background text-foreground"
+      className={cn(
+        "fixed inset-x-0 top-0 z-30 flex h-9 items-center text-foreground",
+        isWorkbenchRoute ? "bg-sidebar" : "border-b border-border bg-background",
+      )}
     >
       <div className="flex h-full shrink-0 items-center gap-0.5 px-1">
         <Button

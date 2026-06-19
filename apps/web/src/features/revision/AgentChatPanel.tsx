@@ -463,7 +463,7 @@ function AgentChatContent({
         ) : null}
       </div>
 
-      <div className="shrink-0 border-t border-border p-3">
+      <div data-testid="agent-chat-composer-region" className="shrink-0 p-3">
         <div className="rounded-2xl border border-border bg-background shadow-sm">
           <div className="relative min-h-24">
             <div

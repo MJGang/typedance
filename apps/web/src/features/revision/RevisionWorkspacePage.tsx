@@ -158,6 +158,11 @@ export function RevisionWorkspacePage() {
     setAssistantPanelVisible?.(true)
   }, [setAssistantPanelVisible])
 
+  const handleStartNewConversation = useCallback(() => {
+    setActiveConversationId(undefined)
+    setAssistantPanelVisible?.(true)
+  }, [setAssistantPanelVisible])
+
   const handleConversationsChange = useCallback((nextConversations: AgentConversation[]) => {
     setConversations(nextConversations)
     setActiveConversationId((currentConversationId) => (
@@ -493,6 +498,7 @@ export function RevisionWorkspacePage() {
           activeConversationId={activeConversationId}
           conversationRefreshToken={conversationRefreshToken}
           onSelectConversation={handleSelectConversation}
+          onStartNewConversation={handleStartNewConversation}
           onContextSourcesChange={setContextSources}
           onConversationsChange={handleConversationsChange}
         />
@@ -500,7 +506,7 @@ export function RevisionWorkspacePage() {
       <main
         data-testid="revision-workspace-grid"
         className={cn(
-          "relative grid min-h-0 min-w-0 flex-1 overflow-hidden",
+          "relative grid min-h-0 min-w-0 flex-1 overflow-hidden bg-sidebar",
           assistantPanelVisible
             ? "grid-cols-[minmax(48rem,1fr)_24rem]"
             : "grid-cols-[minmax(0,1fr)]",
@@ -509,7 +515,10 @@ export function RevisionWorkspacePage() {
         <section data-testid="revision-draft-column" className="flex min-h-0 min-w-0 flex-col overflow-hidden">
           <div
             data-testid="revision-workspace-titlebar"
-            className="flex h-12 shrink-0 items-center border-b border-border px-3"
+            className={cn(
+              "flex h-12 shrink-0 items-center border-b border-border bg-background px-3",
+              workbenchSidebarVisible && "rounded-l-xl",
+            )}
           >
             <div className="flex min-w-0 items-center gap-1">
               <h1 className="truncate text-sm font-semibold">{workspace.document.title}</h1>
@@ -540,7 +549,7 @@ export function RevisionWorkspacePage() {
           <div
             ref={draftPanelRef}
             data-testid="revision-draft-panel"
-            className="td-source-resume-canvas-viewport min-h-0 min-w-0 flex-1 overflow-hidden px-0 pt-0"
+            className="td-source-resume-canvas-viewport min-h-0 min-w-0 flex-1 overflow-hidden bg-background px-0 pt-0"
           >
             <div className="h-full w-full min-w-[56rem] max-w-none">
               {sourceCanvas ? (
@@ -670,5 +679,5 @@ export function RevisionWorkspacePage() {
 
 function conversationDisplayTitle(conversation: AgentConversation | undefined): string | undefined {
   if (!conversation) return undefined
-  return conversation.name?.trim() || conversation.preview.trim() || "新对话"
+  return conversation.name?.trim() || conversation.preview.trim() || undefined
 }
