@@ -33,14 +33,14 @@ importers:
   apps/desktop:
     dependencies:
       '@tauri-apps/api':
-        specifier: ^2.5.0
-        version: 2.5.0
+        specifier: 2.11.0
+        version: 2.11.0
       '@tauri-apps/plugin-shell':
-        specifier: ^2.3.5
+        specifier: 2.3.5
         version: 2.3.5
     devDependencies:
       '@tauri-apps/cli':
-        specifier: ^2.5.0
+        specifier: 2.11.1
         version: 2.11.1
 
   apps/web:
@@ -58,8 +58,8 @@ importers:
         specifier: 3.0.4
         version: 3.0.4(tailwind-merge@3.5.0)(tailwindcss@4.3.0)
       '@tauri-apps/api':
-        specifier: 2.5.0
-        version: 2.5.0
+        specifier: 2.11.0
+        version: 2.11.0
       '@tauri-apps/plugin-dialog':
         specifier: 2.5.0
         version: 2.5.0
@@ -2828,9 +2828,6 @@ packages:
 
   '@tauri-apps/api@2.11.0':
     resolution: {integrity: sha512-7CinYODhky9lmO23xHnUFv0Xt43fbtWMyxZcLcRBlFkcgXKuEirBvHpmtJ89YMhyeGcq20Wuc47Fa4XjyniywA==}
-
-  '@tauri-apps/api@2.5.0':
-    resolution: {integrity: sha512-Ldux4ip+HGAcPUmuLT8EIkk6yafl5vK0P0c0byzAKzxJh7vxelVtdPONjfgTm96PbN24yjZNESY8CKo8qniluA==}
 
   '@tauri-apps/cli-darwin-arm64@2.11.1':
     resolution: {integrity: sha512-6eEKMBXsQPCuM1EmvrjT2+aBuxWQuFdKdW8pzNuNQtpq45nEEpBlD5gr8pUeAyOU1DQKlkFaEc/MPBxb/Pfjtg==}
@@ -8334,8 +8331,6 @@ snapshots:
       vite: 6.4.2(@types/node@24.12.3)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.4)
 
   '@tauri-apps/api@2.11.0': {}
-
-  '@tauri-apps/api@2.5.0': {}
 
   '@tauri-apps/cli-darwin-arm64@2.11.1':
     optional: true

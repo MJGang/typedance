@@ -33,7 +33,6 @@ describe("desktop window controls", () => {
   it.each([
     ["minimize", minimizeDesktopWindow],
     ["toggleMaximize", toggleMaximizeDesktopWindow],
-    ["close", closeDesktopWindow],
     ["startDragging", startDraggingDesktopWindow],
   ] as const)("calls %s in Tauri", async (method, action) => {
     window.__TAURI_INTERNALS__ = { invoke: vi.fn() }
@@ -42,5 +41,16 @@ describe("desktop window controls", () => {
 
     expect(getCurrentWindow).toHaveBeenCalledOnce()
     expect(windowApi[method]).toHaveBeenCalledOnce()
+  })
+
+  it("requests a managed application shutdown in Tauri", async () => {
+    const invoke = vi.fn()
+    window.__TAURI_INTERNALS__ = { invoke }
+
+    await closeDesktopWindow()
+
+    expect(invoke).toHaveBeenCalledWith("shutdown_application")
+    expect(getCurrentWindow).not.toHaveBeenCalled()
+    expect(windowApi.close).not.toHaveBeenCalled()
   })
 })
