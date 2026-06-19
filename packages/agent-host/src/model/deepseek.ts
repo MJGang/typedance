@@ -8,12 +8,16 @@ import type {
 import { renderAgentHostPromptSections } from "../prompt";
 
 export type DeepSeekModelAdapterOptions = {
-  apiKey: string;
-  baseUrl?: string;
-  defaultModel?: string;
+  resolveSettings: () => DeepSeekRuntimeSettings | Promise<DeepSeekRuntimeSettings>;
   fetch?: typeof fetch;
   reasoningEffort?: "low" | "medium" | "high" | "max";
   thinking?: boolean;
+};
+
+export type DeepSeekRuntimeSettings = {
+  apiKey: string | undefined;
+  baseUrl: string | undefined;
+  defaultModel: string | undefined;
 };
 
 type DeepSeekStreamDelta = {
@@ -76,17 +80,17 @@ type DeepSeekMessage =
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 
 export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions): HarnessModelAdapter {
-  const apiKey = options.apiKey.trim();
-  if (!apiKey) {
-    throw new Error("DEEPSEEK_API_KEY is required");
-  }
-
   const fetchImpl = options.fetch ?? fetch;
-  const baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
-  const defaultModel = options.defaultModel?.trim();
 
   return {
     async *stream(request: HarnessModelRequest): AsyncIterable<HarnessModelStreamEvent> {
+      const settings = await options.resolveSettings();
+      const apiKey = settings.apiKey?.trim();
+      if (!apiKey) {
+        throw new Error("请先在 AI 设置中配置 API Key");
+      }
+      const baseUrl = (settings.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+      const defaultModel = settings.defaultModel?.trim();
       const model = resolveModelName(request, defaultModel);
       const toolNameMap = createProviderToolNameMap(request.availableTools);
       const tools = buildDeepSeekTools(request.availableTools, toolNameMap);

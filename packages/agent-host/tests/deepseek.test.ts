@@ -7,7 +7,11 @@ describe("createDeepSeekModelAdapter", () => {
   it("sends harness skill instructions through the provider request", async () => {
     let body: unknown;
     const adapter = createDeepSeekModelAdapter({
-      apiKey: "test-key",
+      resolveSettings: async () => ({
+        apiKey: "test-key",
+        baseUrl: "https://api.deepseek.com",
+        defaultModel: undefined,
+      }),
       fetch: async (_url, init) => {
         body = JSON.parse(String(init?.body));
         return new Response(sse("data: [DONE]\n\n"), {

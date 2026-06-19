@@ -1,13 +1,15 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 import { createHarnessRuntime } from "@typedance/harness-core";
 import {
   createAgentHost,
   createAgentHostServer,
+  createFileModelSettings,
   createJsonFileAgentHostStore,
 } from "./index";
+import { loadExplicitEnvironment } from "./environment";
 import {
   createDeepSeekModelAdapter,
 } from "./model/deepseek";
@@ -18,13 +20,14 @@ import {
 } from "./resume-plugin";
 import { createSidecarContextProvider } from "./sidecar-context";
 
-const env = loadEnvironment();
+const env = loadExplicitEnvironment(process.env, (path) => readFileSync(path, "utf8"));
 const port = numberEnv(env.AGENT_HOST_PORT, 4327);
 const hostname = env.AGENT_HOST_HOST ?? "127.0.0.1";
 const dataDir = env.TYPEDANCE_DATA_DIR || join(homedir(), ".typedance");
 const storeFile = env.AGENT_HOST_STORE_FILE || join(dataDir, "agent-host", "store.json");
 const model = env.AGENT_MODEL?.trim() || env.DEEPSEEK_MODEL?.trim() || env.VITE_DEFAULT_AGENT_MODEL?.trim() || undefined;
 const sidecarUrl = env.TYPEDANCE_SIDECAR_URL || "http://127.0.0.1:4317";
+const modelSettings = createFileModelSettings(dataDir, env);
 const pluginLoader = env.TYPEDANCE_PLUGIN_ROOT
   ? createResumePluginLoader(env.TYPEDANCE_PLUGIN_ROOT)
   : createResumePluginLoader();
@@ -32,9 +35,14 @@ const pluginLoader = env.TYPEDANCE_PLUGIN_ROOT
 const runtime = createHarnessRuntime({
   skillContentLoader: pluginLoader.createSkillContentLoader(),
   model: createDeepSeekModelAdapter({
-    apiKey: env.DEEPSEEK_API_KEY ?? "",
-    baseUrl: env.DEEPSEEK_BASE_URL,
-    defaultModel: model,
+    resolveSettings: async () => {
+      const settings = await modelSettings.resolve();
+      return {
+        apiKey: settings.apiKey,
+        baseUrl: env.DEEPSEEK_BASE_URL?.trim() || settings.baseUrl,
+        defaultModel: model || settings.model,
+      };
+    },
     reasoningEffort: parseReasoningEffort(env.DEEPSEEK_REASONING_EFFORT),
   }),
 });
@@ -55,7 +63,7 @@ const host = createAgentHost({
   ],
 });
 
-const server = createAgentHostServer({ host });
+const server = createAgentHostServer({ host, modelSettings });
 server.listen(port, hostname);
 server.nodeServer.on("listening", () => {
   console.log(`TypeDance Agent Host listening on http://${hostname}:${port}`);
@@ -73,41 +81,6 @@ process.on("SIGTERM", () => {
 async function shutdown(): Promise<void> {
   await server.close();
   process.exit(0);
-}
-
-function loadEnvironment(): NodeJS.ProcessEnv {
-  const envFile = process.env.TYPEDANCE_ENV_FILE || findUp(".env", process.cwd());
-  if (envFile) {
-    for (const line of readFileSync(envFile, "utf8").split(/\r?\n/)) {
-      const parsed = parseEnvLine(line);
-      if (!parsed) continue;
-      const [key, value] = parsed;
-      if (process.env[key] === undefined) process.env[key] = value;
-    }
-  }
-  return process.env;
-}
-
-function findUp(filename: string, startDir: string): string | undefined {
-  let current = resolve(startDir);
-  while (true) {
-    const candidate = join(current, filename);
-    if (existsSync(candidate)) return candidate;
-    const parent = dirname(current);
-    if (parent === current) return undefined;
-    current = parent;
-  }
-}
-
-function parseEnvLine(line: string): [string, string] | undefined {
-  const trimmed = line.trim();
-  if (!trimmed || trimmed.startsWith("#")) return undefined;
-  const index = trimmed.indexOf("=");
-  if (index < 1) return undefined;
-  const key = trimmed.slice(0, index).trim();
-  const rawValue = trimmed.slice(index + 1).trim();
-  const value = rawValue.replace(/^(['"])(.*)\1$/, "$2");
-  return [key, value];
 }
 
 function numberEnv(value: string | undefined, fallback: number): number {

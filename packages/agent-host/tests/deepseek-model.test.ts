@@ -10,6 +10,46 @@ import {
 import { buildAgentHostPromptBundle } from "../src/prompt";
 
 describe("DeepSeek model adapter", () => {
+  it("resolves credentials when each run starts", async () => {
+    let apiKey: string | undefined;
+    const fetchMock = vi.fn(async () => new Response(sse("data: [DONE]\n\n"), { status: 200 }));
+    const adapter = createDeepSeekModelAdapter({
+      resolveSettings: async () => ({
+        apiKey,
+        baseUrl: "https://api.deepseek.com",
+        defaultModel: "deepseek-v4-flash",
+      }),
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+    apiKey = "sk-runtime";
+
+    await drain(adapter.stream(makeRequest({
+      runId: "run_1",
+      agentId: "agent_1",
+      messages: [{ role: "user", content: "hello" }],
+    })));
+
+    expect(fetchMock).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      headers: expect.objectContaining({ authorization: "Bearer sk-runtime" }),
+    }));
+  });
+
+  it("reports a controlled configuration error without an API key", async () => {
+    const adapter = createDeepSeekModelAdapter({
+      resolveSettings: async () => ({
+        apiKey: undefined,
+        baseUrl: "https://api.deepseek.com",
+        defaultModel: "deepseek-v4-flash",
+      }),
+    });
+
+    await expect(drain(adapter.stream(makeRequest({
+      runId: "run_1",
+      agentId: "agent_1",
+      messages: [{ role: "user", content: "hello" }],
+    })))).rejects.toThrow("请先在 AI 设置中配置 API Key");
+  });
+
   it("streams reasoning and assistant deltas from DeepSeek SSE chunks", async () => {
     const fetchMock = vi.fn(async () => new Response(sse([
       'data: {"choices":[{"delta":{"reasoning_content":"think"}}]}',
@@ -20,8 +60,11 @@ describe("DeepSeek model adapter", () => {
       "",
     ].join("\n")), { status: 200 }));
     const adapter = createDeepSeekModelAdapter({
-      apiKey: "test-key",
-      defaultModel: "deepseek-v4-flash",
+      resolveSettings: async () => ({
+        apiKey: "test-key",
+        baseUrl: "https://api.deepseek.com",
+        defaultModel: "deepseek-v4-flash",
+      }),
       fetch: fetchMock as unknown as typeof fetch,
     });
 
@@ -53,8 +96,11 @@ describe("DeepSeek model adapter", () => {
       "",
     ].join("\n")), { status: 200 }));
     const adapter = createDeepSeekModelAdapter({
-      apiKey: "test-key",
-      defaultModel: "deepseek-v4-flash",
+      resolveSettings: async () => ({
+        apiKey: "test-key",
+        baseUrl: "https://api.deepseek.com",
+        defaultModel: "deepseek-v4-flash",
+      }),
       fetch: fetchMock as unknown as typeof fetch,
     });
     const messages: HarnessModelMessage[] = [
@@ -104,8 +150,11 @@ describe("DeepSeek model adapter", () => {
       "",
     ].join("\n")), { status: 200 }));
     const adapter = createDeepSeekModelAdapter({
-      apiKey: "test-key",
-      defaultModel: "deepseek-v4-flash",
+      resolveSettings: async () => ({
+        apiKey: "test-key",
+        baseUrl: "https://api.deepseek.com",
+        defaultModel: "deepseek-v4-flash",
+      }),
       fetch: fetchMock as unknown as typeof fetch,
     });
 
@@ -145,8 +194,11 @@ describe("DeepSeek model adapter", () => {
   it("uses the caller supplied model instead of an adapter fallback", async () => {
     const fetchMock = vi.fn(async () => new Response(sse("data: [DONE]\n\n"), { status: 200 }));
     const adapter = createDeepSeekModelAdapter({
-      apiKey: "test-key",
-      defaultModel: "deepseek-v4-flash",
+      resolveSettings: async () => ({
+        apiKey: "test-key",
+        baseUrl: "https://api.deepseek.com",
+        defaultModel: "deepseek-v4-flash",
+      }),
       fetch: fetchMock as unknown as typeof fetch,
     });
 
@@ -162,7 +214,11 @@ describe("DeepSeek model adapter", () => {
 
   it("requires a model from the request or adapter configuration", async () => {
     const adapter = createDeepSeekModelAdapter({
-      apiKey: "test-key",
+      resolveSettings: async () => ({
+        apiKey: "test-key",
+        baseUrl: "https://api.deepseek.com",
+        defaultModel: undefined,
+      }),
       fetch: vi.fn() as unknown as typeof fetch,
     });
 
