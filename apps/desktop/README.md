@@ -1,12 +1,18 @@
 # TypeDance Desktop
 
-This is the Tauri 2 shell boundary for TypeDance.
+`apps/desktop` 是 TypeDance 的 Tauri 2 桌面壳层，负责窗口、系统路径、对话框、单实例，以及 Python Sidecar 和 Agent Host 的生命周期管理。简历与工作区业务逻辑仍由 `services/sidecar` 提供，AI 编排由 `packages/agent-host` 提供。
 
-Slice 1 keeps desktop packaging thin:
+开发模式由仓库根目录统一启动：
 
-- Web UI runs from `apps/web`.
-- FastAPI sidecar runs during development with `corepack pnpm --filter @typedance/sidecar dev`.
-- Bundled sidecar binary packaging is configured but not produced until the sidecar is ready for release packaging.
-- `cargo check` validates that `src-tauri/binaries/typedance-sidecar-<target-triple>` exists when `externalBin` is configured. Slice 1 does not build that binary yet, so Rust verification is limited to configuration review until the sidecar packaging task lands.
+```powershell
+pnpm dev
+```
 
-Tauri commands must stay limited to OS integration, app paths, dialogs, sidecar lifecycle, and file reveal/open operations. Resume business logic belongs in `services/sidecar`.
+Windows x64 发布版使用 NSIS 当前用户安装包，并将下列运行时一并打包：
+
+- Python Sidecar 的 PyInstaller 单文件程序
+- Agent Host 的 Node.js SEA 单文件程序
+- 固定版本的 Playwright Chromium
+- Resume 插件资源
+
+手动构建、安装冒烟和 GitHub Release 发布命令见 [Windows 发布指南](../../docs/windows-release.md)。发布资源使用显式白名单，构建不会把仓库 `.env`、证书、数据库或开发目录打入安装包。

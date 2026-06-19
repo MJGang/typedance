@@ -103,6 +103,12 @@
 4. 被替换的历史文档移入 `archive/`，不要删除。
 5. 新增重要产品方向前，先判断属于终局产品协议、V1 需求、后续路线，还是长期愿景。
 
+## 构建与发布
+
+- `windows-release.md`
+  - Windows x64 NSIS 安装包的手动构建、安装冒烟和 GitHub Release 发布指南。
+  - 说明 `pnpm release`、`pnpm release:smoke`、`pnpm release:publish` 的使用方式与 `.env` 安全边界。
+
 ## 当前实施计划
 
 > 收口状态（2026-05-26）：WP1-WP17 主体能力已在当前代码线落地，计划 checkbox 已按实现进度同步。当前 `main` 相比 `origin/main` 领先 1 个提交：`feat(sidecar): 接入机会校准 Agent 运行时`，该提交补齐机会校准 Agent 运行时与对应测试。
