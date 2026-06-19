@@ -91,6 +91,7 @@ describe("WorkbenchSidebar", () => {
         <WorkbenchSidebar
           workspaceId="doc_1"
           onSelectConversation={() => {}}
+          onStartNewConversation={() => {}}
           onContextSourcesChange={() => {}}
         />
       </TooltipProvider>,
@@ -108,35 +109,16 @@ describe("WorkbenchSidebar", () => {
     expect(screen.queryByRole("button", { name: "返回工作区列表" })).not.toBeInTheDocument()
   })
 
-  it("uses matching compose icons for both conversation actions and a four-dot plugin icon", async () => {
+  it("starts a local draft from both conversation actions without creating a conversation", async () => {
     const onSelectConversation = vi.fn()
-    agentHostMocks.createWorkspaceConversation
-      .mockResolvedValueOnce({
-        id: "conv_top",
-        workspace_id: "doc_1",
-        name: null,
-        preview: "",
-        pinned: false,
-        status: "idle",
-        created_at: "2026-06-18T08:00:00.000Z",
-        updated_at: "2026-06-18T08:00:00.000Z",
-      })
-      .mockResolvedValueOnce({
-        id: "conv_heading",
-        workspace_id: "doc_1",
-        name: null,
-        preview: "",
-        pinned: false,
-        status: "idle",
-        created_at: "2026-06-18T08:01:00.000Z",
-        updated_at: "2026-06-18T08:01:00.000Z",
-      })
+    const onStartNewConversation = vi.fn()
 
     render(
       <TooltipProvider>
         <WorkbenchSidebar
           workspaceId="doc_1"
           onSelectConversation={onSelectConversation}
+          onStartNewConversation={onStartNewConversation}
           onContextSourcesChange={() => {}}
         />
       </TooltipProvider>,
@@ -163,10 +145,10 @@ describe("WorkbenchSidebar", () => {
     expect(conversationHeading).toHaveClass("group")
 
     fireEvent.click(createButtons[0])
-    await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith("conv_top"))
     fireEvent.click(screen.getAllByRole("button", { name: "新对话" })[1])
-    await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith("conv_heading"))
-    expect(agentHostMocks.createWorkspaceConversation).toHaveBeenCalledTimes(2)
+    expect(onStartNewConversation).toHaveBeenCalledTimes(2)
+    expect(onSelectConversation).not.toHaveBeenCalled()
+    expect(agentHostMocks.createWorkspaceConversation).not.toHaveBeenCalled()
 
     const pluginButton = screen.getByRole("button", { name: "插件" })
     expect(pluginButton.querySelector('[data-icon-name="plugin-grid"]')).toBeInTheDocument()
@@ -203,6 +185,7 @@ describe("WorkbenchSidebar", () => {
         <WorkbenchSidebar
           workspaceId="doc_1"
           onSelectConversation={() => {}}
+          onStartNewConversation={() => {}}
           onContextSourcesChange={() => {}}
         />
       </TooltipProvider>,
@@ -245,6 +228,7 @@ describe("WorkbenchSidebar", () => {
         <WorkbenchSidebar
           workspaceId="doc_1"
           onSelectConversation={() => {}}
+          onStartNewConversation={() => {}}
           onContextSourcesChange={() => {}}
         />
       </TooltipProvider>,
@@ -259,6 +243,34 @@ describe("WorkbenchSidebar", () => {
 
     await waitFor(() => expect(agentHostMocks.updateWorkspaceConversation).toHaveBeenCalledWith("conv_1", { name: "质量检查" }))
     await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledTimes(2))
+  })
+
+  it("does not render an empty server-side conversation as 新对话", async () => {
+    agentHostMocks.listWorkspaceConversations.mockResolvedValue([{
+      id: "conv_empty",
+      workspace_id: "doc_1",
+      name: null,
+      preview: "",
+      pinned: false,
+      status: "idle",
+      created_at: "2026-06-18T08:00:00.000Z",
+      updated_at: "2026-06-18T08:00:00.000Z",
+    }])
+
+    render(
+      <TooltipProvider>
+        <WorkbenchSidebar
+          workspaceId="doc_1"
+          onSelectConversation={() => {}}
+          onStartNewConversation={() => {}}
+          onContextSourcesChange={() => {}}
+        />
+      </TooltipProvider>,
+    )
+
+    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1"))
+    expect(document.querySelector("[data-conversation-row]")).not.toBeInTheDocument()
+    expect(screen.getByText("还没有对话。")).toBeInTheDocument()
   })
 
   it("shows the conversation menu before rename and confirms deletion", async () => {
@@ -281,6 +293,7 @@ describe("WorkbenchSidebar", () => {
         <WorkbenchSidebar
           workspaceId="doc_1"
           onSelectConversation={() => {}}
+          onStartNewConversation={() => {}}
           onContextSourcesChange={() => {}}
         />
       </TooltipProvider>,
@@ -331,6 +344,7 @@ describe("WorkbenchSidebar", () => {
         <WorkbenchSidebar
           workspaceId="doc_1"
           onSelectConversation={() => {}}
+          onStartNewConversation={() => {}}
           onContextSourcesChange={() => {}}
         />
       </TooltipProvider>,

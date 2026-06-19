@@ -467,13 +467,17 @@ describe("RevisionWorkspacePage", () => {
     expect(await screen.findByText("jd.md")).toBeInTheDocument()
   })
 
-  it("creates and selects a new conversation from the workbench sidebar", async () => {
+  it("starts an untitled local draft without creating a conversation", async () => {
     renderPage()
 
+    fireEvent.click(await screen.findByRole("button", { name: "优化简历" }))
+    expect(screen.getAllByText("优化简历")).toHaveLength(2)
     fireEvent.click((await screen.findAllByRole("button", { name: "新对话" }))[0])
 
-    await waitFor(() => expect(agentHostMocks.createWorkspaceConversation).toHaveBeenCalledWith("doc_1"))
-    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledTimes(2))
+    expect(agentHostMocks.createWorkspaceConversation).not.toHaveBeenCalled()
+    expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledTimes(1)
+    expect(screen.getAllByText("优化简历")).toHaveLength(1)
+    expect(screen.queryByRole("button", { name: "对话操作" })).not.toBeInTheDocument()
   })
 
   it("clears the active conversation when the selected conversation is deleted", async () => {

@@ -158,6 +158,11 @@ export function RevisionWorkspacePage() {
     setAssistantPanelVisible?.(true)
   }, [setAssistantPanelVisible])
 
+  const handleStartNewConversation = useCallback(() => {
+    setActiveConversationId(undefined)
+    setAssistantPanelVisible?.(true)
+  }, [setAssistantPanelVisible])
+
   const handleConversationsChange = useCallback((nextConversations: AgentConversation[]) => {
     setConversations(nextConversations)
     setActiveConversationId((currentConversationId) => (
@@ -493,6 +498,7 @@ export function RevisionWorkspacePage() {
           activeConversationId={activeConversationId}
           conversationRefreshToken={conversationRefreshToken}
           onSelectConversation={handleSelectConversation}
+          onStartNewConversation={handleStartNewConversation}
           onContextSourcesChange={setContextSources}
           onConversationsChange={handleConversationsChange}
         />
@@ -670,5 +676,5 @@ export function RevisionWorkspacePage() {
 
 function conversationDisplayTitle(conversation: AgentConversation | undefined): string | undefined {
   if (!conversation) return undefined
-  return conversation.name?.trim() || conversation.preview.trim() || "新对话"
+  return conversation.name?.trim() || conversation.preview.trim() || undefined
 }

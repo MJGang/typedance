@@ -45,7 +45,6 @@ import {
   updateContextSourceTitle,
 } from "@/api"
 import {
-  createWorkspaceConversation,
   deleteWorkspaceConversation,
   listWorkspaceConversations,
   listWorkspacePlugins,
@@ -61,6 +60,7 @@ type WorkbenchSidebarProps = {
   activeConversationId?: string
   conversationRefreshToken?: number
   onSelectConversation: (conversationId: string) => void
+  onStartNewConversation: () => void
   onContextSourcesChange: (sources: ContextSource[]) => void
   onConversationsChange?: (conversations: AgentConversation[]) => void
 }
@@ -76,6 +76,7 @@ export function WorkbenchSidebar({
   activeConversationId,
   conversationRefreshToken = 0,
   onSelectConversation,
+  onStartNewConversation,
   onContextSourcesChange,
   onConversationsChange,
 }: WorkbenchSidebarProps) {
@@ -110,7 +111,7 @@ export function WorkbenchSidebar({
   const loadConversations = useCallback(async () => {
     setLoadingConversations(true)
     try {
-      const nextConversations = await listWorkspaceConversations(workspaceId)
+      const nextConversations = (await listWorkspaceConversations(workspaceId)).filter(hasConversationTitle)
       setConversations(nextConversations)
       onConversationsChange?.(nextConversations)
     } catch {
@@ -128,15 +129,9 @@ export function WorkbenchSidebar({
     void loadConversations()
   }, [conversationRefreshToken, loadConversations])
 
-  const handleNewConversation = useCallback(async () => {
-    try {
-      const conversation = await createWorkspaceConversation(workspaceId)
-      await loadConversations()
-      onSelectConversation(conversation.id)
-    } catch {
-      toast.error("新对话创建失败")
-    }
-  }, [loadConversations, onSelectConversation, workspaceId])
+  const handleNewConversation = useCallback(() => {
+    onStartNewConversation()
+  }, [onStartNewConversation])
 
   const handleAddFiles = useCallback(async () => {
     const paths = isTauri()
@@ -785,7 +780,11 @@ function ConversationRow({
 }
 
 function conversationDisplayTitle(conversation: AgentConversation): string {
-  return conversation.name?.trim() || conversation.preview.trim() || "新对话"
+  return conversation.name?.trim() || conversation.preview.trim()
+}
+
+function hasConversationTitle(conversation: AgentConversation): boolean {
+  return conversationDisplayTitle(conversation).length > 0
 }
 
 function relativeTime(value: string): string {

@@ -42,6 +42,8 @@ expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledTimes(1)
 expect(screen.getAllByText("优化简历")).toHaveLength(1)
 ```
 
+再增加一个列表测试，确保服务端返回的空名称、空预览记录不会显示为“新对话”，而是按无对话状态处理。
+
 - [ ] **Step 2: 运行测试并确认按预期失败**
 
 Run: `rtk pnpm --filter @typedance/web test -- WorkbenchSidebar.test.tsx RevisionWorkspacePage.test.tsx`
@@ -71,6 +73,8 @@ const handleStartNewConversation = useCallback(() => {
   setAssistantPanelVisible?.(true)
 }, [setAssistantPanelVisible])
 ```
+
+渲染列表前过滤 `name` 与 `preview` 均为空的记录，并让标题函数只处理具有真实名称或预览的记录，不再返回“新对话”占位标题。
 
 保持 `AgentChatPanel.handleSend` 的现有首次发送创建路径不变。
 
