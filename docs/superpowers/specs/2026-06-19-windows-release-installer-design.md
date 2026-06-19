@@ -97,7 +97,7 @@ Agent Host 启动时不再向当前目录的父级自动搜索 `.env`。开发�
 
 ### 4.5 Tauri NSIS 安装包
 
-Tauri `bundle.targets` 仅启用 NSIS，不再使用 `all`。`externalBin` 注册 Python Sidecar 和 Agent Host，`resources` 注册 Chromium 与必须的静态资源。安装包命名统一为：
+基础 `tauri.conf.json` 保持开发态配置，不要求干净克隆预先存在发布二进制。单独增加 Release 配置覆盖层，仅在 `pnpm release` 中启用 NSIS、两个 external binaries、Chromium 和插件 resources，避免普通 `tauri dev`、`cargo check` 被尚未生成的发布产物阻塞。Release 配置的 `bundle.targets` 仅启用 NSIS，不使用 `all`。安装包命名统一为：
 
 ```text
 TypeDance_<version>_x64-setup.exe
@@ -159,7 +159,7 @@ Release 安装包不得包含构建机器的模型凭据。规则如下：
 5. 构建 Agent Host 单文件；
 6. 构建 Python Sidecar 单文件；
 7. 准备固定版本 Chromium；
-8. 调用 Tauri 生成 NSIS 安装包；
+8. 使用 Release 配置覆盖层调用 Tauri 生成 NSIS 安装包；
 9. 将最终产物复制到 `artifacts/release/windows-x64/`；
 10. 生成 SHA-256 文件；
 11. 执行产物内容和安装冒烟检查；
