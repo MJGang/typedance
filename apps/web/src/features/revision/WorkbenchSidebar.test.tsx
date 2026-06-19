@@ -110,6 +110,7 @@ describe("WorkbenchSidebar", () => {
     expect(screen.queryByRole("button", { name: "返回工作区列表" })).not.toBeInTheDocument()
     const sidebar = screen.getAllByRole("button", { name: "新对话" })[0].closest("aside")
     expect(sidebar).not.toHaveClass("border-y", "border-t", "border-b")
+    expect(sidebar).not.toHaveClass("border-r")
     expect(screen.getByRole("button", { name: "设置" }).parentElement).not.toHaveClass("border-t")
   })
 

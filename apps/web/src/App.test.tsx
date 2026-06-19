@@ -88,6 +88,23 @@ describe("App", () => {
     expect(document.querySelector('[data-slot="sidebar-container"]')).toHaveClass("!top-9", "!bottom-0", "!h-auto")
   })
 
+  it("frames the full site content instead of drawing the divider on the navigation", () => {
+    renderSiteLayoutAt("/packs/resume/workspaces")
+
+    const sidebarContainer = document.querySelector('[data-slot="sidebar-container"]')
+    const contentInset = document.querySelector('[data-slot="sidebar-inset"]')
+
+    expect(sidebarContainer).toHaveClass("!border-r-0")
+    expect(contentInset).toHaveClass(
+      "mt-9",
+      "h-[calc(100svh-2.25rem)]",
+      "rounded-l-xl",
+      "border",
+      "border-border",
+    )
+    expect(contentInset).not.toHaveClass("pt-9")
+  })
+
   it("uses the route-level workbench shell on workspace pages", () => {
     renderSiteLayoutAt("/packs/resume/workspaces/doc_1")
 

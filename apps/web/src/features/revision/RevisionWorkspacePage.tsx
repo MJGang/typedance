@@ -506,7 +506,7 @@ export function RevisionWorkspacePage() {
       <main
         data-testid="revision-workspace-grid"
         className={cn(
-          "relative grid min-h-0 min-w-0 flex-1 overflow-hidden bg-sidebar",
+          "relative grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-l-xl border border-border bg-background",
           assistantPanelVisible
             ? "grid-cols-[minmax(48rem,1fr)_24rem]"
             : "grid-cols-[minmax(0,1fr)]",
@@ -515,10 +515,7 @@ export function RevisionWorkspacePage() {
         <section data-testid="revision-draft-column" className="flex min-h-0 min-w-0 flex-col overflow-hidden">
           <div
             data-testid="revision-workspace-titlebar"
-            className={cn(
-              "flex h-12 shrink-0 items-center border-b border-border bg-background px-3",
-              workbenchSidebarVisible && "rounded-l-xl",
-            )}
+            className="flex h-12 shrink-0 items-center border-b border-border bg-background px-3"
           >
             <div className="flex min-w-0 items-center gap-1">
               <h1 className="truncate text-sm font-semibold">{workspace.document.title}</h1>
