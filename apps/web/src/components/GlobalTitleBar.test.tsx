@@ -73,7 +73,7 @@ describe("GlobalTitleBar", () => {
     expect(screen.getByRole("button", { name: "显示左侧导航" })).toContainElement(dot)
   })
 
-  it("blends into the workbench sidebar without a horizontal divider", () => {
+  it("blends into the left sidebar without a horizontal divider on every app route", () => {
     renderTitleBar()
 
     expect(screen.getByTestId("global-titlebar")).toHaveClass("bg-sidebar")
@@ -81,7 +81,8 @@ describe("GlobalTitleBar", () => {
 
     cleanup()
     renderTitleBar({ isWorkbenchRoute: false })
-    expect(screen.getByTestId("global-titlebar")).toHaveClass("border-b", "bg-background")
+    expect(screen.getByTestId("global-titlebar")).toHaveClass("bg-sidebar")
+    expect(screen.getByTestId("global-titlebar")).not.toHaveClass("border-b")
   })
 
   it("controls the workbench sidebar, theme, drag region, and desktop window", () => {
