@@ -107,6 +107,9 @@ describe("WorkbenchSidebar", () => {
     expect(screen.queryByRole("button", { name: "工作区操作" })).not.toBeInTheDocument()
     expect(screen.queryByTestId("revision-workspace-title-button")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "返回工作区列表" })).not.toBeInTheDocument()
+    const sidebar = screen.getAllByRole("button", { name: "新对话" })[0].closest("aside")
+    expect(sidebar).not.toHaveClass("border-y", "border-t", "border-b")
+    expect(screen.getByRole("button", { name: "设置" }).parentElement).not.toHaveClass("border-t")
   })
 
   it("starts a local draft from both conversation actions without creating a conversation", async () => {
@@ -353,6 +356,7 @@ describe("WorkbenchSidebar", () => {
     const row = (await screen.findByRole("button", { name: "已置顶对话" })).closest("[data-conversation-row]")
     expect(row).not.toBeNull()
     expect(row!.querySelector('[data-pinned="true"]')).toHaveAttribute("fill", "currentColor")
+    expect(row!.querySelector('[data-pinned="true"]')).toHaveClass("size-3")
 
     fireEvent.keyDown(screen.getByRole("button", { name: "已置顶对话操作" }), { key: "Enter" })
     const cancelPinItem = await screen.findByRole("menuitem", { name: "取消置顶对话" })

@@ -161,6 +161,7 @@ describe("AgentChatPanel", () => {
     )
 
     await screen.findByRole("textbox")
+    expect(screen.getByTestId("agent-chat-composer-region")).not.toHaveClass("border-t")
     expect(screen.queryByText("未选择对话")).not.toBeInTheDocument()
     expect(screen.queryByText("新建或选择会话")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "对话操作" })).not.toBeInTheDocument()

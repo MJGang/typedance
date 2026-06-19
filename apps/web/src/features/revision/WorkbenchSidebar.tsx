@@ -314,7 +314,7 @@ export function WorkbenchSidebar({
         </section>
       </div>
 
-      <div className="border-t border-sidebar-border p-2">
+      <div className="p-2">
         <SidebarAction icon={Settings} label="设置" onClick={() => setAiSettingsOpen(true)} />
       </div>
 
@@ -732,7 +732,7 @@ function ConversationRow({
       </button>
       <div className="ml-auto flex shrink-0 items-center gap-1 text-muted-foreground">
         {conversation.status === "running" ? <Loader2 className="size-3.5 animate-spin" /> : null}
-        {conversation.pinned ? <Pin data-pinned="true" fill="currentColor" /> : null}
+        {conversation.pinned ? <Pin data-pinned="true" className="size-3" fill="currentColor" /> : null}
         <span data-testid="conversation-time" className="ml-auto text-xs group-hover:hidden">
           {conversation.last_message_at ? relativeTime(conversation.last_message_at) : ""}
         </span>

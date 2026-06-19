@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { BrowserRouter } from "react-router-dom"
 import { SidebarProvider } from "@/components/ui/sidebar"
@@ -71,6 +71,17 @@ describe("GlobalTitleBar", () => {
     const dot = screen.getByTestId("site-left-sidebar-hidden-dot")
     expect(dot).toHaveClass("bg-sky-500", "rounded-full")
     expect(screen.getByRole("button", { name: "显示左侧导航" })).toContainElement(dot)
+  })
+
+  it("blends into the workbench sidebar without a horizontal divider", () => {
+    renderTitleBar()
+
+    expect(screen.getByTestId("global-titlebar")).toHaveClass("bg-sidebar")
+    expect(screen.getByTestId("global-titlebar")).not.toHaveClass("border-b")
+
+    cleanup()
+    renderTitleBar({ isWorkbenchRoute: false })
+    expect(screen.getByTestId("global-titlebar")).toHaveClass("border-b", "bg-background")
   })
 
   it("controls the workbench sidebar, theme, drag region, and desktop window", () => {

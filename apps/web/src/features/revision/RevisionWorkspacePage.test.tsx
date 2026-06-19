@@ -590,6 +590,7 @@ describe("RevisionWorkspacePage", () => {
     renderPage()
 
     const titlebar = await screen.findByTestId("revision-workspace-titlebar")
+    expect(titlebar).toHaveClass("rounded-l-xl")
     expect(within(titlebar).getByText("旧简历重构1")).toBeInTheDocument()
     expect(within(titlebar).getByRole("button", { name: "重命名工作区" })).toBeInTheDocument()
     expect(within(titlebar).queryByRole("button", { name: "工作区操作" })).not.toBeInTheDocument()
