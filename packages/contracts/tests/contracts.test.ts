@@ -8,6 +8,8 @@ import {
   evidenceLinkSchema,
   exportArtifactSchema,
   languageSchema,
+  modelSettingsResponseSchema,
+  modelSettingsUpdateSchema,
   parsedBlockSchema,
   renderProjectionSchema,
   resumePackDefinition,
@@ -27,6 +29,39 @@ describe("shared schemas", () => {
     expect(languageSchema.parse("zh-CN")).toBe("zh-CN");
     expect(languageSchema.parse("en-US")).toBe("en-US");
     expect(() => languageSchema.parse("fr-FR")).toThrow();
+  });
+});
+
+describe("model settings schemas", () => {
+  it("validates redacted Agent Host settings without exposing a secret value", () => {
+    const parsed = modelSettingsResponseSchema.parse({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      base_url: "https://api.deepseek.com",
+      api_key: { configured: true, preview: "...a9f2" },
+    });
+
+    expect(parsed.api_key.preview).toBe("...a9f2");
+    expect(() =>
+      modelSettingsResponseSchema.parse({
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        base_url: "https://api.deepseek.com",
+        api_key: { configured: true, preview: "...a9f2", value: "sk-secret" },
+      })
+    ).toThrow();
+  });
+
+  it("accepts an update without requiring a replacement API key", () => {
+    expect(
+      modelSettingsUpdateSchema.parse({
+        model: "deepseek-v4-flash",
+        base_url: "https://api.deepseek.com",
+      })
+    ).toEqual({
+      model: "deepseek-v4-flash",
+      base_url: "https://api.deepseek.com",
+    });
   });
 });
 describe("resumeVersionSchema", () => {
