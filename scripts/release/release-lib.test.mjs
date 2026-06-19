@@ -75,6 +75,18 @@ test("release Tauri config bundles only NSIS runtime inputs", () => {
   assert.deepEqual(findForbiddenReleasePaths(Object.keys(config.bundle.resources)), [])
 })
 
+test("release desktop uses the Windows GUI subsystem", () => {
+  const main = readFileSync(
+    resolve(repositoryRoot, "apps/desktop/src-tauri/src/main.rs"),
+    "utf8",
+  )
+
+  assert.match(
+    main,
+    /#!\[cfg_attr\(not\(debug_assertions\), windows_subsystem = "windows"\)\]/,
+  )
+})
+
 test("JavaScript and Rust Tauri runtimes stay on the same release line", () => {
   const desktopPackage = JSON.parse(readFileSync(
     resolve(repositoryRoot, "apps/desktop/package.json"),
@@ -113,6 +125,17 @@ test("root release commands use the checked-in PowerShell pipeline", () => {
   assert.match(releaseScript, /--bundles", "nsis"/)
   assert.match(releaseScript, /Assert-NoForbiddenReleaseInputs/)
   assert.doesNotMatch(releaseScript, /Get-Content[^\r\n]*\.env/i)
+})
+
+test("release runtime smoke checks the GUI subsystem and packaged Tauri CORS", () => {
+  const smokeScript = readFileSync(
+    resolve(repositoryRoot, "scripts/release/smoke-release-runtime.ps1"),
+    "utf8",
+  )
+
+  assert.match(smokeScript, /Get-WindowsExecutableSubsystem/)
+  assert.match(smokeScript, /http:\/\/tauri\.localhost/)
+  assert.match(smokeScript, /Access-Control-Allow-Origin/)
 })
 
 test("tag workflow builds through pnpm release without application secrets", () => {
