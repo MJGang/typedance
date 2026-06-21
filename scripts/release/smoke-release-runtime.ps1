@@ -122,15 +122,28 @@ try {
         try {
             $sidecar = Invoke-RestMethod "http://127.0.0.1:4317/health" -TimeoutSec 1
             $agentHost = Invoke-RestMethod "http://127.0.0.1:4327/health" -TimeoutSec 1
+            $agentPreflight = Invoke-WebRequest `
+                "http://127.0.0.1:4327/settings/model" `
+                -Method Options `
+                -Headers @{
+                    Origin = $tauriOrigin
+                    "Access-Control-Request-Method" = "PUT"
+                    "Access-Control-Request-Headers" = "content-type"
+                } `
+                -UseBasicParsing `
+                -TimeoutSec 1
             $documents = Invoke-WebRequest `
                 "http://127.0.0.1:4317/documents" `
                 -Headers @{ Origin = $tauriOrigin } `
                 -UseBasicParsing `
                 -TimeoutSec 1
             $allowedOrigin = [string]$documents.Headers["Access-Control-Allow-Origin"]
+            $agentMethods = @([string]$agentPreflight.Headers["Access-Control-Allow-Methods"] -split ",")
             if (
                 $sidecar.status -eq "ok" -and
                 $agentHost.status -eq "ok" -and
+                $agentPreflight.StatusCode -eq 204 -and
+                $agentMethods.Trim() -contains "PUT" -and
                 $documents.StatusCode -eq 200 -and
                 $allowedOrigin -eq $tauriOrigin
             ) {

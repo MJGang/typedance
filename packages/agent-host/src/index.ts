@@ -879,7 +879,7 @@ function formatSseEvent(event: HarnessRunEvent): string {
 
 function setCorsHeaders(response: ServerResponse): void {
   response.setHeader("access-control-allow-origin", "*");
-  response.setHeader("access-control-allow-methods", "GET,POST,PATCH,DELETE,OPTIONS");
+  response.setHeader("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
   response.setHeader("access-control-allow-headers", "content-type");
 }
 

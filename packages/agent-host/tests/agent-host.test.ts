@@ -16,6 +16,37 @@ afterEach(async () => {
 });
 
 describe("agent host", () => {
+  it("allows CORS preflight for every routed HTTP method", async () => {
+    const runtime = createHarnessRuntime({
+      model: {
+        stream: async function* () {
+          yield { type: "final", output: {} };
+        },
+      },
+    });
+    const host = createAgentHost({ runtime, packs: [] });
+    const server = createAgentHostServer({ host });
+    servers.push(server);
+    server.listen(0, "127.0.0.1");
+    await once(server.nodeServer, "listening");
+
+    for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE"]) {
+      const response = await fetch(`${server.url}/settings/model`, {
+        method: "OPTIONS",
+        headers: {
+          origin: "http://tauri.localhost",
+          "access-control-request-method": method,
+          "access-control-request-headers": "content-type",
+        },
+      });
+
+      expect(response.status).toBe(204);
+      expect(response.headers.get("access-control-allow-origin")).toBe("*");
+      expect(response.headers.get("access-control-allow-methods")?.split(",")).toContain(method);
+      expect(response.headers.get("access-control-allow-headers")?.split(",")).toContain("content-type");
+    }
+  });
+
   it("serves health and redacted model settings", async () => {
     const runtime = createHarnessRuntime({
       model: {

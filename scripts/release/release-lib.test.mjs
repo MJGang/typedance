@@ -142,6 +142,8 @@ test("release runtime smoke checks the GUI subsystem and packaged Tauri CORS", (
   assert.match(smokeScript, /MultipartFormDataContent/)
   assert.match(smokeScript, /source_resume_canvas/)
   assert.match(smokeScript, /StatusCode[^\r\n]*Created/)
+  assert.match(smokeScript, /4327\/settings\/model/)
+  assert.match(smokeScript, /Access-Control-Request-Method[^\r\n]*PUT/)
 })
 
 test("tag workflow builds through pnpm release without application secrets", () => {
