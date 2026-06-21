@@ -6,6 +6,9 @@ from typedance_sidecar.cli import main
 
 
 def test_cli_sets_release_paths_before_starting_uvicorn(tmp_path, monkeypatch):
+    monkeypatch.setenv("TYPEDANCE_DATA_DIR", "test-sentinel")
+    monkeypatch.setenv("TYPEDANCE_CHROMIUM_PATH", "test-sentinel")
+    monkeypatch.setenv("TYPEDANCE_MARKDOWN_CONVERTER_PATH", "test-sentinel")
     run = Mock()
     configure_logging = Mock()
     monkeypatch.setattr("typedance_sidecar.cli.uvicorn.run", run)

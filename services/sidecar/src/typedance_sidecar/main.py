@@ -9,8 +9,16 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from starlette.types import ASGIApp
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_ORIGINS = [
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+    "http://tauri.localhost",
+]
+EXPOSED_HEADERS = ["X-Pdf-Path", "X-Html-Path", "X-Export-Artifact-Id"]
 
 from .db import ResumeRepository, TemplateSampleRepository, TemplateStyleRepository, connect
 from .models import (
@@ -32,19 +40,18 @@ async def lifespan(app: FastAPI):
     cleanup_browser()
 
 
+def with_cors(application: ASGIApp) -> CORSMiddleware:
+    return CORSMiddleware(
+        application,
+        allow_origins=ALLOWED_ORIGINS,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=EXPOSED_HEADERS,
+    )
+
+
 app = FastAPI(title="TypeDance Sidecar", version="0.1.0", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:5173",
-        "http://localhost:5173",
-        "http://tauri.localhost",
-    ],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["X-Pdf-Path", "X-Html-Path", "X-Export-Artifact-Id"],
-)
 
 
 def app_data_dir() -> Path:
@@ -325,3 +332,6 @@ def export_html(
         content_disposition_type="attachment",
         headers={"X-Html-Path": path_header_value(html_path)},
     )
+
+
+app = with_cors(app)
