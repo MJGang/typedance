@@ -77,6 +77,7 @@ if (-not $SkipTests) {
 }
 Invoke-Checked "corepack" @("pnpm", "build")
 Invoke-Checked "node" @("scripts/release/build-agent-host.mjs")
+Invoke-Checked "node" @("scripts/release/build-markdown-converter.mjs")
 Invoke-Checked "powershell" @(
     "-NoProfile", "-ExecutionPolicy", "Bypass",
     "-File", "scripts/release/build-sidecar.ps1"

@@ -16,25 +16,29 @@ function fail(message) {
   process.exitCode = 1
 }
 
-try {
-  const body = await readStdin()
-  const payload = body.trim() ? JSON.parse(body) : {}
+async function main() {
+  try {
+    const body = await readStdin()
+    const payload = body.trim() ? JSON.parse(body) : {}
 
-  if (typeof payload.markdown === "string") {
-    stdout.write(`${JSON.stringify({ docJson: markdownToResumeDocJson(payload.markdown) })}\n`)
-  } else if (Array.isArray(payload.blocks)) {
-    stdout.write(`${JSON.stringify({
-      blocks: payload.blocks.map((block) => ({
-        id: block.id,
-        nodes: markdownBlockToResumeDocNodes(block.text ?? "", {
-          fallbackType: block.fallbackType,
-          attrs: block.attrs,
-        }),
-      })),
-    })}\n`)
-  } else {
-    fail("Expected JSON payload with markdown or blocks")
+    if (typeof payload.markdown === "string") {
+      stdout.write(`${JSON.stringify({ docJson: markdownToResumeDocJson(payload.markdown) })}\n`)
+    } else if (Array.isArray(payload.blocks)) {
+      stdout.write(`${JSON.stringify({
+        blocks: payload.blocks.map((block) => ({
+          id: block.id,
+          nodes: markdownBlockToResumeDocNodes(block.text ?? "", {
+            fallbackType: block.fallbackType,
+            attrs: block.attrs,
+          }),
+        })),
+      })}\n`)
+    } else {
+      fail("Expected JSON payload with markdown or blocks")
+    }
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error))
   }
-} catch (error) {
-  fail(error instanceof Error ? error.message : String(error))
 }
+
+void main()

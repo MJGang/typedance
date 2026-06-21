@@ -21,6 +21,7 @@ pub(crate) struct ReleasePaths {
     pub(crate) data_dir: PathBuf,
     pub(crate) browser_path: PathBuf,
     pub(crate) plugin_root: PathBuf,
+    pub(crate) markdown_converter_path: PathBuf,
 }
 
 #[derive(Deserialize)]
@@ -59,6 +60,7 @@ pub(crate) fn resolve_release_paths(
             .join("ms-playwright")
             .join(relative_browser_path),
         plugin_root: resource_dir.join("plugins"),
+        markdown_converter_path: resource_dir.join("typedance-markdown-converter.exe"),
     })
 }
 
@@ -211,6 +213,12 @@ pub(crate) fn start_release_services(app: &AppHandle) -> Result<ManagedProcesses
             plugin_manifest.display()
         ));
     }
+    if !paths.markdown_converter_path.is_file() {
+        return Err(format!(
+            "Bundled Markdown converter is missing: {}",
+            paths.markdown_converter_path.display()
+        ));
+    }
 
     let processes = ManagedProcesses {
         shutdown_log: paths.data_dir.join("logs").join("shutdown.log"),
@@ -227,6 +235,8 @@ pub(crate) fn start_release_services(app: &AppHandle) -> Result<ManagedProcesses
         paths.data_dir.clone().into_os_string(),
         OsString::from("--browser-path"),
         paths.browser_path.clone().into_os_string(),
+        OsString::from("--markdown-converter-path"),
+        paths.markdown_converter_path.clone().into_os_string(),
     ];
     let (sidecar_events, sidecar) = app
         .shell()
@@ -432,6 +442,10 @@ mod tests {
         assert_eq!(
             paths.plugin_root,
             Path::new(r"C:\Program Files\TypeDance\resources\plugins")
+        );
+        assert_eq!(
+            paths.markdown_converter_path,
+            Path::new(r"C:\Program Files\TypeDance\resources\typedance-markdown-converter.exe")
         );
         assert_eq!(
             paths.data_dir,

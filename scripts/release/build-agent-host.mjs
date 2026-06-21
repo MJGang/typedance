@@ -31,26 +31,22 @@ export function createSeaConfig(main, output) {
   }
 }
 
-export async function buildAgentHost() {
+export async function buildSeaBinary({ entryPoint, stagingName, binaryName, define = {} }) {
   assertBuildPlatform()
-  const stagingDirectory = join(repositoryRoot, "artifacts", "release", "staging", "agent-host")
-  const bundledEntry = join(stagingDirectory, "agent-host.cjs")
-  const blobPath = join(stagingDirectory, "agent-host.blob")
+  const stagingDirectory = join(repositoryRoot, "artifacts", "release", "staging", stagingName)
+  const bundledEntry = join(stagingDirectory, `${stagingName}.cjs`)
+  const blobPath = join(stagingDirectory, `${stagingName}.blob`)
   const seaConfigPath = join(stagingDirectory, "sea-config.json")
   const binaryDirectory = join(repositoryRoot, "apps", "desktop", "src-tauri", "binaries")
-  const binaryPath = join(binaryDirectory, `typedance-agent-host-${TARGET_TRIPLE}.exe`)
-  const pluginSource = join(repositoryRoot, "plugins", "resume")
-  const pluginTarget = join(repositoryRoot, "apps", "desktop", "src-tauri", "resources", "plugins", "resume")
+  const binaryPath = join(binaryDirectory, `${binaryName}-${TARGET_TRIPLE}.exe`)
 
   await rm(stagingDirectory, { recursive: true, force: true })
-  await rm(pluginTarget, { recursive: true, force: true })
   await mkdir(stagingDirectory, { recursive: true })
   await mkdir(binaryDirectory, { recursive: true })
-  await mkdir(dirname(pluginTarget), { recursive: true })
 
   const esbuild = await import("esbuild")
   await esbuild.build({
-    entryPoints: [join(repositoryRoot, "packages", "agent-host", "src", "cli.ts")],
+    entryPoints: [entryPoint],
     outfile: bundledEntry,
     bundle: true,
     platform: "node",
@@ -59,9 +55,7 @@ export async function buildAgentHost() {
     sourcemap: false,
     minify: false,
     logLevel: "info",
-    define: {
-      "import.meta.url": JSON.stringify(pathToFileURL(join(repositoryRoot, "packages", "agent-host", "src", "resume-plugin.ts")).href),
-    },
+    define,
   })
 
   await writeFile(seaConfigPath, `${JSON.stringify(createSeaConfig(bundledEntry, blobPath), null, 2)}\n`, "utf8")
@@ -78,17 +72,35 @@ export async function buildAgentHost() {
     SENTINEL_FUSE,
   ])
 
+  const binarySize = (await stat(binaryPath)).size
+  if (binarySize < 10_000_000) {
+    throw new Error(`${binaryName} SEA binary is unexpectedly small: ${binarySize} bytes`)
+  }
+
+  return { binaryPath, binarySize }
+}
+
+export async function buildAgentHost() {
+  const { binaryPath, binarySize } = await buildSeaBinary({
+    entryPoint: join(repositoryRoot, "packages", "agent-host", "src", "cli.ts"),
+    stagingName: "agent-host",
+    binaryName: "typedance-agent-host",
+    define: {
+      "import.meta.url": JSON.stringify(pathToFileURL(join(repositoryRoot, "packages", "agent-host", "src", "resume-plugin.ts")).href),
+    },
+  })
+  const pluginSource = join(repositoryRoot, "plugins", "resume")
+  const pluginTarget = join(repositoryRoot, "apps", "desktop", "src-tauri", "resources", "plugins", "resume")
+
+  await rm(pluginTarget, { recursive: true, force: true })
+  await mkdir(dirname(pluginTarget), { recursive: true })
+
   await cp(pluginSource, pluginTarget, { recursive: true })
   const pluginFiles = await listRelativeFiles(pluginTarget)
   const forbidden = findForbiddenReleasePaths(pluginFiles)
   if (forbidden.length > 0) {
     throw new Error(`Forbidden Agent Host resources: ${forbidden.join(", ")}`)
   }
-  const binarySize = (await stat(binaryPath)).size
-  if (binarySize < 10_000_000) {
-    throw new Error(`Agent Host SEA binary is unexpectedly small: ${binarySize} bytes`)
-  }
-
   return { binaryPath, pluginTarget, binarySize }
 }
 

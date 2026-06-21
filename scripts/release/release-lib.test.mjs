@@ -65,6 +65,7 @@ test("release Tauri config bundles only NSIS runtime inputs", () => {
   assert.deepEqual(config.bundle.externalBin, [
     "binaries/typedance-sidecar",
     "binaries/typedance-agent-host",
+    "binaries/typedance-markdown-converter",
   ])
   assert.deepEqual(config.bundle.resources, {
     "resources/ms-playwright/": "ms-playwright/",
@@ -124,6 +125,7 @@ test("root release commands use the checked-in PowerShell pipeline", () => {
   assert.match(releaseScript, /tauri\.release\.conf\.json/)
   assert.match(releaseScript, /--bundles", "nsis"/)
   assert.match(releaseScript, /Assert-NoForbiddenReleaseInputs/)
+  assert.match(releaseScript, /build-markdown-converter\.mjs/)
   assert.doesNotMatch(releaseScript, /Get-Content[^\r\n]*\.env/i)
 })
 

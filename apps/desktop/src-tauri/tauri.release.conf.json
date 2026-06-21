@@ -17,7 +17,8 @@
     "targets": ["nsis"],
     "externalBin": [
       "binaries/typedance-sidecar",
-      "binaries/typedance-agent-host"
+      "binaries/typedance-agent-host",
+      "binaries/typedance-markdown-converter"
     ],
     "icon": ["icons/icon.ico"],
     "resources": {
