@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -31,7 +32,9 @@ class TiptapMarkdownDocJsonConverter:
         timeout_seconds: int = 15,
     ) -> None:
         self.node_executable = node_executable
-        self.cli_path = cli_path or _default_cli_path()
+        configured_converter = os.environ.get("TYPEDANCE_MARKDOWN_CONVERTER_PATH")
+        self.converter_executable = Path(configured_converter) if configured_converter else None
+        self.cli_path = None if self.converter_executable else (cli_path or _default_cli_path())
         self.timeout_seconds = timeout_seconds
 
     def convert_blocks(
@@ -67,19 +70,28 @@ class TiptapMarkdownDocJsonConverter:
         return doc_json
 
     def _run_cli(self, payload_value: dict[str, Any]) -> dict[str, Any]:
-        if not self.cli_path.exists():
-            raise MarkdownDocJsonError(f"Markdown converter CLI not found: {self.cli_path}")
+        if self.converter_executable:
+            if not self.converter_executable.is_file():
+                raise MarkdownDocJsonError(
+                    f"Packaged Markdown converter not found: {self.converter_executable}"
+                )
+            command = [str(self.converter_executable)]
+        else:
+            if self.cli_path is None or not self.cli_path.is_file():
+                raise MarkdownDocJsonError(f"Markdown converter CLI not found: {self.cli_path}")
+            command = [self.node_executable, str(self.cli_path)]
 
         payload = json.dumps(payload_value, ensure_ascii=False)
         try:
             completed = subprocess.run(
-                [self.node_executable, str(self.cli_path)],
+                command,
                 input=payload,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 check=False,
                 timeout=self.timeout_seconds,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except FileNotFoundError as exc:
             raise MarkdownDocJsonError(f"Node executable not found: {self.node_executable}") from exc

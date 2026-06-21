@@ -12,6 +12,7 @@ def test_cli_sets_release_paths_before_starting_uvicorn(tmp_path, monkeypatch):
     monkeypatch.setattr("typedance_sidecar.cli.configure_logging", configure_logging)
     data_dir = tmp_path / "data"
     browser_path = tmp_path / "chromium" / "chrome.exe"
+    converter_path = tmp_path / "typedance-markdown-converter.exe"
 
     main(
         [
@@ -21,11 +22,14 @@ def test_cli_sets_release_paths_before_starting_uvicorn(tmp_path, monkeypatch):
             str(data_dir),
             "--browser-path",
             str(browser_path),
+            "--markdown-converter-path",
+            str(converter_path),
         ]
     )
 
     assert Path(str(data_dir)) == Path(os.environ["TYPEDANCE_DATA_DIR"])
     assert Path(str(browser_path)) == Path(os.environ["TYPEDANCE_CHROMIUM_PATH"])
+    assert Path(str(converter_path)) == Path(os.environ["TYPEDANCE_MARKDOWN_CONVERTER_PATH"])
     configure_logging.assert_called_once_with(data_dir)
     run.assert_called_once_with(
         "typedance_sidecar.main:app",

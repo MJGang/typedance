@@ -25,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=4317)
     parser.add_argument("--data-dir", required=True)
     parser.add_argument("--browser-path", required=True)
+    parser.add_argument("--markdown-converter-path")
     return parser
 
 
@@ -32,6 +33,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     os.environ["TYPEDANCE_DATA_DIR"] = args.data_dir
     os.environ["TYPEDANCE_CHROMIUM_PATH"] = args.browser_path
+    if args.markdown_converter_path:
+        os.environ["TYPEDANCE_MARKDOWN_CONVERTER_PATH"] = args.markdown_converter_path
     configure_logging(Path(args.data_dir))
     uvicorn.run(
         "typedance_sidecar.main:app",
