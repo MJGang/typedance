@@ -85,6 +85,15 @@ describe("GlobalTitleBar", () => {
     expect(screen.getByTestId("global-titlebar")).not.toHaveClass("border-b")
   })
 
+  it("renders the close icon in white on destructive hover", () => {
+    renderTitleBar()
+
+    expect(screen.getByRole("button", { name: "关闭" })).toHaveClass(
+      "hover:bg-destructive",
+      "hover:text-white",
+    )
+  })
+
   it("controls the workbench sidebar, theme, drag region, and desktop window", () => {
     const setWorkbenchSidebarVisible = vi.fn()
     renderTitleBar({ setWorkbenchSidebarVisible })

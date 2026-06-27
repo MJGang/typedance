@@ -149,7 +149,7 @@ export function GlobalTitleBar({
           variant="ghost"
           aria-label="关闭"
           data-control-order="6"
-          className="h-full w-11 rounded-none hover:bg-destructive hover:text-destructive-foreground"
+          className="h-full w-11 rounded-none hover:bg-destructive hover:text-white"
           onClick={() => void closeDesktopWindow()}
         >
           <X data-icon="inline-start" />
