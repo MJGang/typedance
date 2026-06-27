@@ -373,7 +373,9 @@ describe("RevisionWorkspacePage", () => {
     renderPage()
 
     expect(screen.getByText("加载工作台")).toBeInTheDocument()
-    expect(await screen.findByTestId("revision-draft-panel")).toBeInTheDocument()
+    const draftPanel = await screen.findByTestId("revision-draft-panel")
+    expect(draftPanel).toHaveClass("overflow-x-auto", "overflow-y-hidden", "overscroll-x-contain")
+    expect(draftPanel).not.toHaveClass("overflow-hidden")
     expect(screen.getAllByText("旧简历重构1")).toHaveLength(1)
     expect(screen.queryByText("工作区")).not.toBeInTheDocument()
     expect(screen.queryByTestId("revision-workspace-header")).not.toBeInTheDocument()
@@ -385,6 +387,10 @@ describe("RevisionWorkspacePage", () => {
     expect(screen.queryByTestId("revision-review-panel")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "质量检查" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "岗位校准" })).not.toBeInTheDocument()
+    const workspaceGrid = screen.getByTestId("revision-workspace-grid")
+    expect(workspaceGrid).toHaveClass("grid-cols-[minmax(0,1fr)_24rem]")
+    expect(workspaceGrid).not.toHaveClass("grid-cols-[minmax(48rem,1fr)_24rem]")
+    expect(workspaceGrid).not.toHaveClass("rounded-l-xl", "border", "border-border")
 
     await waitFor(() => expect(apiMocks.listContextSources).toHaveBeenCalledWith("doc_1"))
     await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1"))
@@ -417,7 +423,7 @@ describe("RevisionWorkspacePage", () => {
     expect(showAssistantButton.querySelector('[data-icon-name="panel-right"]')).toBeInTheDocument()
     fireEvent.click(showAssistantButton)
     expect(await screen.findByRole("button", { name: "隐藏 AI 面板" })).toBeInTheDocument()
-    expect(workspaceGrid).toHaveClass("grid-cols-[minmax(48rem,1fr)_24rem]")
+    expect(workspaceGrid).toHaveClass("grid-cols-[minmax(0,1fr)_24rem]")
   })
 
   it("expands the assistant panel when selecting a conversation", async () => {
@@ -427,7 +433,7 @@ describe("RevisionWorkspacePage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "优化简历" }))
 
     expect(await screen.findByRole("button", { name: "隐藏 AI 面板" })).toBeInTheDocument()
-    expect(workspaceGrid).toHaveClass("grid-cols-[minmax(48rem,1fr)_24rem]")
+    expect(workspaceGrid).toHaveClass("grid-cols-[minmax(0,1fr)_24rem]")
     expect(screen.getAllByText("优化简历")).toHaveLength(2)
   })
 
@@ -591,7 +597,7 @@ describe("RevisionWorkspacePage", () => {
 
     const titlebar = await screen.findByTestId("revision-workspace-titlebar")
     expect(titlebar).not.toHaveClass("rounded-l-xl")
-    expect(screen.getByTestId("revision-workspace-grid")).toHaveClass("rounded-l-xl", "border", "border-border")
+    expect(screen.getByTestId("revision-workspace-grid")).not.toHaveClass("rounded-l-xl", "border", "border-border")
     expect(within(titlebar).getByText("旧简历重构1")).toBeInTheDocument()
     expect(within(titlebar).getByRole("button", { name: "重命名工作区" })).toBeInTheDocument()
     expect(within(titlebar).queryByRole("button", { name: "工作区操作" })).not.toBeInTheDocument()

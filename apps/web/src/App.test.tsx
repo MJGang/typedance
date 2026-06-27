@@ -88,21 +88,25 @@ describe("App", () => {
     expect(document.querySelector('[data-slot="sidebar-container"]')).toHaveClass("!top-9", "!bottom-0", "!h-auto")
   })
 
-  it("frames the full site content instead of drawing the divider on the navigation", () => {
+  it("frames the full site content as a rounded card with right and bottom spacing", () => {
     renderSiteLayoutAt("/packs/resume/workspaces")
 
+    const shell = document.querySelector('[data-slot="sidebar-wrapper"]')
     const sidebarContainer = document.querySelector('[data-slot="sidebar-container"]')
     const contentInset = document.querySelector('[data-slot="sidebar-inset"]')
 
+    expect(shell).toHaveClass("bg-sidebar")
     expect(sidebarContainer).toHaveClass("!border-r-0")
     expect(contentInset).toHaveClass(
       "mt-9",
-      "h-[calc(100svh-2.25rem)]",
-      "rounded-l-xl",
+      "mr-0.5",
+      "mb-0.5",
+      "h-[calc(100svh-2.25rem-2px)]",
+      "rounded-xl",
       "border",
       "border-border",
     )
-    expect(contentInset).not.toHaveClass("pt-9")
+    expect(contentInset).not.toHaveClass("pt-9", "rounded-l-xl")
   })
 
   it("uses the route-level workbench shell on workspace pages", () => {
@@ -123,6 +127,16 @@ describe("App", () => {
     expect(screen.getByTestId("global-titlebar")).toBeInTheDocument()
     expect(screen.queryByTestId("site-assistant-panel-toggle")).not.toBeInTheDocument()
     expect(document.querySelector('[data-slot="sidebar"]')).not.toBeInTheDocument()
+    expect(document.querySelector('[data-slot="sidebar-wrapper"]')).toHaveClass("bg-sidebar")
+    expect(document.querySelector('[data-slot="sidebar-inset"]')).toHaveClass(
+      "mt-9",
+      "mr-0.5",
+      "mb-0.5",
+      "h-[calc(100svh-2.25rem-2px)]",
+      "rounded-xl",
+      "border",
+      "border-border",
+    )
     expect(sidebarToggle).toHaveAttribute("aria-label", "隐藏左侧导航")
     expect(sidebarToggle).toHaveAttribute("aria-pressed", "true")
     expect(screen.getByTestId("workbench-sidebar-state")).toHaveTextContent("visible")

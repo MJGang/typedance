@@ -234,7 +234,10 @@ beforeEach(() => {
       const scrollTop = document.querySelector<HTMLElement>(".td-editor-print-wrapper")?.scrollTop ?? 0
       return rect({
         left: 80,
-        top: paginationTop + pageIndex * (paginationPageSize.height + 28) - scrollTop,
+        top: paginationTop
+          + (pageIndex + 1) * paginationPageSize.height
+          + pageIndex * 28
+          - scrollTop,
         ...paginationPageSize,
       })
     }
@@ -371,8 +374,13 @@ describe("DraftCanvas", () => {
 
     fireEvent.click(screen.getByTestId("source-page-navigator-page-3"))
 
-    expect(screen.getByTestId("mock-editor-print-wrapper")).toHaveProperty("scrollTop", 2286)
+    expect(screen.getByTestId("mock-editor-print-wrapper")).toHaveProperty("scrollTop", 2258)
     expect(screen.getByTestId("source-page-navigator-page-3")).toHaveAttribute("aria-current", "page")
+
+    fireEvent.click(screen.getByTestId("source-page-navigator-page-1"))
+
+    expect(screen.getByTestId("mock-editor-print-wrapper")).toHaveProperty("scrollTop", 0)
+    expect(screen.getByTestId("source-page-navigator-page-1")).toHaveAttribute("aria-current", "page")
   })
 
   it("updates page margins while dragging a guide without submitting editor content", async () => {

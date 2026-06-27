@@ -218,20 +218,22 @@ function getFirstPageBounds(root: HTMLElement): PageBounds | null {
 
 function getPageNavigationState(root: HTMLElement): PageNavigationState {
   const printWrapper = getEditorPrintWrapper(root)
-  const pageElements = Array.from(root.querySelectorAll<HTMLElement>(".rm-with-pagination .page"))
-  if (!printWrapper || pageElements.length === 0) {
+  const paginatedEditor = root.querySelector<HTMLElement>(".rm-with-pagination")
+  const pageBreakElements = Array.from(root.querySelectorAll<HTMLElement>(".rm-with-pagination .page"))
+  if (!printWrapper || !paginatedEditor || pageBreakElements.length === 0) {
     return { currentPageIndex: 0, pageTops: [] }
   }
 
   const wrapperRect = printWrapper.getBoundingClientRect()
-  const pageTops = pageElements
-    .map((pageElement) => (
-      printWrapper.scrollTop
-      + pageElement.getBoundingClientRect().top
-      - wrapperRect.top
-    ))
-    .filter((top) => Number.isFinite(top))
-    .sort((left, right) => left - right)
+  const toWrapperScrollTop = (element: HTMLElement) => (
+    printWrapper.scrollTop
+    + element.getBoundingClientRect().top
+    - wrapperRect.top
+  )
+  const pageTops = [
+    toWrapperScrollTop(paginatedEditor),
+    ...pageBreakElements.slice(0, -1).map(toWrapperScrollTop),
+  ].filter((top) => Number.isFinite(top))
 
   if (pageTops.length === 0) return { currentPageIndex: 0, pageTops: [] }
 

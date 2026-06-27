@@ -506,9 +506,9 @@ export function RevisionWorkspacePage() {
       <main
         data-testid="revision-workspace-grid"
         className={cn(
-          "relative grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-l-xl border border-border bg-background",
+          "relative grid min-h-0 min-w-0 flex-1 overflow-hidden bg-background",
           assistantPanelVisible
-            ? "grid-cols-[minmax(48rem,1fr)_24rem]"
+            ? "grid-cols-[minmax(0,1fr)_24rem]"
             : "grid-cols-[minmax(0,1fr)]",
         )}
       >
@@ -546,7 +546,7 @@ export function RevisionWorkspacePage() {
           <div
             ref={draftPanelRef}
             data-testid="revision-draft-panel"
-            className="td-source-resume-canvas-viewport min-h-0 min-w-0 flex-1 overflow-hidden bg-background px-0 pt-0"
+            className="td-source-resume-canvas-viewport min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden overscroll-x-contain bg-background px-0 pt-0"
           >
             <div className="h-full w-full min-w-[56rem] max-w-none">
               {sourceCanvas ? (
