@@ -506,7 +506,7 @@ export function RevisionWorkspacePage() {
       <main
         data-testid="revision-workspace-grid"
         className={cn(
-          "relative grid min-h-0 min-w-0 flex-1 overflow-hidden bg-background",
+          "relative mr-1 mb-1 grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-background",
           assistantPanelVisible
             ? "grid-cols-[minmax(0,1fr)_24rem]"
             : "grid-cols-[minmax(0,1fr)]",

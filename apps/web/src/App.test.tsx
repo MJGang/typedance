@@ -88,7 +88,7 @@ describe("App", () => {
     expect(document.querySelector('[data-slot="sidebar-container"]')).toHaveClass("!top-9", "!bottom-0", "!h-auto")
   })
 
-  it("frames the full site content as a rounded card with right and bottom spacing", () => {
+  it("frames the full site content as a rounded card with four-pixel right and bottom spacing", () => {
     renderSiteLayoutAt("/packs/resume/workspaces")
 
     const shell = document.querySelector('[data-slot="sidebar-wrapper"]')
@@ -99,9 +99,9 @@ describe("App", () => {
     expect(sidebarContainer).toHaveClass("!border-r-0")
     expect(contentInset).toHaveClass(
       "mt-9",
-      "mr-0.5",
-      "mb-0.5",
-      "h-[calc(100svh-2.25rem-2px)]",
+      "mr-1",
+      "mb-1",
+      "h-[calc(100svh-2.25rem-4px)]",
       "rounded-xl",
       "border",
       "border-border",
@@ -128,11 +128,12 @@ describe("App", () => {
     expect(screen.queryByTestId("site-assistant-panel-toggle")).not.toBeInTheDocument()
     expect(document.querySelector('[data-slot="sidebar"]')).not.toBeInTheDocument()
     expect(document.querySelector('[data-slot="sidebar-wrapper"]')).toHaveClass("bg-sidebar")
-    expect(document.querySelector('[data-slot="sidebar-inset"]')).toHaveClass(
+    const contentInset = document.querySelector('[data-slot="sidebar-inset"]')
+    expect(contentInset).toHaveClass("h-svh", "pt-9")
+    expect(contentInset).not.toHaveClass(
       "mt-9",
-      "mr-0.5",
-      "mb-0.5",
-      "h-[calc(100svh-2.25rem-2px)]",
+      "mr-1",
+      "mb-1",
       "rounded-xl",
       "border",
       "border-border",

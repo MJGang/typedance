@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 让所有页面共享四角圆角且带 2px 右/底留白的内容卡片，并让窄工作台中的左侧画布可以横向滚动。
+**Goal:** 让所有页面位于当前左侧导航右边的主内容区呈现为四角圆角且带 4px 右/底留白的内容卡片，并让窄工作台中的左侧画布可以横向滚动。
 
-**Architecture:** `SiteLayout` 统一拥有应用级内容卡片；`RevisionWorkspacePage` 只负责内部两列网格。横向滚动限制在 `revision-draft-panel`，保留编辑器内部纵向滚动和固定的 AI 面板。
+**Architecture:** 普通页面由 `SiteLayout` 的 `SidebarInset` 承担内容卡片；工作台左侧导航位于 `SidebarInset` 内部，因此由导航之后的 `revision-workspace-grid` 承担同一视觉规则。横向滚动限制在 `revision-draft-panel`，保留编辑器内部纵向滚动和固定的 AI 面板。
 
 **Tech Stack:** React 19、TypeScript、Tailwind CSS、Vitest、Testing Library、Playwright CLI
 
@@ -20,21 +20,21 @@
 
 - [ ] **Step 1: 编写失败测试**
 
-在普通路由和工作台路由上断言 `SidebarInset` 同时拥有：
+在普通路由上断言 `SidebarInset` 拥有：
 
 ```tsx
 expect(contentInset).toHaveClass(
   "mt-9",
-  "mr-0.5",
-  "mb-0.5",
-  "h-[calc(100svh-2.25rem-2px)]",
+  "mr-1",
+  "mb-1",
+  "h-[calc(100svh-2.25rem-4px)]",
   "rounded-xl",
   "border",
   "border-border",
 )
 ```
 
-同时断言工作台 `revision-workspace-grid` 不再拥有 `rounded-l-xl` 和 `border`。
+在工作台路由上断言 `SidebarInset` 保持 `h-svh pt-9` 且不绘制卡片；同时断言 `revision-workspace-grid` 拥有 `mr-1 mb-1 rounded-xl border border-border`。
 
 - [ ] **Step 2: 运行 RED**
 
@@ -42,17 +42,17 @@ expect(contentInset).toHaveClass(
 corepack pnpm --filter @typedance/web exec vitest run src/App.test.tsx src/features/revision/RevisionWorkspacePage.test.tsx
 ```
 
-Expected: 现有工作台仍使用 `pt-9 h-svh`，页面网格仍持有边框，测试失败。
+Expected: 普通页面仍为 2px 间距，工作台卡片外框仍错误地包住左侧导航，测试失败。
 
 - [ ] **Step 3: 实施全局外壳**
 
-`SidebarProvider` 增加 `bg-sidebar`。`SidebarInset` 统一使用：
+`SidebarProvider` 保持 `bg-sidebar`。普通页面的 `SidebarInset` 使用：
 
 ```tsx
-className="mt-9 mr-0.5 mb-0.5 h-[calc(100svh-2.25rem-2px)] min-h-0 min-w-0 overflow-hidden rounded-xl border border-border"
+className="mt-9 mr-1 mb-1 h-[calc(100svh-2.25rem-4px)] min-h-0 min-w-0 overflow-hidden rounded-xl border border-border"
 ```
 
-移除 `RevisionWorkspacePage` 网格上的 `rounded-l-xl border border-border`。
+工作台 `SidebarInset` 使用 `h-svh pt-9`，并将 `mr-1 mb-1 rounded-xl border border-border` 放到 `RevisionWorkspacePage` 网格上。
 
 - [ ] **Step 4: 运行 GREEN**
 
@@ -115,7 +115,7 @@ Expected: 构建成功，仅允许已有 chunk-size warning。
 
 - [ ] **Step 3: 浏览器验证**
 
-在 1080px 视口检查卡片右/底各 2px、全圆角、画布 `scrollWidth > clientWidth`、`overflow-x: auto`，并确认改变画布 `scrollLeft` 不改变 AI 面板边界。
+在 1080px 视口检查卡片右/底各 4px、全圆角、卡片左边界位于工作台左侧导航之后、画布 `scrollWidth > clientWidth`、`overflow-x: auto`，并确认改变画布 `scrollLeft` 不改变 AI 面板边界。
 
 - [ ] **Step 4: 提交限定文件**
 

@@ -390,7 +390,14 @@ describe("RevisionWorkspacePage", () => {
     const workspaceGrid = screen.getByTestId("revision-workspace-grid")
     expect(workspaceGrid).toHaveClass("grid-cols-[minmax(0,1fr)_24rem]")
     expect(workspaceGrid).not.toHaveClass("grid-cols-[minmax(48rem,1fr)_24rem]")
-    expect(workspaceGrid).not.toHaveClass("rounded-l-xl", "border", "border-border")
+    expect(workspaceGrid).toHaveClass(
+      "mr-1",
+      "mb-1",
+      "rounded-xl",
+      "border",
+      "border-border",
+    )
+    expect(workspaceGrid).not.toHaveClass("rounded-l-xl")
 
     await waitFor(() => expect(apiMocks.listContextSources).toHaveBeenCalledWith("doc_1"))
     await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1"))
