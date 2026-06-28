@@ -12,6 +12,7 @@ import {
   exportRevisionDocumentHtml,
   exportRevisionDocumentPdf,
   getRevisionWorkspaceView,
+  listTemplateStyles,
   updateRevisionDocument,
 } from "@/api"
 import { updateWorkspaceConversation } from "@/agentHost"
@@ -26,7 +27,8 @@ import {
   resolvePanelLayout,
   savePanelWidths,
 } from "./panelLayout"
-import { defaultClassicA4Style } from "../templates/data"
+import { ThemeSelector } from "../templates/components/style-panel/ThemeSelector"
+import { buildTemplateThemes, type TemplateTheme } from "../templates/theme-options"
 import { useSourceCanvasAutosave } from "./useSourceCanvasAutosave"
 import { WorkbenchSidebar } from "./WorkbenchSidebar"
 import type { RevisionWorkspaceChromeContext } from "@/components/SiteLayout"
@@ -34,7 +36,7 @@ import type { AgentConversation, AgentRunEvent, ContextSource, SourceResumeCanva
 
 type LoadState =
   | { status: "loading" }
-  | { status: "loaded"; workspace: WorkspaceView }
+  | { status: "loaded"; workspace: WorkspaceView; themes: TemplateTheme[] }
   | { status: "error"; message: string }
 
 type RevisionExportFormat = "pdf" | "html"
@@ -80,6 +82,17 @@ function mergeLatestSavedCanvas(workspace: WorkspaceView, latestSavedCanvas: Sou
   }
 }
 
+async function fetchWorkspaceData(documentId: string) {
+  const [workspace, savedStyles] = await Promise.all([
+    getRevisionWorkspaceView(documentId),
+    listTemplateStyles(),
+  ])
+  return {
+    workspace,
+    themes: buildTemplateThemes(savedStyles, "zh-CN"),
+  }
+}
+
 export function RevisionWorkspacePage() {
   const { documentId } = useParams<{ documentId: string }>()
   const chromeContext = useOutletContext<Partial<RevisionWorkspaceChromeContext> | undefined>()
@@ -89,6 +102,7 @@ export function RevisionWorkspacePage() {
   const [state, setState] = useState<LoadState>({ status: "loading" })
   const [exportingFormat, setExportingFormat] = useState<RevisionExportFormat | null>(null)
   const [sourceCanvasPageMargins, setSourceCanvasPageMargins] = useState<PageMargins | null>(null)
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false)
   const [renameDialogOpen, setRenameDialogOpen] = useState(false)
   const [titleDraft, setTitleDraft] = useState("")
   const [titleSaveError, setTitleSaveError] = useState<string | null>(null)
@@ -109,6 +123,7 @@ export function RevisionWorkspacePage() {
   const latestSavedCanvasRef = useRef<SourceResumeCanvas | null>(null)
   const loadRequestEpochRef = useRef(0)
   const renameRequestEpochRef = useRef(0)
+  const templateSaveRequestEpochRef = useRef(0)
   const draftPanelRef = useRef<HTMLDivElement>(null)
   const workspaceLayoutRef = useRef<HTMLDivElement>(null)
   const titleSaveInFlightRef = useRef(false)
@@ -120,16 +135,19 @@ export function RevisionWorkspacePage() {
       mountedRef.current = false
       loadRequestEpochRef.current += 1
       renameRequestEpochRef.current += 1
+      templateSaveRequestEpochRef.current += 1
     }
   }, [])
 
   useEffect(() => {
     renameRequestEpochRef.current += 1
     titleSaveInFlightRef.current = false
+    templateSaveRequestEpochRef.current += 1
     setRenameDialogOpen(false)
     setTitleDraft("")
     setTitleSaveError(null)
     setIsSavingTitle(false)
+    setIsSavingTemplate(false)
   }, [documentId])
 
   const handleSavedCanvas = useCallback((savedCanvas: SourceResumeCanvas) => {
@@ -140,7 +158,7 @@ export function RevisionWorkspacePage() {
         return currentState
       }
       return {
-        status: "loaded",
+        ...currentState,
         workspace: {
           ...currentState.workspace,
           source_resume_canvas: savedCanvas,
@@ -266,13 +284,17 @@ export function RevisionWorkspacePage() {
 
     setState((currentState) => currentState.status === "loaded" ? currentState : { status: "loading" })
     try {
-      const workspace = await getRevisionWorkspaceView(capturedDocumentId)
+      const { workspace, themes } = await fetchWorkspaceData(capturedDocumentId)
       if (
         !mountedRef.current
         || requestEpoch !== loadRequestEpochRef.current
         || currentDocumentIdRef.current !== capturedDocumentId
       ) return
-      setState({ status: "loaded", workspace: mergeLatestSavedCanvas(workspace, latestSavedCanvasRef.current) })
+      setState({
+        status: "loaded",
+        workspace: mergeLatestSavedCanvas(workspace, latestSavedCanvasRef.current),
+        themes,
+      })
     } catch {
       if (
         !mountedRef.current
@@ -300,13 +322,17 @@ export function RevisionWorkspacePage() {
         || currentDocumentIdRef.current !== capturedDocumentId
       ) return
       try {
-        const workspace = await getRevisionWorkspaceView(capturedDocumentId)
+        const { workspace, themes } = await fetchWorkspaceData(capturedDocumentId)
         if (
           mountedRef.current
           && requestEpoch === loadRequestEpochRef.current
           && currentDocumentIdRef.current === capturedDocumentId
         ) {
-          setState({ status: "loaded", workspace: mergeLatestSavedCanvas(workspace, latestSavedCanvasRef.current) })
+          setState({
+            status: "loaded",
+            workspace: mergeLatestSavedCanvas(workspace, latestSavedCanvasRef.current),
+            themes,
+          })
         }
       } catch {
         if (
@@ -324,6 +350,57 @@ export function RevisionWorkspacePage() {
   }, [documentId, flushCanvasSaves])
 
   const workspace = state.status === "loaded" && state.workspace.document.id === documentId ? state.workspace : null
+  const themes = state.status === "loaded" && state.workspace.document.id === documentId ? state.themes : []
+  const selectedTheme = workspace
+    ? themes.find((theme) => theme.id === workspace.document.template_id)
+    : undefined
+  const selectedTemplateStyle = selectedTheme?.styleConfig
+
+  const handleTemplateChange = useCallback(async (templateId: string) => {
+    if (
+      !workspace
+      || isSavingTemplate
+      || workspace.document.template_id === templateId
+      || !themes.some((theme) => theme.id === templateId)
+    ) return
+
+    const capturedDocumentId = workspace.document.id
+    const requestEpoch = ++templateSaveRequestEpochRef.current
+    const requestIsCurrent = () => (
+      mountedRef.current
+      && currentDocumentIdRef.current === capturedDocumentId
+      && templateSaveRequestEpochRef.current === requestEpoch
+    )
+
+    setIsSavingTemplate(true)
+    try {
+      const updatedDocument = await updateRevisionDocument(capturedDocumentId, {
+        template_id: templateId,
+      })
+      if (!requestIsCurrent() || updatedDocument.id !== capturedDocumentId) return
+      setState((currentState) => {
+        if (currentState.status !== "loaded" || currentState.workspace.document.id !== updatedDocument.id) {
+          return currentState
+        }
+        return {
+          ...currentState,
+          workspace: {
+            ...currentState.workspace,
+            document: updatedDocument,
+          },
+        }
+      })
+    } catch {
+      if (!requestIsCurrent()) return
+      toast.error("模板切换失败", {
+        description: "原模板已保留，请稍后重试",
+      })
+    } finally {
+      if (requestIsCurrent()) {
+        setIsSavingTemplate(false)
+      }
+    }
+  }, [isSavingTemplate, themes, workspace])
 
   useEffect(() => {
     const container = workspaceLayoutRef.current
@@ -343,14 +420,14 @@ export function RevisionWorkspacePage() {
     : undefined
 
   const handleExport = useCallback(async (format: RevisionExportFormat) => {
-    if (!workspace || !sourceCanvas || exportingFormat) return
+    if (!workspace || !sourceCanvas || !selectedTemplateStyle || exportingFormat) return
     setExportingFormat(format)
     try {
       const exportDocument = format === "pdf" ? exportRevisionDocumentPdf : exportRevisionDocumentHtml
       const result = await exportDocument(workspace.document.id, workspace.document.title, {
         docJson: sourceCanvas.doc_json as Record<string, unknown>,
         pageMargins: sourceCanvasPageMargins ?? DEFAULT_SOURCE_CANVAS_PAGE_MARGINS,
-        templateStyle: defaultClassicA4Style,
+        templateStyle: selectedTemplateStyle,
       })
       if (!result) return
       toast.success(`${format === "pdf" ? "PDF" : "HTML"} 导出成功`, {
@@ -365,7 +442,7 @@ export function RevisionWorkspacePage() {
     } finally {
       setExportingFormat(null)
     }
-  }, [exportingFormat, sourceCanvas, sourceCanvasPageMargins, workspace])
+  }, [exportingFormat, selectedTemplateStyle, sourceCanvas, sourceCanvasPageMargins, workspace])
 
   const openRenameDialog = useCallback(() => {
     if (!workspace || isSavingTitle) return
@@ -415,7 +492,7 @@ export function RevisionWorkspacePage() {
           return currentState
         }
         return {
-          status: "loaded",
+          ...currentState,
           workspace: {
             ...currentState.workspace,
             document: updatedDocument,
@@ -502,6 +579,18 @@ export function RevisionWorkspacePage() {
   }
 
   if (!workspace) return null
+  if (!selectedTheme || !selectedTemplateStyle) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center px-6">
+        <div className="max-w-sm text-center">
+          <AlertCircle className="mx-auto mb-3 h-5 w-5 text-destructive" />
+          <p role="alert" className="text-sm text-muted-foreground">
+            当前文档配置的模板不可用，请检查主题库。
+          </p>
+        </div>
+      </div>
+    )
+  }
   const panelLayout = resolvePanelLayout({
     containerWidth,
     leftVisible: workbenchSidebarVisible,
@@ -589,6 +678,13 @@ export function RevisionWorkspacePage() {
               </Button>
             </div>
             <div data-testid="revision-workspace-actions" className="ml-auto flex items-center gap-1">
+              <ThemeSelector
+                value={workspace.document.template_id}
+                options={themes}
+                onChange={(templateId) => void handleTemplateChange(templateId)}
+                disabled={isSavingTemplate}
+                ariaLabel="选择模板"
+              />
               {exportTitlebarAction}
               {!assistantPanelVisible ? (
                 <Tooltip>
@@ -622,7 +718,7 @@ export function RevisionWorkspacePage() {
                   onPageMarginsChange={setSourceCanvasPageMargins}
                   onRetrySave={retryCanvasSave}
                   saveStatus={canvasSaveStatus}
-                  templateStyle={defaultClassicA4Style}
+                  templateStyle={selectedTemplateStyle}
                 />
               ) : (
                 <div className="m-4 rounded-md border border-border bg-muted/30 p-4">

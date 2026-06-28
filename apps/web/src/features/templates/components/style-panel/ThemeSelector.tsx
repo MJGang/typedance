@@ -12,6 +12,7 @@ type ThemeSelectorProps = {
   options: ThemeSelectorOption[];
   onChange: (themeId: string) => void;
   disabled?: boolean;
+  ariaLabel?: string;
 };
 
 function ThemeOptionGroup({
@@ -35,7 +36,13 @@ function ThemeOptionGroup({
   );
 }
 
-export function ThemeSelector({ value, options, onChange, disabled = false }: ThemeSelectorProps) {
+export function ThemeSelector({
+  value,
+  options,
+  onChange,
+  disabled = false,
+  ariaLabel = "选择主题",
+}: ThemeSelectorProps) {
   const customThemes = options.filter((theme) => theme.source === "custom");
   const defaultThemes = options.filter((theme) => theme.source === "default");
 
@@ -43,7 +50,7 @@ export function ThemeSelector({ value, options, onChange, disabled = false }: Th
     <div className="flex items-center gap-2">
       <Paintbrush className="size-3.5 text-muted-foreground shrink-0" />
       <Select value={value} onValueChange={onChange} disabled={disabled}>
-        <SelectTrigger size="sm" className="w-40 justify-between text-xs" aria-label="选择主题">
+        <SelectTrigger size="sm" className="w-40 justify-between text-xs" aria-label={ariaLabel}>
           <SelectValue placeholder="选择主题" />
         </SelectTrigger>
         <SelectContent className="min-w-48">

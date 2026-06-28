@@ -10,7 +10,7 @@ import { FilePlus2, Pencil, Plus, Trash2 } from "lucide-react"
 import { resumePackPaths } from "../../resume-pack/routes"
 import type { TargetLanguage, UiLanguage } from "../../workspace/types"
 import { builtInSamples, defaultClassicA4Style, templateRegistry } from "../data"
-import { buildTemplateThemes, isDefaultTemplateId } from "../theme-options"
+import { buildTemplateThemes, isDefaultTemplateId, type TemplateTheme } from "../theme-options"
 import type { TemplateSampleContent, TemplateStyleConfig } from "../types"
 import { TemplatePreview } from "./TemplatePreview"
 import { TemplateDetail, TemplateStatusText } from "./TemplateDetail"
@@ -214,7 +214,7 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
     }
   }, [savedStyles])
 
-  const handleRenameTheme = useCallback(async (theme: ThemeDetailItem, name: string) => {
+  const handleRenameTheme = useCallback(async (theme: TemplateTheme, name: string) => {
     if (theme.source !== "custom") return
     const nextName = name.trim() || theme.title
     const nextStyle: TemplateStyleConfig = {
@@ -235,7 +235,7 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
     }
   }, [])
 
-  const handleDeleteTheme = useCallback(async (theme: ThemeDetailItem) => {
+  const handleDeleteTheme = useCallback(async (theme: TemplateTheme) => {
     if (theme.source !== "custom") return
     if (!window.confirm(`删除「${theme.title}」？`)) return
 

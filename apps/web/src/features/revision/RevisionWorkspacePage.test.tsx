@@ -3,8 +3,9 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { useState, type ReactNode } from "react"
 import { MemoryRouter, Outlet, Route, Routes, useNavigate } from "react-router-dom"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
-import type { ContextSource, ContextSourceChild, WorkspaceView } from "@typedance/contracts"
+import type { ContextSource, ContextSourceChild, TemplateStyleConfig, WorkspaceView } from "@typedance/contracts"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { defaultClassicA4Style } from "../templates/data"
 import { RevisionWorkspacePage } from "./RevisionWorkspacePage"
 
 const apiMocks = vi.hoisted(() => ({
@@ -13,6 +14,7 @@ const apiMocks = vi.hoisted(() => ({
   exportRevisionDocumentHtml: vi.fn(),
   saveSourceResumeCanvas: vi.fn(),
   updateRevisionDocument: vi.fn(),
+  listTemplateStyles: vi.fn(),
   listContextSources: vi.fn(),
   addFileContextSource: vi.fn(),
   addDirectoryContextSource: vi.fn(),
@@ -54,6 +56,7 @@ vi.mock("@/api", () => ({
   exportRevisionDocumentHtml: (...args: unknown[]) => apiMocks.exportRevisionDocumentHtml(...args),
   saveSourceResumeCanvas: (...args: unknown[]) => apiMocks.saveSourceResumeCanvas(...args),
   updateRevisionDocument: (...args: unknown[]) => apiMocks.updateRevisionDocument(...args),
+  listTemplateStyles: (...args: unknown[]) => apiMocks.listTemplateStyles(...args),
   listContextSources: (...args: unknown[]) => apiMocks.listContextSources(...args),
   addFileContextSource: (...args: unknown[]) => apiMocks.addFileContextSource(...args),
   addDirectoryContextSource: (...args: unknown[]) => apiMocks.addDirectoryContextSource(...args),
@@ -100,6 +103,7 @@ vi.mock("./DraftCanvas", () => ({
     onPageMarginsChange,
     onRetrySave,
     saveStatus,
+    templateStyle,
     toolbarEnd,
   }: {
     canvas: WorkspaceView["source_resume_canvas"]
@@ -107,9 +111,10 @@ vi.mock("./DraftCanvas", () => ({
     onPageMarginsChange?: (margins: { top: number; bottom: number; left: number; right: number }) => void
     onRetrySave: () => void
     saveStatus: "idle" | "saving" | "saved" | "error"
+    templateStyle?: TemplateStyleConfig
     toolbarEnd?: ReactNode
   }) => (
-    draftCanvasMocks.render(canvas?.document_id),
+    draftCanvasMocks.render({ canvas, templateStyle }),
     <section aria-label="原始简历画布">
       <div role="toolbar" aria-label="简历格式工具栏">{toolbarEnd}</div>
       <p>{canvasText(canvas?.doc_json)}</p>
@@ -145,6 +150,7 @@ const workspace: WorkspaceView = {
     id: "doc_1",
     pack_id: "resume",
     title: "旧简历重构1",
+    template_id: "classic-a4",
     status: "active",
     target_language: "zh-CN",
     current_draft_id: "draft_1",
@@ -199,6 +205,15 @@ const workspace: WorkspaceView = {
   },
   coach_summary: undefined,
   available_actions: [],
+}
+
+const customTemplateStyle: TemplateStyleConfig = {
+  ...defaultClassicA4Style,
+  template_id: "custom-theme-1",
+  name: "我的主题",
+  preset: "",
+  blocks: { ...defaultClassicA4Style.blocks },
+  updated_at: "2026-06-28T00:00:00.000Z",
 }
 
 const contextSources: ContextSource[] = [
@@ -310,6 +325,7 @@ beforeAll(() => {
   }
 
   globalThis.ResizeObserver = ResizeObserverMock
+  Element.prototype.scrollIntoView = vi.fn()
 })
 
 describe("RevisionWorkspacePage", () => {
@@ -321,6 +337,7 @@ describe("RevisionWorkspacePage", () => {
     draftCanvasMocks.render.mockReset()
 
     apiMocks.getRevisionWorkspaceView.mockResolvedValue(workspace)
+    apiMocks.listTemplateStyles.mockResolvedValue([customTemplateStyle])
     apiMocks.exportRevisionDocumentPdf.mockResolvedValue({ fileName: "resume.pdf", format: "pdf" })
     apiMocks.exportRevisionDocumentHtml.mockResolvedValue({ fileName: "resume.html", format: "html" })
     apiMocks.saveSourceResumeCanvas.mockImplementation(async (documentId: string, docJson: Record<string, unknown>) => ({
@@ -329,11 +346,14 @@ describe("RevisionWorkspacePage", () => {
       doc_json: docJson,
       updated_at: "2026-05-21T08:06:00.000Z",
     }))
-    apiMocks.updateRevisionDocument.mockResolvedValue({
+    apiMocks.updateRevisionDocument.mockImplementation(async (
+      _documentId: string,
+      changes: Partial<WorkspaceView["document"]>,
+    ) => ({
       ...workspace.document,
-      title: "前端负责人简历",
+      ...changes,
       updated_at: "2026-05-21T08:05:00.000Z",
-    })
+    }))
     apiMocks.listContextSources.mockResolvedValue(contextSources)
     apiMocks.listContextSourceChildren.mockResolvedValue(directoryChildren)
     apiMocks.addFileContextSource.mockResolvedValue(contextSources[0])
@@ -804,8 +824,29 @@ describe("RevisionWorkspacePage", () => {
     expect(screen.queryByRole("button", { name: "返回工作区列表" })).not.toBeInTheDocument()
   })
 
-  it("exports PDF and HTML from the workspace titlebar with current canvas and page margins", async () => {
+  it("switches the canvas template and exports PDF and HTML with the same selected style", async () => {
     renderPage()
+
+    const templateSelector = await screen.findByRole("combobox", { name: "选择模板" })
+    expect(templateSelector).toHaveTextContent("经典 A4")
+    expect(draftCanvasMocks.render).toHaveBeenLastCalledWith(expect.objectContaining({
+      templateStyle: defaultClassicA4Style,
+    }))
+
+    fireEvent.click(templateSelector)
+    fireEvent.click(await screen.findByRole("option", { name: "我的主题" }))
+
+    await waitFor(() => expect(apiMocks.updateRevisionDocument).toHaveBeenCalledWith(
+      "doc_1",
+      { template_id: "custom-theme-1" },
+    ))
+    await waitFor(() => expect(templateSelector).toHaveTextContent("我的主题"))
+    expect(draftCanvasMocks.render).toHaveBeenLastCalledWith(expect.objectContaining({
+      canvas: expect.objectContaining({
+        doc_json: workspace.source_resume_canvas?.doc_json,
+      }),
+      templateStyle: customTemplateStyle,
+    }))
 
     fireEvent.click(await screen.findByRole("button", { name: "调整页边距" }))
     const toolbar = await screen.findByRole("toolbar", { name: "简历格式工具栏" })
@@ -822,7 +863,7 @@ describe("RevisionWorkspacePage", () => {
       expect.objectContaining({
         docJson: workspace.source_resume_canvas?.doc_json,
         pageMargins: { top: 88, bottom: 72, left: 42, right: 48 },
-        templateStyle: expect.objectContaining({ template_id: "classic-a4" }),
+        templateStyle: customTemplateStyle,
       }),
     ))
 
@@ -834,9 +875,30 @@ describe("RevisionWorkspacePage", () => {
       expect.objectContaining({
         docJson: workspace.source_resume_canvas?.doc_json,
         pageMargins: { top: 88, bottom: 72, left: 42, right: 48 },
-        templateStyle: expect.objectContaining({ template_id: "classic-a4" }),
+        templateStyle: customTemplateStyle,
       }),
     ))
+  })
+
+  it("keeps the current template when persisting a template change fails", async () => {
+    const request = deferred<WorkspaceView["document"]>()
+    apiMocks.updateRevisionDocument.mockReturnValue(request.promise)
+    renderPage()
+
+    const templateSelector = await screen.findByRole("combobox", { name: "选择模板" })
+    fireEvent.click(templateSelector)
+    fireEvent.click(await screen.findByRole("option", { name: "我的主题" }))
+
+    expect(templateSelector).toBeDisabled()
+    await act(async () => {
+      request.reject(new Error("save failed"))
+    })
+
+    await waitFor(() => expect(templateSelector).not.toBeDisabled())
+    expect(templateSelector).toHaveTextContent("经典 A4")
+    expect(draftCanvasMocks.render).toHaveBeenLastCalledWith(expect.objectContaining({
+      templateStyle: defaultClassicA4Style,
+    }))
   })
 
   it("debounces source canvas autosave and announces success", async () => {

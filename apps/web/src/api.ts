@@ -92,7 +92,7 @@ export async function listRevisionDocuments(): Promise<DocumentListItem[]> {
 
 export async function updateRevisionDocument(
   documentId: string,
-  data: Pick<RevisionDocument, "title">,
+  data: Partial<Pick<RevisionDocument, "title" | "template_id">>,
 ): Promise<RevisionDocument> {
   const response = await fetch(`${baseUrl}/documents/${documentId}`, {
     method: "PATCH",
