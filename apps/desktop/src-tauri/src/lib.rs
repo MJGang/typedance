@@ -1,10 +1,11 @@
+#![deny(warnings)]
+
 mod runtime;
 
 use tauri::Manager;
 #[cfg(not(debug_assertions))]
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
-
 
 #[tauri::command]
 async fn open_exported_pdf(app: tauri::AppHandle, file_path: String) -> Result<(), String> {
@@ -42,7 +43,10 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![open_exported_pdf, shutdown_application])
+        .invoke_handler(tauri::generate_handler![
+            open_exported_pdf,
+            shutdown_application
+        ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if runtime::request_managed_shutdown(window.app_handle()) {
@@ -62,17 +66,13 @@ pub fn run() {
                             .get_webview_window("main")
                             .ok_or_else(|| std::io::Error::other("Main window is missing"))?;
                         main_window.show()?;
-                        if let Some(delay) =
-                            std::env::var("TYPEDANCE_RELEASE_SMOKE_EXIT_AFTER_MS")
-                                .ok()
-                                .and_then(|value| value.parse::<u64>().ok())
+                        if let Some(delay) = std::env::var("TYPEDANCE_RELEASE_SMOKE_EXIT_AFTER_MS")
+                            .ok()
+                            .and_then(|value| value.parse::<u64>().ok())
                         {
-                            if let Some(processes) =
-                                app.try_state::<runtime::ManagedProcesses>()
-                            {
-                                processes.record(&format!(
-                                    "smoke shutdown scheduled after {delay} ms"
-                                ));
+                            if let Some(processes) = app.try_state::<runtime::ManagedProcesses>() {
+                                processes
+                                    .record(&format!("smoke shutdown scheduled after {delay} ms"));
                             }
                             let app_handle = app.handle().clone();
                             std::thread::spawn(move || {

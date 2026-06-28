@@ -1,21 +1,31 @@
+#[cfg(any(not(debug_assertions), test))]
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
-use std::io::{Read, Write};
+#[cfg(not(debug_assertions))]
+use std::io::Read;
+use std::io::Write;
+#[cfg(not(debug_assertions))]
 use std::net::{SocketAddr, TcpStream};
-use std::path::{Component, Path, PathBuf};
+use std::path::PathBuf;
+#[cfg(any(not(debug_assertions), test))]
+use std::path::{Component, Path};
 use std::process::{Command as StdCommand, Stdio};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Mutex,
 };
 use std::thread;
+#[cfg(not(debug_assertions))]
 use std::time::{Duration, Instant};
 
+#[cfg(any(not(debug_assertions), test))]
 use serde::Deserialize;
 use tauri::{AppHandle, Manager};
-use tauri_plugin_shell::{process::CommandEvent, process::CommandChild, ShellExt};
+use tauri_plugin_shell::process::CommandChild;
+#[cfg(not(debug_assertions))]
+use tauri_plugin_shell::{process::CommandEvent, ShellExt};
 
-
+#[cfg(any(not(debug_assertions), test))]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ReleasePaths {
     pub(crate) data_dir: PathBuf,
@@ -24,17 +34,20 @@ pub(crate) struct ReleasePaths {
     pub(crate) markdown_converter_path: PathBuf,
 }
 
+#[cfg(any(not(debug_assertions), test))]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ChromiumManifest {
     chromium_executable: String,
 }
 
+#[cfg(any(not(debug_assertions), test))]
 #[derive(Deserialize)]
 struct HealthPayload {
     status: String,
 }
 
+#[cfg(any(not(debug_assertions), test))]
 pub(crate) fn resolve_release_paths(
     resource_dir: &Path,
     data_dir: &Path,
@@ -64,6 +77,7 @@ pub(crate) fn resolve_release_paths(
     })
 }
 
+#[cfg(any(not(debug_assertions), test))]
 pub(crate) fn health_response_is_ok(response: &str) -> bool {
     let Some((headers, body)) = response.split_once("\r\n\r\n") else {
         return false;
@@ -79,6 +93,7 @@ pub(crate) fn health_response_is_ok(response: &str) -> bool {
         })
 }
 
+#[cfg(any(not(debug_assertions), test))]
 pub(crate) fn filter_environment<I>(environment: I) -> Vec<(OsString, OsString)>
 where
     I: IntoIterator<Item = (OsString, OsString)>,
@@ -119,6 +134,7 @@ pub(crate) struct ManagedProcesses {
 }
 
 impl ManagedProcesses {
+    #[cfg(not(debug_assertions))]
     fn push(&self, child: CommandChild) {
         self.children
             .lock()
@@ -140,10 +156,7 @@ impl ManagedProcesses {
     }
 
     pub(crate) fn shutdown(&self) {
-        let mut children = self
-            .children
-            .lock()
-            .expect("managed process lock poisoned");
+        let mut children = self.children.lock().expect("managed process lock poisoned");
         for child in children.drain(..).rev() {
             terminate_process_tree(child);
         }
@@ -158,7 +171,10 @@ impl ManagedProcesses {
             .iter()
             .map(CommandChild::pid)
             .collect::<Vec<_>>();
-        self.record(&format!("requesting termination for {} process trees", process_ids.len()));
+        self.record(&format!(
+            "requesting termination for {} process trees",
+            process_ids.len()
+        ));
         for process_id in process_ids.into_iter().rev() {
             request_process_tree_termination(process_id);
         }
@@ -182,6 +198,7 @@ impl ManagedProcesses {
     }
 }
 
+#[cfg(not(debug_assertions))]
 pub(crate) fn start_release_services(app: &AppHandle) -> Result<ManagedProcesses, String> {
     let resource_dir = app
         .path()
@@ -252,7 +269,8 @@ pub(crate) fn start_release_services(app: &AppHandle) -> Result<ManagedProcesses
         paths.data_dir.join("logs").join("sidecar-process.log"),
     );
     processes.push(sidecar);
-    if let Err(error) = wait_for_health("Python Sidecar", "127.0.0.1:4317", Duration::from_secs(60)) {
+    if let Err(error) = wait_for_health("Python Sidecar", "127.0.0.1:4317", Duration::from_secs(60))
+    {
         processes.shutdown();
         return Err(error);
     }
@@ -312,6 +330,7 @@ pub(crate) fn request_managed_shutdown(app: &AppHandle) -> bool {
     true
 }
 
+#[cfg(not(debug_assertions))]
 fn wait_for_health(name: &str, address: &str, timeout: Duration) -> Result<(), String> {
     let address: SocketAddr = address
         .parse()
@@ -329,6 +348,7 @@ fn wait_for_health(name: &str, address: &str, timeout: Duration) -> Result<(), S
     ))
 }
 
+#[cfg(not(debug_assertions))]
 fn request_health(address: SocketAddr) -> std::io::Result<String> {
     let mut stream = TcpStream::connect_timeout(&address, Duration::from_millis(500))?;
     stream.set_read_timeout(Some(Duration::from_secs(1)))?;
@@ -341,9 +361,7 @@ fn request_health(address: SocketAddr) -> std::io::Result<String> {
             Ok(0) => break,
             Ok(read) => {
                 response.extend_from_slice(&chunk[..read]);
-                if std::str::from_utf8(&response)
-                    .is_ok_and(|value| health_response_is_ok(value))
-                {
+                if std::str::from_utf8(&response).is_ok_and(|value| health_response_is_ok(value)) {
                     break;
                 }
             }
@@ -362,6 +380,7 @@ fn request_health(address: SocketAddr) -> std::io::Result<String> {
     Ok(String::from_utf8_lossy(&response).into_owned())
 }
 
+#[cfg(not(debug_assertions))]
 fn drain_process_events(
     mut events: tauri::async_runtime::Receiver<CommandEvent>,
     log_path: PathBuf,
@@ -412,7 +431,6 @@ fn request_process_tree_termination(pid: u32) -> bool {
     false
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -437,7 +455,9 @@ mod tests {
 
         assert_eq!(
             paths.browser_path,
-            Path::new(r"C:\Program Files\TypeDance\resources\ms-playwright\chromium-1223\chrome-win64\chrome.exe")
+            Path::new(
+                r"C:\Program Files\TypeDance\resources\ms-playwright\chromium-1223\chrome-win64\chrome.exe"
+            )
         );
         assert_eq!(
             paths.plugin_root,
