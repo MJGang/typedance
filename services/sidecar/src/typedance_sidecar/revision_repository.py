@@ -5,6 +5,7 @@ from typing import TypeVar
 from pydantic import BaseModel
 
 from .revision_models import (
+    DEFAULT_TEMPLATE_ID,
     Document,
     DocumentClaim,
     DocumentModule,
@@ -186,6 +187,7 @@ REVISION_TABLE_DEFINITIONS = [
 def migrate_revision_payloads(connection: sqlite3.Connection) -> None:
     _drop_obsolete_ai_run_tables(connection)
     _allow_nullable_export_artifact_draft_id(connection)
+    _normalize_document_payloads(connection)
     _normalize_source_document_payloads(connection)
     _normalize_source_resume_canvas_payloads(connection)
     connection.commit()
@@ -240,6 +242,19 @@ def _allow_nullable_export_artifact_draft_id(connection: sqlite3.Connection) -> 
         """
     )
     connection.execute(f"DROP TABLE {legacy_table}")
+
+
+def _normalize_document_payloads(connection: sqlite3.Connection) -> None:
+    rows = connection.execute("SELECT id, payload FROM documents").fetchall()
+    for row in rows:
+        payload = json.loads(row["payload"])
+        if "template_id" in payload:
+            continue
+        payload["template_id"] = DEFAULT_TEMPLATE_ID
+        connection.execute(
+            "UPDATE documents SET payload = ? WHERE id = ?",
+            (json.dumps(payload, ensure_ascii=False), row["id"]),
+        )
 
 
 def _normalize_source_document_payloads(connection: sqlite3.Connection) -> None:

@@ -36,11 +36,14 @@ ExportFormat = Literal["pdf", "html", "markdown", "docx"]
 ExportArtifactStatus = Literal["succeeded"]
 ContextSourceType = Literal["file", "directory", "webpage"]
 
+DEFAULT_TEMPLATE_ID = "classic-a4"
+
 
 class Document(BaseModel):
     id: str
     pack_id: str
     title: str
+    template_id: str
     status: DocumentStatus
     target_language: Language
     current_draft_id: str | None = None

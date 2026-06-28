@@ -52,6 +52,7 @@ def test_revision_models_validate_minimal_document_and_source():
         id="doc_1",
         pack_id="resume",
         title="张三基础简历",
+        template_id="classic-a4",
         status="active",
         target_language="zh-CN",
         created_at=now,
@@ -203,6 +204,39 @@ def test_migrates_legacy_revision_payloads_before_model_validation(tmp_path):
     assert canvas.source_snapshot_hash.startswith("sha256:")
 
 
+def test_migrates_legacy_document_to_classic_a4_template(tmp_path):
+    connection = connect(tmp_path / "typedance.sqlite")
+    now = utc_now()
+    legacy_document = {
+        "id": "doc_legacy",
+        "pack_id": "resume",
+        "title": "旧文档",
+        "status": "active",
+        "target_language": "zh-CN",
+        "created_at": now,
+        "updated_at": now,
+    }
+    connection.execute(
+        """
+        INSERT INTO documents (id, payload, schema_version, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        ("doc_legacy", json.dumps(legacy_document, ensure_ascii=False), "0.1.0", now, now),
+    )
+    connection.commit()
+
+    migrate_revision_payloads(connection)
+
+    payload = json.loads(
+        connection.execute(
+            "SELECT payload FROM documents WHERE id = ?",
+            ("doc_legacy",),
+        ).fetchone()["payload"]
+    )
+    assert payload["template_id"] == "classic-a4"
+    assert Document.model_validate(payload).template_id == "classic-a4"
+
+
 def test_migrates_invalid_legacy_source_canvas_doc_json(tmp_path):
     connection = connect(tmp_path / "typedance.sqlite")
     now = utc_now()
@@ -255,6 +289,7 @@ def test_revision_repository_roundtrips_core_objects(tmp_path):
             id="doc_1",
             pack_id="resume",
             title="张三基础简历",
+            template_id="classic-a4",
             status="active",
             target_language="zh-CN",
             created_at=now,

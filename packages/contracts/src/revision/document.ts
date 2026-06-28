@@ -7,6 +7,7 @@ export const documentSchema = z.object({
   id: z.string().min(1),
   pack_id: z.string().min(1),
   title: z.string().min(1),
+  template_id: z.string().min(1),
   status: documentStatusSchema,
   target_language: languageSchema,
   current_draft_id: z.string().nullable().optional(),
