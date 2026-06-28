@@ -382,7 +382,7 @@ function AgentChatContent({
   const headerTitle = activeConversationTitle?.trim() || "当前对话"
 
   return (
-    <aside className="flex min-h-0 w-[24rem] shrink-0 flex-col border-l border-border bg-background">
+    <aside className="flex min-h-0 w-full min-w-0 flex-col border-l border-border bg-background">
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
         {activeConversationId ? (
           <div className="flex min-w-0 items-center gap-1">

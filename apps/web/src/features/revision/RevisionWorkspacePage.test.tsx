@@ -315,6 +315,7 @@ beforeAll(() => {
 describe("RevisionWorkspacePage", () => {
   beforeEach(() => {
     vi.useRealTimers()
+    localStorage.clear()
     Object.values(apiMocks).forEach((mock) => mock.mockReset())
     Object.values(agentHostMocks).forEach((mock) => mock.mockReset())
     draftCanvasMocks.render.mockReset()
@@ -388,8 +389,11 @@ describe("RevisionWorkspacePage", () => {
     expect(screen.queryByRole("button", { name: "质量检查" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "岗位校准" })).not.toBeInTheDocument()
     const workspaceGrid = screen.getByTestId("revision-workspace-grid")
-    expect(workspaceGrid).toHaveClass("grid-cols-[minmax(0,1fr)_24rem]")
-    expect(workspaceGrid).not.toHaveClass("grid-cols-[minmax(48rem,1fr)_24rem]")
+    expect(workspaceGrid).toHaveStyle({
+      gridTemplateColumns: "minmax(0, 1fr) 0px 384px",
+    })
+    expect(screen.getByRole("separator", { name: "调整左侧面板宽度" })).toHaveAttribute("aria-valuenow", "272")
+    expect(screen.getByRole("separator", { name: "调整 AI 面板宽度" })).toHaveAttribute("aria-valuenow", "384")
     expect(workspaceGrid).toHaveClass(
       "mr-1",
       "mb-1",
@@ -415,8 +419,10 @@ describe("RevisionWorkspacePage", () => {
     const hideAssistantButton = await screen.findByRole("button", { name: "隐藏 AI 面板" })
     expect(hideAssistantButton.querySelector('[data-icon-name="panel-right"]')).toBeInTheDocument()
     fireEvent.click(hideAssistantButton)
-    expect(workspaceGrid).toHaveClass("grid-cols-[minmax(0,1fr)]")
-    expect(workspaceGrid).not.toHaveClass("grid-cols-[minmax(48rem,1fr)_24rem]")
+    expect(workspaceGrid).toHaveStyle({
+      gridTemplateColumns: "minmax(0, 1fr)",
+    })
+    expect(screen.queryByRole("separator", { name: "调整 AI 面板宽度" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "隐藏 AI 面板" })).not.toBeInTheDocument()
 
     const toolbar = screen.getByRole("toolbar", { name: "简历格式工具栏" })
@@ -430,7 +436,9 @@ describe("RevisionWorkspacePage", () => {
     expect(showAssistantButton.querySelector('[data-icon-name="panel-right"]')).toBeInTheDocument()
     fireEvent.click(showAssistantButton)
     expect(await screen.findByRole("button", { name: "隐藏 AI 面板" })).toBeInTheDocument()
-    expect(workspaceGrid).toHaveClass("grid-cols-[minmax(0,1fr)_24rem]")
+    expect(workspaceGrid).toHaveStyle({
+      gridTemplateColumns: "minmax(0, 1fr) 0px 384px",
+    })
   })
 
   it("expands the assistant panel when selecting a conversation", async () => {
@@ -440,8 +448,54 @@ describe("RevisionWorkspacePage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "优化简历" }))
 
     expect(await screen.findByRole("button", { name: "隐藏 AI 面板" })).toBeInTheDocument()
-    expect(workspaceGrid).toHaveClass("grid-cols-[minmax(0,1fr)_24rem]")
+    expect(workspaceGrid).toHaveStyle({
+      gridTemplateColumns: "minmax(0, 1fr) 0px 384px",
+    })
     expect(screen.getAllByText("优化简历")).toHaveLength(2)
+  })
+
+  it("restores persisted panel widths and keeps them after hiding the assistant", async () => {
+    localStorage.setItem(
+      "typedance.revision-workspace.panel-widths.v1",
+      JSON.stringify({ left: 320, right: 460 }),
+    )
+    renderPage()
+
+    const workspaceGrid = await screen.findByTestId("revision-workspace-grid")
+    expect(screen.getByRole("separator", { name: "调整左侧面板宽度" })).toHaveAttribute("aria-valuenow", "320")
+    expect(screen.getByRole("separator", { name: "调整 AI 面板宽度" })).toHaveAttribute("aria-valuenow", "460")
+    expect(workspaceGrid).toHaveStyle({
+      gridTemplateColumns: "minmax(0, 1fr) 0px 460px",
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "隐藏 AI 面板" }))
+    expect(screen.queryByRole("separator", { name: "调整 AI 面板宽度" })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "显示 AI 面板" }))
+    expect(screen.getByRole("separator", { name: "调整 AI 面板宽度" })).toHaveAttribute("aria-valuenow", "460")
+  })
+
+  it("persists keyboard panel width adjustments", async () => {
+    renderPage()
+
+    const workspaceGrid = await screen.findByTestId("revision-workspace-grid")
+    fireEvent.keyDown(screen.getByRole("separator", { name: "调整左侧面板宽度" }), { key: "ArrowRight" })
+    expect(screen.getByRole("separator", { name: "调整左侧面板宽度" })).toHaveAttribute("aria-valuenow", "288")
+    expect(JSON.parse(localStorage.getItem("typedance.revision-workspace.panel-widths.v1")!)).toEqual({
+      left: 288,
+      right: 384,
+    })
+
+    fireEvent.keyDown(screen.getByRole("separator", { name: "调整 AI 面板宽度" }), {
+      key: "ArrowLeft",
+      shiftKey: true,
+    })
+    expect(workspaceGrid).toHaveStyle({
+      gridTemplateColumns: "minmax(0, 1fr) 0px 432px",
+    })
+    expect(JSON.parse(localStorage.getItem("typedance.revision-workspace.panel-widths.v1")!)).toEqual({
+      left: 288,
+      right: 432,
+    })
   })
 
   it("updates and renames the active conversation from the AI panel header", async () => {
@@ -468,6 +522,7 @@ describe("RevisionWorkspacePage", () => {
 
     expect(await screen.findByTestId("revision-draft-panel")).toBeInTheDocument()
     expect(screen.queryByText("上下文")).not.toBeInTheDocument()
+    expect(screen.queryByRole("separator", { name: "调整左侧面板宽度" })).not.toBeInTheDocument()
   })
 
   it("lazily expands local directory context sources", async () => {

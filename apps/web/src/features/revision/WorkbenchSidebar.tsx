@@ -221,7 +221,7 @@ export function WorkbenchSidebar({
   }, [deletingConversation, deletingConversationPending, loadConversations])
 
   return (
-    <aside className="flex h-full w-[17rem] shrink-0 flex-col bg-sidebar text-sidebar-foreground">
+    <aside className="flex h-full w-full min-w-0 flex-col bg-sidebar text-sidebar-foreground">
       <div className="flex shrink-0 flex-col gap-1 px-2 py-3">
         <SidebarAction icon={SquarePen} iconName="new-conversation" label="新对话" onClick={() => void handleNewConversation()} />
         <SidebarAction icon={PluginGridIcon} iconName="plugin-grid" label="插件" onClick={() => void openPlugins()} />

@@ -8,7 +8,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import { Field, FieldDescription, FieldGroup } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { cn } from "@/lib/utils"
 import {
   exportRevisionDocumentHtml,
   exportRevisionDocumentPdf,
@@ -18,7 +17,15 @@ import {
 import { updateWorkspaceConversation } from "@/agentHost"
 import { AgentChatPanel } from "./AgentChatPanel"
 import { DraftCanvas, type CanvasPatchFlash } from "./DraftCanvas"
+import { PanelResizeHandle } from "./PanelResizeHandle"
 import { DEFAULT_SOURCE_CANVAS_PAGE_MARGINS, type PageMargins } from "./pageMargins"
+import {
+  LEFT_PANEL_MIN_WIDTH,
+  RIGHT_PANEL_MIN_WIDTH,
+  loadPanelWidths,
+  resolvePanelLayout,
+  savePanelWidths,
+} from "./panelLayout"
 import { defaultClassicA4Style } from "../templates/data"
 import { useSourceCanvasAutosave } from "./useSourceCanvasAutosave"
 import { WorkbenchSidebar } from "./WorkbenchSidebar"
@@ -94,6 +101,8 @@ export function RevisionWorkspacePage() {
   const [conversationRefreshToken, setConversationRefreshToken] = useState(0)
   const [contextSources, setContextSources] = useState<ContextSource[]>([])
   const [canvasPatchFlash, setCanvasPatchFlash] = useState<CanvasPatchFlash | null>(null)
+  const [containerWidth, setContainerWidth] = useState(0)
+  const [requestedPanelWidths, setRequestedPanelWidths] = useState(loadPanelWidths)
   const canvasPatchFlashSequenceRef = useRef(0)
   const mountedRef = useRef(false)
   const currentDocumentIdRef = useRef(documentId)
@@ -101,6 +110,7 @@ export function RevisionWorkspacePage() {
   const loadRequestEpochRef = useRef(0)
   const renameRequestEpochRef = useRef(0)
   const draftPanelRef = useRef<HTMLDivElement>(null)
+  const workspaceLayoutRef = useRef<HTMLDivElement>(null)
   const titleSaveInFlightRef = useRef(false)
   currentDocumentIdRef.current = documentId
 
@@ -170,6 +180,30 @@ export function RevisionWorkspacePage() {
         ? currentConversationId
         : undefined
     ))
+  }, [])
+
+  const updateLeftPanelWidth = useCallback((left: number) => {
+    setRequestedPanelWidths((current) => ({ ...current, left }))
+  }, [])
+
+  const updateRightPanelWidth = useCallback((right: number) => {
+    setRequestedPanelWidths((current) => ({ ...current, right }))
+  }, [])
+
+  const persistLeftPanelWidth = useCallback((left: number) => {
+    setRequestedPanelWidths((current) => {
+      const next = { ...current, left }
+      savePanelWidths(next)
+      return next
+    })
+  }, [])
+
+  const persistRightPanelWidth = useCallback((right: number) => {
+    setRequestedPanelWidths((current) => {
+      const next = { ...current, right }
+      savePanelWidths(next)
+      return next
+    })
   }, [])
 
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId)
@@ -290,6 +324,17 @@ export function RevisionWorkspacePage() {
   }, [documentId, flushCanvasSaves])
 
   const workspace = state.status === "loaded" && state.workspace.document.id === documentId ? state.workspace : null
+
+  useEffect(() => {
+    const container = workspaceLayoutRef.current
+    if (!container) return
+    const updateWidth = () => setContainerWidth(container.getBoundingClientRect().width)
+    updateWidth()
+    const observer = new ResizeObserver(updateWidth)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [workspace?.document.id])
+
   const sourceCanvas = workspace?.source_resume_canvas
     ? {
         ...workspace.source_resume_canvas,
@@ -457,6 +502,12 @@ export function RevisionWorkspacePage() {
   }
 
   if (!workspace) return null
+  const panelLayout = resolvePanelLayout({
+    containerWidth,
+    leftVisible: workbenchSidebarVisible,
+    rightVisible: assistantPanelVisible,
+    requested: requestedPanelWidths,
+  })
   const exportDisabled = !sourceCanvas || exportingFormat !== null
   const exportTitlebarAction = (
     <DropdownMenu>
@@ -491,26 +542,39 @@ export function RevisionWorkspacePage() {
     </DropdownMenu>
   )
   return (
-    <div className="flex h-full min-h-0 overflow-hidden bg-background">
+    <div ref={workspaceLayoutRef} className="flex h-full min-h-0 overflow-hidden bg-background">
       {workbenchSidebarVisible ? (
-        <WorkbenchSidebar
-          workspaceId={workspace.document.id}
-          activeConversationId={activeConversationId}
-          conversationRefreshToken={conversationRefreshToken}
-          onSelectConversation={handleSelectConversation}
-          onStartNewConversation={handleStartNewConversation}
-          onContextSourcesChange={setContextSources}
-          onConversationsChange={handleConversationsChange}
-        />
+        <>
+          <div className="h-full shrink-0" style={{ width: panelLayout.left }}>
+            <WorkbenchSidebar
+              workspaceId={workspace.document.id}
+              activeConversationId={activeConversationId}
+              conversationRefreshToken={conversationRefreshToken}
+              onSelectConversation={handleSelectConversation}
+              onStartNewConversation={handleStartNewConversation}
+              onContextSourcesChange={setContextSources}
+              onConversationsChange={handleConversationsChange}
+            />
+          </div>
+          <PanelResizeHandle
+            ariaLabel="调整左侧面板宽度"
+            direction={1}
+            min={LEFT_PANEL_MIN_WIDTH}
+            max={panelLayout.leftMax}
+            value={panelLayout.left}
+            onResize={updateLeftPanelWidth}
+            onResizeEnd={persistLeftPanelWidth}
+          />
+        </>
       ) : null}
       <main
         data-testid="revision-workspace-grid"
-        className={cn(
-          "relative mr-1 mb-1 grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-background",
-          assistantPanelVisible
-            ? "grid-cols-[minmax(0,1fr)_24rem]"
-            : "grid-cols-[minmax(0,1fr)]",
-        )}
+        className="relative mr-1 mb-1 grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-background"
+        style={{
+          gridTemplateColumns: assistantPanelVisible
+            ? `minmax(0, 1fr) 0px ${panelLayout.right}px`
+            : "minmax(0, 1fr)",
+        }}
       >
         <section data-testid="revision-draft-column" className="flex min-h-0 min-w-0 flex-col overflow-hidden">
           <div
@@ -567,6 +631,17 @@ export function RevisionWorkspacePage() {
             </div>
           </div>
         </section>
+        {assistantPanelVisible ? (
+          <PanelResizeHandle
+            ariaLabel="调整 AI 面板宽度"
+            direction={-1}
+            min={RIGHT_PANEL_MIN_WIDTH}
+            max={panelLayout.rightMax}
+            value={panelLayout.right}
+            onResize={updateRightPanelWidth}
+            onResizeEnd={persistRightPanelWidth}
+          />
+        ) : null}
         {assistantPanelVisible ? (
           <AgentChatPanel
             workspaceId={workspace.document.id}
