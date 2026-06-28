@@ -392,8 +392,12 @@ describe("RevisionWorkspacePage", () => {
     expect(workspaceGrid).toHaveStyle({
       gridTemplateColumns: "minmax(0, 1fr) 0px 384px",
     })
-    expect(screen.getByRole("separator", { name: "调整左侧面板宽度" })).toHaveAttribute("aria-valuenow", "272")
-    expect(screen.getByRole("separator", { name: "调整 AI 面板宽度" })).toHaveAttribute("aria-valuenow", "384")
+    const leftResizeHandle = screen.getByRole("separator", { name: "调整左侧面板宽度" })
+    const assistantResizeHandle = screen.getByRole("separator", { name: "调整 AI 面板宽度" })
+    expect(leftResizeHandle).toHaveAttribute("aria-valuenow", "272")
+    expect(leftResizeHandle.querySelector("span")).not.toBeInTheDocument()
+    expect(assistantResizeHandle).toHaveAttribute("aria-valuenow", "384")
+    expect(assistantResizeHandle.querySelector("span")).toBeInTheDocument()
     expect(workspaceGrid).toHaveClass(
       "mr-1",
       "mb-1",

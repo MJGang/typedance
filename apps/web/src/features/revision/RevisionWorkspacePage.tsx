@@ -564,6 +564,7 @@ export function RevisionWorkspacePage() {
             value={panelLayout.left}
             onResize={updateLeftPanelWidth}
             onResizeEnd={persistLeftPanelWidth}
+            showVisualLine={false}
           />
         </>
       ) : null}

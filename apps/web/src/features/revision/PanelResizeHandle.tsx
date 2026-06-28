@@ -9,6 +9,7 @@ type PanelResizeHandleProps = {
   value: number
   onResize: (width: number) => void
   onResizeEnd: (width: number) => void
+  showVisualLine?: boolean
   className?: string
 }
 
@@ -27,6 +28,7 @@ export function PanelResizeHandle({
   value,
   onResize,
   onResizeEnd,
+  showVisualLine = true,
   className,
 }: PanelResizeHandleProps) {
   const dragRef = useRef<{ startX: number; startValue: number; latestValue: number } | null>(null)
@@ -91,7 +93,9 @@ export function PanelResizeHandle({
           onResizeEnd(nextValue)
         }}
       >
-        <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:bg-primary/60 group-focus-visible:bg-primary group-active:bg-primary" />
+        {showVisualLine ? (
+          <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:bg-primary/60 group-focus-visible:bg-primary group-active:bg-primary" />
+        ) : null}
       </div>
     </div>
   )
