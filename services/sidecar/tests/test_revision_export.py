@@ -43,6 +43,7 @@ def seed_export_workspace(
             id="doc_export",
             pack_id="resume",
             title="当前画布简历",
+            template_id="classic-a4",
             status="active",
             target_language="zh-CN",
             current_draft_id="draft_export",
