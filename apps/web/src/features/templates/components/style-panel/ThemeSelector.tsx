@@ -11,6 +11,7 @@ type ThemeSelectorProps = {
   value: string;
   options: ThemeSelectorOption[];
   onChange: (themeId: string) => void;
+  disabled?: boolean;
 };
 
 function ThemeOptionGroup({
@@ -34,14 +35,14 @@ function ThemeOptionGroup({
   );
 }
 
-export function ThemeSelector({ value, options, onChange }: ThemeSelectorProps) {
+export function ThemeSelector({ value, options, onChange, disabled = false }: ThemeSelectorProps) {
   const customThemes = options.filter((theme) => theme.source === "custom");
   const defaultThemes = options.filter((theme) => theme.source === "default");
 
   return (
     <div className="flex items-center gap-2">
       <Paintbrush className="size-3.5 text-muted-foreground shrink-0" />
-      <Select value={value} onValueChange={onChange}>
+      <Select value={value} onValueChange={onChange} disabled={disabled}>
         <SelectTrigger size="sm" className="w-40 justify-between text-xs" aria-label="选择主题">
           <SelectValue placeholder="选择主题" />
         </SelectTrigger>

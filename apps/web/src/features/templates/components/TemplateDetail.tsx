@@ -16,19 +16,12 @@ import type { BlockType, TemplateStyleConfig } from "../types"
 import { ResumeRichTextEditor } from "../../workspace/components/ResumeRichTextEditor"
 import { StylePanel } from "./style-panel/StylePanel"
 import { generateFullCSS, generateWorkspaceCSS } from "../style-engine/css-generator"
+import type { TemplateTheme } from "../theme-options"
 import type { TemplateSampleContent } from "../types"
 
-export type ThemeDetailItem = {
-  id: string
-  title: string
-  description: string
-  source: "default" | "custom"
-  styleConfig: TemplateStyleConfig
-}
-
 type TemplateDetailProps = {
-  theme: ThemeDetailItem
-  themes: ThemeDetailItem[]
+  theme: TemplateTheme
+  themes: TemplateTheme[]
   sample: TemplateSampleContent
   uiLanguage: UiLanguage
   onBack: () => void

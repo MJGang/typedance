@@ -10,9 +10,10 @@ import { FilePlus2, Pencil, Plus, Trash2 } from "lucide-react"
 import { resumePackPaths } from "../../resume-pack/routes"
 import type { TargetLanguage, UiLanguage } from "../../workspace/types"
 import { builtInSamples, defaultClassicA4Style, templateRegistry } from "../data"
+import { buildTemplateThemes, isDefaultTemplateId } from "../theme-options"
 import type { TemplateSampleContent, TemplateStyleConfig } from "../types"
 import { TemplatePreview } from "./TemplatePreview"
-import { TemplateDetail, TemplateStatusText, type ThemeDetailItem } from "./TemplateDetail"
+import { TemplateDetail, TemplateStatusText } from "./TemplateDetail"
 
 type TemplateLibraryProps = {
   uiLanguage?: UiLanguage
@@ -26,14 +27,6 @@ const FILTERS: Array<{ value: ThemeFilter; label: string }> = [
   { value: "custom", label: "我的" },
   { value: "default", label: "官方" },
 ]
-
-function isDefaultTheme(templateId: string) {
-  return templateRegistry.some((template) => template.id === templateId)
-}
-
-function fallbackThemeName(theme: TemplateStyleConfig, index: number) {
-  return theme.name?.trim() || `自定义主题 ${index + 1}`
-}
 
 function upsertTemplateStyle(
   styles: TemplateStyleConfig[],
@@ -93,41 +86,10 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
       })
   }, [])
 
-  const styleMap = useMemo(() => {
-    return new Map(savedStyles.map((style) => [style.template_id, style]))
-  }, [savedStyles])
-
-  const themes = useMemo<ThemeDetailItem[]>(() => {
-    const defaultThemes = templateRegistry.map((template) => {
-      const styleConfig = styleMap.get(template.id) ?? (
-        template.id === defaultClassicA4Style.template_id ? defaultClassicA4Style : {
-          ...defaultClassicA4Style,
-          template_id: template.id,
-          name: template.localizedName[uiLanguage],
-        }
-      )
-
-      return {
-        id: template.id,
-        title: styleConfig.name ?? template.localizedName[uiLanguage],
-        description: template.description[uiLanguage],
-        source: "default" as const,
-        styleConfig,
-      }
-    })
-
-    const customThemes = savedStyles
-      .filter((style) => !isDefaultTheme(style.template_id))
-      .map((style, index) => ({
-        id: style.template_id,
-        title: fallbackThemeName(style, index),
-        description: "从工作台或主题库保存的本地主题，可继续调整字体、颜色和段落层级。",
-        source: "custom" as const,
-        styleConfig: style,
-      }))
-
-    return [...customThemes, ...defaultThemes]
-  }, [savedStyles, styleMap, uiLanguage])
+  const themes = useMemo(
+    () => buildTemplateThemes(savedStyles, uiLanguage),
+    [savedStyles, uiLanguage],
+  )
 
   const filteredThemes = useMemo(() => {
     if (filter === "all") return themes
@@ -206,7 +168,7 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
   }, [persistedStyles, selectedTheme])
 
   const handleCreateTheme = useCallback(async () => {
-    const customCount = savedStyles.filter((style) => !isDefaultTheme(style.template_id)).length
+    const customCount = savedStyles.filter((style) => !isDefaultTemplateId(style.template_id)).length
     const nextStyle: TemplateStyleConfig = {
       ...defaultClassicA4Style,
       template_id: `custom-theme-${Date.now()}`,
