@@ -25,6 +25,7 @@ from .models import Language, TemplateStyleConfig, utc_now
 from .revision_models import (
     ContextSource,
     ContextSourceChild,
+    DEFAULT_TEMPLATE_ID,
     Document,
     DraftVersion,
     EvidenceLink,
@@ -74,11 +75,14 @@ class CreateDocumentRequest(BaseModel):
 
 
 class UpdateDocumentRequest(BaseModel):
-    title: str = Field(min_length=1)
+    title: str | None = Field(default=None, min_length=1)
+    template_id: str | None = Field(default=None, min_length=1)
 
     @field_validator("title", mode="after")
     @classmethod
-    def validate_title(cls, title: str) -> str:
+    def validate_title(cls, title: str | None) -> str | None:
+        if title is None:
+            return None
         trimmed = title.strip()
         if not trimmed:
             raise ValueError("title must not be blank")
@@ -274,6 +278,7 @@ def create_revision_router(
             id=f"doc_{uuid4().hex}",
             pack_id=payload.pack_id,
             title=payload.title,
+            template_id=DEFAULT_TEMPLATE_ID,
             status="active",
             target_language=payload.target_language,
             created_at=now,
@@ -299,10 +304,12 @@ def create_revision_router(
         repo: RevisionRepository = Depends(repository),
     ) -> Document:
         document = require_document(repo, document_id)
-        return repo.save_document(document.model_copy(update={
-            "title": payload.title,
-            "updated_at": utc_now(),
-        }))
+        updates: dict[str, Any] = {"updated_at": utc_now()}
+        if payload.title is not None:
+            updates["title"] = payload.title
+        if payload.template_id is not None:
+            updates["template_id"] = payload.template_id
+        return repo.save_document(document.model_copy(update=updates))
 
     @router.delete("/documents/{document_id}", status_code=204)
     def delete_document(

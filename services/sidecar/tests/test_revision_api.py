@@ -38,6 +38,7 @@ def seed_workspace(tmp_path) -> RevisionRepository:
             id="doc_1",
             pack_id="resume",
             title="张三的简历",
+            template_id="classic-a4",
             status="active",
             target_language="zh-CN",
             current_draft_id="draft_1",
@@ -206,6 +207,7 @@ def test_revision_api_creates_document_and_source(revision_client):
     assert created_document.status_code == 201
     document = created_document.json()
     assert document["id"].startswith("doc_")
+    assert document["template_id"] == "classic-a4"
 
     assert client.get(f"/documents/{document['id']}").json()["title"] == "张三的简历"
     assert client.get("/documents").json()[0]["id"] == document["id"]
@@ -319,6 +321,24 @@ def test_revision_api_updates_document_title(revision_client):
     assert payload["current_draft_id"] == "draft_1"
     assert payload["updated_at"] >= previous.updated_at
     assert repo_for(tmp_path).get_document("doc_1").title == "前端负责人简历"
+
+
+def test_revision_api_updates_document_template_without_changing_title(revision_client):
+    client, tmp_path = revision_client
+    seed_workspace(tmp_path)
+
+    response = client.patch(
+        "/documents/doc_1",
+        json={"template_id": "custom-theme-1"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["template_id"] == "custom-theme-1"
+    assert payload["title"] == "张三的简历"
+    persisted = repo_for(tmp_path).get_document("doc_1")
+    assert persisted is not None
+    assert persisted.template_id == "custom-theme-1"
 
 
 @pytest.mark.parametrize("title", ["", "   "])

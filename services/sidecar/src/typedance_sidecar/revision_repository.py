@@ -4,6 +4,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
+from .models import utc_now
 from .revision_models import (
     DEFAULT_TEMPLATE_ID,
     Document,
@@ -400,6 +401,27 @@ class RevisionRepository:
             "SELECT payload FROM documents ORDER BY updated_at DESC"
         ).fetchall()
         return [Document.model_validate(json.loads(row["payload"])) for row in rows]
+
+    def reassign_document_template(self, template_id: str, replacement_id: str) -> int:
+        changed = 0
+        try:
+            for document in self.list_documents():
+                if document.template_id != template_id:
+                    continue
+                self._save_without_commit(
+                    "documents",
+                    document.model_copy(update={
+                        "template_id": replacement_id,
+                        "updated_at": utc_now(),
+                    }),
+                    {},
+                )
+                changed += 1
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return changed
 
     def delete_document(self, document_id: str) -> bool:
         if self.get_document(document_id) is None:

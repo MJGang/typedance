@@ -29,6 +29,7 @@ from .models import (
     TemplateStyleConfig,
     utc_now,
 )
+from .revision_models import DEFAULT_TEMPLATE_ID
 from .pdf import render_and_export_pdf, render_resume_html, cleanup_browser
 from .revision_api import create_revision_router
 from .revision_repository import RevisionRepository
@@ -223,10 +224,12 @@ def save_template_style(
 def delete_template_style(
     template_id: str,
     style_repo: TemplateStyleRepository = Depends(template_style_repository),
+    revision_repo: RevisionRepository = Depends(revision_repository),
 ) -> None:
-    deleted = style_repo.delete(template_id)
-    if not deleted:
+    if style_repo.get(template_id) is None:
         raise HTTPException(status_code=404, detail="Template style not found")
+    revision_repo.reassign_document_template(template_id, DEFAULT_TEMPLATE_ID)
+    style_repo.delete(template_id)
 
 
 @app.get("/previews/{resume_id}.pdf", name="get_preview_pdf")

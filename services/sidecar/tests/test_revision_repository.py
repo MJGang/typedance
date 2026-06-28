@@ -487,3 +487,32 @@ def test_revision_repository_roundtrips_core_objects(tmp_path):
     assert repo.get_render_projection(projection.id) is None
     assert repo.list_export_artifacts(document.id) == []
     assert repo.delete_document(document.id) is False
+
+
+def test_revision_repository_reassigns_document_template_references(tmp_path):
+    now = utc_now()
+    repo = make_repository(tmp_path)
+    for document_id, template_id in (
+        ("doc_custom_1", "custom-theme-1"),
+        ("doc_custom_2", "custom-theme-1"),
+        ("doc_classic", "classic-a4"),
+    ):
+        repo.save_document(
+            Document(
+                id=document_id,
+                pack_id="resume",
+                title=document_id,
+                template_id=template_id,
+                status="active",
+                target_language="zh-CN",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+
+    changed = repo.reassign_document_template("custom-theme-1", "classic-a4")
+
+    assert changed == 2
+    assert repo.get_document("doc_custom_1").template_id == "classic-a4"
+    assert repo.get_document("doc_custom_2").template_id == "classic-a4"
+    assert repo.get_document("doc_classic").template_id == "classic-a4"

@@ -84,6 +84,38 @@ def test_style_config_delete_removes_saved_style(client):
     assert resp.status_code == 404
 
 
+def test_style_config_delete_reassigns_documents_to_classic_a4(client):
+    custom_template_id = "user_theme_in_use"
+    created_style = client.put(
+        f"/template-styles/{custom_template_id}",
+        json={
+            "template_id": custom_template_id,
+            "name": "正在使用的主题",
+            "preset": "",
+            "blocks": {
+                "paragraph": {"fontSize": "10px", "lineHeight": 1.5, "color": "#334155"},
+            },
+        },
+    )
+    assert created_style.status_code == 200
+    created_document = client.post(
+        "/documents",
+        json={"title": "模板引用测试", "initial_mode": "base_resume"},
+    )
+    assert created_document.status_code == 201
+    document_id = created_document.json()["id"]
+    selected = client.patch(
+        f"/documents/{document_id}",
+        json={"template_id": custom_template_id},
+    )
+    assert selected.status_code == 200
+
+    deleted = client.delete(f"/template-styles/{custom_template_id}")
+
+    assert deleted.status_code == 204
+    assert client.get(f"/documents/{document_id}").json()["template_id"] == "classic-a4"
+
+
 def test_style_config_rejects_empty_template_id(client):
     resp = client.put("/template-styles/classic-a4", json={
         "template_id": "",
