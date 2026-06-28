@@ -725,6 +725,51 @@ describe("ResumeRichTextEditor toolbar", () => {
     }).not.toThrow()
   })
 
+  it("preserves the active text selection when external content is synchronized", async () => {
+    const ref = createRef<ResumeRichTextEditorHandle>()
+    const onSelectionUpdate = vi.fn()
+    const { rerender } = render(
+      <TooltipProvider>
+        <ResumeRichTextEditor
+          ref={ref}
+          ariaLabel="Resume text"
+          docJson={{
+            type: "doc",
+            content: [
+              { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Current section" }] },
+              { type: "paragraph", content: [{ type: "text", text: "Original trailing content" }] },
+            ],
+          }}
+          onChange={() => {}}
+          onSelectionUpdate={onSelectionUpdate}
+        />
+      </TooltipProvider>,
+    )
+
+    act(() => ref.current?.setTextSelection({ anchor: 3, head: 3 }))
+    await waitFor(() => expect(onSelectionUpdate).toHaveBeenLastCalledWith("heading2"))
+
+    rerender(
+      <TooltipProvider>
+        <ResumeRichTextEditor
+          ref={ref}
+          ariaLabel="Resume text"
+          docJson={{
+            type: "doc",
+            content: [
+              { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Current section" }] },
+              { type: "paragraph", content: [{ type: "text", text: "Saved trailing content" }] },
+            ],
+          }}
+          onChange={() => {}}
+          onSelectionUpdate={onSelectionUpdate}
+        />
+      </TooltipProvider>,
+    )
+
+    await waitFor(() => expect(onSelectionUpdate).toHaveBeenLastCalledWith("heading2"))
+  })
+
   it("pastes Markdown lists through the editor Markdown API without keeping raw markers", async () => {
     const onChange = vi.fn()
 

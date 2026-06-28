@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import { Extension, Mark, type Editor } from "@tiptap/core"
 import { Markdown } from "@tiptap/markdown"
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
-import { Plugin } from "@tiptap/pm/state"
+import { Plugin, TextSelection } from "@tiptap/pm/state"
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react"
 import type { JSONContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
@@ -977,7 +977,27 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       const current = JSON.stringify(editor.getJSON())
       const next = JSON.stringify(docJson)
       if (current !== next) {
-        editor.commands.setContent(docJson as unknown as JSONContent, { emitUpdate: false })
+        const currentSelection = editor.state.selection
+        if (currentSelection instanceof TextSelection) {
+          const { anchor, head } = currentSelection
+          editor
+            .chain()
+            .setContent(docJson as unknown as JSONContent, { emitUpdate: false })
+            .command(({ tr }) => {
+              const minPosition = TextSelection.atStart(tr.doc).from
+              const maxPosition = TextSelection.atEnd(tr.doc).to
+              const clampPosition = (position: number) => Math.min(Math.max(position, minPosition), maxPosition)
+              tr.setSelection(TextSelection.create(
+                tr.doc,
+                clampPosition(anchor),
+                clampPosition(head),
+              ))
+              return true
+            })
+            .run()
+        } else {
+          editor.commands.setContent(docJson as unknown as JSONContent, { emitUpdate: false })
+        }
       }
     }, [docJson, editor, editable])
 
