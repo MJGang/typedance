@@ -389,6 +389,8 @@ describe("RevisionWorkspacePage", () => {
     expect(screen.queryByRole("button", { name: "质量检查" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "岗位校准" })).not.toBeInTheDocument()
     const workspaceGrid = screen.getByTestId("revision-workspace-grid")
+    expect(workspaceGrid.parentElement).toHaveClass("bg-sidebar")
+    expect(workspaceGrid.parentElement).not.toHaveClass("bg-background")
     expect(workspaceGrid).toHaveStyle({
       gridTemplateColumns: "minmax(0, 1fr) 0px 384px",
     })

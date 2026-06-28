@@ -542,7 +542,7 @@ export function RevisionWorkspacePage() {
     </DropdownMenu>
   )
   return (
-    <div ref={workspaceLayoutRef} className="flex h-full min-h-0 overflow-hidden bg-background">
+    <div ref={workspaceLayoutRef} className="flex h-full min-h-0 overflow-hidden bg-sidebar">
       {workbenchSidebarVisible ? (
         <>
           <div className="h-full shrink-0" style={{ width: panelLayout.left }}>
