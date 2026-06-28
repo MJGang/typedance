@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 const windowApi = vi.hoisted(() => ({
   close: vi.fn(),
+  isMaximized: vi.fn<() => Promise<boolean>>(),
   minimize: vi.fn(),
+  onResized: vi.fn<(handler: () => void) => Promise<() => void>>(),
   startDragging: vi.fn(),
   toggleMaximize: vi.fn(),
 }))
@@ -14,7 +16,7 @@ vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow }))
 import {
   closeDesktopWindow,
   minimizeDesktopWindow,
-  startDraggingDesktopWindow,
+  subscribeDesktopWindowMaximized,
   toggleMaximizeDesktopWindow,
 } from "./desktopWindow"
 
@@ -33,7 +35,6 @@ describe("desktop window controls", () => {
   it.each([
     ["minimize", minimizeDesktopWindow],
     ["toggleMaximize", toggleMaximizeDesktopWindow],
-    ["startDragging", startDraggingDesktopWindow],
   ] as const)("calls %s in Tauri", async (method, action) => {
     window.__TAURI_INTERNALS__ = { invoke: vi.fn() }
 
@@ -41,6 +42,25 @@ describe("desktop window controls", () => {
 
     expect(getCurrentWindow).toHaveBeenCalledOnce()
     expect(windowApi[method]).toHaveBeenCalledOnce()
+  })
+
+  it("subscribes to resize events and reports the current maximized state", async () => {
+    window.__TAURI_INTERNALS__ = { invoke: vi.fn() }
+    const unlisten = vi.fn()
+    const listener = vi.fn()
+    windowApi.onResized.mockResolvedValue(unlisten)
+    windowApi.isMaximized.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+
+    const unsubscribe = await subscribeDesktopWindowMaximized(listener)
+
+    expect(windowApi.onResized).toHaveBeenCalledOnce()
+    expect(listener).toHaveBeenCalledWith(true)
+
+    windowApi.onResized.mock.calls[0][0]()
+    await vi.waitFor(() => expect(listener).toHaveBeenLastCalledWith(false))
+
+    unsubscribe()
+    expect(unlisten).toHaveBeenCalledOnce()
   })
 
   it("requests a managed application shutdown in Tauri", async () => {

@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest"
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { BrowserRouter } from "react-router-dom"
 import { SidebarProvider } from "@/components/ui/sidebar"
@@ -9,6 +9,9 @@ const desktopActions = vi.hoisted(() => ({
   closeDesktopWindow: vi.fn(),
   minimizeDesktopWindow: vi.fn(),
   startDraggingDesktopWindow: vi.fn(),
+  subscribeDesktopWindowMaximized: vi.fn<
+    (listener: (maximized: boolean) => void) => Promise<() => void>
+  >(),
   toggleMaximizeDesktopWindow: vi.fn(),
 }))
 
@@ -36,12 +39,26 @@ function renderTitleBar(overrides: Partial<React.ComponentProps<typeof GlobalTit
 }
 
 describe("GlobalTitleBar", () => {
+  let emitMaximized: ((maximized: boolean) => void) | undefined
+  const unsubscribeMaximized = vi.fn()
+
   beforeEach(() => {
+    emitMaximized = undefined
+    desktopActions.subscribeDesktopWindowMaximized.mockImplementation(async (listener) => {
+      emitMaximized = listener
+      listener(false)
+      return unsubscribeMaximized
+    })
     vi.stubGlobal("matchMedia", vi.fn(() => ({
       matches: false,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
     })))
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
   })
 
   afterEach(() => {
@@ -54,7 +71,7 @@ describe("GlobalTitleBar", () => {
   it("renders global navigation, theme, and window controls in the required order", () => {
     renderTitleBar()
 
-    const labels = ["隐藏左侧导航", "返回", "前进", "切换深色模式", "最小化", "最大化或还原", "关闭"]
+    const labels = ["隐藏左侧导航", "返回", "前进", "切换深色模式", "最小化", "最大化", "关闭"]
     const buttons = labels.map((label) => screen.getByRole("button", { name: label }))
     buttons.forEach((button, index) => expect(button).toHaveAttribute("data-control-order", String(index)))
 
@@ -94,7 +111,44 @@ describe("GlobalTitleBar", () => {
     )
   })
 
-  it("controls the workbench sidebar, theme, drag region, and desktop window", () => {
+  it("uses the native Tauri drag region without manually toggling the window on double click", () => {
+    renderTitleBar()
+
+    const dragRegion = screen.getByTestId("titlebar-drag-region")
+    expect(dragRegion).toHaveAttribute("data-tauri-drag-region")
+
+    fireEvent.mouseDown(dragRegion, { buttons: 1, detail: 1 })
+    fireEvent.mouseDown(dragRegion, { buttons: 1, detail: 2 })
+
+    expect(desktopActions.startDraggingDesktopWindow).not.toHaveBeenCalled()
+    expect(desktopActions.toggleMaximizeDesktopWindow).not.toHaveBeenCalled()
+  })
+
+  it("shows the restore control while maximized and tracks later window state changes", async () => {
+    renderTitleBar()
+    await waitFor(() => expect(desktopActions.subscribeDesktopWindowMaximized).toHaveBeenCalledOnce())
+
+    expect(screen.getByRole("button", { name: "最大化" })).toBeInTheDocument()
+    expect(screen.getByTestId("titlebar-maximize-icon")).toBeInTheDocument()
+
+    act(() => emitMaximized?.(true))
+
+    expect(screen.getByRole("button", { name: "恢复" })).toBeInTheDocument()
+    expect(screen.getByTestId("titlebar-restore-icon")).toBeInTheDocument()
+  })
+
+  it("shows prompts for all window controls", async () => {
+    renderTitleBar()
+
+    for (const label of ["最小化", "最大化", "关闭"]) {
+      const button = screen.getByRole("button", { name: label })
+      fireEvent.focus(button)
+      await waitFor(() => expect(screen.getByRole("tooltip")).toHaveTextContent(label))
+      fireEvent.blur(button)
+    }
+  })
+
+  it("controls the workbench sidebar, theme, and desktop window buttons", () => {
     const setWorkbenchSidebarVisible = vi.fn()
     renderTitleBar({ setWorkbenchSidebarVisible })
 
@@ -106,17 +160,11 @@ describe("GlobalTitleBar", () => {
     expect(document.documentElement).toHaveClass("dark")
     expect(localStorage.getItem("theme")).toBe("dark")
 
-    const dragRegion = screen.getByTestId("titlebar-drag-region")
-    fireEvent.mouseDown(dragRegion, { buttons: 1, detail: 1 })
-    expect(desktopActions.startDraggingDesktopWindow).toHaveBeenCalledOnce()
-    fireEvent.mouseDown(dragRegion, { buttons: 1, detail: 2 })
-    expect(desktopActions.toggleMaximizeDesktopWindow).toHaveBeenCalledOnce()
-
     fireEvent.click(screen.getByRole("button", { name: "最小化" }))
-    fireEvent.click(screen.getByRole("button", { name: "最大化或还原" }))
+    fireEvent.click(screen.getByRole("button", { name: "最大化" }))
     fireEvent.click(screen.getByRole("button", { name: "关闭" }))
     expect(desktopActions.minimizeDesktopWindow).toHaveBeenCalledOnce()
-    expect(desktopActions.toggleMaximizeDesktopWindow).toHaveBeenCalledTimes(2)
+    expect(desktopActions.toggleMaximizeDesktopWindow).toHaveBeenCalledOnce()
     expect(desktopActions.closeDesktopWindow).toHaveBeenCalledOnce()
   })
 })

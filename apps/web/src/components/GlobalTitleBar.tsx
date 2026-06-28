@@ -1,12 +1,13 @@
-import { useEffect, useState, type Dispatch, type MouseEvent, type SetStateAction } from "react"
-import { ArrowLeft, ArrowRight, Minus, Moon, PanelLeft, Square, Sun, X } from "lucide-react"
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react"
+import { ArrowLeft, ArrowRight, Copy, Minus, Moon, PanelLeft, Square, Sun, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { useSidebar } from "@/components/ui/sidebar"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   closeDesktopWindow,
   minimizeDesktopWindow,
-  startDraggingDesktopWindow,
+  subscribeDesktopWindowMaximized,
   toggleMaximizeDesktopWindow,
 } from "@/desktopWindow"
 import { useAppHistoryNavigation } from "@/hooks/useAppHistoryNavigation"
@@ -25,6 +26,7 @@ export function GlobalTitleBar({
   const { open: siteSidebarVisible, toggleSidebar } = useSidebar()
   const { canGoBack, canGoForward, goBack, goForward } = useAppHistoryNavigation()
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"))
+  const [isMaximized, setIsMaximized] = useState(false)
   const leftSidebarVisible = isWorkbenchRoute ? workbenchSidebarVisible : siteSidebarVisible
 
   useEffect(() => {
@@ -32,21 +34,32 @@ export function GlobalTitleBar({
     localStorage.setItem("theme", dark ? "dark" : "light")
   }, [dark])
 
+  useEffect(() => {
+    let disposed = false
+    let unsubscribe: (() => void) | undefined
+
+    void subscribeDesktopWindowMaximized((maximized) => {
+      if (!disposed) setIsMaximized(maximized)
+    }).then((stopListening) => {
+      if (disposed) {
+        stopListening()
+        return
+      }
+      unsubscribe = stopListening
+    })
+
+    return () => {
+      disposed = true
+      unsubscribe?.()
+    }
+  }, [])
+
   const toggleLeftSidebar = () => {
     if (isWorkbenchRoute) {
       setWorkbenchSidebarVisible((visible) => !visible)
       return
     }
     toggleSidebar()
-  }
-
-  const handleDragRegionMouseDown = (event: MouseEvent<HTMLDivElement>) => {
-    if (event.buttons !== 1) return
-    if (event.detail === 2) {
-      void toggleMaximizeDesktopWindow()
-      return
-    }
-    void startDraggingDesktopWindow()
   }
 
   return (
@@ -103,7 +116,6 @@ export function GlobalTitleBar({
         data-tauri-drag-region
         data-testid="titlebar-drag-region"
         className="h-full min-w-8 flex-1"
-        onMouseDown={handleDragRegionMouseDown}
       />
 
       <div className="flex h-full shrink-0 items-center">
@@ -124,36 +136,55 @@ export function GlobalTitleBar({
           data-testid="titlebar-window-separator"
           className="mx-1 h-4"
         />
-        <Button
-          type="button"
-          variant="ghost"
-          aria-label="最小化"
-          data-control-order="4"
-          className="h-full w-11 rounded-none"
-          onClick={() => void minimizeDesktopWindow()}
-        >
-          <Minus data-icon="inline-start" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          aria-label="最大化或还原"
-          data-control-order="5"
-          className="h-full w-11 rounded-none"
-          onClick={() => void toggleMaximizeDesktopWindow()}
-        >
-          <Square data-icon="inline-start" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          aria-label="关闭"
-          data-control-order="6"
-          className="h-full w-11 rounded-none hover:bg-destructive hover:text-white"
-          onClick={() => void closeDesktopWindow()}
-        >
-          <X data-icon="inline-start" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              aria-label="最小化"
+              data-control-order="4"
+              className="h-full w-11 rounded-none"
+              onClick={() => void minimizeDesktopWindow()}
+            >
+              <Minus data-icon="inline-start" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">最小化</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              aria-label={isMaximized ? "恢复" : "最大化"}
+              data-control-order="5"
+              className="h-full w-11 rounded-none"
+              onClick={() => void toggleMaximizeDesktopWindow()}
+            >
+              {isMaximized ? (
+                <Copy data-icon="inline-start" data-testid="titlebar-restore-icon" />
+              ) : (
+                <Square data-icon="inline-start" data-testid="titlebar-maximize-icon" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{isMaximized ? "恢复" : "最大化"}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              aria-label="关闭"
+              data-control-order="6"
+              className="h-full w-11 rounded-none hover:bg-destructive hover:text-white"
+              onClick={() => void closeDesktopWindow()}
+            >
+              <X data-icon="inline-start" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">关闭</TooltipContent>
+        </Tooltip>
       </div>
     </header>
   )
