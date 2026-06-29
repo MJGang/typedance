@@ -734,7 +734,7 @@ function ConversationRow({
               <MoreHorizontal />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent side="bottom" align="end" sideOffset={6} className="w-60">
+          <DropdownMenuContent side="bottom" align="end" sideOffset={6} className="!w-40 !min-w-40">
             <DropdownMenuGroup>
               <DropdownMenuItem onSelect={async () => {
                 await updateWorkspaceConversation(conversation.id, { pinned: !conversation.pinned })
@@ -755,7 +755,7 @@ function ConversationRow({
           variant="ghost"
           size="icon-xs"
           aria-label={`重命名${displayTitle}`}
-          className="hidden group-hover:inline-flex"
+          className="hidden group-has-[button[data-state=open]]:inline-flex group-hover:inline-flex"
           onClick={onRename}
         >
           <SquarePen />
