@@ -719,7 +719,7 @@ function ConversationRow({
       <div className="ml-auto flex shrink-0 items-center gap-1 text-muted-foreground">
         {conversation.status === "running" ? <Loader2 className="size-3.5 animate-spin" /> : null}
         {conversation.pinned ? <Pin data-pinned="true" className="size-3" fill="currentColor" /> : null}
-        <span data-testid="conversation-time" className="ml-auto text-xs group-hover:hidden">
+        <span data-testid="conversation-time" className="ml-auto text-xs group-has-[button[data-state=open]]:hidden group-hover:hidden">
           {conversation.last_message_at ? relativeTime(conversation.last_message_at) : ""}
         </span>
         <DropdownMenu>
@@ -729,7 +729,7 @@ function ConversationRow({
               variant="ghost"
               size="icon-xs"
               aria-label={`${displayTitle}操作`}
-              className="hidden group-hover:inline-flex"
+              className="hidden group-has-[button[data-state=open]]:inline-flex group-hover:inline-flex data-[state=open]:inline-flex"
             >
               <MoreHorizontal />
             </Button>
