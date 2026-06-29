@@ -1734,6 +1734,10 @@ body.td-source-canvas-cursor-text .td-drag-handle-shell * {
   box-sizing: border-box;
 }
 
+.td-source-resume-canvas[data-toolbar-visible="false"] .td-editor-print-wrapper {
+  padding-top: 0.75rem;
+}
+
 .td-source-resume-canvas[data-outline-layout="docked"][data-outline-expanded="true"] .td-editor-print-wrapper {
   padding-left: var(--td-module-outline-reserved-width);
   padding-right: 1.5rem;

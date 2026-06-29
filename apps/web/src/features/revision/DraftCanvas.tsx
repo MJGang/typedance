@@ -626,6 +626,7 @@ function DraftCanvasWorkspace({
       className="td-source-resume-canvas relative flex h-full min-h-0 flex-col overflow-hidden"
       data-outline-layout={outlineLayout.docked ? "docked" : "floating"}
       data-outline-expanded={outlineReservedWidth > 0 ? "true" : undefined}
+      data-toolbar-visible={toolbarVisible ? "true" : "false"}
       onPointerDownCapture={handleCanvasPointerDown}
       style={{
         "--td-module-outline-reserved-width": `${outlineReservedWidth}px`,
