@@ -734,7 +734,7 @@ function ConversationRow({
               <MoreHorizontal />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent side="bottom" align="end" sideOffset={6} className="!w-40 !min-w-40">
+          <DropdownMenuContent side="bottom" align="start" sideOffset={6} className="!w-40 !min-w-40">
             <DropdownMenuGroup>
               <DropdownMenuItem onSelect={async () => {
                 await updateWorkspaceConversation(conversation.id, { pinned: !conversation.pinned })
