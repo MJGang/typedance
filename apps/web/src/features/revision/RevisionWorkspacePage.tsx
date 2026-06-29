@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useOutletContext, useParams } from "react-router-dom"
-import { AlertCircle, Download, FileText, Loader2, PanelRight, RefreshCcw, SquarePen } from "lucide-react"
+import { AlertCircle, Copy, Download, FileText, Loader2, PanelRight, RefreshCcw, SlidersHorizontal, SquarePen } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -29,6 +29,7 @@ import {
 } from "./panelLayout"
 import { ThemeSelector } from "../templates/components/style-panel/ThemeSelector"
 import { buildTemplateThemes, type TemplateTheme } from "../templates/theme-options"
+import { resumeDocToPlainText } from "../workspace/editor"
 import { useSourceCanvasAutosave } from "./useSourceCanvasAutosave"
 import { WorkbenchSidebar } from "./WorkbenchSidebar"
 import type { RevisionWorkspaceChromeContext } from "@/components/SiteLayout"
@@ -103,6 +104,7 @@ export function RevisionWorkspacePage() {
   const [exportingFormat, setExportingFormat] = useState<RevisionExportFormat | null>(null)
   const [sourceCanvasPageMargins, setSourceCanvasPageMargins] = useState<PageMargins | null>(null)
   const [isSavingTemplate, setIsSavingTemplate] = useState(false)
+  const [editorToolbarVisible, setEditorToolbarVisible] = useState(false)
   const [renameDialogOpen, setRenameDialogOpen] = useState(false)
   const [titleDraft, setTitleDraft] = useState("")
   const [titleSaveError, setTitleSaveError] = useState<string | null>(null)
@@ -148,6 +150,7 @@ export function RevisionWorkspacePage() {
     setTitleSaveError(null)
     setIsSavingTitle(false)
     setIsSavingTemplate(false)
+    setEditorToolbarVisible(false)
   }, [documentId])
 
   const handleSavedCanvas = useCallback((savedCanvas: SourceResumeCanvas) => {
@@ -419,6 +422,23 @@ export function RevisionWorkspacePage() {
       }
     : undefined
 
+  const handleCopyResume = useCallback(async () => {
+    if (!sourceCanvas) return
+    const plainText = resumeDocToPlainText(sourceCanvas.doc_json as Record<string, unknown>)
+    if (!plainText) {
+      toast.error("暂无可复制的简历内容")
+      return
+    }
+
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable")
+      await navigator.clipboard.writeText(plainText)
+      toast.success("已复制简历全文")
+    } catch {
+      toast.error("复制失败，请稍后重试")
+    }
+  }, [sourceCanvas])
+
   const handleExport = useCallback(async (format: RevisionExportFormat) => {
     if (!workspace || !sourceCanvas || !selectedTemplateStyle || exportingFormat) return
     setExportingFormat(format)
@@ -685,6 +705,36 @@ export function RevisionWorkspacePage() {
                 disabled={isSavingTemplate}
                 ariaLabel="选择模板"
               />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="复制简历全文"
+                    disabled={!sourceCanvas}
+                    onClick={() => void handleCopyResume()}
+                  >
+                    <Copy />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>复制简历全文</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant={editorToolbarVisible ? "secondary" : "ghost"}
+                    size="icon-sm"
+                    aria-label={editorToolbarVisible ? "隐藏格式工具栏" : "显示格式工具栏"}
+                    aria-pressed={editorToolbarVisible}
+                    onClick={() => setEditorToolbarVisible((visible) => !visible)}
+                  >
+                    <SlidersHorizontal />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{editorToolbarVisible ? "隐藏格式工具栏" : "显示格式工具栏"}</TooltipContent>
+              </Tooltip>
               {exportTitlebarAction}
               {!assistantPanelVisible ? (
                 <Tooltip>
@@ -719,6 +769,7 @@ export function RevisionWorkspacePage() {
                   onRetrySave={retryCanvasSave}
                   saveStatus={canvasSaveStatus}
                   templateStyle={selectedTemplateStyle}
+                  toolbarVisible={editorToolbarVisible}
                 />
               ) : (
                 <div className="m-4 rounded-md border border-border bg-muted/30 p-4">

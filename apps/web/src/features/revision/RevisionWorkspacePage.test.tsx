@@ -45,6 +45,19 @@ const draftCanvasMocks = vi.hoisted(() => ({
   render: vi.fn(),
 }))
 
+const clipboardMocks = vi.hoisted(() => ({
+  writeText: vi.fn(),
+}))
+
+const toastMocks = vi.hoisted(() => ({
+  error: vi.fn(),
+  success: vi.fn(),
+}))
+
+vi.mock("sonner", () => ({
+  toast: toastMocks,
+}))
+
 vi.mock("@assistant-ui/react", () => ({
   AssistantRuntimeProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
   useLocalRuntime: () => ({}),
@@ -104,6 +117,7 @@ vi.mock("./DraftCanvas", () => ({
     onRetrySave,
     saveStatus,
     templateStyle,
+    toolbarVisible,
     toolbarEnd,
   }: {
     canvas: WorkspaceView["source_resume_canvas"]
@@ -112,11 +126,12 @@ vi.mock("./DraftCanvas", () => ({
     onRetrySave: () => void
     saveStatus: "idle" | "saving" | "saved" | "error"
     templateStyle?: TemplateStyleConfig
+    toolbarVisible?: boolean
     toolbarEnd?: ReactNode
   }) => (
-    draftCanvasMocks.render({ canvas, templateStyle }),
+    draftCanvasMocks.render({ canvas, templateStyle, toolbarVisible }),
     <section aria-label="原始简历画布">
-      <div role="toolbar" aria-label="简历格式工具栏">{toolbarEnd}</div>
+      {toolbarVisible ? <div role="toolbar" aria-label="简历格式工具栏">{toolbarEnd}</div> : null}
       <p>{canvasText(canvas?.doc_json)}</p>
       {canvas?.module_anchors.map((anchor) => <button key={anchor.module_id} type="button">{anchor.title}</button>)}
       <button
@@ -335,6 +350,13 @@ describe("RevisionWorkspacePage", () => {
     Object.values(apiMocks).forEach((mock) => mock.mockReset())
     Object.values(agentHostMocks).forEach((mock) => mock.mockReset())
     draftCanvasMocks.render.mockReset()
+    clipboardMocks.writeText.mockReset()
+    toastMocks.error.mockReset()
+    toastMocks.success.mockReset()
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: clipboardMocks.writeText },
+    })
 
     apiMocks.getRevisionWorkspaceView.mockResolvedValue(workspace)
     apiMocks.listTemplateStyles.mockResolvedValue([customTemplateStyle])
@@ -433,13 +455,90 @@ describe("RevisionWorkspacePage", () => {
     await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1"))
   })
 
+  it("keeps the format toolbar hidden by default and resets it after switching workspaces", async () => {
+    const nextWorkspace: WorkspaceView = {
+      ...workspace,
+      document: { ...workspace.document, id: "doc_2", title: "第二工作区" },
+      current_draft: workspace.current_draft
+        ? { ...workspace.current_draft, id: "draft_2", document_id: "doc_2" }
+        : undefined,
+      source_resume_canvas: workspace.source_resume_canvas
+        ? { ...workspace.source_resume_canvas, id: "canvas_2", document_id: "doc_2" }
+        : undefined,
+    }
+    apiMocks.getRevisionWorkspaceView.mockImplementation(async (documentId: string) => (
+      documentId === "doc_2" ? nextWorkspace : workspace
+    ))
+    renderPage()
+    const titlebar = await screen.findByTestId("revision-workspace-titlebar")
+    const toggle = within(titlebar).getByRole("button", { name: "显示格式工具栏" })
+
+    expect(toggle).toHaveAttribute("aria-pressed", "false")
+    expect(screen.queryByRole("toolbar", { name: "简历格式工具栏" })).not.toBeInTheDocument()
+
+    fireEvent.click(toggle)
+    expect(within(titlebar).getByRole("button", { name: "隐藏格式工具栏" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("toolbar", { name: "简历格式工具栏" })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText("切换工作区"))
+    const nextTitlebar = await screen.findByTestId("revision-workspace-titlebar")
+    await waitFor(() => {
+      expect(within(nextTitlebar).getByRole("button", { name: "显示格式工具栏" })).toHaveAttribute("aria-pressed", "false")
+    })
+    expect(screen.queryByRole("toolbar", { name: "简历格式工具栏" })).not.toBeInTheDocument()
+  })
+
+  it("copies the latest complete resume as plain text", async () => {
+    clipboardMocks.writeText.mockResolvedValue(undefined)
+    renderPage()
+    const titlebar = await screen.findByTestId("revision-workspace-titlebar")
+
+    fireEvent.click(within(titlebar).getByRole("button", { name: "复制简历全文" }))
+    await waitFor(() => expect(clipboardMocks.writeText).toHaveBeenCalledWith("Original canvas text"))
+    expect(toastMocks.success).toHaveBeenCalledWith("已复制简历全文")
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑画布" }))
+    await screen.findByText("Updated canvas text")
+    fireEvent.click(within(titlebar).getByRole("button", { name: "复制简历全文" }))
+    await waitFor(() => expect(clipboardMocks.writeText).toHaveBeenLastCalledWith("Updated canvas text"))
+  })
+
+  it("reports empty content and clipboard failures", async () => {
+    apiMocks.getRevisionWorkspaceView.mockResolvedValue({
+      ...workspace,
+      source_resume_canvas: workspace.source_resume_canvas
+        ? {
+            ...workspace.source_resume_canvas,
+            doc_json: { type: "doc", content: [] },
+          }
+        : undefined,
+    })
+    const view = renderPage()
+    let titlebar = await screen.findByTestId("revision-workspace-titlebar")
+    fireEvent.click(within(titlebar).getByRole("button", { name: "复制简历全文" }))
+    expect(toastMocks.error).toHaveBeenCalledWith("暂无可复制的简历内容")
+    expect(clipboardMocks.writeText).not.toHaveBeenCalled()
+
+    view.unmount()
+    apiMocks.getRevisionWorkspaceView.mockResolvedValue(workspace)
+    clipboardMocks.writeText.mockRejectedValue(new Error("clipboard denied"))
+    renderPage()
+    titlebar = await screen.findByTestId("revision-workspace-titlebar")
+    fireEvent.click(within(titlebar).getByRole("button", { name: "复制简历全文" }))
+    await waitFor(() => expect(toastMocks.error).toHaveBeenCalledWith("复制失败，请稍后重试"))
+  })
+
   it("hides and restores the assistant panel from workbench controls", async () => {
     renderPage()
 
     const workspaceGrid = await screen.findByTestId("revision-workspace-grid")
     const titlebar = screen.getByTestId("revision-workspace-titlebar")
     const titlebarActions = within(titlebar).getByTestId("revision-workspace-actions")
-    expect(within(titlebarActions).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual(["导出"])
+    expect(within(titlebarActions).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
+      "复制简历全文",
+      "显示格式工具栏",
+      "导出",
+    ])
     expect(within(titlebar).queryByRole("button", { name: "显示 AI 面板" })).not.toBeInTheDocument()
 
     const hideAssistantButton = await screen.findByRole("button", { name: "隐藏 AI 面板" })
@@ -451,10 +550,10 @@ describe("RevisionWorkspacePage", () => {
     expect(screen.queryByRole("separator", { name: "调整 AI 面板宽度" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "隐藏 AI 面板" })).not.toBeInTheDocument()
 
-    const toolbar = screen.getByRole("toolbar", { name: "简历格式工具栏" })
-    expect(within(toolbar).queryByRole("button", { name: "显示 AI 面板" })).not.toBeInTheDocument()
-    expect(within(toolbar).queryByRole("button", { name: "导出" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("toolbar", { name: "简历格式工具栏" })).not.toBeInTheDocument()
     expect(within(titlebarActions).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
+      "复制简历全文",
+      "显示格式工具栏",
       "导出",
       "显示 AI 面板",
     ])
@@ -849,8 +948,9 @@ describe("RevisionWorkspacePage", () => {
     }))
 
     fireEvent.click(await screen.findByRole("button", { name: "调整页边距" }))
-    const toolbar = await screen.findByRole("toolbar", { name: "简历格式工具栏" })
     const titlebar = screen.getByTestId("revision-workspace-titlebar")
+    fireEvent.click(within(titlebar).getByRole("button", { name: "显示格式工具栏" }))
+    const toolbar = await screen.findByRole("toolbar", { name: "简历格式工具栏" })
     const exportButton = within(titlebar).getByRole("button", { name: "导出" })
     expect(within(toolbar).queryByRole("button", { name: "导出" })).not.toBeInTheDocument()
     expect(exportButton).not.toHaveTextContent("导出")

@@ -412,7 +412,7 @@ const handleCopyResume = useCallback(async () => {
       aria-pressed={editorToolbarVisible}
       onClick={() => setEditorToolbarVisible((visible) => !visible)}
     >
-      <Paintbrush />
+      <SlidersHorizontal />
     </Button>
   </TooltipTrigger>
   <TooltipContent>{editorToolbarVisible ? "隐藏格式工具栏" : "显示格式工具栏"}</TooltipContent>
