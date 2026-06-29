@@ -8,7 +8,7 @@ import type { JSONContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import DragHandle from "@tiptap/extension-drag-handle-react"
 import { PaginationPlus, PAGE_SIZES } from "tiptap-pagination-plus"
-import { Bold, Columns3, Eraser, GripVertical, Hash, Heading1, Heading2, Heading3, Italic, List, ListOrdered, ListTree, Type, Underline } from "lucide-react"
+import { Bold, Columns3, Eraser, Files, GripVertical, Hash, Heading1, Heading2, Heading3, Italic, List, ListOrdered, ListTree, Type, Underline } from "lucide-react"
 import { Column, Columns, type ColumnsCount, type ColumnsGap } from "@typedance/tiptap-layout"
 
 import { Button } from "@/components/ui/button"
@@ -56,6 +56,9 @@ type ResumeRichTextEditorProps = {
   onPageMarginGuidesVisibleChange?: (visible: boolean) => void
   moduleOutlineVisible?: boolean
   onModuleOutlineVisibleChange?: (visible: boolean) => void
+  pageNavigatorVisible?: boolean
+  onPageNavigatorVisibleChange?: (visible: boolean) => void
+  toolbarVisible?: boolean
   toolbarEnd?: ReactNode
 }
 
@@ -683,6 +686,9 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       onPageMarginGuidesVisibleChange,
       moduleOutlineVisible = false,
       onModuleOutlineVisibleChange,
+      pageNavigatorVisible = false,
+      onPageNavigatorVisibleChange,
+      toolbarVisible = true,
       toolbarEnd,
     },
     ref,
@@ -1029,7 +1035,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         onPointerMove={handleRichEditorPointerMove}
         onPointerLeave={handleRichEditorPointerLeave}
       >
-        {editable && (
+        {editable && toolbarVisible && (
           <EditorToolbar>
             <ToolbarGroup>
               <ToolbarSelect
@@ -1191,6 +1197,19 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                     icon={ListTree}
                     isActive={moduleOutlineVisible}
                     onClick={() => onModuleOutlineVisibleChange(!moduleOutlineVisible)}
+                  />
+                </ToolbarGroup>
+              </>
+            )}
+            {onPageNavigatorVisibleChange && (
+              <>
+                <ToolbarVerticalSeparator />
+                <ToolbarGroup>
+                  <ToolbarIconButton
+                    label="分页器"
+                    icon={Files}
+                    isActive={pageNavigatorVisible}
+                    onClick={() => onPageNavigatorVisibleChange(!pageNavigatorVisible)}
                   />
                 </ToolbarGroup>
               </>

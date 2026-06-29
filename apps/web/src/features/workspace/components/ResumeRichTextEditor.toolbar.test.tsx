@@ -57,6 +57,42 @@ beforeAll(() => {
 })
 
 describe("ResumeRichTextEditor toolbar", () => {
+  it("keeps the editor mounted while the format toolbar is hidden", () => {
+    render(
+      <TooltipProvider>
+        <ResumeRichTextEditor
+          ariaLabel="Resume text"
+          docJson={{ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "正文" }] }] }}
+          toolbarVisible={false}
+          onChange={() => {}}
+        />
+      </TooltipProvider>,
+    )
+
+    expect(screen.queryByRole("toolbar", { name: "简历格式工具栏" })).not.toBeInTheDocument()
+    expect(screen.getByLabelText("Resume text")).toBeInTheDocument()
+  })
+
+  it("toggles the page navigator from the format toolbar", () => {
+    const onPageNavigatorVisibleChange = vi.fn()
+    render(
+      <TooltipProvider>
+        <ResumeRichTextEditor
+          ariaLabel="Resume text"
+          docJson={{ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "正文" }] }] }}
+          pageNavigatorVisible={false}
+          onPageNavigatorVisibleChange={onPageNavigatorVisibleChange}
+          onChange={() => {}}
+        />
+      </TooltipProvider>,
+    )
+
+    const button = screen.getByRole("button", { name: "分页器" })
+    expect(button).toHaveAttribute("aria-pressed", "false")
+    fireEvent.click(button)
+    expect(onPageNavigatorVisibleChange).toHaveBeenCalledWith(true)
+  })
+
   it("renders a supplied end action inside the toolbar", () => {
     render(
       <TooltipProvider>

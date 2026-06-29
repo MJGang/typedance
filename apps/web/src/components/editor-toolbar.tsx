@@ -85,7 +85,7 @@ export function EditorToolbar({ children }: { children: ReactNode }) {
 export function ToolbarIconButton({
   label,
   icon: Icon,
-  isActive = false,
+  isActive,
   disabled = false,
   onClick,
   className,
@@ -98,6 +98,7 @@ export function ToolbarIconButton({
           variant="ghost"
           size="icon-sm"
           aria-label={label}
+          aria-pressed={isActive}
           data-active={isActive || undefined}
           disabled={disabled}
           className={cn("td-editor-toolbar-button", className)}
