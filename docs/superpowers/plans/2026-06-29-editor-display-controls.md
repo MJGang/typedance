@@ -280,6 +280,8 @@ const [pageNavigatorVisible, setPageNavigatorVisible] = useState(false)
 ) : null}
 ```
 
+保留保存失败反馈：当大纲隐藏且 `saveStatus === "error"` 时，在 `outlineTop` 对应位置显示紧凑的错误与重试操作；大纲显示时继续由大纲内部状态区承载，避免默认隐藏大纲后吞掉保存错误。
+
 - [ ] **Step 4：运行测试并确认通过**
 
 Run:

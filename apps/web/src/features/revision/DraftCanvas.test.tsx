@@ -4,7 +4,6 @@ import { forwardRef, useImperativeHandle } from "react"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import type { SourceResumeCanvas } from "@typedance/contracts"
 import { MICROSOFT_YAHEI_FONT_STACK } from "../templates/style-engine/fonts"
-import { moduleOutlineStorageKey } from "./moduleInteractions"
 import { DraftCanvas } from "./DraftCanvas"
 
 type MockDocJson = {
@@ -23,7 +22,9 @@ type MockDocJson = {
 type MockEditorProps = {
   docJson: MockDocJson
   moduleOutlineVisible?: boolean
+  pageNavigatorVisible?: boolean
   pageMarginGuidesVisible?: boolean
+  toolbarVisible?: boolean
   cssText?: string
   marginConfig?: {
     top: number
@@ -33,6 +34,7 @@ type MockEditorProps = {
   }
   onChange: (change: { plainText: string; docJson: MockDocJson }) => void
   onModuleOutlineVisibleChange?: (visible: boolean) => void
+  onPageNavigatorVisibleChange?: (visible: boolean) => void
   onPageMarginGuidesVisibleChange?: (visible: boolean) => void
   onSourceCanvasModuleChange?: (moduleId: string | null) => void
 }
@@ -275,7 +277,48 @@ function showPageMarginGuides() {
   act(() => editorMocks.props?.onPageMarginGuidesVisibleChange?.(true))
 }
 
+function showModuleOutline() {
+  act(() => editorMocks.props?.onModuleOutlineVisibleChange?.(true))
+}
+
+function showPageNavigator() {
+  act(() => editorMocks.props?.onPageNavigatorVisibleChange?.(true))
+}
+
 describe("DraftCanvas", () => {
+  it("starts with the outline and page navigator hidden", () => {
+    editorMocks.pageCount = 3
+    render(<DraftCanvas canvas={canvas} toolbarVisible onChange={vi.fn()} saveStatus="idle" />)
+
+    expect(editorMocks.props?.toolbarVisible).toBe(true)
+    expect(editorMocks.props?.moduleOutlineVisible).toBe(false)
+    expect(editorMocks.props?.pageNavigatorVisible).toBe(false)
+    expect(screen.queryByLabelText("简历模块大纲")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("source-page-navigator")).not.toBeInTheDocument()
+  })
+
+  it("shows the page navigator only after its toolbar toggle is activated", async () => {
+    editorMocks.pageCount = 3
+    render(<DraftCanvas canvas={canvas} toolbarVisible onChange={vi.fn()} saveStatus="idle" />)
+
+    expect(screen.queryByTestId("source-page-navigator")).not.toBeInTheDocument()
+    showPageNavigator()
+
+    expect(await screen.findByTestId("source-page-navigator")).toBeInTheDocument()
+  })
+
+  it("ignores persisted outline visibility when entering the canvas", () => {
+    localStorage.setItem("typedance:revision-workspace:module-outline:doc_1", JSON.stringify({
+      visible: true,
+      expanded: true,
+    }))
+
+    render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
+
+    expect(editorMocks.props?.moduleOutlineVisible).toBe(false)
+    expect(screen.queryByLabelText("简历模块大纲")).not.toBeInTheDocument()
+  })
+
   it("applies the classic template typography to the source canvas editor", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
 
@@ -363,6 +406,7 @@ describe("DraftCanvas", () => {
         <DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />
       </div>,
     )
+    showPageNavigator()
 
     const navigator = await screen.findByTestId("source-page-navigator")
     const shell = screen.getByTestId("source-page-navigator-shell")
@@ -482,6 +526,7 @@ describe("DraftCanvas", () => {
 
   it("activates an outline item and scrolls below the toolbar when clicked", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
+    showModuleOutline()
 
     const item = screen.getByRole("button", { name: "项目经历" })
     fireEvent.click(item)
@@ -495,6 +540,7 @@ describe("DraftCanvas", () => {
 
   it("collapses the outline to its icon after an outline item scrolls the canvas", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
+    showModuleOutline()
 
     fireEvent.click(screen.getByRole("button", { name: "项目经历" }))
 
@@ -506,6 +552,7 @@ describe("DraftCanvas", () => {
 
   it("collapses the expanded outline when the editor canvas is clicked", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
+    showModuleOutline()
 
     fireEvent.pointerDown(screen.getByTestId("mock-editor-print-wrapper"))
 
@@ -551,6 +598,7 @@ describe("DraftCanvas", () => {
         saveStatus="idle"
       />,
     )
+    showModuleOutline()
 
     expect(screen.getByRole("button", { name: "个人信息" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "TypeDance" })).toBeInTheDocument()
@@ -560,6 +608,7 @@ describe("DraftCanvas", () => {
 
   it("updates the outline immediately when headings are pasted or deleted", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
+    showModuleOutline()
 
     act(() => editorMocks.props?.onChange({
       plainText: "个人信息\n\nTypeDance\n\n交付结果",
@@ -609,6 +658,7 @@ describe("DraftCanvas", () => {
 
   it("mirrors editor module selection into the outline and clears it for unrecognized content", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
+    showModuleOutline()
 
     act(() => editorMocks.props?.onSourceCanvasModuleChange?.("mod_1"))
     expect(screen.getByRole("button", { name: "项目经历" })).toHaveAttribute(
@@ -625,6 +675,8 @@ describe("DraftCanvas", () => {
   it("hides the outline from the toolbar without adding canvas highlight layers", async () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
 
+    expect(screen.queryByLabelText("简历模块大纲")).not.toBeInTheDocument()
+    showModuleOutline()
     act(() => editorMocks.props?.onSourceCanvasModuleChange?.("mod_1"))
     expect(screen.queryByTestId("module-region-mod_1")).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "收起大纲" })).toBeInTheDocument()
@@ -644,6 +696,7 @@ describe("DraftCanvas", () => {
 
   it("keeps active outline state without highlighting hovered canvas content", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
+    showModuleOutline()
 
     act(() => editorMocks.props?.onSourceCanvasModuleChange?.("mod_1"))
     fireEvent.pointerOver(screen.getByTestId("canvas-node-mod_2"))
@@ -658,9 +711,9 @@ describe("DraftCanvas", () => {
     expect(screen.queryByTestId("module-region-mod_2")).not.toBeInTheDocument()
   })
 
-  it("supports collapsing the module outline and persists the preference", async () => {
+  it("supports collapsing the module outline without persisting display state", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
-    await waitFor(() => expect(localStorage.getItem(moduleOutlineStorageKey("doc_1"))).not.toBeNull())
+    showModuleOutline()
 
     const toggle = screen.getByRole("button", { name: "收起大纲" })
     fireEvent.click(toggle)
@@ -670,25 +723,18 @@ describe("DraftCanvas", () => {
       "false",
     )
     expect(screen.queryByRole("button", { name: "项目经历" })).not.toBeInTheDocument()
-    await waitFor(() => {
-      expect(JSON.parse(localStorage.getItem(moduleOutlineStorageKey("doc_1")) ?? "")).toMatchObject({
-        expanded: false,
-      })
-    })
+    expect(localStorage.getItem("typedance:revision-workspace:module-outline:doc_1")).toBeNull()
   })
 
-  it("keeps module outline preferences isolated by document", async () => {
+  it("resets outline and page navigator visibility when the canvas document changes", async () => {
+    editorMocks.pageCount = 3
     const { rerender } = render(
       <DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />,
     )
-    await waitFor(() => expect(localStorage.getItem(moduleOutlineStorageKey("doc_1"))).not.toBeNull())
-
-    act(() => editorMocks.props?.onModuleOutlineVisibleChange?.(false))
-    await waitFor(() => {
-      expect(JSON.parse(localStorage.getItem(moduleOutlineStorageKey("doc_1")) ?? "")).toMatchObject({
-        visible: false,
-      })
-    })
+    showModuleOutline()
+    showPageNavigator()
+    expect(screen.getByLabelText("简历模块大纲")).toBeInTheDocument()
+    expect(await screen.findByTestId("source-page-navigator")).toBeInTheDocument()
 
     rerender(
       <DraftCanvas
@@ -698,25 +744,12 @@ describe("DraftCanvas", () => {
       />,
     )
 
-    expect(screen.getByTestId("module-outline-shell")).toBeInTheDocument()
-    expect(screen.getByLabelText("简历模块大纲")).toBeInTheDocument()
-    expect(editorMocks.props?.moduleOutlineVisible).toBe(true)
-  })
-
-  it("restores saved outline visibility and expansion state", () => {
-    localStorage.setItem(moduleOutlineStorageKey("doc_1"), JSON.stringify({
-      visible: true,
-      expanded: false,
-      position: { x: 72, y: 84 },
-    }))
-
-    render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
-
-    expect(screen.getByTestId("module-outline-shell")).toBeInTheDocument()
-    expect(screen.getByLabelText("简历模块大纲")).toBeInTheDocument()
-    expect(screen.getByTestId("module-outline-panel")).toHaveClass("size-8")
-    expect(screen.queryByTestId("module-outline-row-module-1")).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "展开大纲" })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(editorMocks.props?.moduleOutlineVisible).toBe(false)
+      expect(editorMocks.props?.pageNavigatorVisible).toBe(false)
+    })
+    expect(screen.queryByLabelText("简历模块大纲")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("source-page-navigator")).not.toBeInTheDocument()
   })
 
   it("docks the outline and reserves left-side space when the A4 page can still fit", async () => {
@@ -727,6 +760,7 @@ describe("DraftCanvas", () => {
         <DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />
       </div>,
     )
+    showModuleOutline()
 
     const root = screen.getByTestId("module-outline-shell").closest(".td-source-resume-canvas")
     await waitFor(() => {
@@ -747,6 +781,7 @@ describe("DraftCanvas", () => {
         <DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />
       </div>,
     )
+    showModuleOutline()
 
     const root = screen.getByTestId("module-outline-shell").closest(".td-source-resume-canvas")
     expect(root).toHaveClass("h-full", "overflow-hidden")
@@ -767,6 +802,7 @@ describe("DraftCanvas", () => {
         <DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />
       </div>,
     )
+    showModuleOutline()
 
     const root = screen.getByTestId("module-outline-shell").closest(".td-source-resume-canvas")
     await waitFor(() => {
@@ -789,6 +825,7 @@ describe("DraftCanvas", () => {
         <DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />
       </div>,
     )
+    showModuleOutline()
 
     await waitFor(() => {
       expect(screen.getByTestId("module-outline-shell")).toHaveStyle({ top: "40px" })
@@ -806,6 +843,7 @@ describe("DraftCanvas", () => {
         <DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />
       </div>,
     )
+    showModuleOutline()
 
     await waitFor(() => {
       expect(screen.getByTestId("module-outline-shell").getAttribute("style")).toContain(
@@ -842,6 +880,7 @@ describe("DraftCanvas", () => {
         <DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />
       </div>,
     )
+    showModuleOutline()
     const root = screen.getByTestId("module-outline-shell").closest(".td-source-resume-canvas")
     await waitFor(() => expect(root).toHaveAttribute("data-outline-layout", "docked"))
 
@@ -861,6 +900,7 @@ describe("DraftCanvas", () => {
   it("keeps interaction state out of the submitted editor document", async () => {
     const onChange = vi.fn()
     render(<DraftCanvas canvas={canvas} onChange={onChange} saveStatus="idle" />)
+    showModuleOutline()
     act(() => editorMocks.props?.onSourceCanvasModuleChange?.("mod_1"))
     fireEvent.pointerOver(screen.getByTestId("canvas-node-mod_2"))
     expect(screen.queryByTestId("module-region-mod_2")).not.toBeInTheDocument()
@@ -890,6 +930,7 @@ describe("DraftCanvas", () => {
 
   it("renders all module anchors at the same outline depth", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
+    showModuleOutline()
 
     expect(screen.getByRole("button", { name: "项目经历" })).toHaveStyle({ paddingLeft: "10px" })
     expect(screen.getByRole("button", { name: "教育经历" })).toHaveStyle({ paddingLeft: "10px" })

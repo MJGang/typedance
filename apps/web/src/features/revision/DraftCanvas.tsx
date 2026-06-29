@@ -28,8 +28,6 @@ import {
 } from "./DraggableModuleOutline"
 import {
   getModuleOutlineLayout,
-  loadModuleOutlinePreferences,
-  saveModuleOutlinePreferences,
 } from "./moduleInteractions"
 import { PageMarginGuides, type PageBounds } from "./PageMarginGuides"
 import {
@@ -51,6 +49,7 @@ type DraftCanvasProps = {
   onRetrySave?: () => void
   saveStatus: DraftCanvasSaveStatus
   templateStyle?: TemplateStyleConfig
+  toolbarVisible?: boolean
   toolbarEnd?: ReactNode
 }
 
@@ -379,6 +378,7 @@ function DraftCanvasWorkspace({
   onRetrySave,
   saveStatus,
   templateStyle = defaultClassicA4Style,
+  toolbarVisible = true,
   toolbarEnd,
 }: DraftCanvasProps) {
   const editorRef = useRef<ResumeRichTextEditorHandle>(null)
@@ -398,13 +398,10 @@ function DraftCanvasWorkspace({
     ),
     [templateStyle],
   )
-  const initialPreferences = useMemo(
-    () => loadModuleOutlinePreferences(canvas.document_id),
-    [canvas.document_id],
-  )
   const [activeModuleId, setActiveModuleId] = useState<string | null>(null)
-  const [outlineVisible, setOutlineVisible] = useState(initialPreferences?.visible ?? true)
-  const [outlineExpanded, setOutlineExpanded] = useState(initialPreferences?.expanded ?? true)
+  const [outlineVisible, setOutlineVisible] = useState(false)
+  const [outlineExpanded, setOutlineExpanded] = useState(true)
+  const [pageNavigatorVisible, setPageNavigatorVisible] = useState(false)
   const [viewportSize, setViewportSize] = useState<Size>({ width: 0, height: 0 })
   const [pageBounds, setPageBounds] = useState<PageBounds | null>(null)
   const [pageNavigationState, setPageNavigationState] = useState<PageNavigationState>({
@@ -526,17 +523,6 @@ function DraftCanvasWorkspace({
   }, [currentDocJson, outlineExpanded, outlineVisible, scheduleMeasure])
 
   useEffect(() => {
-    saveModuleOutlinePreferences(canvas.document_id, {
-      visible: outlineVisible,
-      expanded: outlineExpanded,
-    })
-  }, [
-    canvas.document_id,
-    outlineExpanded,
-    outlineVisible,
-  ])
-
-  useEffect(() => {
     savePageMarginPreferences(canvas.document_id, pageMargins, SOURCE_CANVAS_PAGE_SIZE)
     onPageMarginsChange?.(pageMargins)
   }, [
@@ -653,8 +639,11 @@ function DraftCanvasWorkspace({
         marginConfig={pageMargins}
         pageMarginGuidesVisible={pageMarginGuidesVisible}
         moduleOutlineVisible={outlineVisible}
+        pageNavigatorVisible={pageNavigatorVisible}
+        toolbarVisible={toolbarVisible}
         onChange={handleEditorChange}
         onModuleOutlineVisibleChange={setOutlineVisible}
+        onPageNavigatorVisibleChange={setPageNavigatorVisible}
         onPageMarginGuidesVisibleChange={setPageMarginGuidesVisible}
         onSourceCanvasModuleChange={setActiveModuleId}
         toolbarEnd={toolbarEnd}
@@ -666,6 +655,19 @@ function DraftCanvasWorkspace({
           pageSize={SOURCE_CANVAS_PAGE_SIZE}
           onMarginsChange={handlePageMarginsChange}
         />
+      ) : null}
+      {!outlineVisible && saveStatus === "error" ? (
+        <div
+          className="absolute left-3 z-20 flex items-center gap-2 rounded-md border border-destructive/30 bg-background px-3 py-1 text-xs text-destructive shadow-sm"
+          style={{ top: outlineTop }}
+        >
+          <span aria-live="polite">保存失败</span>
+          {onRetrySave ? (
+            <Button type="button" variant="outline" size="sm" className="h-6 px-2 text-xs" onClick={onRetrySave}>
+              重试保存
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       {outlineVisible ? (
         <DraggableModuleOutline
@@ -683,7 +685,7 @@ function DraftCanvasWorkspace({
           onScrollToAnchor={scrollToAnchor}
         />
       ) : null}
-      {pageBounds ? (
+      {pageNavigatorVisible && pageBounds ? (
         <SourceCanvasPageNavigator
           currentPageIndex={pageNavigationState.currentPageIndex}
           left={pageNavigatorLeft}
