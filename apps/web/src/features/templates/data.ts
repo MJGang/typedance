@@ -122,6 +122,7 @@ export const builtInSamples: Record<string, TemplateSampleContent> = {
 export const defaultClassicA4Style: TemplateStyleConfig = {
   template_id: "classic-a4",
   preset: "classic",
+  theme: { accentColor: "#174EA6" },
   blocks: CLASSIC_A4_PRESETS.classic,
   updated_at: "2026-06-05T00:00:00.000Z",
 }

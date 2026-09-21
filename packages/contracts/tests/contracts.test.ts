@@ -102,50 +102,69 @@ describe("templateSampleContentSchema", () => {
 });
 
 describe("templateStyleConfigSchema", () => {
-  it("validates template style config with blocks", () => {
-    const parsed = templateStyleConfigSchema.parse({
+  const validTemplateStyle = {
       template_id: "classic-a4",
+      preset: "classic",
+      theme: { accentColor: "#174EA6" },
       blocks: {
-        heading1: { fontSize: "24px", fontWeight: 700, color: "#1a1a1a", textAlign: "center" },
-        paragraph: { fontSize: "10px", lineHeight: 1.5, color: "#334155" },
+        heading1: {},
+        heading2: { decorationStyle: "minimal-line", fontSize: "16px" },
+        heading3: {},
+        paragraph: {},
+        bulletList: {},
+        orderedList: {},
       },
-      updated_at: "2026-05-08T08:00:00.000Z",
-    });
+      updated_at: "2026-09-21T00:00:00.000Z",
+  };
 
-    expect(parsed.template_id).toBe("classic-a4");
-    expect(parsed.preset).toBe("classic");
-    expect(parsed.blocks.heading1.fontSize).toBe("24px");
-    expect(parsed.blocks.heading1.fontWeight).toBe(700);
-    expect(parsed.updated_at).toBe("2026-05-08T08:00:00.000Z");
+  it("validates the complete strict template style config", () => {
+    expect(templateStyleConfigSchema.parse(validTemplateStyle)).toEqual(validTemplateStyle);
   });
 
-  it("defaults blocks to an empty object", () => {
-    const parsed = templateStyleConfigSchema.parse({
-      template_id: "classic-a4",
-      blocks: {},
-      updated_at: "2026-05-08T08:00:00.000Z",
-    });
-
-    expect(parsed.blocks).toEqual({});
+  it("requires a valid theme accent color", () => {
+    expect(() => templateStyleConfigSchema.parse({ ...validTemplateStyle, theme: undefined })).toThrow();
+    expect(() => templateStyleConfigSchema.parse({
+      ...validTemplateStyle,
+      theme: { accentColor: "blue" },
+    })).toThrow();
   });
 
-  it("requires an updated timestamp", () => {
+  it("requires one supported H2 decoration style", () => {
+    expect(() => templateStyleConfigSchema.parse({
+      ...validTemplateStyle,
+      blocks: {
+        ...validTemplateStyle.blocks,
+        heading2: { decorationStyle: "unknown" },
+      },
+    })).toThrow();
+  });
+
+  it("rejects template background and border fields for H2", () => {
+    expect(() => templateStyleConfigSchema.parse({
+      ...validTemplateStyle,
+      blocks: {
+        ...validTemplateStyle.blocks,
+        heading2: { decorationStyle: "minimal-line", backgroundColor: "#ffffff" },
+      },
+    })).toThrow();
+    expect(() => templateStyleConfigSchema.parse({
+      ...validTemplateStyle,
+      blocks: {
+        ...validTemplateStyle.blocks,
+        heading2: { decorationStyle: "minimal-line", borderBottom: { style: "solid" } },
+      },
+    })).toThrow();
+  });
+
+  it("rejects missing blocks and unknown block keys", () => {
+    expect(() => templateStyleConfigSchema.parse({ ...validTemplateStyle, blocks: undefined })).toThrow();
     expect(() =>
       templateStyleConfigSchema.parse({
-        template_id: "classic-a4",
-        blocks: {},
-      })
-    ).toThrow();
-  });
-
-  it("rejects unknown block type keys", () => {
-    expect(() =>
-      templateStyleConfigSchema.parse({
-        template_id: "classic-a4",
+        ...validTemplateStyle,
         blocks: {
-          unknownBlock: { fontSize: "12px" },
+          ...validTemplateStyle.blocks,
+          unknownBlock: {},
         },
-        updated_at: "2026-05-08T08:00:00.000Z",
       })
     ).toThrow();
   });
@@ -156,6 +175,7 @@ describe("revision document schemas", () => {
     const parsed = documentSchema.parse({
       id: "doc_1",
       pack_id: "resume",
+      template_id: "classic-a4",
       title: "张三基础简历",
       status: "active",
       target_language: "zh-CN",
@@ -405,6 +425,7 @@ describe("revision run and workspace schemas", () => {
       document: {
         id: "doc_1",
         pack_id: "resume",
+        template_id: "classic-a4",
         title: "张三基础简历",
         status: "active",
         target_language: "zh-CN",

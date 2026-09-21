@@ -42,15 +42,43 @@ export const blockStyleSchema = z.object({
   paddingLeft: z.string().optional(),
 });
 
+export const heading2DecorationStyleSchema = z.enum([
+  "minimal-line",
+  "accent-wash",
+  "dot-ribbon",
+]);
+
+export const themeStyleSchema = z.object({
+  accentColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+}).strict();
+
+export const heading2BlockStyleSchema = blockStyleSchema
+  .omit({ backgroundColor: true, borderBottom: true })
+  .extend({ decorationStyle: heading2DecorationStyleSchema })
+  .strict();
+
+export const templateBlocksSchema = z.object({
+  heading1: blockStyleSchema,
+  heading2: heading2BlockStyleSchema,
+  heading3: blockStyleSchema,
+  paragraph: blockStyleSchema,
+  bulletList: blockStyleSchema,
+  orderedList: blockStyleSchema,
+}).strict();
+
 export const templateStyleConfigSchema = z.object({
   template_id: z.string().min(1),
   name: z.string().optional(),
-  preset: z.string().default("classic"),
-  blocks: z.record(blockTypeSchema, blockStyleSchema),
+  preset: z.string(),
+  theme: themeStyleSchema,
+  blocks: templateBlocksSchema,
   updated_at: isoDateTimeSchema,
-});
+}).strict();
 
 export type TemplateSampleContent = z.infer<typeof templateSampleContentSchema>;
 export type TemplateStyleConfig = z.infer<typeof templateStyleConfigSchema>;
 export type BlockStyle = z.infer<typeof blockStyleSchema>;
+export type Heading2DecorationStyle = z.infer<typeof heading2DecorationStyleSchema>;
+export type ThemeStyle = z.infer<typeof themeStyleSchema>;
+export type Heading2BlockStyle = z.infer<typeof heading2BlockStyleSchema>;
 export type BlockType = z.infer<typeof blockTypeSchema>;

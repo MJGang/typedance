@@ -30,6 +30,8 @@ describe("defaultClassicA4Style", () => {
       lineHeight: 1.3,
       textAlign: "left",
     })
+    expect(defaultClassicA4Style.theme).toEqual({ accentColor: "#174EA6" })
+    expect(blocks.heading2).toMatchObject({ decorationStyle: "minimal-line" })
   })
 
   it("exposes multi-select font options without System UI", () => {

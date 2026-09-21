@@ -144,6 +144,7 @@ describe("TemplateLibrary", () => {
       expect(saveTemplateStyle).toHaveBeenCalledWith(expect.objectContaining({
         template_id: "classic-a4",
         preset: "classic",
+        theme: { accentColor: "#174EA6" },
         blocks: defaultClassicA4Style.blocks,
       }))
     })
