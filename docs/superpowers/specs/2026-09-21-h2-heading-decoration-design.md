@@ -158,7 +158,7 @@ Python Sidecar 使用对应的 Pydantic 枚举和专用 H2 model。`theme`、`ac
 
 TypeScript 的 H2 schema 使用严格对象校验，Python 的 H2 Pydantic model 使用 `extra="forbid"`。因此旧的块背景、块边框和其他未知字段会直接触发契约错误，而不是被静默忽略。
 
-配置只保存原始强调色。浅色底纹由渲染器使用固定的颜色混合算法生成，当前规则为将强调色以 12% 不透明度与白色混合，并输出确定的十六进制颜色。TypeScript 与 Python 必须通过相同测试向量验证混合结果。
+配置只保存原始强调色。浅色底纹由渲染器使用固定的颜色混合算法生成，当前规则为强调色占 12%、白色占 88%，每个 RGB 通道按 JavaScript `Math.round` 等价规则四舍五入并输出小写十六进制颜色。例如 `#174EA6` 的派生色为 `#e3eaf4`。TypeScript 与 Python 必须通过相同测试向量验证混合结果。
 
 ## DOM 合同
 
