@@ -56,6 +56,17 @@ function hasMarkedText(node: TestJsonNode, text: string, markType: string): bool
   return (node.content ?? []).some((child) => hasMarkedText(child, text, markType))
 }
 
+function findFirstNodeByType(node: TestJsonNode, type: string): TestJsonNode | undefined {
+  if (node.type === type) return node
+
+  for (const child of node.content ?? []) {
+    const match = findFirstNodeByType(child, type)
+    if (match) return match
+  }
+
+  return undefined
+}
+
 beforeAll(() => {
   class ResizeObserverMock {
     observe() {}
@@ -890,6 +901,48 @@ describe("ResumeRichTextEditor toolbar", () => {
       expect(hasNestedListPath(change.docJson, ["bulletList", "orderedList"])).toBe(true)
       expect(hasMarkedText(change.docJson, "项目亮点：", "bold")).toBe(true)
       expect(hasMarkedText(change.docJson, "知识工程：构建文档处理管线。", "bold")).toBe(true)
+      expect(collectNodeText(change.docJson)).not.toContain("**")
+    } finally {
+      unmount()
+    }
+  })
+
+  it("pastes mixed tab and space-indented ordered items as bold siblings", async () => {
+    const onChange = vi.fn()
+
+    const { unmount } = render(
+      <TooltipProvider>
+        <ResumeRichTextEditor
+          ariaLabel="Resume text"
+          docJson={{ type: "doc", content: [{ type: "paragraph" }] }}
+          onChange={onChange}
+        />
+      </TooltipProvider>,
+    )
+
+    try {
+      fireEvent.paste(screen.getByLabelText("Resume text"), {
+        clipboardData: {
+          getData: (type: string) => type === "text/plain"
+            ? [
+                "- **项目亮点：**",
+                "    1. **性能治理：虚拟滚动优化。** 第一项说明。",
+                "    2. **架构演进：构建工具迁移。** 第二项说明。",
+                "    3. **工程效能：脚手架建设。** 第三项说明。",
+                "\t4. **灰度分发：定向发布。** 第四项说明。",
+                "    5. **安全与稳定性：异常监控。** 第五项说明。",
+              ].join("\n")
+            : "",
+        },
+      })
+
+      await waitFor(() => expect(onChange).toHaveBeenCalled())
+
+      const change = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]
+      const orderedList = findFirstNodeByType(change.docJson, "orderedList")
+      expect(orderedList?.content).toHaveLength(5)
+      expect(hasMarkedText(change.docJson, "性能治理：虚拟滚动优化。", "bold")).toBe(true)
+      expect(hasMarkedText(change.docJson, "安全与稳定性：异常监控。", "bold")).toBe(true)
       expect(collectNodeText(change.docJson)).not.toContain("**")
     } finally {
       unmount()

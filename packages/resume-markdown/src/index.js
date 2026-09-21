@@ -10,17 +10,51 @@ const EMPTY_DOC = Object.freeze({
   content: [{ type: "paragraph" }],
 })
 
-const MARKDOWN_LIST_ITEM_INDENT = /^([ \t]+)(?=(?:[-+*]|\d+[.)])[ \t]+)/gm
+const MARKDOWN_LIST_ITEM = /^([ \t]*)(?=(?:[-+*]|\d+[.)])[ \t]+)/
+const MARKDOWN_TAB_SIZE = 4
+const NORMALIZED_LIST_INDENT_SIZE = 2
 
 function cloneJson(value) {
   return JSON.parse(JSON.stringify(value))
 }
 
 export function normalizeMarkdownListIndentation(markdown) {
-  return String(markdown ?? "").replace(
-    MARKDOWN_LIST_ITEM_INDENT,
-    (indent) => indent.replaceAll("\t", "  "),
-  )
+  const source = String(markdown ?? "")
+  const newline = source.includes("\r\n") ? "\r\n" : "\n"
+  let hasListParent = false
+  let nestedIndentColumns = null
+
+  return source.split(/\r?\n/).map((line) => {
+    const match = MARKDOWN_LIST_ITEM.exec(line)
+    if (!match) {
+      if (line.trim() && !/^[ \t]/.test(line)) {
+        hasListParent = false
+        nestedIndentColumns = null
+      }
+      return line
+    }
+
+    const indent = match[1]
+    let columns = 0
+    for (const character of indent) {
+      columns += character === "\t"
+        ? MARKDOWN_TAB_SIZE - (columns % MARKDOWN_TAB_SIZE)
+        : 1
+    }
+
+    if (columns === 0) {
+      hasListParent = true
+      nestedIndentColumns = null
+      return line
+    }
+
+    if (!hasListParent) return line
+
+    nestedIndentColumns ??= columns
+    const depth = Math.max(1, Math.round(columns / nestedIndentColumns))
+    const normalizedIndent = " ".repeat(depth * NORMALIZED_LIST_INDENT_SIZE)
+    return `${normalizedIndent}${line.slice(indent.length)}`
+  }).join(newline)
 }
 
 function normalizeContent(content) {

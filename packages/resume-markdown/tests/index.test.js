@@ -271,6 +271,87 @@ describe("resume markdown conversion", () => {
     })
   })
 
+  it("keeps mixed tab and space-indented ordered items at the same nested level", () => {
+    const doc = markdownToResumeDocJson([
+      "- **项目亮点：**",
+      "    1. **性能治理：虚拟滚动优化。** 第一项说明。",
+      "    2. **架构演进：构建工具迁移。** 第二项说明。",
+      "    3. **工程效能：脚手架建设。** 第三项说明。",
+      "\t4. **灰度分发：定向发布。** 第四项说明。",
+      "    5. **安全与稳定性：异常监控。** 第五项说明。",
+    ].join("\n"))
+
+    expect(doc.content?.[0]).toMatchObject({
+      type: "bulletList",
+      content: [
+        {
+          type: "listItem",
+          content: [
+            {
+              type: "paragraph",
+              content: [{ type: "text", text: "项目亮点：", marks: [{ type: "bold" }] }],
+            },
+            {
+              type: "orderedList",
+              content: [
+                {
+                  type: "listItem",
+                  content: [{
+                    type: "paragraph",
+                    content: [
+                      { type: "text", text: "性能治理：虚拟滚动优化。", marks: [{ type: "bold" }] },
+                      { type: "text", text: " 第一项说明。" },
+                    ],
+                  }],
+                },
+                {
+                  type: "listItem",
+                  content: [{
+                    type: "paragraph",
+                    content: [
+                      { type: "text", text: "架构演进：构建工具迁移。", marks: [{ type: "bold" }] },
+                      { type: "text", text: " 第二项说明。" },
+                    ],
+                  }],
+                },
+                {
+                  type: "listItem",
+                  content: [{
+                    type: "paragraph",
+                    content: [
+                      { type: "text", text: "工程效能：脚手架建设。", marks: [{ type: "bold" }] },
+                      { type: "text", text: " 第三项说明。" },
+                    ],
+                  }],
+                },
+                {
+                  type: "listItem",
+                  content: [{
+                    type: "paragraph",
+                    content: [
+                      { type: "text", text: "灰度分发：定向发布。", marks: [{ type: "bold" }] },
+                      { type: "text", text: " 第四项说明。" },
+                    ],
+                  }],
+                },
+                {
+                  type: "listItem",
+                  content: [{
+                    type: "paragraph",
+                    content: [
+                      { type: "text", text: "安全与稳定性：异常监控。", marks: [{ type: "bold" }] },
+                      { type: "text", text: " 第五项说明。" },
+                    ],
+                  }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+  })
+
   it("applies source canvas attrs without keeping Markdown markers", () => {
     const [node] = markdownBlockToResumeDocNodes("- **前端架构**: Vue", {
       fallbackType: "list",
