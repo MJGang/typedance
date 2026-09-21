@@ -3,6 +3,7 @@ import { useOutletContext, useParams } from "react-router-dom"
 import { AlertCircle, Copy, Download, FileText, Loader2, PanelRight, RefreshCcw, SlidersHorizontal, SquarePen } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Field, FieldDescription, FieldGroup } from "@/components/ui/field"
@@ -103,6 +104,7 @@ export function RevisionWorkspacePage() {
   const [state, setState] = useState<LoadState>({ status: "loading" })
   const [exportingFormat, setExportingFormat] = useState<RevisionExportFormat | null>(null)
   const [sourceCanvasPageMargins, setSourceCanvasPageMargins] = useState<PageMargins | null>(null)
+  const [sourceCanvasPageCount, setSourceCanvasPageCount] = useState(1)
   const [isSavingTemplate, setIsSavingTemplate] = useState(false)
   const [editorToolbarVisible, setEditorToolbarVisible] = useState(false)
   const [renameDialogOpen, setRenameDialogOpen] = useState(false)
@@ -151,6 +153,7 @@ export function RevisionWorkspacePage() {
     setIsSavingTitle(false)
     setIsSavingTemplate(false)
     setEditorToolbarVisible(false)
+    setSourceCanvasPageCount(1)
   }, [documentId])
 
   const handleSavedCanvas = useCallback((savedCanvas: SourceResumeCanvas) => {
@@ -696,6 +699,9 @@ export function RevisionWorkspacePage() {
               <Button type="button" variant="ghost" size="icon-xs" aria-label="重命名工作区" onClick={openRenameDialog}>
                 <SquarePen />
               </Button>
+              <Badge variant="secondary" className="tabular-nums">
+                共{sourceCanvasPageCount}页
+              </Badge>
             </div>
             <div data-testid="revision-workspace-actions" className="ml-auto flex items-center gap-1">
               <ThemeSelector
@@ -765,6 +771,7 @@ export function RevisionWorkspacePage() {
                   canvas={sourceCanvas}
                   patchFlash={canvasPatchFlash}
                   onChange={handleCanvasChange}
+                  onPageCountChange={setSourceCanvasPageCount}
                   onPageMarginsChange={setSourceCanvasPageMargins}
                   onRetrySave={retryCanvasSave}
                   saveStatus={canvasSaveStatus}

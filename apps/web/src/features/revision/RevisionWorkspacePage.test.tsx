@@ -113,6 +113,7 @@ vi.mock("./DraftCanvas", () => ({
   DraftCanvas: ({
     canvas,
     onChange,
+    onPageCountChange,
     onPageMarginsChange,
     onRetrySave,
     saveStatus,
@@ -122,6 +123,7 @@ vi.mock("./DraftCanvas", () => ({
   }: {
     canvas: WorkspaceView["source_resume_canvas"]
     onChange: (change: { plainText: string; docJson: { type: "doc"; content: unknown[] } }) => void
+    onPageCountChange?: (pageCount: number) => void
     onPageMarginsChange?: (margins: { top: number; bottom: number; left: number; right: number }) => void
     onRetrySave: () => void
     saveStatus: "idle" | "saving" | "saved" | "error"
@@ -151,6 +153,9 @@ vi.mock("./DraftCanvas", () => ({
         onClick={() => onPageMarginsChange?.({ top: 88, bottom: 72, left: 42, right: 48 })}
       >
         调整页边距
+      </button>
+      <button type="button" onClick={() => onPageCountChange?.(3)}>
+        模拟三页
       </button>
       <span aria-live="polite">
         {saveStatus === "saving" ? "正在保存" : saveStatus === "saved" ? "已保存" : saveStatus === "error" ? "保存失败" : ""}
@@ -486,6 +491,17 @@ describe("RevisionWorkspacePage", () => {
       expect(within(nextTitlebar).getByRole("button", { name: "显示格式工具栏" })).toHaveAttribute("aria-pressed", "false")
     })
     expect(screen.queryByRole("toolbar", { name: "简历格式工具栏" })).not.toBeInTheDocument()
+  })
+
+  it("shows the measured total page count beside the workspace rename action", async () => {
+    renderPage()
+
+    const titlebar = await screen.findByTestId("revision-workspace-titlebar")
+    const renameButton = within(titlebar).getByRole("button", { name: "重命名工作区" })
+    expect(renameButton.nextElementSibling).toHaveTextContent("共1页")
+
+    fireEvent.click(screen.getByRole("button", { name: "模拟三页" }))
+    expect(renameButton.nextElementSibling).toHaveTextContent("共3页")
   })
 
   it("copies the latest complete resume as plain text", async () => {

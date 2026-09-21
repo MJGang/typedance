@@ -45,6 +45,7 @@ type DraftCanvasProps = {
   canvas: SourceResumeCanvas
   patchFlash?: CanvasPatchFlash | null
   onChange: (change: ResumeEditorChange) => void
+  onPageCountChange?: (pageCount: number) => void
   onPageMarginsChange?: (margins: PageMargins) => void
   onRetrySave?: () => void
   saveStatus: DraftCanvasSaveStatus
@@ -374,6 +375,7 @@ function DraftCanvasWorkspace({
   canvas,
   patchFlash,
   onChange,
+  onPageCountChange,
   onPageMarginsChange,
   onRetrySave,
   saveStatus,
@@ -462,6 +464,7 @@ function DraftCanvasWorkspace({
         ? currentState
         : nextPageNavigationState
     ))
+    onPageCountChange?.(Math.max(1, nextPageNavigationState.pageTops.length))
     const nextOutlineFrame = getOutlineFrame(root)
     setOutlineTop((currentTop) => (
       currentTop === nextOutlineFrame.top ? currentTop : nextOutlineFrame.top
@@ -469,7 +472,7 @@ function DraftCanvasWorkspace({
     setOutlineMaxHeight((currentHeight) => (
       currentHeight === nextOutlineFrame.maxHeight ? currentHeight : nextOutlineFrame.maxHeight
     ))
-  }, [])
+  }, [onPageCountChange])
 
   const scheduleMeasure = useCallback(() => {
     if (frameRef.current !== null) return

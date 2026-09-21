@@ -286,6 +286,29 @@ function showPageNavigator() {
 }
 
 describe("DraftCanvas", () => {
+  it("reports the measured total page count when pagination changes", async () => {
+    editorMocks.pageCount = 3
+    const onPageCountChange = vi.fn()
+    render(
+      <DraftCanvas
+        canvas={canvas}
+        onChange={vi.fn()}
+        onPageCountChange={onPageCountChange}
+        saveStatus="idle"
+      />,
+    )
+
+    await waitFor(() => expect(onPageCountChange).toHaveBeenLastCalledWith(3))
+
+    editorMocks.pageCount = 2
+    act(() => editorMocks.props?.onChange({
+      plainText: "repaginated",
+      docJson: { type: "doc", content: [] },
+    }))
+
+    await waitFor(() => expect(onPageCountChange).toHaveBeenLastCalledWith(2))
+  })
+
   it("starts with the outline and page navigator hidden", () => {
     editorMocks.pageCount = 3
     render(<DraftCanvas canvas={canvas} toolbarVisible onChange={vi.fn()} saveStatus="idle" />)
