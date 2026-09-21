@@ -230,6 +230,47 @@ describe("resume markdown conversion", () => {
     })
   })
 
+  it("preserves bold marks in tab-indented ordered lists nested under bullets", () => {
+    const doc = markdownToResumeDocJson([
+      "- **项目亮点：**",
+      "\t1. **知识工程：构建文档处理管线。** 支持关联知识查询。",
+    ].join("\n"))
+
+    expect(doc.content?.[0]).toMatchObject({
+      type: "bulletList",
+      content: [
+        {
+          type: "listItem",
+          content: [
+            {
+              type: "paragraph",
+              content: [
+                { type: "text", text: "项目亮点：", marks: [{ type: "bold" }] },
+              ],
+            },
+            {
+              type: "orderedList",
+              content: [
+                {
+                  type: "listItem",
+                  content: [
+                    {
+                      type: "paragraph",
+                      content: [
+                        { type: "text", text: "知识工程：构建文档处理管线。", marks: [{ type: "bold" }] },
+                        { type: "text", text: " 支持关联知识查询。" },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+  })
+
   it("applies source canvas attrs without keeping Markdown markers", () => {
     const [node] = markdownBlockToResumeDocNodes("- **前端架构**: Vue", {
       fallbackType: "list",

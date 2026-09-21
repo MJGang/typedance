@@ -10,8 +10,17 @@ const EMPTY_DOC = Object.freeze({
   content: [{ type: "paragraph" }],
 })
 
+const MARKDOWN_LIST_ITEM_INDENT = /^([ \t]+)(?=(?:[-+*]|\d+[.)])[ \t]+)/gm
+
 function cloneJson(value) {
   return JSON.parse(JSON.stringify(value))
+}
+
+export function normalizeMarkdownListIndentation(markdown) {
+  return String(markdown ?? "").replace(
+    MARKDOWN_LIST_ITEM_INDENT,
+    (indent) => indent.replaceAll("\t", "  "),
+  )
 }
 
 function normalizeContent(content) {
@@ -91,7 +100,7 @@ function applySourceAttrs(node, attrs) {
 }
 
 export function markdownToResumeDocJson(markdown) {
-  const doc = manager.parse(String(markdown ?? ""))
+  const doc = manager.parse(normalizeMarkdownListIndentation(markdown))
   if (!Array.isArray(doc.content) || doc.content.length === 0) {
     return cloneJson(EMPTY_DOC)
   }

@@ -10,6 +10,7 @@ import DragHandle from "@tiptap/extension-drag-handle-react"
 import { PaginationPlus, PAGE_SIZES } from "tiptap-pagination-plus"
 import { Bold, Columns3, Eraser, Files, GripVertical, Hash, Heading1, Heading2, Heading3, Italic, List, ListOrdered, ListTree, Type, Underline } from "lucide-react"
 import { Column, Columns, type ColumnsCount, type ColumnsGap } from "@typedance/tiptap-layout"
+import { normalizeMarkdownListIndentation } from "@typedance/resume-markdown"
 
 import { Button } from "@/components/ui/button"
 import { ColorPickerPopover, DEFAULT_TEXT_COLOR } from "@/components/color-picker-popover"
@@ -529,7 +530,7 @@ const PasteMarkdown = Extension.create({
             const markdown = (editor as MarkdownEditor).markdown
             if (!markdown) return false
 
-            const json = markdown.parse(text)
+            const json = markdown.parse(normalizeMarkdownListIndentation(text))
             editor.commands.insertContent(json)
             return true
           },

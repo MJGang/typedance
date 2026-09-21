@@ -18,6 +18,8 @@ export type MarkdownBlockOptions = {
   attrs?: Record<string, unknown>
 }
 
+export function normalizeMarkdownListIndentation(markdown: string): string
+
 export function markdownToResumeDocJson(markdown: string): ResumeDocJson
 
 export function markdownBlockToResumeDocNodes(

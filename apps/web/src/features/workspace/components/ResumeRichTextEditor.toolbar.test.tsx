@@ -16,7 +16,8 @@ import {
   type ResumeRichTextEditorHandle,
 } from "./ResumeRichTextEditor"
 
-vi.mock("@typedance/resume-markdown", () => ({
+vi.mock("@typedance/resume-markdown", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@typedance/resume-markdown")>(),
   markdownToResumeDocJson: vi.fn(() => {
     throw new Error("PasteMarkdown should use the editor Markdown API")
   }),
@@ -25,6 +26,7 @@ vi.mock("@typedance/resume-markdown", () => ({
 type TestJsonNode = {
   type?: string
   text?: string
+  marks?: Array<{ type?: string }>
   content?: TestJsonNode[]
 }
 
@@ -44,6 +46,14 @@ function hasNestedListPath(node: TestJsonNode, path: string[]): boolean {
   }
 
   return (node.content ?? []).some((child) => hasNestedListPath(child, path))
+}
+
+function hasMarkedText(node: TestJsonNode, text: string, markType: string): boolean {
+  if (node.text === text && node.marks?.some((mark) => mark.type === markType)) {
+    return true
+  }
+
+  return (node.content ?? []).some((child) => hasMarkedText(child, text, markType))
 }
 
 beforeAll(() => {
@@ -843,6 +853,44 @@ describe("ResumeRichTextEditor toolbar", () => {
       expect(hasNestedListPath(change.docJson, ["orderedList", "orderedList", "orderedList"])).toBe(true)
       expect(hasNestedListPath(change.docJson, ["bulletList", "bulletList", "bulletList"])).toBe(true)
       expect(collectNodeText(change.docJson)).not.toMatch(/(?:^|\n|\s)(?:1\.|-)\s/)
+    } finally {
+      unmount()
+    }
+  })
+
+  it("pastes bold text inside a tab-indented ordered list nested under a bullet", async () => {
+    const onChange = vi.fn()
+
+    const { unmount } = render(
+      <TooltipProvider>
+        <ResumeRichTextEditor
+          ariaLabel="Resume text"
+          docJson={{ type: "doc", content: [{ type: "paragraph" }] }}
+          onChange={onChange}
+        />
+      </TooltipProvider>,
+    )
+
+    try {
+      fireEvent.paste(screen.getByLabelText("Resume text"), {
+        clipboardData: {
+          getData: (type: string) => type === "text/plain"
+            ? [
+                "- **项目亮点：**",
+                "\t1. **知识工程：构建文档处理管线。** 支持关联知识查询。",
+              ].join("\n")
+            : "",
+        },
+      })
+
+      await waitFor(() => expect(onChange).toHaveBeenCalled())
+
+      const change = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]
+      expect(change?.docJson).toBeDefined()
+      expect(hasNestedListPath(change.docJson, ["bulletList", "orderedList"])).toBe(true)
+      expect(hasMarkedText(change.docJson, "项目亮点：", "bold")).toBe(true)
+      expect(hasMarkedText(change.docJson, "知识工程：构建文档处理管线。", "bold")).toBe(true)
+      expect(collectNodeText(change.docJson)).not.toContain("**")
     } finally {
       unmount()
     }
