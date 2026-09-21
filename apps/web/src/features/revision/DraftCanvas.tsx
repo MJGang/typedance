@@ -11,13 +11,13 @@ import {
 } from "react"
 import { ChevronDown, ChevronUp } from "lucide-react"
 import type { ModuleAnchor, SourceResumeCanvas } from "@typedance/contracts"
+import { generateWorkspaceTemplateCSS } from "@typedance/resume-renderer"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { TemplateStyleConfig } from "../templates/types"
 import { PAGE_SIZES } from "tiptap-pagination-plus"
 import type { ResumeDocJson, ResumeEditorChange } from "../workspace/editor"
 import { defaultClassicA4Style } from "../templates/data"
-import { generateWorkspaceCSS } from "../templates/style-engine/css-generator"
 import {
   ResumeRichTextEditor,
   type ResumeRichTextEditorHandle,
@@ -394,8 +394,8 @@ function DraftCanvasWorkspace({
     [currentDocJson],
   )
   const sourceCanvasCss = useMemo(
-    () => generateWorkspaceCSS(
-      templateStyle.blocks ?? {},
+    () => generateWorkspaceTemplateCSS(
+      templateStyle,
       ".td-source-resume-canvas .rm-with-pagination",
     ),
     [templateStyle],

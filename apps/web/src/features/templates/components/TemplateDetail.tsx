@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { ArrowLeft, RotateCcw, Save } from "lucide-react"
+import { generateTemplateCSS, generateWorkspaceTemplateCSS } from "@typedance/resume-renderer"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -15,7 +16,6 @@ import type { ResumeDocJson } from "../../workspace/editor"
 import type { BlockType, TemplateStyleConfig } from "../types"
 import { ResumeRichTextEditor } from "../../workspace/components/ResumeRichTextEditor"
 import { StylePanel } from "./style-panel/StylePanel"
-import { generateFullCSS, generateWorkspaceCSS } from "../style-engine/css-generator"
 import type { TemplateTheme } from "../theme-options"
 import type { TemplateSampleContent } from "../types"
 
@@ -106,11 +106,11 @@ export function TemplateDetail({
   }, [sample.id, sample.doc_json])
 
   const cssText = useMemo(
-    () => generateFullCSS(theme.styleConfig.blocks ?? {}),
+    () => generateTemplateCSS(theme.styleConfig),
     [theme.styleConfig],
   )
   const elementCssText = useMemo(
-    () => generateWorkspaceCSS(theme.styleConfig.blocks ?? {}, ".td-template-editor-wrapper"),
+    () => generateWorkspaceTemplateCSS(theme.styleConfig, ".td-template-editor-wrapper"),
     [theme.styleConfig],
   )
 

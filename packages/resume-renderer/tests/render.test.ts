@@ -1,5 +1,13 @@
 ﻿import { describe, expect, it } from "vitest";
-import { renderResumeHtml, renderStyledContentHtml, renderStyledHtml } from "../src/index";
+import type { Heading2DecorationStyle, TemplateStyleConfig } from "@typedance/contracts";
+import {
+  generateTemplateCSS,
+  generateWorkspaceTemplateCSS,
+  mixHexWithWhite,
+  renderResumeHtml,
+  renderStyledContentHtml,
+  renderStyledHtml,
+} from "../src/index";
 
 const sampleDocJson = {
   type: "doc",
@@ -36,6 +44,10 @@ const sampleBlocks = {
     color: "#1f2937",
     fontWeight: 700 as const,
   },
+  heading2: {
+    decorationStyle: "minimal-line" as const,
+  },
+  heading3: {},
   paragraph: {
     fontSize: "10px",
     lineHeight: 1.55,
@@ -44,7 +56,21 @@ const sampleBlocks = {
     listStyleType: "disc" as const,
     paddingLeft: "20px",
   },
+  orderedList: {},
 };
+
+function styleConfig(decorationStyle: Heading2DecorationStyle = "minimal-line"): TemplateStyleConfig {
+  return {
+    template_id: "classic-a4",
+    preset: "classic",
+    theme: { accentColor: "#174ea6" },
+    blocks: {
+      ...sampleBlocks,
+      heading2: { ...sampleBlocks.heading2, decorationStyle },
+    },
+    updated_at: "2026-09-21T00:00:00.000Z",
+  };
+}
 
 describe("renderResumeHtml", () => {
   it("renders TipTap JSON as the canonical resume content", () => {
@@ -141,7 +167,7 @@ describe("renderResumeHtml", () => {
 
 describe("renderStyledHtml", () => {
   it("outputs a complete HTML document with doctype and html tag", () => {
-    const html = renderStyledHtml(sampleDocJson, sampleBlocks, "en-US");
+    const html = renderStyledHtml(sampleDocJson, styleConfig(), "en-US");
 
     expect(html).toContain("<!doctype html>");
     expect(html).toContain('<html lang="en-US">');
@@ -151,7 +177,7 @@ describe("renderStyledHtml", () => {
   });
 
   it("renders elements with td-resume-* CSS classes", () => {
-    const html = renderStyledHtml(sampleDocJson, sampleBlocks, "en-US");
+    const html = renderStyledHtml(sampleDocJson, styleConfig(), "en-US");
 
     expect(html).toContain('<h1 class="td-resume-heading1">');
     expect(html).toContain('<p class="td-resume-paragraph">');
@@ -160,7 +186,7 @@ describe("renderStyledHtml", () => {
   });
 
   it("embeds BlockStyle CSS in the style tag", () => {
-    const html = renderStyledHtml(sampleDocJson, sampleBlocks, "en-US");
+    const html = renderStyledHtml(sampleDocJson, styleConfig(), "en-US");
 
     expect(html).toContain(".td-resume-heading1 {");
     expect(html).toContain(".td-resume-paragraph {");
@@ -168,7 +194,7 @@ describe("renderStyledHtml", () => {
   });
 
   it("renders specific CSS properties from BlockStyle config", () => {
-    const html = renderStyledHtml(sampleDocJson, sampleBlocks, "en-US");
+    const html = renderStyledHtml(sampleDocJson, styleConfig(), "en-US");
 
     expect(html).toContain("font-size: 18px;");
     expect(html).toContain("color: #1f2937;");
@@ -182,12 +208,15 @@ describe("renderStyledHtml", () => {
     const html = renderStyledHtml(
       sampleDocJson,
       {
-        ...sampleBlocks,
-        bulletList: {
+        ...styleConfig(),
+        blocks: {
+          ...styleConfig().blocks,
+          bulletList: {
           fontSize: "12px",
           backgroundColor: "#eeeeee",
           listStyleType: "disc",
           paddingLeft: "20px",
+          },
         },
       },
       "en-US",
@@ -218,7 +247,7 @@ describe("renderStyledHtml", () => {
       ],
     };
 
-    const html = renderStyledHtml(orderedDoc, {}, "en-US");
+    const html = renderStyledHtml(orderedDoc, styleConfig(), "en-US");
 
     expect(html).toContain('<ol class="td-resume-orderedList">');
     expect(html).toContain('<p class="td-resume-paragraph td-resume-orderedListText">First item</p>');
@@ -245,7 +274,7 @@ describe("renderStyledHtml", () => {
           ],
         },
       ],
-    });
+    }, styleConfig());
 
     expect(html).toContain(
       '<span data-td-inline-style style="font-size: 12px; color: #174ea6">highlight</span>',
@@ -296,7 +325,7 @@ describe("renderStyledHtml", () => {
           ],
         },
       ],
-    });
+    }, styleConfig());
 
     expect(html).toContain(
       '<p class="td-resume-paragraph" style="text-align: center; line-height: 1.5; margin-left: 3em"><u>Underlined</u></p>',
@@ -347,7 +376,7 @@ describe("renderStyledHtml", () => {
           ],
         },
       ],
-    });
+    }, styleConfig());
 
     expect(html).toContain('<h1 class="td-resume-heading1">Alex</h1>');
     expect(html).toContain('<div class="td-columns" data-count="2" data-gap="default">');
@@ -355,10 +384,131 @@ describe("renderStyledHtml", () => {
     expect(html).toContain('<p class="td-resume-paragraph td-resume-orderedListText">Built <strong>PDF</strong></p>');
   });
   it("resets browser default block spacing in styled HTML", () => {
-    const html = renderStyledHtml(sampleDocJson, sampleBlocks, "en-US");
+    const html = renderStyledHtml(sampleDocJson, styleConfig(), "en-US");
 
     expect(html).toContain(":where(.td-resume-page h1");
     expect(html).toContain(".td-resume-page p");
     expect(html).toContain("padding-left: 0;");
+  });
+});
+
+describe("H2 heading decorations", () => {
+  const h2Doc = {
+    type: "doc",
+    content: [
+      {
+        type: "heading",
+        attrs: { level: 2 },
+        content: [
+          { type: "text", text: "教育", marks: [{ type: "bold" }] },
+          {
+            type: "text",
+            text: "经历",
+            marks: [
+              { type: "underline" },
+              { type: "inlineStyle", attrs: { color: "#123456", backgroundColor: "#fedcba" } },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  it("mixes an accent with white using the shared 12 percent rule", () => {
+    expect(mixHexWithWhite("#000000")).toBe("#e0e0e0");
+    expect(mixHexWithWhite("#FFFFFF")).toBe("#ffffff");
+    expect(mixHexWithWhite("#174ea6")).toBe("#e3eaf4");
+  });
+
+  it.each(["minimal-line", "accent-wash", "dot-ribbon"] as const)(
+    "renders %s with the same three real spans and keeps marks inside content",
+    (decorationStyle) => {
+      const html = renderStyledContentHtml(h2Doc, styleConfig(decorationStyle));
+
+      expect(html).toContain(`data-heading-style="${decorationStyle}"`);
+      expect(html).toContain('<span class="td-heading-prefix" aria-hidden="true"></span>');
+      expect(html).toContain('<span class="td-heading-content"><strong>教育</strong><span data-td-inline-style style="color: #123456; background-color: #fedcba"><u>经历</u></span></span>');
+      expect(html).toContain('<span class="td-heading-suffix" aria-hidden="true"></span>');
+      expect(html.match(/教育/g)).toHaveLength(1);
+      expect(html).not.toContain("::before");
+      expect(html).not.toContain("::after");
+    },
+  );
+
+  it.each(["minimal-line", "accent-wash", "dot-ribbon"] as const)(
+    "generates scoped %s CSS with page-break protection and no pseudo elements",
+    (decorationStyle) => {
+      const config = styleConfig(decorationStyle);
+      const css = generateTemplateCSS(config);
+      const workspaceCss = generateWorkspaceTemplateCSS(config, ".editor-scope");
+
+      expect(css).toContain(`--td-heading-accent: ${config.theme.accentColor};`);
+      expect(css).toContain("--td-heading-accent-soft: #e3eaf4;");
+      expect(css).toContain(`.td-resume-heading2[data-heading-style="${decorationStyle}"]`);
+      expect(css).toContain("break-after: avoid;");
+      expect(css).toContain("break-inside: avoid;");
+      expect(workspaceCss).toContain(`.editor-scope h2[data-heading-style="${decorationStyle}"]`);
+      expect(css).not.toContain("::before");
+      expect(css).not.toContain("::after");
+    },
+  );
+
+  it("keeps list text rules scoped to their own list type in workspace CSS", () => {
+    const config = styleConfig();
+    config.blocks.bulletList = { color: "#111111", listStyleType: "disc" };
+    config.blocks.orderedList = { color: "#222222", listStyleType: "decimal" };
+
+    const css = generateWorkspaceTemplateCSS(config);
+
+    expect(css).toContain(".rm-with-pagination ul {\n  list-style-type: disc;");
+    expect(css).toContain(".rm-with-pagination ul li, .rm-with-pagination ul li p {\n  color: #111111;");
+    expect(css).toContain(".rm-with-pagination ol {\n  list-style-type: decimal;");
+    expect(css).toContain(".rm-with-pagination ol li, .rm-with-pagination ol li p {\n  color: #222222;");
+    expect(css).not.toContain(".rm-with-pagination ul, .rm-with-pagination li");
+    expect(css).not.toContain(".rm-with-pagination ol, .rm-with-pagination li");
+  });
+
+  it("emits nested list rules after workspace base list rules", () => {
+    const css = generateWorkspaceTemplateCSS(styleConfig(), ".custom-scope");
+
+    expect(css).toContain(".custom-scope ul ul {\n  list-style-type: circle;");
+    expect(css).toContain(".custom-scope ul ul ul {\n  list-style-type: square;");
+    expect(css).toContain(".custom-scope ol ol {\n  list-style-type: lower-alpha;");
+    expect(css).toContain(".custom-scope ol ol ol {\n  list-style-type: lower-roman;");
+    expect(css.indexOf(".custom-scope ul {\n")).toBeLessThan(css.indexOf(".custom-scope ul ul {\n"));
+    expect(css.indexOf(".custom-scope ol {\n")).toBeLessThan(css.indexOf(".custom-scope ol ol {\n"));
+  });
+
+  it("keeps long and column H2 spans inside their own headings", () => {
+    const html = renderStyledContentHtml({
+      type: "doc",
+      content: [
+        {
+          type: "heading",
+          attrs: { level: 2 },
+          content: [{ type: "text", text: "这是一个会换行但装饰节点不能脱离标题的很长标题" }],
+        },
+        {
+          type: "columns",
+          attrs: { count: 2, gap: "compact" },
+          content: [
+            {
+              type: "column",
+              content: [
+                { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "分栏标题" }] },
+              ],
+            },
+          ],
+        },
+      ],
+    }, styleConfig("dot-ribbon"));
+
+    const headings = html.match(/<h2[\s\S]*?<\/h2>/g) ?? [];
+    expect(headings).toHaveLength(2);
+    for (const heading of headings) {
+      expect(heading.match(/td-heading-prefix/g)).toHaveLength(1);
+      expect(heading.match(/td-heading-content/g)).toHaveLength(1);
+      expect(heading.match(/td-heading-suffix/g)).toHaveLength(1);
+    }
   });
 });

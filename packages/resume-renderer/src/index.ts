@@ -1,4 +1,19 @@
-﻿import type { BlockStyle, ResumeVersion } from "@typedance/contracts";
+﻿import type { Heading2DecorationStyle, ResumeVersion, TemplateStyleConfig } from "@typedance/contracts";
+import {
+  generateTemplateCSS,
+  HEADING_CONTENT_CLASS,
+  HEADING_PREFIX_CLASS,
+  HEADING_SUFFIX_CLASS,
+} from "./template-style"
+
+export {
+  generateTemplateCSS,
+  generateWorkspaceTemplateCSS,
+  HEADING_CONTENT_CLASS,
+  HEADING_PREFIX_CLASS,
+  HEADING_SUFFIX_CLASS,
+  mixHexWithWhite,
+} from "./template-style"
 
 type TipTapNode = {
   type: string
@@ -210,36 +225,6 @@ export function renderResumeHtml(resume: ResumeVersion): string {
 // and inline BlockStyle CSS rules
 // ---------------------------------------------------------------------------
 
-const CSS_PROP_MAP: Record<string, string> = {
-  fontFamily: "font-family",
-  fontSize: "font-size",
-  fontWeight: "font-weight",
-  lineHeight: "line-height",
-  letterSpacing: "letter-spacing",
-  textTransform: "text-transform",
-  color: "color",
-  backgroundColor: "background-color",
-  textAlign: "text-align",
-  marginTop: "margin-top",
-  marginBottom: "margin-bottom",
-  listStyleType: "list-style-type",
-  paddingLeft: "padding-left",
-}
-
-const LIST_BLOCKS = new Set(["bulletList", "orderedList"])
-const TEXT_STYLE_KEYS = new Set([
-  "fontFamily",
-  "fontSize",
-  "fontWeight",
-  "lineHeight",
-  "letterSpacing",
-  "textTransform",
-  "color",
-  "backgroundColor",
-  "textAlign",
-])
-const LIST_STRUCTURE_KEYS = new Set(["marginTop", "marginBottom", "listStyleType", "paddingLeft"])
-
 function getBlockName(node: TipTapNode): string {
   if (node.type === "heading") {
     const rawLevel = node.attrs?.level
@@ -247,52 +232,6 @@ function getBlockName(node: TipTapNode): string {
     return `heading${level}`
   }
   return node.type
-}
-
-function generateBlockCSS(blockName: string, style: BlockStyle): string {
-  const rules: string[] = []
-  for (const [key, value] of Object.entries(style)) {
-    if (key === "borderBottom" && typeof value === "object" && value !== null) {
-      const bs = value as { style?: string; width?: string; color?: string }
-      if (bs.style && bs.style !== "none") {
-        rules.push(`  border-bottom-style: ${bs.style};`)
-        if (bs.width) rules.push(`  border-bottom-width: ${bs.width};`)
-        if (bs.color) rules.push(`  border-bottom-color: ${bs.color};`)
-      }
-      continue
-    }
-    const prop = CSS_PROP_MAP[key]
-    if (prop && value !== undefined && value !== null) {
-      rules.push(`  ${prop}: ${value};`)
-    }
-  }
-  if (rules.length === 0) return ""
-  return `.td-resume-${blockName} {\n${rules.join("\n")}\n}`
-}
-
-function pickStyle(style: BlockStyle, keys: Set<string>): BlockStyle {
-  return Object.fromEntries(
-    Object.entries(style).filter(([key, value]) => keys.has(key) && value !== undefined),
-  ) as BlockStyle
-}
-
-function generateListStructureCSS(blockName: string, style: BlockStyle): string {
-  return generateBlockCSS(blockName, pickStyle(style, LIST_STRUCTURE_KEYS))
-}
-
-function generateListTextCSS(blockName: string, style: BlockStyle): string {
-  return generateBlockCSS(`${blockName}Text`, pickStyle(style, TEXT_STYLE_KEYS))
-}
-
-function generateFullCSS(blocks: Record<string, BlockStyle>): string {
-  return Object.entries(blocks)
-    .flatMap(([name, style]) => (
-      LIST_BLOCKS.has(name)
-        ? [generateListStructureCSS(name, style), generateListTextCSS(name, style)]
-        : [generateBlockCSS(name, style)]
-    ))
-    .filter(Boolean)
-    .join("\n\n")
 }
 
 const layoutCSS = `.td-columns {
@@ -335,17 +274,21 @@ function headingNumber(blockName: string): number {
   return blockName === "heading3" ? 3 : blockName === "heading2" ? 2 : 1
 }
 
-function renderStyledBlock(node: TipTapNode, parentBlockName?: string): string {
+function renderStyledBlock(
+  node: TipTapNode,
+  heading2Style: Heading2DecorationStyle,
+  parentBlockName?: string,
+): string {
   const blockName = getBlockName(node)
 
   if (node.type === "columns") {
     const { count, gap } = getColumnsAttrs(node)
-    const columns = (node.content ?? []).map((child) => renderStyledBlock(child)).filter(Boolean).join("\n      ")
+    const columns = (node.content ?? []).map((child) => renderStyledBlock(child, heading2Style)).filter(Boolean).join("\n      ")
     return columns ? `<div class="td-columns" data-count="${count}" data-gap="${escapeHtml(gap)}">\n      ${columns}\n    </div>` : ""
   }
 
   if (node.type === "column") {
-    const columnContent = (node.content ?? []).map((child) => renderStyledBlock(child)).filter(Boolean).join("\n      ")
+    const columnContent = (node.content ?? []).map((child) => renderStyledBlock(child, heading2Style)).filter(Boolean).join("\n      ")
     return `<div class="td-column">\n      ${columnContent}\n    </div>`
   }
 
@@ -357,6 +300,13 @@ function renderStyledBlock(node: TipTapNode, parentBlockName?: string): string {
     const content = (node.content ?? []).map(renderInlineContent).join("")
     const level = headingNumber(blockName)
     const style = blockAttrsToCss(node.attrs)
+    if (level === 2) {
+      return `<h2 class="td-resume-heading2" data-heading-style="${heading2Style}"${styleAttribute(style)}>`
+        + `<span class="${HEADING_PREFIX_CLASS}" aria-hidden="true"></span>`
+        + `<span class="${HEADING_CONTENT_CLASS}">${content}</span>`
+        + `<span class="${HEADING_SUFFIX_CLASS}" aria-hidden="true"></span>`
+        + "</h2>"
+    }
     return `<h${level} class="td-resume-${blockName}"${styleAttribute(style)}>${content}</h${level}>`
   }
 
@@ -370,7 +320,7 @@ function renderStyledBlock(node: TipTapNode, parentBlockName?: string): string {
     const tag = node.type === "orderedList" ? "ol" : "ul"
     const style = listAttrsToCss(node.attrs)
     const items = (node.content ?? [])
-      .map((child) => renderStyledBlock(child, blockName))
+      .map((child) => renderStyledBlock(child, heading2Style, blockName))
       .filter(Boolean)
       .join("\n      ")
     return items ? `<${tag} class="td-resume-${blockName}"${styleAttribute(style)}>\n      ${items}\n    </${tag}>` : ""
@@ -385,7 +335,7 @@ function renderStyledBlock(node: TipTapNode, parentBlockName?: string): string {
           const style = blockAttrsToCss(child.attrs)
           return content ? `<p class="td-resume-paragraph${textClass}"${styleAttribute(style)}>${content}</p>` : ""
         }
-        return renderStyledBlock(child)
+        return renderStyledBlock(child, heading2Style)
       })
       .filter(Boolean)
       .join("\n        ")
@@ -397,21 +347,24 @@ function renderStyledBlock(node: TipTapNode, parentBlockName?: string): string {
   return content ? `<p class="td-resume-paragraph">${content}</p>` : ""
 }
 
-export function renderStyledContentHtml(docJson: unknown): string {
+export function renderStyledContentHtml(docJson: unknown, config: TemplateStyleConfig): string {
   if (!isTipTapNode(docJson) || !Array.isArray(docJson.content)) {
     return ""
   }
-  const body = docJson.content.map((node) => renderStyledBlock(node)).filter(Boolean).join("\n    ")
+  const body = docJson.content
+    .map((node) => renderStyledBlock(node, config.blocks.heading2.decorationStyle))
+    .filter(Boolean)
+    .join("\n    ")
   return body || ""
 }
 
 export function renderStyledHtml(
   docJson: unknown,
-  blocks: Record<string, BlockStyle>,
+  config: TemplateStyleConfig,
   lang: string,
 ): string {
-  const body = renderStyledContentHtml(docJson)
-  const blockCSS = generateFullCSS(blocks)
+  const body = renderStyledContentHtml(docJson, config)
+  const blockCSS = generateTemplateCSS(config)
   const layoutStyles = layoutCSS
 
   return `<!doctype html>\n<html lang="${escapeHtml(lang)}">\n  <head>\n    <meta charset="utf-8" />\n    <style>\n      @page { size: A4; margin: 20mm 22mm; }\n      body {\n        font-family: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;\n        color: #1f2937;\n        line-height: 1.6;\n        font-size: 11px;\n        margin: 0;\n        padding: 0;\n      }\n${blockCSS ? `\n${blockCSS}` : ""}\n${layoutStyles}\n    </style>\n  </head>\n  <body>\n    ${body}\n  </body>\n</html>`

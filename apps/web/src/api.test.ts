@@ -610,7 +610,15 @@ describe("revision api", () => {
     const templateStyle = {
       template_id: "classic-a4",
       preset: "classic",
-      blocks: { paragraph: { fontSize: "10px" } },
+      theme: { accentColor: "#174EA6" },
+      blocks: {
+        heading1: {},
+        heading2: { decorationStyle: "minimal-line" as const },
+        heading3: {},
+        paragraph: { fontSize: "10px" },
+        bulletList: {},
+        orderedList: {},
+      },
       updated_at: "2026-06-05T00:00:00.000Z",
     }
     const result = await exportRevisionDocumentPdf("doc_1", "张三", {
@@ -674,7 +682,15 @@ describe("revision api", () => {
     const templateStyle = {
       template_id: "classic-a4",
       preset: "classic",
-      blocks: { paragraph: { fontSize: "10px" } },
+      theme: { accentColor: "#174EA6" },
+      blocks: {
+        heading1: {},
+        heading2: { decorationStyle: "minimal-line" as const },
+        heading3: {},
+        paragraph: { fontSize: "10px" },
+        bulletList: {},
+        orderedList: {},
+      },
       updated_at: "2026-06-05T00:00:00.000Z",
     }
     const result = await exportRevisionDocumentHtml("doc_1", "张三", {

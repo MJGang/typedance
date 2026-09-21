@@ -1,7 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react"
-import { renderStyledContentHtml } from "@typedance/resume-renderer"
+import { generateTemplateCSS, renderStyledContentHtml } from "@typedance/resume-renderer"
 import type { TemplateSampleContent, TemplateStyleConfig } from "../types"
-import { generateFullCSS } from "../style-engine/css-generator"
 
 type TemplatePreviewProps = {
   sample: TemplateSampleContent
@@ -15,8 +14,8 @@ const A4_HEIGHT_PX = 1123
 export function TemplatePreview({ sample, styleConfig, scale = "card" }: TemplatePreviewProps) {
   const frameRef = useRef<HTMLDivElement>(null)
   const [frameWidth, setFrameWidth] = useState(A4_WIDTH_PX)
-  const cssText = generateFullCSS(styleConfig.blocks ?? {})
-  const html = renderStyledContentHtml(sample.doc_json)
+  const cssText = generateTemplateCSS(styleConfig)
+  const html = renderStyledContentHtml(sample.doc_json, styleConfig)
   const previewScale = frameWidth / A4_WIDTH_PX
 
   useLayoutEffect(() => {

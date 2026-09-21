@@ -7,9 +7,10 @@ import { TemplatePreview } from "./TemplatePreview"
 const styleConfig: TemplateStyleConfig = {
   template_id: "classic-a4",
   preset: "classic",
+  theme: { accentColor: "#174EA6" },
   blocks: {
     heading1: {},
-    heading2: {},
+    heading2: { decorationStyle: "accent-wash" },
     heading3: {},
     paragraph: {},
     bulletList: {},
@@ -64,6 +65,10 @@ describe("TemplatePreview", () => {
     render(<TemplatePreview sample={sample} styleConfig={styleConfig} />)
 
     expect(screen.getByRole("heading", { level: 2, name: "Experience" })).toHaveClass("td-resume-heading2")
+    expect(screen.getByRole("heading", { level: 2, name: "Experience" })).toHaveAttribute("data-heading-style", "accent-wash")
+    expect(screen.getByRole("heading", { level: 2 }).querySelector(".td-heading-prefix")).toHaveAttribute("aria-hidden", "true")
+    expect(screen.getByRole("heading", { level: 2 }).querySelector(".td-heading-content")).toHaveTextContent("Experience")
+    expect(screen.getByRole("heading", { level: 2 }).querySelector(".td-heading-suffix")).toHaveAttribute("aria-hidden", "true")
     expect(screen.getByText("Closed loop")).toHaveClass("td-resume-paragraph", "td-resume-bulletListText")
     expect(screen.getByText("Closed loop").closest("ul")).toHaveClass("td-resume-bulletList")
     expect(screen.getByText("first").tagName).toBe("EM")
