@@ -4,7 +4,11 @@ import { ColorPickerPopover, DEFAULT_TEXT_COLOR } from "@/components/color-picke
 import { InspectorRow, InspectorRows, InspectorSection } from "../InspectorControls";
 import type { BlockStyle } from "../../../style-engine/types";
 
-type Props = { value: BlockStyle; onChange: (v: BlockStyle) => void };
+type Props = {
+  value: BlockStyle;
+  onChange: (v: BlockStyle) => void;
+  showBackground?: boolean;
+};
 
 function ColorValue({ value, fallback, noFill = false }: { value?: string; fallback: string; noFill?: boolean }) {
   const swatchColor = value ?? (noFill ? undefined : fallback);
@@ -28,7 +32,7 @@ function ColorValue({ value, fallback, noFill = false }: { value?: string; fallb
   );
 }
 
-export function ColorSection({ value, onChange }: Props) {
+export function ColorSection({ value, onChange, showBackground = true }: Props) {
   return (
     <InspectorSection value="color" icon={Palette} title="颜色与背景" summary={value.color || value.backgroundColor ? "已设置" : "默认"}>
       <InspectorRows>
@@ -41,15 +45,17 @@ export function ColorSection({ value, onChange }: Props) {
             onChange={(color) => onChange({ ...value, color: color ?? undefined })}
           />
         </InspectorRow>
-        <InspectorRow label="背景" icon={PaintBucket}>
-          <ColorValue value={value.backgroundColor} fallback="无" noFill />
-          <ColorPickerPopover
-            kind="background"
-            value={value.backgroundColor}
-            ariaLabel="背景颜色"
-            onChange={(color) => onChange({ ...value, backgroundColor: color ?? undefined })}
-          />
-        </InspectorRow>
+        {showBackground ? (
+          <InspectorRow label="背景" icon={PaintBucket}>
+            <ColorValue value={value.backgroundColor} fallback="无" noFill />
+            <ColorPickerPopover
+              kind="background"
+              value={value.backgroundColor}
+              ariaLabel="背景颜色"
+              onChange={(color) => onChange({ ...value, backgroundColor: color ?? undefined })}
+            />
+          </InspectorRow>
+        ) : null}
       </InspectorRows>
     </InspectorSection>
   );

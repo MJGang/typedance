@@ -1,6 +1,7 @@
 import { List, RotateCcw, Type } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { BlockStyle, BlockType } from "../../style-engine/types";
+import type { Heading2BlockStyle } from "@typedance/contracts";
 import { TypographySection } from "./sections/TypographySection";
 import { ColorSection } from "./sections/ColorSection";
 import { SpacingSection } from "./sections/SpacingSection";
@@ -8,11 +9,13 @@ import { AlignmentSection } from "./sections/AlignmentSection";
 import { BorderSection } from "./sections/BorderSection";
 import { ListSection } from "./sections/ListSection";
 import { InspectorAccordion } from "./InspectorControls";
+import { HeadingDecorationSection } from "./sections/HeadingDecorationSection";
 
 type BlockStyleEditorProps = {
   blockType: BlockType;
-  value: BlockStyle;
-  onChange: (style: BlockStyle) => void;
+  value: BlockStyle | Heading2BlockStyle;
+  accentColor: string;
+  onChange: (style: BlockStyle | Heading2BlockStyle) => void;
 };
 
 const LIST_TEXT_KEYS: Array<keyof BlockStyle> = [
@@ -39,7 +42,7 @@ function hasListTextOverrides(value: BlockStyle): boolean {
   return LIST_TEXT_KEYS.some((key) => value[key] !== undefined);
 }
 
-export function BlockStyleEditor({ blockType, value, onChange }: BlockStyleEditorProps) {
+export function BlockStyleEditor({ blockType, value, accentColor, onChange }: BlockStyleEditorProps) {
   const isList = blockType === "bulletList" || blockType === "orderedList";
 
   if (isList) {
@@ -90,12 +93,24 @@ export function BlockStyleEditor({ blockType, value, onChange }: BlockStyleEdito
   }
 
   return (
-    <InspectorAccordion key={blockType} type="single" collapsible defaultValue="typography">
+    <InspectorAccordion
+      key={blockType}
+      type="single"
+      collapsible
+      defaultValue={blockType === "heading2" ? "heading-decoration" : "typography"}
+    >
+      {blockType === "heading2" ? (
+        <HeadingDecorationSection
+          value={(value as Heading2BlockStyle).decorationStyle}
+          accentColor={accentColor}
+          onChange={(decorationStyle) => onChange({ ...value, decorationStyle })}
+        />
+      ) : null}
       <TypographySection value={value} onChange={onChange} />
-      <ColorSection value={value} onChange={onChange} />
+      <ColorSection value={value} onChange={onChange} showBackground={blockType !== "heading2"} />
       <SpacingSection value={value} onChange={onChange} />
       <AlignmentSection value={value} onChange={onChange} />
-      <BorderSection value={value} onChange={onChange} />
+      {blockType !== "heading2" ? <BorderSection value={value} onChange={onChange} /> : null}
     </InspectorAccordion>
   );
 }

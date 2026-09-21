@@ -3,6 +3,7 @@ import type { BlockType, TemplateStyleConfig } from "../../style-engine/types";
 import { BlockSelector } from "./BlockSelector";
 import { BlockStyleEditor } from "./BlockStyleEditor";
 import { ThemeSelector, type ThemeSelectorOption } from "./ThemeSelector";
+import { ThemeAccentColorControl } from "./ThemeAccentColorControl";
 import { ColumnsSection } from "./sections/ColumnsSection";
 import type { ColumnsCount, ColumnsGap } from "@typedance/tiptap-layout";
 
@@ -48,6 +49,14 @@ export function StylePanel({
     onChange(next);
   }, [styleConfig, activeBlock, onChange]);
 
+  const handleAccentColorChange = useCallback((accentColor: string) => {
+    onChange({
+      ...styleConfig,
+      preset: "",
+      theme: { ...styleConfig.theme, accentColor },
+    });
+  }, [styleConfig, onChange]);
+
   return (
     <div className="td-style-panel flex h-full flex-col">
       <div className="flex flex-col gap-3 border-b border-border px-3 py-3">
@@ -56,6 +65,7 @@ export function StylePanel({
           <p className="m-0 mt-1 text-xs leading-5 text-muted-foreground">选择段落后调整全局样式，按钮样式与编辑器工具栏保持一致。</p>
         </div>
         <ThemeSelector value={selectedThemeId} options={themeOptions} onChange={onThemeChange} />
+        <ThemeAccentColorControl value={styleConfig.theme.accentColor} onChange={handleAccentColorChange} />
 
         <BlockSelector active={activeBlock} onChange={onActiveBlockChange} uiLanguage={uiLanguage} />
       </div>
@@ -73,6 +83,7 @@ export function StylePanel({
         <BlockStyleEditor
           blockType={activeBlock}
           value={currentBlockStyle}
+          accentColor={styleConfig.theme.accentColor}
           onChange={handleBlockStyleChange}
         />
       </div>

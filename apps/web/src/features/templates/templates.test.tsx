@@ -47,6 +47,11 @@ describe("TemplateLibrary", () => {
       configurable: true,
       value: vi.fn(),
     })
+    vi.stubGlobal("ResizeObserver", class ResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
   })
 
   afterEach(() => {
@@ -172,6 +177,24 @@ describe("TemplateLibrary", () => {
       expect(saveTemplateStyle).toHaveBeenCalledTimes(1)
     })
     expect(await screen.findByText("主题样式已保存")).toBeInTheDocument()
+  })
+
+  it("keeps the selected accent and H2 decoration when saving fails", async () => {
+    renderThemeLibrary("/packs/resume/templates/classic-a4")
+    expect(await screen.findByRole("button", { name: "返回主题库" })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("radio", { name: "标题2" }))
+    fireEvent.click(screen.getByRole("radio", { name: /左线底纹/ }))
+    fireEvent.click(screen.getByRole("button", { name: "主题强调色" }))
+    fireEvent.click(screen.getByRole("button", { name: "#1677ff" }))
+
+    vi.mocked(saveTemplateStyle).mockRejectedValueOnce(new Error("save failed"))
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+
+    expect(await screen.findByText("主题样式保存失败，请稍后重试")).toBeInTheDocument()
+    expect(screen.getByRole("radio", { name: /左线底纹/ })).toBeChecked()
+    expect(screen.getByText("#1677ff")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "保存" })).toBeEnabled()
   })
 
   it("asks before leaving a theme with unsaved style edits", async () => {
