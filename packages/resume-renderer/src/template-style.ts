@@ -116,6 +116,7 @@ function generateHeadingDecorationCSS(
   --td-heading-accent-soft: ${softColor};
   position: relative;
   isolation: isolate;
+  z-index: 0;
   break-after: avoid;
   break-inside: avoid;
 }
@@ -153,15 +154,19 @@ ${suffix} {
 ${prefix} {
   position: absolute;
   top: 4px;
-  bottom: 4px;
   left: 0;
   width: 4px;
+  height: calc(100% - 8px);
+  z-index: 1;
   border-radius: 999px;
   background: var(--td-heading-accent);
 }
 ${suffix} {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   z-index: 0;
   border-radius: 4px;
   background: linear-gradient(90deg, var(--td-heading-accent-soft), transparent);

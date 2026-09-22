@@ -50,6 +50,28 @@ def test_mix_hex_with_white_matches_typescript_rounding(color, expected):
     assert mix_hex_with_white(color) == expected
 
 
+def test_accent_wash_uses_print_safe_explicit_span_dimensions():
+    style = TemplateStyleConfig.model_validate(template_style_payload("accent-wash"))
+    resume = ResumeVersion(
+        id="test-accent-wash-print-layout",
+        title="H2 print layout",
+        template_id="classic-a4",
+        target_language="zh-CN",
+        doc_json=HEADING2_DOC_JSON,
+        plain_text_snapshot="",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
+
+    html = render_resume_html(resume, style)
+
+    assert "position: relative;\n  isolation: isolate;\n  z-index: 0;\n  break-after: avoid;" in html
+    assert "height: calc(100% - 8px);" in html
+    assert "width: 100%;" in html
+    assert "height: 100%;" in html
+    assert "inset: 0;" not in html
+
+
 def test_render_and_export_pdf_writes_pdf_file(tmp_path, mock_playwright):
     """render_and_export_pdf 生成 HTML → 调用 Playwright → 写入 PDF 文件"""
     from typedance_sidecar.models import ResumeVersion

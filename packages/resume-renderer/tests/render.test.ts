@@ -435,6 +435,16 @@ describe("H2 heading decorations", () => {
     },
   );
 
+  it("uses print-safe explicit dimensions for the accent wash spans", () => {
+    const css = generateTemplateCSS(styleConfig("accent-wash"));
+
+    expect(css).toContain("position: relative;\n  isolation: isolate;\n  z-index: 0;\n  break-after: avoid;");
+    expect(css).toContain("height: calc(100% - 8px);");
+    expect(css).toContain("width: 100%;");
+    expect(css).toContain("height: 100%;");
+    expect(css).not.toContain("inset: 0;");
+  });
+
   it.each(["minimal-line", "accent-wash", "dot-ribbon"] as const)(
     "generates scoped %s CSS with page-break protection and no pseudo elements",
     (decorationStyle) => {
