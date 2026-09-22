@@ -640,6 +640,7 @@ function DraftCanvasWorkspace({
         ariaLabel="原始简历编辑区"
         cssText={sourceCanvasCss}
         docJson={currentDocJson}
+        templateStyle={templateStyle}
         marginConfig={pageMargins}
         pageMarginGuidesVisible={pageMarginGuidesVisible}
         moduleOutlineVisible={outlineVisible}

@@ -4,9 +4,11 @@ import type { ResumeDocJson, ResumeEditorChange } from "../../workspace/editor"
 import { ResumeRichTextEditor } from "../../workspace/components/ResumeRichTextEditor"
 import type { UiLanguage } from "../../workspace/types"
 import type { TemplateSampleContent } from "../types"
+import type { TemplateStyleConfig } from "../types"
 
 type TemplateSampleEditorProps = {
   sample: TemplateSampleContent
+  templateStyle: TemplateStyleConfig
   uiLanguage: UiLanguage
   status: string
   onChange: (sample: TemplateSampleContent) => void
@@ -15,6 +17,7 @@ type TemplateSampleEditorProps = {
 
 export function TemplateSampleEditor({
   sample,
+  templateStyle,
   uiLanguage,
   status,
   onChange,
@@ -44,6 +47,7 @@ export function TemplateSampleEditor({
       <ResumeRichTextEditor
         ariaLabel="Template sample content"
         docJson={sample.doc_json as ResumeDocJson}
+        templateStyle={templateStyle}
         onChange={handleChange}
       />
       <p aria-live="polite">{status}</p>

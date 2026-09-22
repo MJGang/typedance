@@ -2,7 +2,8 @@ import "@testing-library/jest-dom/vitest"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { forwardRef, useImperativeHandle } from "react"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
-import type { SourceResumeCanvas } from "@typedance/contracts"
+import type { SourceResumeCanvas, TemplateStyleConfig } from "@typedance/contracts"
+import { defaultClassicA4Style } from "../templates/data"
 import { MICROSOFT_YAHEI_FONT_STACK } from "../templates/style-engine/fonts"
 import { DraftCanvas } from "./DraftCanvas"
 
@@ -21,6 +22,7 @@ type MockDocJson = {
 
 type MockEditorProps = {
   docJson: MockDocJson
+  templateStyle: TemplateStyleConfig
   moduleOutlineVisible?: boolean
   pageNavigatorVisible?: boolean
   pageMarginGuidesVisible?: boolean
@@ -349,6 +351,41 @@ describe("DraftCanvas", () => {
     expect(editorMocks.props?.cssText).toContain(`font-family: ${MICROSOFT_YAHEI_FONT_STACK};`)
     expect(editorMocks.props?.cssText).toContain("font-size: 16px;")
     expect(editorMocks.props?.cssText).toContain("line-height: 1.62;")
+  })
+
+  it("updates the H2 decoration style without replacing the editor document", () => {
+    const accentWashStyle: TemplateStyleConfig = {
+      ...defaultClassicA4Style,
+      preset: "",
+      blocks: {
+        ...defaultClassicA4Style.blocks,
+        heading2: {
+          ...defaultClassicA4Style.blocks.heading2,
+          decorationStyle: "accent-wash",
+        },
+      },
+    }
+    const { rerender } = render(
+      <DraftCanvas
+        canvas={canvas}
+        onChange={vi.fn()}
+        saveStatus="idle"
+        templateStyle={defaultClassicA4Style}
+      />,
+    )
+    const originalDocJson = editorMocks.props?.docJson
+
+    rerender(
+      <DraftCanvas
+        canvas={canvas}
+        onChange={vi.fn()}
+        saveStatus="idle"
+        templateStyle={accentWashStyle}
+      />,
+    )
+
+    expect(editorMocks.props?.docJson).toBe(originalDocJson)
+    expect(editorMocks.props?.templateStyle.blocks.heading2.decorationStyle).toBe("accent-wash")
   })
 
   it("flashes changed canvas nodes after an applied AI patch", async () => {

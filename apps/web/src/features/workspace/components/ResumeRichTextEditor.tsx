@@ -11,6 +11,7 @@ import { PaginationPlus, PAGE_SIZES } from "tiptap-pagination-plus"
 import { Bold, Columns3, Eraser, Files, GripVertical, Hash, Heading1, Heading2, Heading3, Italic, List, ListOrdered, ListTree, Type, Underline } from "lucide-react"
 import { Column, Columns, type ColumnsCount, type ColumnsGap } from "@typedance/tiptap-layout"
 import { normalizeMarkdownListIndentation } from "@typedance/resume-markdown"
+import type { TemplateStyleConfig } from "@typedance/contracts"
 
 import { Button } from "@/components/ui/button"
 import { ColorPickerPopover, DEFAULT_TEXT_COLOR } from "@/components/color-picker-popover"
@@ -35,6 +36,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { looksLikeMarkdown } from "../editor"
 import type { ResumeDocJson, ResumeEditorChange } from "../editor"
+import { createResumeHeading, syncHeading2DecorationDom } from "../editor/ResumeHeading"
 
 export type MarginConfig = {
   top: number
@@ -46,6 +48,7 @@ export type MarginConfig = {
 type ResumeRichTextEditorProps = {
   ariaLabel: string
   docJson: ResumeDocJson
+  templateStyle: TemplateStyleConfig
   onChange: (change: ResumeEditorChange) => void
   onSelectionUpdate?: (blockType: string, context?: ResumeSelectionContext) => void
   onSourceCanvasModuleChange?: (moduleId: string | null) => void
@@ -677,6 +680,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
     {
       ariaLabel,
       docJson,
+      templateStyle,
       onChange,
       onSelectionUpdate,
       onSourceCanvasModuleChange,
@@ -700,6 +704,9 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
     onSelectionUpdateRef.current = onSelectionUpdate
     const onSourceCanvasModuleChangeRef = useRef(onSourceCanvasModuleChange)
     onSourceCanvasModuleChangeRef.current = onSourceCanvasModuleChange
+    const heading2StyleRef = useRef(templateStyle.blocks.heading2.decorationStyle)
+    heading2StyleRef.current = templateStyle.blocks.heading2.decorationStyle
+    const resumeHeadingRef = useRef(createResumeHeading(() => heading2StyleRef.current))
     const [dragHandleBlock, setDragHandleBlock] = useState<ToolbarBlock>("paragraph")
     const [dragHandleVisible, setDragHandleVisible] = useState(false)
     const latestDragHandlePointerRef = useRef<{ clientX: number; clientY: number } | null>(null)
@@ -790,7 +797,8 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
 
     const editor = useEditor({
       extensions: [
-        StarterKit,
+        StarterKit.configure({ heading: false }),
+        resumeHeadingRef.current,
         Markdown,
         PasteMarkdown,
         InlineStyle,
@@ -824,7 +832,11 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
           class: "td-rich-editor-prosemirror",
         },
       },
+      onCreate: ({ editor }) => {
+        syncHeading2DecorationDom(editor, heading2StyleRef.current)
+      },
       onUpdate: ({ editor }) => {
+        syncHeading2DecorationDom(editor, heading2StyleRef.current)
         onChangeRef.current({
           plainText: editor.getText({ blockSeparator: "\n\n" }),
           docJson: editor.getJSON() as ResumeDocJson,
@@ -1007,6 +1019,11 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         }
       }
     }, [docJson, editor, editable])
+
+    useEffect(() => {
+      if (!editor || editor.isDestroyed) return
+      syncHeading2DecorationDom(editor, templateStyle.blocks.heading2.decorationStyle)
+    }, [editor, templateStyle.blocks.heading2.decorationStyle])
 
     useEffect(() => {
       if (!editor || editor.isDestroyed || !marginConfig) return

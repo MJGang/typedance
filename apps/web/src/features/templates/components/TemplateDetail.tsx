@@ -189,6 +189,7 @@ export function TemplateDetail({
             <ResumeRichTextEditor
               ariaLabel="主题演示简历预览"
               docJson={sampleDoc}
+              templateStyle={theme.styleConfig}
               editable={false}
               onChange={() => undefined}
               onSelectionUpdate={handleSelectionUpdate}

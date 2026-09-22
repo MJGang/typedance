@@ -1,20 +1,30 @@
 import "@testing-library/jest-dom/vitest"
-import { createRef } from "react"
+import { createRef, type ComponentProps } from "react"
 import { Editor } from "@tiptap/core"
 import StarterKit from "@tiptap/starter-kit"
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { beforeAll, describe, expect, it, vi } from "vitest"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { defaultClassicA4Style } from "../../templates/data"
+import { createResumeHeading } from "../editor/ResumeHeading"
 import {
   BlockStyle,
   getDragHandleBlockPresentation,
   getDragHandleBlockType,
   isPointerWithinDragHandleBlock,
-  ResumeRichTextEditor,
+  ResumeRichTextEditor as BaseResumeRichTextEditor,
   setToolbarTextBlock,
   type ResumeRichTextEditorHandle,
 } from "./ResumeRichTextEditor"
+
+type TestEditorProps = Omit<ComponentProps<typeof BaseResumeRichTextEditor>, "templateStyle"> & {
+  templateStyle?: ComponentProps<typeof BaseResumeRichTextEditor>["templateStyle"]
+}
+
+function ResumeRichTextEditor({ templateStyle = defaultClassicA4Style, ...props }: TestEditorProps) {
+  return <BaseResumeRichTextEditor {...props} templateStyle={templateStyle} />
+}
 
 vi.mock("@typedance/resume-markdown", async (importOriginal) => ({
   ...await importOriginal<typeof import("@typedance/resume-markdown")>(),
@@ -757,6 +767,49 @@ describe("ResumeRichTextEditor toolbar", () => {
         attrs: { level: 1, canvasNodeId: "node_2", sourceBlockId: "block_2", moduleId: "mod_2" },
       },
     ])
+    editor.destroy()
+  })
+
+  it("keeps source attributes and document data clean across H2 conversions and undo", () => {
+    const editor = new Editor({
+      extensions: [
+        StarterKit.configure({ heading: false }),
+        createResumeHeading(() => "dot-ribbon"),
+        BlockStyle,
+      ],
+      content: {
+        type: "doc",
+        content: [{
+          type: "heading",
+          attrs: { level: 2, canvasNodeId: "node_1", sourceBlockId: "block_1", moduleId: "mod_1" },
+          content: [{ type: "text", text: "Education", marks: [{ type: "bold" }] }],
+        }],
+      },
+    })
+    editor.commands.setTextSelection(2)
+
+    setToolbarTextBlock(editor, "paragraph")
+    expect(editor.getJSON().content?.[0]).toMatchObject({
+      type: "paragraph",
+      attrs: { canvasNodeId: "node_1", sourceBlockId: "block_1", moduleId: "mod_1" },
+      content: [{ type: "text", text: "Education", marks: [{ type: "bold" }] }],
+    })
+    setToolbarTextBlock(editor, "heading2")
+
+    const heading = editor.getJSON().content?.[0]
+    expect(heading).toMatchObject({
+      type: "heading",
+      attrs: { level: 2, canvasNodeId: "node_1", sourceBlockId: "block_1", moduleId: "mod_1" },
+      content: [{ type: "text", text: "Education", marks: [{ type: "bold" }] }],
+    })
+    expect(JSON.stringify(heading)).not.toMatch(/headingStyle|decoration|prefix|suffix/)
+
+    editor.commands.undo()
+    expect(editor.getJSON().content?.[0]).toMatchObject({
+      type: "heading",
+      attrs: { level: 2, canvasNodeId: "node_1", sourceBlockId: "block_1", moduleId: "mod_1" },
+      content: [{ type: "text", text: "Education", marks: [{ type: "bold" }] }],
+    })
     editor.destroy()
   })
 
