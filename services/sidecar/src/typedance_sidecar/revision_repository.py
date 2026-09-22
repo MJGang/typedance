@@ -191,6 +191,7 @@ def migrate_revision_payloads(connection: sqlite3.Connection) -> None:
     _normalize_document_payloads(connection)
     _normalize_source_document_payloads(connection)
     _normalize_source_resume_canvas_payloads(connection)
+    _remove_single_column_layouts(connection)
     connection.commit()
 
 
@@ -300,6 +301,67 @@ def _normalize_source_resume_canvas_payloads(connection: sqlite3.Connection) -> 
                 "UPDATE source_resume_canvases SET payload = ? WHERE id = ?",
                 (json.dumps(payload, ensure_ascii=False), row["id"]),
             )
+
+
+def _remove_single_column_layouts(connection: sqlite3.Connection) -> None:
+    """一次性展开已废弃的单栏容器，避免在运行时代码中保留兼容分支。"""
+    for table in ("resume_versions", "template_samples", "source_resume_canvases", "render_projections"):
+        rows = connection.execute(f"SELECT id, payload FROM {table}").fetchall()
+        for row in rows:
+            payload = json.loads(row["payload"])
+            doc_json = payload.get("doc_json")
+            if not isinstance(doc_json, dict) or not _unwrap_single_column_nodes(doc_json):
+                continue
+
+            if table == "source_resume_canvases":
+                payload["source_snapshot_hash"] = source_canvas_hash(doc_json)
+            elif table == "render_projections":
+                payload["html"] = None
+            connection.execute(
+                f"UPDATE {table} SET payload = ? WHERE id = ?",
+                (json.dumps(payload, ensure_ascii=False), row["id"]),
+            )
+
+
+def _unwrap_single_column_nodes(node: dict[str, object]) -> bool:
+    content = node.get("content")
+    if not isinstance(content, list):
+        return False
+
+    changed = False
+    migrated_content: list[object] = []
+    for child in content:
+        if not isinstance(child, dict):
+            migrated_content.append(child)
+            continue
+
+        changed = _unwrap_single_column_nodes(child) or changed
+        attrs = child.get("attrs")
+        is_single_column = (
+            child.get("type") == "columns"
+            and isinstance(attrs, dict)
+            and attrs.get("count") == 1
+        )
+        if not is_single_column:
+            migrated_content.append(child)
+            continue
+
+        column_children = child.get("content")
+        if isinstance(column_children, list):
+            for column in column_children:
+                if isinstance(column, dict) and column.get("type") == "column":
+                    nested_content = column.get("content")
+                    if isinstance(nested_content, list):
+                        migrated_content.extend(nested_content)
+                else:
+                    migrated_content.append(column)
+        changed = True
+
+    if changed:
+        node["content"] = migrated_content
+    return changed
+
+
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 

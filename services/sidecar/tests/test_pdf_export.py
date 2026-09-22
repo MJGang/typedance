@@ -508,7 +508,42 @@ def test_rendered_columns_sanitize_attrs_like_frontend_renderer():
 
     html = render_resume_html(resume)
 
-    assert '<div class="td-columns" data-count="2" data-gap="default">' in html
+    assert (
+        '<div class="td-columns" data-count="2" data-gap="default" data-widths="50,50" '
+        'style="grid-template-columns: minmax(0, 50fr) minmax(0, 50fr)">'
+    ) in html
+    assert "align-items: center;" in html
+    assert '.td-columns[data-count="1"]' not in html
+
+
+def test_rendered_columns_preserve_custom_widths():
+    resume = ResumeVersion(
+        id="test-columns-widths",
+        title="Test",
+        template_id="classic-a4",
+        target_language="zh-CN",
+        doc_json={
+            "type": "doc",
+            "content": [
+                {
+                    "type": "columns",
+                    "attrs": {"count": 2, "gap": "wide", "widths": [65, 35]},
+                    "content": [
+                        {"type": "column", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "左栏"}]}]},
+                        {"type": "column", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "右栏"}]}]},
+                    ],
+                }
+            ],
+        },
+        plain_text_snapshot="",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
+
+    html = render_resume_html(resume)
+
+    assert 'data-widths="65,35"' in html
+    assert 'style="grid-template-columns: minmax(0, 65fr) minmax(0, 35fr)"' in html
 
 
 def test_save_generates_preview_pdf(tmp_path, monkeypatch):

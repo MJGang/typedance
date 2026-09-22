@@ -22,6 +22,7 @@ from typedance_sidecar.revision_models import (
     utc_now,
 )
 from typedance_sidecar.revision_repository import RevisionRepository, migrate_revision_payloads
+from typedance_sidecar.source_canvas_doc_json import source_canvas_hash
 
 
 REVISION_TABLES = {
@@ -266,6 +267,68 @@ def test_migrates_invalid_legacy_source_canvas_doc_json(tmp_path):
     assert canvas.doc_json == {"type": "doc", "content": []}
     assert canvas.version == 1
     assert canvas.source_snapshot_hash.startswith("sha256:")
+
+
+def test_migrates_legacy_single_column_layout_to_plain_content(tmp_path):
+    connection = connect(tmp_path / "typedance.sqlite")
+    now = utc_now()
+    legacy_doc_json = {
+        "type": "doc",
+        "content": [
+            {
+                "type": "columns",
+                "attrs": {"count": 1, "gap": "default"},
+                "content": [
+                    {
+                        "type": "column",
+                        "content": [
+                            {"type": "paragraph", "content": [{"type": "text", "text": "原单栏内容"}]}
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    legacy_canvas = {
+        "id": "canvas_single_column",
+        "document_id": "doc_single_column",
+        "old_resume_source_id": "src_single_column",
+        "version": 1,
+        "source_snapshot_hash": "sha256:legacy",
+        "doc_json": legacy_doc_json,
+        "node_map": [],
+        "module_anchors": [],
+        "created_at": now,
+        "updated_at": now,
+    }
+    connection.execute(
+        """
+        INSERT INTO source_resume_canvases (id, document_id, payload, schema_version, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "canvas_single_column",
+            "doc_single_column",
+            json.dumps(legacy_canvas, ensure_ascii=False),
+            "0.1.0",
+            now,
+            now,
+        ),
+    )
+    connection.commit()
+
+    migrate_revision_payloads(connection)
+    payload = json.loads(
+        connection.execute(
+            "SELECT payload FROM source_resume_canvases WHERE id = ?",
+            ("canvas_single_column",),
+        ).fetchone()["payload"]
+    )
+
+    assert payload["doc_json"]["content"] == [
+        {"type": "paragraph", "content": [{"type": "text", "text": "原单栏内容"}]}
+    ]
+    assert payload["source_snapshot_hash"] == source_canvas_hash(payload["doc_json"])
 
 
 def test_connect_creates_revision_tables(tmp_path):

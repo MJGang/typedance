@@ -7,6 +7,7 @@ PDF conversion is handled by Playwright (Chromium headless).
 
 from __future__ import annotations
 
+import math
 import os
 import threading
 from pathlib import Path
@@ -23,6 +24,7 @@ PDF_PAGE_MARGIN = {"top": "86px", "bottom": "86px", "left": "50px", "right": "50
 # Playwright must not add another margin layer when the HTML provides @page margins.
 PDF_PRINT_MARGIN = {"top": "0", "bottom": "0", "left": "0", "right": "0"}
 PdfPageMargin = dict[str, str]
+MIN_COLUMN_WIDTH_PERCENT = 15
 
 
 def _resolve_browser_config() -> dict:
@@ -49,6 +51,42 @@ def escape_html(value: str) -> str:
 
 def _is_tiptap_node(value: object) -> bool:
     return isinstance(value, dict) and isinstance(value.get("type"), str)
+
+
+def _equal_column_widths(count: int) -> list[float]:
+    width = round(100 / count, 4)
+    widths = [width] * count
+    widths[-1] = round(100 - sum(widths[:-1]), 4)
+    return widths
+
+
+def _normalize_column_widths(value: object, count: int) -> list[float]:
+    if not isinstance(value, list) or len(value) != count:
+        return _equal_column_widths(count)
+
+    try:
+        raw_widths = [float(width) for width in value]
+    except (TypeError, ValueError):
+        return _equal_column_widths(count)
+    if any(not math.isfinite(width) or width <= 0 for width in raw_widths):
+        return _equal_column_widths(count)
+
+    total = sum(raw_widths)
+    if total <= 0:
+        return _equal_column_widths(count)
+    widths = [round(width / total * 100, 4) for width in raw_widths]
+    widths[-1] = round(100 - sum(widths[:-1]), 4)
+    if any(width < MIN_COLUMN_WIDTH_PERCENT for width in widths):
+        return _equal_column_widths(count)
+    return widths
+
+
+def _format_column_width(width: float) -> str:
+    return f"{width:.4f}".rstrip("0").rstrip(".")
+
+
+def _column_grid_template(widths: list[float]) -> str:
+    return " ".join(f"minmax(0, {_format_column_width(width)}fr)" for width in widths)
 
 
 def _node_text(node: object) -> str:
@@ -238,11 +276,21 @@ def _render_block(
         attrs = node.get("attrs")
         count = attrs.get("count") if isinstance(attrs, dict) else 2
         gap = attrs.get("gap") if isinstance(attrs, dict) else "default"
-        safe_count = count if count in {1, 2, 3} else 2
-        safe_gap = gap if gap in {"default", "compact", "wide"} else "default"
+        widths = attrs.get("widths") if isinstance(attrs, dict) else None
+        safe_count = count if isinstance(count, int) and count in {2, 3} else 2
+        safe_gap = gap if isinstance(gap, str) and gap in {"default", "compact", "wide"} else "default"
         safe_gap = escape_html(safe_gap)
+        safe_widths = _normalize_column_widths(widths, safe_count)
+        serialized_widths = ",".join(_format_column_width(width) for width in safe_widths)
+        grid_template = _column_grid_template(safe_widths)
         columns = "\n".join(_render_block(child, heading2_style=heading2_style) for child in children)
-        return f"<div class=\"td-columns\" data-count=\"{safe_count}\" data-gap=\"{safe_gap}\">{columns}</div>" if columns else ""
+        return (
+            f'<div class="td-columns" data-count="{safe_count}" data-gap="{safe_gap}" '
+            f'data-widths="{serialized_widths}" style="grid-template-columns: {grid_template}">'
+            f"{columns}</div>"
+            if columns
+            else ""
+        )
 
     if node_type == "column":
         body = "\n".join(_render_block(child, heading2_style=heading2_style) for child in children)
@@ -394,11 +442,9 @@ body.td-resume-page {
 }
 .td-columns {
   display: grid;
+  align-items: center;
   gap: 10px;
   margin: 0 0 8px;
-}
-.td-columns[data-count="1"] {
-  grid-template-columns: minmax(0, 1fr);
 }
 .td-columns[data-count="2"] {
   grid-template-columns: repeat(2, minmax(0, 1fr));

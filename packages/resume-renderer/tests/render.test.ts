@@ -166,6 +166,24 @@ describe("renderResumeHtml", () => {
 });
 
 describe("renderStyledHtml", () => {
+  it("preserves custom column widths and vertically centers column content", () => {
+    const html = renderStyledHtml({
+      type: "doc",
+      content: [{
+        type: "columns",
+        attrs: { count: 2, gap: "default", widths: [65, 35] },
+        content: [
+          { type: "column", content: [{ type: "paragraph", content: [{ type: "text", text: "Long" }] }] },
+          { type: "column", content: [{ type: "paragraph", content: [{ type: "text", text: "Short" }] }] },
+        ],
+      }],
+    }, styleConfig(), "en-US")
+
+    expect(html).toContain('data-widths="65,35"')
+    expect(html).toContain('style="grid-template-columns: minmax(0, 65fr) minmax(0, 35fr)"')
+    expect(html).toContain("align-items: center;")
+  })
+
   it("outputs a complete HTML document with doctype and html tag", () => {
     const html = renderStyledHtml(sampleDocJson, styleConfig(), "en-US");
 
@@ -379,7 +397,7 @@ describe("renderStyledHtml", () => {
     }, styleConfig());
 
     expect(html).toContain('<h1 class="td-resume-heading1">Alex</h1>');
-    expect(html).toContain('<div class="td-columns" data-count="2" data-gap="default">');
+    expect(html).toContain('<div class="td-columns" data-count="2" data-gap="default" data-widths="50,50"');
     expect(html).toContain('<ol class="td-resume-orderedList">');
     expect(html).toContain('<p class="td-resume-paragraph td-resume-orderedListText">Built <strong>PDF</strong></p>');
   });

@@ -36,9 +36,8 @@ export function ColumnsSection({ count, gap, onCountChange, onGapChange, onUnset
               if (!value) return
               onCountChange(Number(value) as ColumnsCount)
             }}
-            className="grid grid-cols-3"
+            className="grid grid-cols-2"
           >
-            <ToggleGroupItem value="1">1 栏</ToggleGroupItem>
             <ToggleGroupItem value="2">2 栏</ToggleGroupItem>
             <ToggleGroupItem value="3">3 栏</ToggleGroupItem>
           </ToggleGroup>

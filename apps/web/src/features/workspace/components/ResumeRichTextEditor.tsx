@@ -3,7 +3,7 @@ import { Extension, Mark, type Editor } from "@tiptap/core"
 import { Markdown } from "@tiptap/markdown"
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
 import { Plugin, TextSelection } from "@tiptap/pm/state"
-import { EditorContent, useEditor, useEditorState } from "@tiptap/react"
+import { EditorContent, ReactNodeViewRenderer, useEditor, useEditorState } from "@tiptap/react"
 import type { JSONContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import DragHandle from "@tiptap/extension-drag-handle-react"
@@ -37,6 +37,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { looksLikeMarkdown } from "../editor"
 import type { ResumeDocJson, ResumeEditorChange } from "../editor"
 import { createResumeHeading, syncHeading2DecorationDom } from "../editor/ResumeHeading"
+import { ColumnsNodeView } from "./ColumnsNodeView"
 
 export type MarginConfig = {
   top: number
@@ -150,6 +151,11 @@ const DRAG_HANDLE_TEXT_LINE_HIT_SLOP = 2
 const DRAG_HANDLE_LEFT_GUTTER = 64
 const DRAG_HANDLE_RIGHT_SLOP = 8
 const MAX_INDENT = 8
+const ResizableColumns = Columns.extend({
+  addNodeView() {
+    return ReactNodeViewRenderer(ColumnsNodeView)
+  },
+})
 
 type DragHandleBlockPresentation = {
   label: string
@@ -643,7 +649,7 @@ function getSelectedColumnsContext(editor: NonNullable<ReturnType<typeof useEdit
     const ancestor = $from.node(depth)
     if (ancestor.type.name === "columns") {
       return {
-        count: ancestor.attrs.count === 1 || ancestor.attrs.count === 3 ? ancestor.attrs.count : 2,
+        count: ancestor.attrs.count === 3 ? 3 : 2,
         gap: ancestor.attrs.gap === "compact" || ancestor.attrs.gap === "wide" ? ancestor.attrs.gap : "default",
       }
     }
@@ -803,7 +809,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         PasteMarkdown,
         InlineStyle,
         BlockStyle,
-        Columns,
+        ResizableColumns,
         Column,
         PaginationPlus.configure({
           enabled: true,
@@ -1177,7 +1183,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                 </Tooltip>
                 <PopoverContent align="start" className="w-40 p-2">
                   <div className="flex flex-col gap-1">
-                    {([1, 2, 3] as ColumnsCount[]).map((count) => (
+                    {([2, 3] as ColumnsCount[]).map((count) => (
                       <Button
                         key={count}
                         type="button"

@@ -24,8 +24,40 @@ type TipTapNode = {
 }
 
 type ColumnsAttrs = {
-  count: 1 | 2 | 3
+  count: 2 | 3
   gap: "default" | "compact" | "wide"
+  widths: number[]
+}
+
+const MIN_COLUMN_WIDTH_PERCENT = 15
+
+function equalColumnWidths(count: ColumnsAttrs["count"]) {
+  const width = Math.floor((100 / count) * 10_000) / 10_000
+  return Array.from({ length: count }, (_, index) => (
+    index === count - 1 ? Number((100 - width * (count - 1)).toFixed(4)) : width
+  ))
+}
+
+function normalizeColumnWidths(value: unknown, count: ColumnsAttrs["count"]) {
+  if (!Array.isArray(value) || value.length !== count) return equalColumnWidths(count)
+
+  const rawWidths = value.map(Number)
+  if (rawWidths.some((width) => !Number.isFinite(width) || width <= 0)) return equalColumnWidths(count)
+
+  const total = rawWidths.reduce((sum, width) => sum + width, 0)
+  const widths = rawWidths.map((width) => Number((width / total * 100).toFixed(4)))
+  widths[count - 1] = Number((100 - widths.slice(0, -1).reduce((sum, width) => sum + width, 0)).toFixed(4))
+  return widths.some((width) => width < MIN_COLUMN_WIDTH_PERCENT) ? equalColumnWidths(count) : widths
+}
+
+function columnGridTemplate(widths: number[]) {
+  return widths.map((width) => `minmax(0, ${width}fr)`).join(" ")
+}
+
+function columnsHtmlAttributes({ count, gap, widths }: ColumnsAttrs) {
+  const serializedWidths = widths.join(",")
+  const style = `grid-template-columns: ${columnGridTemplate(widths)}`
+  return `data-count="${count}" data-gap="${escapeHtml(gap)}" data-widths="${serializedWidths}" style="${style}"`
 }
 
 function escapeHtml(value: string): string {
@@ -88,9 +120,10 @@ function styleAttribute(style: string): string {
 function getColumnsAttrs(node: TipTapNode): ColumnsAttrs {
   const rawCount = node.attrs?.count
   const rawGap = node.attrs?.gap
-  const count = rawCount === 1 || rawCount === 3 ? rawCount : 2
+  const count = rawCount === 3 ? rawCount : 2
   const gap = rawGap === "compact" || rawGap === "wide" ? rawGap : "default"
-  return { count, gap }
+  const widths = normalizeColumnWidths(node.attrs?.widths, count)
+  return { count, gap, widths }
 }
 
 function renderInlineContent(node: TipTapNode): string {
@@ -132,9 +165,9 @@ function renderBlock(node: TipTapNode): string {
   const content = (node.content ?? []).map(renderInlineContent).join("")
 
   if (node.type === "columns") {
-    const { count, gap } = getColumnsAttrs(node)
+    const columnsAttrs = getColumnsAttrs(node)
     const columns = (node.content ?? []).map(renderBlock).filter(Boolean).join("\n      ")
-    return columns ? `<div class="td-columns" data-count="${count}" data-gap="${escapeHtml(gap)}">\n      ${columns}\n    </div>` : ""
+    return columns ? `<div class="td-columns" ${columnsHtmlAttributes(columnsAttrs)}>\n      ${columns}\n    </div>` : ""
   }
 
   if (node.type === "column") {
@@ -236,6 +269,7 @@ function getBlockName(node: TipTapNode): string {
 
 const layoutCSS = `.td-columns {
   display: grid;
+  align-items: center;
   gap: 10px;
   margin: 0 0 8px;
 }
@@ -244,9 +278,6 @@ const layoutCSS = `.td-columns {
 }
 :where(.td-resume-page ul, .td-resume-page ol) {
   padding-left: 0;
-}
-.td-columns[data-count="1"] {
-  grid-template-columns: minmax(0, 1fr);
 }
 .td-columns[data-count="2"] {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -282,9 +313,9 @@ function renderStyledBlock(
   const blockName = getBlockName(node)
 
   if (node.type === "columns") {
-    const { count, gap } = getColumnsAttrs(node)
+    const columnsAttrs = getColumnsAttrs(node)
     const columns = (node.content ?? []).map((child) => renderStyledBlock(child, heading2Style)).filter(Boolean).join("\n      ")
-    return columns ? `<div class="td-columns" data-count="${count}" data-gap="${escapeHtml(gap)}">\n      ${columns}\n    </div>` : ""
+    return columns ? `<div class="td-columns" ${columnsHtmlAttributes(columnsAttrs)}>\n      ${columns}\n    </div>` : ""
   }
 
   if (node.type === "column") {
