@@ -2,6 +2,7 @@ import pytest
 from pathlib import Path
 from fastapi.testclient import TestClient
 
+from fixtures.heading2_styles import template_style_payload
 from typedance_sidecar.db import connect
 from typedance_sidecar.main import app
 from typedance_sidecar.models import utc_now
@@ -500,6 +501,8 @@ def test_revision_api_exports_document_pdf_without_gate(revision_client, monkeyp
         "typedance_sidecar.revision_export.render_html_to_pdf",
         fake_render_html_to_pdf,
     )
+    style_payload = template_style_payload()
+    style_payload["blocks"]["paragraph"] = {"fontSize": "15px", "color": "#123456"}
 
     response = client.post(
         "/documents/doc_1/export/pdf",
@@ -514,10 +517,7 @@ def test_revision_api_exports_document_pdf_without_gate(revision_client, monkeyp
                 ],
             },
             "page_margins": {"top": 88, "bottom": 72, "left": 42, "right": 48},
-            "template_style": {
-                "template_id": "classic-a4",
-                "blocks": {"paragraph": {"fontSize": "15px", "color": "#123456"}},
-            },
+            "template_style": style_payload,
         },
         headers={"Origin": "http://127.0.0.1:5173"},
     )
@@ -536,6 +536,8 @@ def test_revision_api_exports_document_pdf_without_gate(revision_client, monkeyp
 def test_revision_api_exports_document_html_with_current_style(revision_client):
     client, tmp_path = revision_client
     seed_workspace(tmp_path)
+    style_payload = template_style_payload()
+    style_payload["blocks"]["paragraph"] = {"fontSize": "15px", "color": "#123456"}
 
     response = client.post(
         "/documents/doc_1/export/html",
@@ -550,10 +552,7 @@ def test_revision_api_exports_document_html_with_current_style(revision_client):
                 ],
             },
             "page_margins": {"top": 88, "bottom": 72, "left": 42, "right": 48},
-            "template_style": {
-                "template_id": "classic-a4",
-                "blocks": {"paragraph": {"fontSize": "15px", "color": "#123456"}},
-            },
+            "template_style": style_payload,
         },
         headers={"Origin": "http://127.0.0.1:5173"},
     )

@@ -1,6 +1,7 @@
 ﻿import pytest
 from fastapi.testclient import TestClient
 
+from fixtures.heading2_styles import template_style_payload
 from typedance_sidecar.main import app
 
 
@@ -28,14 +29,7 @@ def test_template_sample_round_trip_without_updated_at(tmp_path, monkeypatch):
 
 def test_style_config_round_trip(client):
     """TemplateStyleConfig round trip with blocks"""
-    payload = {
-        "template_id": "classic-a4",
-        "preset": "classic",
-        "blocks": {
-            "heading1": {"fontSize": "24px", "fontWeight": 700, "color": "#1a1a1a"},
-            "paragraph": {"fontSize": "10px", "lineHeight": 1.5, "color": "#334155"},
-        },
-    }
+    payload = template_style_payload("accent-wash")
     resp = client.put("/template-styles/classic-a4", json=payload)
     assert resp.status_code == 200, resp.text
 
@@ -44,18 +38,33 @@ def test_style_config_round_trip(client):
     data = resp.json()
     assert data["template_id"] == "classic-a4"
     assert "heading1" in data["blocks"]
-    assert data["blocks"]["heading1"]["fontSize"] == "24px"
+    assert data["blocks"]["heading1"]["fontSize"] == "28px"
+    assert data["theme"]["accentColor"] == "#174EA6"
+    assert data["blocks"]["heading2"]["decorationStyle"] == "accent-wash"
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda payload: payload.pop("theme"),
+        lambda payload: payload["theme"].update({"accentColor": "blue"}),
+        lambda payload: payload["blocks"]["heading2"].update({"decorationStyle": "ornate"}),
+        lambda payload: payload["blocks"]["heading2"].update({"backgroundColor": "#ffffff"}),
+        lambda payload: payload["blocks"]["heading2"].update({"borderBottom": {"style": "solid"}}),
+    ],
+)
+def test_style_config_rejects_incomplete_or_invalid_h2_contract(client, mutate):
+    payload = template_style_payload()
+    mutate(payload)
+
+    response = client.put("/template-styles/classic-a4", json=payload)
+
+    assert response.status_code == 422, response.text
 
 
 def test_style_config_list_returns_saved_styles(client):
-    payload = {
-        "template_id": "user_classic-a4_1",
-        "name": "我的主题",
-        "preset": "",
-        "blocks": {
-            "paragraph": {"fontSize": "10px", "lineHeight": 1.5, "color": "#334155"},
-        },
-    }
+    payload = template_style_payload(template_id="user_classic-a4_1")
+    payload["name"] = "我的主题"
     resp = client.put("/template-styles/user_classic-a4_1", json=payload)
     assert resp.status_code == 200, resp.text
 
@@ -66,14 +75,8 @@ def test_style_config_list_returns_saved_styles(client):
 
 
 def test_style_config_delete_removes_saved_style(client):
-    payload = {
-        "template_id": "user_theme_to_delete",
-        "name": "我的主题",
-        "preset": "",
-        "blocks": {
-            "paragraph": {"fontSize": "10px", "lineHeight": 1.5, "color": "#334155"},
-        },
-    }
+    payload = template_style_payload(template_id="user_theme_to_delete")
+    payload["name"] = "我的主题"
     resp = client.put("/template-styles/user_theme_to_delete", json=payload)
     assert resp.status_code == 200, resp.text
 
@@ -88,14 +91,7 @@ def test_style_config_delete_reassigns_documents_to_classic_a4(client):
     custom_template_id = "user_theme_in_use"
     created_style = client.put(
         f"/template-styles/{custom_template_id}",
-        json={
-            "template_id": custom_template_id,
-            "name": "正在使用的主题",
-            "preset": "",
-            "blocks": {
-                "paragraph": {"fontSize": "10px", "lineHeight": 1.5, "color": "#334155"},
-            },
-        },
+        json={**template_style_payload(template_id=custom_template_id), "name": "正在使用的主题"},
     )
     assert created_style.status_code == 200
     created_document = client.post(
@@ -117,18 +113,15 @@ def test_style_config_delete_reassigns_documents_to_classic_a4(client):
 
 
 def test_style_config_rejects_empty_template_id(client):
-    resp = client.put("/template-styles/classic-a4", json={
-        "template_id": "",
-        "preset": "classic",
-        "blocks": {},
-    })
+    payload = template_style_payload()
+    payload["template_id"] = ""
+    resp = client.put("/template-styles/classic-a4", json=payload)
     assert resp.status_code == 422
 
 
 def test_style_config_rejects_mismatched_template_id(client):
-    resp = client.put("/template-styles/classic-a4", json={
-        "template_id": "other-template",
-        "preset": "classic",
-        "blocks": {},
-    })
+    resp = client.put(
+        "/template-styles/classic-a4",
+        json=template_style_payload(template_id="other-template"),
+    )
     assert resp.status_code == 400

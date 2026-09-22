@@ -14,8 +14,8 @@ from typing import Any
 
 from playwright.sync_api import sync_playwright
 
-from .models import ResumeVersion, TemplateStyleConfig
-from .style_renderer import generate_full_css
+from .models import Heading2DecorationStyle, ResumeVersion, TemplateStyleConfig
+from .style_renderer import generate_template_css
 
 
 # Default A4 page padding mirrors the editor's default page margins.
@@ -222,7 +222,11 @@ def _render_inline(node: object) -> str:
     return "".join(_render_inline(child) for child in content)
 
 
-def _render_block(node: object, parent_list_class: str | None = None) -> str:
+def _render_block(
+    node: object,
+    parent_list_class: str | None = None,
+    heading2_style: Heading2DecorationStyle = "minimal-line",
+) -> str:
     if not _is_tiptap_node(node):
         return ""
 
@@ -237,11 +241,11 @@ def _render_block(node: object, parent_list_class: str | None = None) -> str:
         safe_count = count if count in {1, 2, 3} else 2
         safe_gap = gap if gap in {"default", "compact", "wide"} else "default"
         safe_gap = escape_html(safe_gap)
-        columns = "\n".join(_render_block(child) for child in children)
+        columns = "\n".join(_render_block(child, heading2_style=heading2_style) for child in children)
         return f"<div class=\"td-columns\" data-count=\"{safe_count}\" data-gap=\"{safe_gap}\">{columns}</div>" if columns else ""
 
     if node_type == "column":
-        body = "\n".join(_render_block(child) for child in children)
+        body = "\n".join(_render_block(child, heading2_style=heading2_style) for child in children)
         return f"<div class=\"td-column\">{body}</div>"
 
     if node_type == "horizontalRule":
@@ -253,7 +257,16 @@ def _render_block(node: object, parent_list_class: str | None = None) -> str:
         level = raw_level if isinstance(raw_level, int) and 1 <= raw_level <= 3 else 2
         cls = _block_class(node)
         style = _block_style_css(attrs)
-        return f"<h{level} class=\"{cls}\"{_style_attr(style)}>{''.join(_render_inline(child) for child in children)}</h{level}>"
+        body = "".join(_render_inline(child) for child in children)
+        if level == 2:
+            return (
+                f'<h2 class="{cls}" data-heading-style="{heading2_style}"{_style_attr(style)}>'
+                '<span class="td-heading-prefix" aria-hidden="true"></span>'
+                f'<span class="td-heading-content">{body}</span>'
+                '<span class="td-heading-suffix" aria-hidden="true"></span>'
+                "</h2>"
+            )
+        return f"<h{level} class=\"{cls}\"{_style_attr(style)}>{body}</h{level}>"
 
     if node_type == "paragraph":
         cls = _block_class(node)
@@ -265,7 +278,7 @@ def _render_block(node: object, parent_list_class: str | None = None) -> str:
         cls = _block_class(node)
         tag = "ol" if node_type == "orderedList" else "ul"
         style = _list_style_css(node.get("attrs"))
-        items = "\n".join(_render_block(child, cls) for child in children)
+        items = "\n".join(_render_block(child, cls, heading2_style) for child in children)
         return f"<{tag} class=\"{cls}\"{_style_attr(style)}>{items}</{tag}>" if items else ""
 
     if node_type == "listItem":
@@ -274,7 +287,7 @@ def _render_block(node: object, parent_list_class: str | None = None) -> str:
             (
                 f"<p class=\"td-resume-paragraph {cls}Text\"{_style_attr(_block_style_css(child.get('attrs')))}>{_render_inline(child)}</p>"
                 if _is_tiptap_node(child) and child.get("type") == "paragraph"
-                else _render_block(child)
+                else _render_block(child, heading2_style=heading2_style)
             )
             for child in children
         )
@@ -284,10 +297,19 @@ def _render_block(node: object, parent_list_class: str | None = None) -> str:
     return f"<p class=\"td-resume-paragraph\">{body}</p>" if body else ""
 
 
-def _render_doc_body(resume: ResumeVersion) -> str:
+def _render_doc_body(resume: ResumeVersion, template_style: TemplateStyleConfig | None) -> str:
+    heading2_style = (
+        template_style.blocks.heading2.decoration_style
+        if template_style is not None
+        else "minimal-line"
+    )
     content = resume.doc_json.get("content")
     if isinstance(content, list):
-        body = "\n".join(block for block in (_render_block(node) for node in content) if block)
+        body = "\n".join(
+            block
+            for block in (_render_block(node, heading2_style=heading2_style) for node in content)
+            if block
+        )
         if body:
             return body
 
@@ -301,12 +323,7 @@ def _render_doc_body(resume: ResumeVersion) -> str:
 def _render_template_style_css(template_style: TemplateStyleConfig | None) -> str:
     if template_style is None:
         return ""
-    # Convert BlockStyle models to dicts with camelCase keys for style_renderer
-    blocks_dict = {
-        name: block.model_dump(by_alias=True, exclude_none=True)
-        for name, block in template_style.blocks.items()
-    }
-    return generate_full_css(blocks_dict)
+    return generate_template_css(template_style)
 
 
 def _normalized_page_margin(page_margin: PdfPageMargin | None) -> PdfPageMargin:
@@ -413,7 +430,7 @@ def render_resume_html(
 ) -> str:
     template_style_css = _render_template_style_css(template_style)
     export_page_css = _render_export_page_css(html_page_margin)
-    doc_body = _render_doc_body(resume)
+    doc_body = _render_doc_body(resume, template_style)
     return f"""<!doctype html>
 <html lang="{resume.target_language}">
   <head>

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from fixtures.heading2_styles import template_style_payload
 from typedance_sidecar.db import connect
 from typedance_sidecar.models import TemplateStyleConfig, utc_now
 from typedance_sidecar.revision_export import RevisionExportService
@@ -152,10 +153,13 @@ def test_revision_export_writes_pdf_from_current_canvas_and_page_margins(tmp_pat
     ).export_pdf(
         document.id,
         page_margins={"top": 88, "bottom": 72, "left": 42, "right": 48},
-        template_style=TemplateStyleConfig(
-            template_id="classic-a4",
-            blocks={"paragraph": {"fontSize": "15px", "color": "#123456"}},
-        ),
+        template_style=TemplateStyleConfig.model_validate({
+            **template_style_payload(),
+            "blocks": {
+                **template_style_payload()["blocks"],
+                "paragraph": {"fontSize": "15px", "color": "#123456"},
+            },
+        }),
     )
 
     assert len(rendered) == 1
@@ -223,10 +227,13 @@ def test_revision_export_writes_html_with_current_style_and_page_margins(tmp_pat
     ).export_html(
         document.id,
         page_margins={"top": 88, "bottom": 72, "left": 42, "right": 48},
-        template_style=TemplateStyleConfig(
-            template_id="classic-a4",
-            blocks={"paragraph": {"fontSize": "15px", "color": "#123456"}},
-        ),
+        template_style=TemplateStyleConfig.model_validate({
+            **template_style_payload(),
+            "blocks": {
+                **template_style_payload()["blocks"],
+                "paragraph": {"fontSize": "15px", "color": "#123456"},
+            },
+        }),
     )
 
     assert artifact.format == "html"

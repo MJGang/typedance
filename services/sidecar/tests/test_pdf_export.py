@@ -1,12 +1,53 @@
 ﻿from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from urllib.parse import unquote
 
+from fixtures.heading2_styles import HEADING2_DOC_JSON, template_style_payload
 from typedance_sidecar import main as sidecar_main
 from typedance_sidecar.main import app
 from typedance_sidecar.models import ResumeVersionCreate, ResumeVersion, TemplateStyleConfig
 from typedance_sidecar.pdf import render_resume_html, resume_lines_for_pdf
+from typedance_sidecar.style_renderer import mix_hex_with_white
+
+
+@pytest.mark.parametrize("decoration_style", ["minimal-line", "accent-wash", "dot-ribbon"])
+def test_h2_styles_render_three_real_spans_with_marks(decoration_style):
+    resume = ResumeVersion(
+        id=f"test-h2-{decoration_style}",
+        title="H2 styles",
+        template_id="classic-a4",
+        target_language="zh-CN",
+        doc_json=HEADING2_DOC_JSON,
+        plain_text_snapshot="",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
+    style = TemplateStyleConfig.model_validate(template_style_payload(decoration_style))
+
+    html = render_resume_html(resume, style)
+
+    assert f'data-heading-style="{decoration_style}"' in html
+    assert '<span class="td-heading-prefix" aria-hidden="true"></span>' in html
+    assert '<span class="td-heading-content"><strong>教育</strong>' in html
+    assert '<span data-td-inline-style style="color: #123456; background-color: #fedcba"><u>经历</u></span>' in html
+    assert '<span class="td-heading-suffix" aria-hidden="true"></span>' in html
+    assert html.count('class="td-heading-prefix"') == 1
+    assert html.count('class="td-heading-content"') == 1
+    assert html.count('class="td-heading-suffix"') == 1
+    assert "::before" not in html
+    assert "::after" not in html
+    assert "break-after: avoid" in html
+    assert "break-inside: avoid" in html
+
+
+@pytest.mark.parametrize(
+    ("color", "expected"),
+    [("#174EA6", "#e3eaf4"), ("#174ea6", "#e3eaf4"), ("#000000", "#e0e0e0"), ("#FFFFFF", "#ffffff")],
+)
+def test_mix_hex_with_white_matches_typescript_rounding(color, expected):
+    assert mix_hex_with_white(color) == expected
 
 
 def test_render_and_export_pdf_writes_pdf_file(tmp_path, mock_playwright):
@@ -361,19 +402,15 @@ def test_rendered_doc_node_styles_match_editor_toolbar_attrs():
 
 
 def test_list_style_css_splits_structure_and_text_overrides():
-    style = TemplateStyleConfig(
-        template_id="classic-a4",
-        blocks={
-            "paragraph": {"fontSize": "10px", "lineHeight": 1.5},
-            "bulletList": {
-                "fontSize": "12px",
-                "backgroundColor": "#eeeeee",
-                "listStyleType": "disc",
-                "paddingLeft": "20px",
-            },
-        },
-        updated_at="2026-01-01T00:00:00Z",
-    )
+    payload = template_style_payload()
+    payload["blocks"]["paragraph"] = {"fontSize": "10px", "lineHeight": 1.5}
+    payload["blocks"]["bulletList"] = {
+        "fontSize": "12px",
+        "backgroundColor": "#eeeeee",
+        "listStyleType": "disc",
+        "paddingLeft": "20px",
+    }
+    style = TemplateStyleConfig.model_validate(payload)
     resume = ResumeVersion(
         id="test-list-style-css",
         title="Test",
@@ -388,7 +425,7 @@ def test_list_style_css_splits_structure_and_text_overrides():
     html = render_resume_html(resume, style)
 
     assert ".td-resume-bulletList {\n  list-style-type: disc;\n  padding-left: 20px;\n}" in html
-    assert ".td-resume-bulletListItem, .td-resume-bulletListText {\n  font-size: 12px;\n  background-color: #eeeeee;\n}" in html
+    assert ".td-resume-bulletListText {\n  font-size: 12px;\n  background-color: #eeeeee;\n}" in html
 
 
 def test_unknown_doc_nodes_fallback_to_styled_paragraph():
@@ -501,14 +538,12 @@ def test_rendered_html_applies_template_block_style():
         created_at="2026-01-01T00:00:00Z",
         updated_at="2026-01-01T00:00:00Z",
     )
-    style = TemplateStyleConfig(
-        template_id="classic-a4",
-        preset="classic",
-        blocks={
-            "heading1": {"fontSize": "28px", "fontWeight": 700, "color": "#1a1a1a", "textAlign": "center"},
-            "paragraph": {"fontSize": "10px", "lineHeight": 1.5, "color": "#334155"},
-        },
-    )
+    payload = template_style_payload()
+    payload["blocks"]["heading1"] = {
+        "fontSize": "28px", "fontWeight": 700, "color": "#1a1a1a", "textAlign": "center",
+    }
+    payload["blocks"]["paragraph"] = {"fontSize": "10px", "lineHeight": 1.5, "color": "#334155"}
+    style = TemplateStyleConfig.model_validate(payload)
     html = render_resume_html(resume, template_style=style)
     assert ".td-resume-heading1" in html
     assert "font-size: 28px;" in html
@@ -525,8 +560,8 @@ def test_save_preview_uses_saved_template_block_style(tmp_path, monkeypatch):
 
     def fake_render_and_export_pdf(resume, template_style, output_path):
         captured["template_id"] = template_style.template_id if template_style else None
-        if template_style and template_style.blocks and "heading1" in template_style.blocks:
-            captured["heading1_size"] = template_style.blocks["heading1"].font_size
+        if template_style:
+            captured["heading1_size"] = template_style.blocks.heading1.font_size
         else:
             captured["heading1_size"] = None
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -539,14 +574,7 @@ def test_save_preview_uses_saved_template_block_style(tmp_path, monkeypatch):
 
     style_response = client.put(
         "/template-styles/classic-a4",
-        json={
-            "template_id": "classic-a4",
-            "preset": "classic",
-            "blocks": {
-                "heading1": {"fontSize": "28px", "fontWeight": 700, "color": "#1a1a1a"},
-                "paragraph": {"fontSize": "10px", "lineHeight": 1.5, "color": "#334155"},
-            },
-        },
+        json=template_style_payload(),
     )
     assert style_response.status_code == 200
 
