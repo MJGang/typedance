@@ -98,7 +98,8 @@ describe("ColumnsNodeView", () => {
     })
 
     fireEvent.pointerDown(handle, { pointerId: 7, button: 0, clientX: 100 })
-    expect(document.body.style.cursor).toBe("col-resize")
+    expect(document.body.style.cursor).toBe("ew-resize")
+    expect(document.body).toHaveClass("td-column-resizing")
     expect(document.body.style.userSelect).toBe("none")
     fireEvent.pointerUp(handle, { pointerId: 7, clientX: 140 })
 
@@ -108,6 +109,7 @@ describe("ColumnsNodeView", () => {
     })
     expect(document.body.style.cursor).toBe("")
     expect(document.body.style.userSelect).toBe("")
+    expect(document.body).not.toHaveClass("td-column-resizing")
   })
 
   it("cancels an active resize on window blur", async () => {

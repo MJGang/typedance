@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react"
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react"
+import { MoveHorizontal } from "lucide-react"
 import {
   MIN_COLUMN_WIDTH_PERCENT,
   columnGridTemplate,
@@ -47,7 +48,7 @@ type PointerResizeSession = {
   previousUserSelect: string
 }
 
-export function ColumnsNodeView({ editor, node, updateAttributes }: ReactNodeViewProps) {
+export function ColumnsNodeView({ editor, getPos, node, updateAttributes }: ReactNodeViewProps) {
   const count = getColumnsCount(node.attrs.count)
   const gap = getColumnsGap(node.attrs.gap)
   const gapPixels = getGapPixels(gap)
@@ -57,6 +58,7 @@ export function ColumnsNodeView({ editor, node, updateAttributes }: ReactNodeVie
   )
   const [draftWidths, setDraftWidths] = useState<ColumnWidths>(persistedWidths)
   const [isResizing, setIsResizing] = useState(false)
+  const [hasEditorSelection, setHasEditorSelection] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const draftWidthsRef = useRef<ColumnWidths>(persistedWidths)
   const pointerResizeRef = useRef<PointerResizeSession | null>(null)
@@ -69,6 +71,7 @@ export function ColumnsNodeView({ editor, node, updateAttributes }: ReactNodeVie
   const restoreDocumentInteraction = useCallback((session: PointerResizeSession) => {
     document.body.style.cursor = session.previousCursor
     document.body.style.userSelect = session.previousUserSelect
+    document.body.classList.remove("td-column-resizing")
   }, [])
 
   useEffect(() => {
@@ -77,8 +80,31 @@ export function ColumnsNodeView({ editor, node, updateAttributes }: ReactNodeVie
     }
   }, [persistedWidths, updateDraftWidths])
 
+  useEffect(() => {
+    const syncSelection = () => {
+      const position = getPos()
+      const anchor = editor.state.selection.anchor
+      setHasEditorSelection(
+        editor.isFocused
+        && typeof position === "number"
+        && anchor > position
+        && anchor < position + node.nodeSize,
+      )
+    }
+
+    syncSelection()
+    editor.on("focus", syncSelection)
+    editor.on("blur", syncSelection)
+    editor.on("selectionUpdate", syncSelection)
+    return () => {
+      editor.off("focus", syncSelection)
+      editor.off("blur", syncSelection)
+      editor.off("selectionUpdate", syncSelection)
+    }
+  }, [editor, getPos, node.nodeSize])
+
   const startPointerResize = useCallback((dividerIndex: number, event: PointerEvent<HTMLDivElement>) => {
-    if (!editor.isEditable || event.button !== 0 || pointerResizeRef.current) return
+    if (!editor.isEditable || event.button !== 0 || pointerResizeRef.current || document.body.classList.contains("td-column-resizing")) return
 
     const containerWidth = containerRef.current?.getBoundingClientRect().width ?? 0
     const availableWidth = containerWidth - gapPixels * (count - 1)
@@ -96,8 +122,9 @@ export function ColumnsNodeView({ editor, node, updateAttributes }: ReactNodeVie
       previousCursor: document.body.style.cursor,
       previousUserSelect: document.body.style.userSelect,
     }
-    document.body.style.cursor = "col-resize"
+    document.body.style.cursor = "ew-resize"
     document.body.style.userSelect = "none"
+    document.body.classList.add("td-column-resizing")
     setIsResizing(true)
   }, [count, editor, gapPixels])
 
@@ -181,6 +208,7 @@ export function ColumnsNodeView({ editor, node, updateAttributes }: ReactNodeVie
       data-gap={gap}
       data-widths={serializeColumnWidths(draftWidths, count)}
       data-editable={editor.isEditable || undefined}
+      data-selection-within={hasEditorSelection || undefined}
       data-resizing={isResizing || undefined}
     >
       <NodeViewContent
@@ -205,6 +233,7 @@ export function ColumnsNodeView({ editor, node, updateAttributes }: ReactNodeVie
                 aria-valuemax={Math.round(pairTotal - MIN_COLUMN_WIDTH_PERCENT)}
                 aria-valuenow={Math.round(draftWidths[dividerIndex])}
                 className="td-column-resize-handle"
+                data-active={isResizing && pointerResizeRef.current?.dividerIndex === dividerIndex || undefined}
                 style={{ gridColumn: dividerIndex * 2 + 2 }}
                 tabIndex={0}
                 onKeyDown={(event) => resizeWithKeyboard(dividerIndex, event)}
@@ -213,7 +242,9 @@ export function ColumnsNodeView({ editor, node, updateAttributes }: ReactNodeVie
                 onPointerUp={(event) => finishPointerEvent(event, true)}
                 onPointerCancel={(event) => finishPointerEvent(event, false)}
                 onLostPointerCapture={() => finishPointerResize(false)}
-              />
+              >
+                <MoveHorizontal className="td-column-resize-arrows" aria-hidden="true" />
+              </div>
             )
           })}
         </div>

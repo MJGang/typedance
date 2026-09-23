@@ -181,7 +181,8 @@ describe("renderStyledHtml", () => {
 
     expect(html).toContain('data-widths="65,35"')
     expect(html).toContain('style="grid-template-columns: minmax(0, 65fr) minmax(0, 35fr)"')
-    expect(html).toContain("align-items: center;")
+    expect(html).toContain("align-items: stretch;")
+    expect(html).toContain("justify-content: center;")
   })
 
   it("outputs a complete HTML document with doctype and html tag", () => {

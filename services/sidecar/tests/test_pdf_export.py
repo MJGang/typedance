@@ -512,7 +512,8 @@ def test_rendered_columns_sanitize_attrs_like_frontend_renderer():
         '<div class="td-columns" data-count="2" data-gap="default" data-widths="50,50" '
         'style="grid-template-columns: minmax(0, 50fr) minmax(0, 50fr)">'
     ) in html
-    assert "align-items: center;" in html
+    assert "align-items: stretch;" in html
+    assert "justify-content: center;" in html
     assert '.td-columns[data-count="1"]' not in html
 
 

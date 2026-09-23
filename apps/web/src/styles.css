@@ -880,7 +880,7 @@ textarea {
 
 .td-columns {
   display: grid;
-  align-items: center;
+  align-items: stretch;
   gap: 10px;
   margin: 0 0 8px;
 }
@@ -903,6 +903,15 @@ textarea {
 
 .td-column {
   min-width: 0;
+  min-height: 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-block: 3px;
+}
+
+.td-columns .td-column > :last-child {
+  margin-bottom: 0;
 }
 
 .td-columns-editor {
@@ -912,7 +921,7 @@ textarea {
 
 .td-columns-editor > .td-columns-content {
   display: grid;
-  align-items: center;
+  align-items: stretch;
   gap: 10px;
 }
 
@@ -935,6 +944,8 @@ textarea {
 }
 
 .td-rich-editor-prosemirror .td-columns-editor[data-editable="true"]:hover .td-column,
+.td-rich-editor-prosemirror .td-columns-editor[data-editable="true"]:focus-within .td-column,
+.td-rich-editor-prosemirror .td-columns-editor[data-editable="true"][data-selection-within="true"] .td-column,
 .td-rich-editor-prosemirror .td-columns-editor[data-resizing="true"] .td-column {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 80%, transparent);
 }
@@ -949,7 +960,7 @@ textarea {
 .td-column-resize-handle {
   position: relative;
   min-width: 6px;
-  cursor: col-resize;
+  cursor: ew-resize;
   pointer-events: auto;
   opacity: 0;
   outline: none;
@@ -959,14 +970,29 @@ textarea {
 
 .td-column-resize-handle::after {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: 50%;
   left: 50%;
-  width: 2px;
+  width: 3px;
+  height: clamp(30px, 70%, 48px);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--primary) 72%, transparent);
+  background: #3b82f6;
   content: "";
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
+}
+
+.td-column-resize-arrows {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: 18px;
+  color: var(--foreground);
+  opacity: 0;
+  pointer-events: none;
+  filter: drop-shadow(0 0 2px var(--background));
+  transform: translate(-50%, -50%);
+  transition: opacity 160ms ease;
 }
 
 .td-columns-editor:hover .td-column-resize-handle,
@@ -975,8 +1001,21 @@ textarea {
   opacity: 1;
 }
 
+.td-columns-editor[data-resizing="true"] .td-column-resize-handle:not([data-active="true"]) {
+  opacity: 0;
+}
+
 .td-column-resize-handle:focus-visible::after {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 45%, transparent);
+}
+
+.td-column-resize-handle:hover .td-column-resize-arrows,
+.td-column-resize-handle:focus-visible .td-column-resize-arrows {
+  opacity: 1;
+}
+
+.td-columns-editor[data-resizing="true"] .td-column-resize-arrows {
+  opacity: 0;
 }
 
 /* 拖拽 handle 样式 */
@@ -1789,6 +1828,19 @@ body.td-source-canvas-cursor-text .td-drag-handle-shell * {
 .td-source-resume-canvas .rm-with-pagination .page,
 .td-source-resume-canvas .rm-with-pagination .page * {
   cursor: text !important;
+}
+
+.td-source-resume-canvas .td-rich-editor-content > .ProseMirror .td-column-resize-handle,
+.td-source-resume-canvas .rm-with-pagination .page .td-column-resize-handle {
+  cursor: ew-resize !important;
+}
+
+body.td-column-resizing,
+body.td-column-resizing *,
+body.td-column-resizing .td-source-resume-canvas .td-rich-editor-content > .ProseMirror,
+body.td-column-resizing .td-source-resume-canvas .td-rich-editor-content > .ProseMirror *,
+body.td-column-resizing .td-source-resume-canvas .rm-with-pagination .page * {
+  cursor: ew-resize !important;
 }
 
 .td-source-resume-canvas .td-editor-print-wrapper {

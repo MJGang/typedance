@@ -269,7 +269,7 @@ function getBlockName(node: TipTapNode): string {
 
 const layoutCSS = `.td-columns {
   display: grid;
-  align-items: center;
+  align-items: stretch;
   gap: 10px;
   margin: 0 0 8px;
 }
@@ -293,6 +293,14 @@ const layoutCSS = `.td-columns {
 }
 .td-column {
   min-width: 0;
+  min-height: 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding-block: 3px;
+}
+.td-columns .td-column > :last-child {
+  margin-bottom: 0;
 }
 .td-resume-divider {
   border: 0;
