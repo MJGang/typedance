@@ -200,6 +200,74 @@ async function installWorkspaceRoutes(page: Page) {
   })
 }
 
+test("keeps a saved column layout in the same document position after reopening", async ({ page }) => {
+  const documentId = "doc_columns_reload"
+  const workspace = buildLongWorkspace(documentId)
+  workspace.document.template_id = "classic-a4"
+  const docJson = workspace.source_resume_canvas?.doc_json as { type: string; content: Array<Record<string, unknown>> }
+  docJson.content.splice(30, 0, {
+    type: "columns",
+    attrs: { count: 2, gap: "default", widths: [50, 50] },
+    content: ["公司职位", "工作时间"].map((text) => ({
+      type: "column",
+      content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+    })),
+  })
+  docJson.content.splice(1, 0, {
+    type: "columns",
+    attrs: { count: 3, gap: "default", widths: [33.3333, 33.3333, 33.3334] },
+    content: ["姓名", "手机", "邮箱"].map((text) => ({
+      type: "column",
+      content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+    })),
+  })
+  await page.route("http://127.0.0.1:4317/template-styles", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: "[]" })
+  })
+
+  await page.route(`http://127.0.0.1:4317/documents/${documentId}/workspace-view`, async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(workspace) })
+  })
+  await page.route(`http://127.0.0.1:4317/documents/${documentId}/source-resume-canvas`, async (route) => {
+    if (route.request().method() === "PUT") {
+      const payload = route.request().postDataJSON() as { doc_json: Record<string, unknown> }
+      workspace.source_resume_canvas!.doc_json = payload.doc_json
+      workspace.source_resume_canvas!.version += 1
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(workspace.source_resume_canvas) })
+  })
+
+  await page.goto(`/packs/resume/workspaces/${documentId}`)
+  const columns = page.locator(".td-source-resume-canvas .td-columns-editor").last()
+  await expect(page.locator(".td-source-resume-canvas .td-columns-editor").first()).toBeVisible()
+  await expect(page.locator(".td-source-resume-canvas .td-columns-editor")).toHaveCount(2)
+  await page.waitForTimeout(800)
+  expect(workspace.source_resume_canvas!.version).toBe(1)
+  const initialTexts = await columns.locator(".td-column").allTextContents()
+  const initialPrevious = await columns.evaluate((element) => element.previousElementSibling?.textContent)
+  const initialNext = await columns.evaluate((element) => element.nextElementSibling?.textContent)
+  await columns.getByRole("separator", { name: /调整第 1 栏与第 2 栏宽度/ }).press("ArrowRight")
+  await expect.poll(() => workspace.source_resume_canvas!.version).toBe(2)
+  const savedContent = (workspace.source_resume_canvas!.doc_json as {
+    content: Array<{ type: string; attrs?: { widths?: number[] }; content?: unknown[] }>
+  }).content
+  expect(savedContent[0]?.type).toBe("heading")
+  expect(savedContent[1]?.type).toBe("columns")
+  expect(savedContent[1]?.content).toHaveLength(3)
+  expect(savedContent[31]?.type).toBe("columns")
+  expect(savedContent[31]?.content).toHaveLength(2)
+  expect(savedContent[31]?.attrs?.widths).toEqual([55, 45])
+
+  await page.reload()
+  await expect(page.locator(".td-source-resume-canvas .td-columns-editor")).toHaveCount(2)
+  expect(await columns.locator(".td-column").allTextContents()).toEqual(initialTexts)
+  expect(await columns.evaluate((element) => element.previousElementSibling?.textContent)).toBe(initialPrevious)
+  expect(await columns.evaluate((element) => element.nextElementSibling?.textContent)).toBe(initialNext)
+  await expect(columns).toHaveAttribute("data-widths", "55,45")
+  await page.waitForTimeout(800)
+  expect(workspace.source_resume_canvas!.version).toBe(2)
+})
+
 async function getOutlinePosition(page: Page) {
   return page.getByLabel("简历模块大纲").evaluate((outline) => ({
     left: Number.parseFloat((outline as HTMLElement).style.left),

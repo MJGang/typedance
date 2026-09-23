@@ -53,6 +53,11 @@ export function createResumeHeadingNodeView(
       dom.dataset.headingStyle = getHeading2Style()
       return true
     },
+    ignoreMutation: (mutation) => (
+      mutation.type === "attributes"
+      && mutation.target === dom
+      && mutation.attributeName === "data-heading-style"
+    ),
   }
 }
 
