@@ -649,7 +649,7 @@ function getSelectedColumnsContext(editor: NonNullable<ReturnType<typeof useEdit
     const ancestor = $from.node(depth)
     if (ancestor.type.name === "columns") {
       return {
-        count: ancestor.attrs.count === 3 ? 3 : 2,
+        count: [2, 3, 4, 5, 6].includes(ancestor.attrs.count) ? ancestor.attrs.count as ColumnsCount : 2,
         gap: ancestor.attrs.gap === "compact" || ancestor.attrs.gap === "wide" ? ancestor.attrs.gap : "default",
       }
     }

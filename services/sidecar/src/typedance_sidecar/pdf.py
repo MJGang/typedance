@@ -54,7 +54,7 @@ def _is_tiptap_node(value: object) -> bool:
 
 
 def _equal_column_widths(count: int) -> list[float]:
-    width = round(100 / count, 4)
+    width = math.floor(100 / count * 10_000) / 10_000
     widths = [width] * count
     widths[-1] = round(100 - sum(widths[:-1]), 4)
     return widths
@@ -277,7 +277,7 @@ def _render_block(
         count = attrs.get("count") if isinstance(attrs, dict) else 2
         gap = attrs.get("gap") if isinstance(attrs, dict) else "default"
         widths = attrs.get("widths") if isinstance(attrs, dict) else None
-        safe_count = count if isinstance(count, int) and count in {2, 3} else 2
+        safe_count = count if isinstance(count, int) and count in {2, 3, 4, 5, 6} else 2
         safe_gap = gap if isinstance(gap, str) and gap in {"default", "compact", "wide"} else "default"
         safe_gap = escape_html(safe_gap)
         safe_widths = _normalize_column_widths(widths, safe_count)
@@ -451,6 +451,15 @@ body.td-resume-page {
 }
 .td-columns[data-count="3"] {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.td-columns[data-count="4"] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.td-columns[data-count="5"] {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.td-columns[data-count="6"] {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 .td-columns[data-gap="compact"] {
   gap: 6px;

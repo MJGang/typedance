@@ -893,6 +893,18 @@ textarea {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.td-columns[data-count="4"] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.td-columns[data-count="5"] {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.td-columns[data-count="6"] {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
 .td-columns[data-gap="compact"] {
   gap: 6px;
 }
@@ -950,6 +962,17 @@ textarea {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 80%, transparent);
 }
 
+.td-rich-editor-prosemirror .td-column-add-button {
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.td-rich-editor-prosemirror .td-columns-editor[data-editable="true"]:hover .td-column-add-button,
+.td-rich-editor-prosemirror .td-columns-editor[data-editable="true"]:focus-within .td-column-add-button,
+.td-rich-editor-prosemirror .td-columns-editor[data-editable="true"][data-selection-within="true"] .td-column-add-button {
+  opacity: 1;
+}
+
 .td-columns-resize-overlay {
   position: absolute;
   inset: 0;
@@ -991,6 +1014,11 @@ textarea {
 
 .td-column-resize-handle:focus-visible::after {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 45%, transparent);
+}
+
+.td-columns-editor[data-resizing="true"] .td-columns-controls-overlay,
+body.td-column-reordering .td-columns-resize-overlay {
+  visibility: hidden;
 }
 
 /* 拖拽 handle 样式 */
@@ -1810,12 +1838,31 @@ body.td-source-canvas-cursor-text .td-drag-handle-shell * {
   cursor: ew-resize !important;
 }
 
+.td-source-resume-canvas .td-rich-editor-content > .ProseMirror .td-column-add-button,
+.td-source-resume-canvas .td-rich-editor-content > .ProseMirror .td-column-delete,
+.td-source-resume-canvas .rm-with-pagination .page .td-column-add-button,
+.td-source-resume-canvas .rm-with-pagination .page .td-column-delete {
+  cursor: pointer !important;
+}
+
+.td-source-resume-canvas .td-rich-editor-content > .ProseMirror .td-column-grip,
+.td-source-resume-canvas .rm-with-pagination .page .td-column-grip {
+  cursor: pointer !important;
+}
+
 body.td-column-resizing,
 body.td-column-resizing *,
 body.td-column-resizing .td-source-resume-canvas .td-rich-editor-content > .ProseMirror,
 body.td-column-resizing .td-source-resume-canvas .td-rich-editor-content > .ProseMirror *,
 body.td-column-resizing .td-source-resume-canvas .rm-with-pagination .page * {
   cursor: ew-resize !important;
+}
+
+body.td-column-reordering,
+body.td-column-reordering *,
+body.td-column-reordering .td-source-resume-canvas .td-rich-editor-content > .ProseMirror *,
+body.td-column-reordering .td-source-resume-canvas .rm-with-pagination .page * {
+  cursor: grabbing !important;
 }
 
 .td-source-resume-canvas .td-editor-print-wrapper {

@@ -36,10 +36,11 @@ export function ColumnsSection({ count, gap, onCountChange, onGapChange, onUnset
               if (!value) return
               onCountChange(Number(value) as ColumnsCount)
             }}
-            className="grid grid-cols-2"
+            className="grid grid-cols-3"
           >
-            <ToggleGroupItem value="2">2 栏</ToggleGroupItem>
-            <ToggleGroupItem value="3">3 栏</ToggleGroupItem>
+            {([2, 3, 4, 5, 6] as const).map((value) => (
+              <ToggleGroupItem key={value} value={String(value)}>{value} 栏</ToggleGroupItem>
+            ))}
           </ToggleGroup>
         </div>
 

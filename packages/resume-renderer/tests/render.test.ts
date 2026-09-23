@@ -409,6 +409,28 @@ describe("renderStyledHtml", () => {
     expect(html).toContain(".td-resume-page p");
     expect(html).toContain("padding-left: 0;");
   });
+
+  it("keeps six column widths and content order in styled HTML", () => {
+    const doc = {
+      type: "doc",
+      content: [{
+        type: "columns",
+        attrs: { count: 6, gap: "default", widths: [20, 15, 15, 15, 15, 20] },
+        content: Array.from({ length: 6 }, (_, index) => ({
+          type: "column",
+          content: [{ type: "paragraph", content: [{ type: "text", text: `第${index + 1}栏` }] }],
+        })),
+      }],
+    };
+
+    const html = renderStyledHtml(doc, styleConfig(), "zh-CN");
+
+    expect(html).toContain('data-count="6"');
+    expect(html).toContain('data-widths="20,15,15,15,15,20"');
+    expect(html).toContain("grid-template-columns: minmax(0, 20fr) minmax(0, 15fr) minmax(0, 15fr) minmax(0, 15fr) minmax(0, 15fr) minmax(0, 20fr)");
+    expect([...html.matchAll(/第(\d)栏/g)].map((match) => Number(match[1]))).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(html).toContain('.td-columns[data-count="6"]');
+  });
 });
 
 describe("H2 heading decorations", () => {

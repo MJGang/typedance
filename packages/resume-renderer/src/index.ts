@@ -24,7 +24,7 @@ type TipTapNode = {
 }
 
 type ColumnsAttrs = {
-  count: 2 | 3
+  count: 2 | 3 | 4 | 5 | 6
   gap: "default" | "compact" | "wide"
   widths: number[]
 }
@@ -120,7 +120,7 @@ function styleAttribute(style: string): string {
 function getColumnsAttrs(node: TipTapNode): ColumnsAttrs {
   const rawCount = node.attrs?.count
   const rawGap = node.attrs?.gap
-  const count = rawCount === 3 ? rawCount : 2
+  const count = rawCount === 2 || rawCount === 3 || rawCount === 4 || rawCount === 5 || rawCount === 6 ? rawCount : 2
   const gap = rawGap === "compact" || rawGap === "wide" ? rawGap : "default"
   const widths = normalizeColumnWidths(node.attrs?.widths, count)
   return { count, gap, widths }
@@ -284,6 +284,15 @@ const layoutCSS = `.td-columns {
 }
 .td-columns[data-count="3"] {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.td-columns[data-count="4"] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.td-columns[data-count="5"] {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.td-columns[data-count="6"] {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 .td-columns[data-gap="compact"] {
   gap: 6px;

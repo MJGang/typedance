@@ -547,6 +547,41 @@ def test_rendered_columns_preserve_custom_widths():
     assert 'style="grid-template-columns: minmax(0, 65fr) minmax(0, 35fr)"' in html
 
 
+def test_rendered_six_columns_preserve_widths_and_order():
+    resume = ResumeVersion(
+        id="test-six-columns",
+        title="Test",
+        template_id="classic-a4",
+        target_language="zh-CN",
+        doc_json={
+            "type": "doc",
+            "content": [{
+                "type": "columns",
+                "attrs": {"count": 6, "gap": "default", "widths": [20, 15, 15, 15, 15, 20]},
+                "content": [
+                    {"type": "column", "content": [{"type": "paragraph", "content": [{"type": "text", "text": f"第{index}栏"}]}]}
+                    for index in range(1, 7)
+                ],
+            }],
+        },
+        plain_text_snapshot="",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
+
+    html = render_resume_html(resume)
+
+    assert 'data-count="6" data-gap="default" data-widths="20,15,15,15,15,20"' in html
+    assert 'grid-template-columns: minmax(0, 20fr) minmax(0, 15fr) minmax(0, 15fr) minmax(0, 15fr) minmax(0, 15fr) minmax(0, 20fr)' in html
+    assert all(html.index(f"第{index}栏") < html.index(f"第{index + 1}栏") for index in range(1, 6))
+    assert '.td-columns[data-count="6"]' in html
+
+    equal_resume = resume.model_copy(deep=True)
+    equal_resume.doc_json["content"][0]["attrs"].pop("widths")
+    equal_html = render_resume_html(equal_resume)
+    assert 'data-widths="16.6666,16.6666,16.6666,16.6666,16.6666,16.667"' in equal_html
+
+
 def test_save_generates_preview_pdf(tmp_path, monkeypatch):
     from typedance_sidecar import main as sidecar_main
 

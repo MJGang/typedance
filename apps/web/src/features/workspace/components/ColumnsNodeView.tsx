@@ -10,11 +10,14 @@ import {
   type ColumnsGap,
   type ColumnWidths,
 } from "@typedance/tiptap-layout"
+import { ColumnControls } from "./ColumnControls"
 
 const KEYBOARD_RESIZE_STEP = 5
 
 function getColumnsCount(value: unknown): ColumnsCount {
-  return value === 3 ? 3 : 2
+  return typeof value === "number" && Number.isInteger(value) && value >= 2 && value <= 6
+    ? value as ColumnsCount
+    : 2
 }
 
 function getColumnsGap(value: unknown): ColumnsGap {
@@ -56,6 +59,7 @@ export function ColumnsNodeView({ editor, getPos, node, updateAttributes }: Reac
     [count, node.attrs.widths],
   )
   const [draftWidths, setDraftWidths] = useState<ColumnWidths>(persistedWidths)
+  const overlayTemplate = resizeOverlayTemplate(draftWidths, gapPixels)
   const [isResizing, setIsResizing] = useState(false)
   const [hasEditorSelection, setHasEditorSelection] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -218,7 +222,7 @@ export function ColumnsNodeView({ editor, getPos, node, updateAttributes }: Reac
         <div
           className="td-columns-resize-overlay"
           contentEditable={false}
-          style={{ gridTemplateColumns: resizeOverlayTemplate(draftWidths, gapPixels) }}
+          style={{ gridTemplateColumns: overlayTemplate }}
         >
           {Array.from({ length: count - 1 }, (_, dividerIndex) => {
             const pairTotal = draftWidths[dividerIndex] + draftWidths[dividerIndex + 1]
@@ -245,6 +249,15 @@ export function ColumnsNodeView({ editor, getPos, node, updateAttributes }: Reac
             )
           })}
         </div>
+      ) : null}
+      {editor.isEditable ? (
+        <ColumnControls
+          editor={editor}
+          getPos={getPos}
+          containerRef={containerRef}
+          count={count}
+          gridTemplateColumns={overlayTemplate}
+        />
       ) : null}
     </NodeViewWrapper>
   )
