@@ -1,8 +1,8 @@
 import { mergeAttributes, Node } from "@tiptap/core"
 
-export type ColumnsCount = 2 | 3
+export type ColumnsCount = 2 | 3 | 4 | 5 | 6
 export type ColumnsGap = "compact" | "default" | "wide"
-export type ColumnWidths = [number, number] | [number, number, number]
+export type ColumnWidths = number[]
 
 export type InsertColumnsOptions = {
   count?: ColumnsCount
@@ -49,7 +49,7 @@ export function resizeColumnWidths(
   dividerIndex: number,
   deltaPercentage: number,
 ): ColumnWidths {
-  const count: ColumnsCount = widths.length === 3 ? 3 : 2
+  const count = normalizeCount(widths.length)
   const normalized = normalizeColumnWidths(widths, count)
   if (dividerIndex < 0 || dividerIndex >= count - 1 || !Number.isFinite(deltaPercentage)) {
     return normalized
@@ -65,6 +65,33 @@ export function resizeColumnWidths(
   nextWidths[dividerIndex] = roundColumnWidth(nextLeft)
   nextWidths[dividerIndex + 1] = roundColumnWidth(pairTotal - nextLeft)
   return nextWidths as ColumnWidths
+}
+
+function insertColumnWidths(widths: ColumnWidths, afterIndex: number): ColumnWidths {
+  const count = widths.length as ColumnsCount
+  const normalized = normalizeColumnWidths(widths, count)
+  const targetWidth = 100 / (count + 1)
+  const available = normalized.reduce((sum, width) => sum + width - MIN_COLUMN_WIDTH_PERCENT, 0)
+  const nextWidths = normalized.map((width) => (
+    roundColumnWidth(width - targetWidth * (width - MIN_COLUMN_WIDTH_PERCENT) / available)
+  ))
+  nextWidths.splice(afterIndex + 1, 0, roundColumnWidth(100 - nextWidths.reduce((sum, width) => sum + width, 0)))
+  return normalizeColumnWidths(nextWidths, (count + 1) as ColumnsCount)
+}
+
+function removeColumnWidths(widths: ColumnWidths, index: number): ColumnWidths {
+  const nextWidths = [...widths]
+  const [removedWidth] = nextWidths.splice(index, 1)
+  const recipient = Math.max(0, index - 1)
+  nextWidths[recipient] = roundColumnWidth(nextWidths[recipient] + removedWidth)
+  return normalizeColumnWidths(nextWidths, nextWidths.length as ColumnsCount)
+}
+
+function moveColumnWidths(widths: ColumnWidths, fromIndex: number, toIndex: number): ColumnWidths {
+  const nextWidths = [...widths]
+  const [width] = nextWidths.splice(fromIndex, 1)
+  nextWidths.splice(toIndex, 0, width)
+  return nextWidths
 }
 
 export function columnGridTemplate(value: unknown, count: ColumnsCount) {
@@ -85,6 +112,9 @@ declare module "@tiptap/core" {
   interface Commands<ReturnType> {
     columns: {
       insertColumns: (options?: InsertColumnsOptions) => ReturnType
+      insertColumnAt: (position: number, afterIndex: number) => ReturnType
+      removeColumnAt: (position: number, index: number) => ReturnType
+      moveColumnAt: (position: number, fromIndex: number, toIndex: number) => ReturnType
       setColumnsCount: (count: ColumnsCount) => ReturnType
       setColumnsGap: (gap: ColumnsGap) => ReturnType
       unsetColumns: () => ReturnType
@@ -93,7 +123,9 @@ declare module "@tiptap/core" {
 }
 
 function normalizeCount(value: unknown): ColumnsCount {
-  return value === 3 ? 3 : 2
+  return typeof value === "number" && Number.isInteger(value) && value >= 2 && value <= 6
+    ? value as ColumnsCount
+    : 2
 }
 
 function normalizeGap(value: unknown): ColumnsGap {
@@ -105,7 +137,7 @@ export const Columns = Node.create({
 
   group: "block",
 
-  content: "column+",
+  content: "column{2,6}",
 
   isolating: true,
 
@@ -175,6 +207,70 @@ export const Columns = Node.create({
               content: [{ type: "paragraph" }],
             })),
           })
+        },
+      insertColumnAt:
+        (position, afterIndex) =>
+        ({ state, dispatch }) => {
+          const currentNode = state.doc.nodeAt(position)
+          const count = currentNode?.childCount ?? 0
+          const columnType = state.schema.nodes.column
+          const paragraphType = state.schema.nodes.paragraph
+          if (currentNode?.type !== this.type || count < 2 || count >= 6 || afterIndex < 0 || afterIndex >= count || !columnType || !paragraphType) {
+            return false
+          }
+
+          const nextColumns = Array.from({ length: count }, (_, index) => currentNode.child(index))
+          nextColumns.splice(afterIndex + 1, 0, columnType.create(null, paragraphType.create()))
+          const nextNode = currentNode.type.create({
+            ...currentNode.attrs,
+            count: count + 1,
+            widths: insertColumnWidths(normalizeColumnWidths(currentNode.attrs.widths, count as ColumnsCount), afterIndex),
+          }, nextColumns)
+          if (dispatch) dispatch(state.tr.replaceWith(position, position + currentNode.nodeSize, nextNode).scrollIntoView())
+          return true
+        },
+      removeColumnAt:
+        (position, index) =>
+        ({ state, dispatch }) => {
+          const currentNode = state.doc.nodeAt(position)
+          const count = currentNode?.childCount ?? 0
+          if (currentNode?.type !== this.type || count < 2 || count > 6 || index < 0 || index >= count) return false
+
+          if (count === 2) {
+            const survivor = currentNode.child(1 - index)
+            const content = Array.from({ length: survivor.childCount }, (_, childIndex) => survivor.child(childIndex))
+            if (dispatch) dispatch(state.tr.replaceWith(position, position + currentNode.nodeSize, content).scrollIntoView())
+            return true
+          }
+
+          const nextColumns = Array.from({ length: count }, (_, childIndex) => currentNode.child(childIndex))
+          nextColumns.splice(index, 1)
+          const nextNode = currentNode.type.create({
+            ...currentNode.attrs,
+            count: count - 1,
+            widths: removeColumnWidths(normalizeColumnWidths(currentNode.attrs.widths, count as ColumnsCount), index),
+          }, nextColumns)
+          if (dispatch) dispatch(state.tr.replaceWith(position, position + currentNode.nodeSize, nextNode).scrollIntoView())
+          return true
+        },
+      moveColumnAt:
+        (position, fromIndex, toIndex) =>
+        ({ state, dispatch }) => {
+          const currentNode = state.doc.nodeAt(position)
+          const count = currentNode?.childCount ?? 0
+          if (currentNode?.type !== this.type || count < 2 || count > 6 || fromIndex < 0 || fromIndex >= count || toIndex < 0 || toIndex >= count || fromIndex === toIndex) {
+            return false
+          }
+
+          const nextColumns = Array.from({ length: count }, (_, index) => currentNode.child(index))
+          const [movedColumn] = nextColumns.splice(fromIndex, 1)
+          nextColumns.splice(toIndex, 0, movedColumn)
+          const nextNode = currentNode.type.create({
+            ...currentNode.attrs,
+            widths: moveColumnWidths(normalizeColumnWidths(currentNode.attrs.widths, count as ColumnsCount), fromIndex, toIndex),
+          }, nextColumns)
+          if (dispatch) dispatch(state.tr.replaceWith(position, position + currentNode.nodeSize, nextNode).scrollIntoView())
+          return true
         },
       setColumnsCount:
         (count) =>

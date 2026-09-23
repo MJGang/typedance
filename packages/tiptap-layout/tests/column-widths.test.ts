@@ -29,4 +29,13 @@ describe("column width helpers", () => {
   it("builds a safe grid track declaration from normalized widths", () => {
     expect(columnGridTemplate([65, 35], 2)).toBe("minmax(0, 65fr) minmax(0, 35fr)")
   })
+
+  it("keeps six columns and their custom widths instead of falling back to two", () => {
+    expect(equalColumnWidths(6)).toEqual([16.6666, 16.6666, 16.6666, 16.6666, 16.6666, 16.667])
+    expect(normalizeColumnWidths([20, 15, 15, 15, 15, 20], 6)).toEqual([20, 15, 15, 15, 15, 20])
+  })
+
+  it("resizes only the selected pair in a six-column layout", () => {
+    expect(resizeColumnWidths([15, 15, 20, 20, 15, 15], 2, 3)).toEqual([15, 15, 23, 17, 15, 15])
+  })
 })
