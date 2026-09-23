@@ -203,6 +203,29 @@ def test_rendered_html_resets_browser_default_block_spacing():
     assert "padding-left: 0;" in html
 
 
+def test_export_layout_matches_editor_box_sizing_and_list_item_typography():
+    resume = ResumeVersion(
+        id="test-editor-layout-parity",
+        title="Layout parity",
+        target_language="zh-CN",
+        template_id="classic-a4",
+        doc_json={"type": "doc", "content": []},
+        plain_text_snapshot="",
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+    )
+    payload = template_style_payload()
+    payload["blocks"]["bulletList"] = {"fontSize": "12px", "lineHeight": 1.5}
+    payload["blocks"]["orderedList"] = {"fontSize": "12px", "lineHeight": 1.5}
+
+    html = render_resume_html(resume, TemplateStyleConfig.model_validate(payload))
+
+    assert "body.td-resume-page,\nbody.td-resume-page * {\n  box-sizing: border-box;" in html
+    assert ".td-resume-bulletListItem, .td-resume-bulletListText {\n  font-size: 12px;\n  line-height: 1.5;" in html
+    assert ".td-resume-orderedListItem, .td-resume-orderedListText {\n  font-size: 12px;\n  line-height: 1.5;" in html
+    assert ".td-resume-page li > ol,\n.td-resume-page li > ul {\n  break-inside: avoid;" in html
+
+
 def test_rendered_html_allows_paragraph_lines_to_split_across_print_pages():
     resume = ResumeVersion(
         id="test-print-line-fragmentation",

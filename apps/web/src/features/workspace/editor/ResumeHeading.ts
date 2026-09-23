@@ -12,6 +12,26 @@ import {
 
 type HeadingStyleGetter = () => Heading2DecorationStyle
 
+export function blockStyleToCss(attrs: Record<string, unknown>): string {
+  const rules: string[] = []
+  if (attrs.textAlign === "left" || attrs.textAlign === "center" || attrs.textAlign === "right" || attrs.textAlign === "justify") {
+    rules.push(`text-align: ${attrs.textAlign}`)
+  }
+  if (typeof attrs.lineHeight === "string" && attrs.lineHeight !== "default") {
+    rules.push(`line-height: ${attrs.lineHeight}`)
+  }
+  if (typeof attrs.indent === "number" && attrs.indent > 0) {
+    rules.push(`margin-left: ${attrs.indent * 1.5}em`)
+  }
+  return rules.join("; ")
+}
+
+function syncBlockStyle(dom: HTMLElement, node: ProseMirrorNode): void {
+  const style = blockStyleToCss(node.attrs)
+  if (style) dom.style.cssText = style
+  else dom.removeAttribute("style")
+}
+
 function createDecorationSpan(className: string): HTMLSpanElement {
   const element = document.createElement("span")
   element.className = className
@@ -27,14 +47,17 @@ export function createResumeHeadingNodeView(
   const level = node.attrs.level as number
   const dom = document.createElement(`h${level}`)
   dom.className = `td-resume-heading${level}`
+  syncBlockStyle(dom, node)
 
   if (level !== 2) {
     return {
       dom,
       contentDOM: dom,
-      update: (updatedNode) => (
-        updatedNode.type.name === node.type.name && updatedNode.attrs.level === level
-      ),
+      update: (updatedNode) => {
+        if (updatedNode.type.name !== node.type.name || updatedNode.attrs.level !== level) return false
+        syncBlockStyle(dom, updatedNode)
+        return true
+      },
     }
   }
 
@@ -50,6 +73,7 @@ export function createResumeHeadingNodeView(
     contentDOM,
     update: (updatedNode) => {
       if (updatedNode.type.name !== node.type.name || updatedNode.attrs.level !== level) return false
+      syncBlockStyle(dom, updatedNode)
       dom.dataset.headingStyle = getHeading2Style()
       return true
     },

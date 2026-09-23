@@ -425,6 +425,10 @@ body.td-export-document {{
 
 
 LAYOUT_CSS = """
+body.td-resume-page,
+body.td-resume-page * {
+  box-sizing: border-box;
+}
 body.td-resume-page {
   margin: 0;
 }
@@ -433,6 +437,10 @@ body.td-resume-page {
 }
 :where(.td-resume-page ul, .td-resume-page ol) {
   padding-left: 0;
+}
+.td-resume-page li > ol,
+.td-resume-page li > ul {
+  break-inside: avoid;
 }
 :where(.td-resume-page p, .td-resume-page li, .td-resume-page li p) {
   orphans: 1;

@@ -206,7 +206,7 @@ export function generateTemplateCSS(config: TemplateStyleConfig): string {
     if (LIST_BLOCKS.has(blockName)) {
       rules.push(...generateListCSS(
         `.td-resume-${blockName}`,
-        `.td-resume-${blockName}Text`,
+        `.td-resume-${blockName}Item, .td-resume-${blockName}Text`,
         style,
       ))
     } else {

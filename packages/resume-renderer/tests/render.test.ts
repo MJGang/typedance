@@ -242,7 +242,7 @@ describe("renderStyledHtml", () => {
     );
 
     expect(html).toContain(".td-resume-bulletList {\n  list-style-type: disc;\n  padding-left: 20px;\n}");
-    expect(html).toContain(".td-resume-bulletListText {\n  font-size: 12px;\n  background-color: #eeeeee;\n}");
+    expect(html).toContain(".td-resume-bulletListItem, .td-resume-bulletListText {\n  font-size: 12px;\n  background-color: #eeeeee;\n}");
   });
 
   it("handles orderedList with td-resume-orderedList class", () => {
@@ -430,6 +430,12 @@ describe("renderStyledHtml", () => {
     expect(html).toContain("grid-template-columns: minmax(0, 20fr) minmax(0, 15fr) minmax(0, 15fr) minmax(0, 15fr) minmax(0, 15fr) minmax(0, 20fr)");
     expect([...html.matchAll(/第(\d)栏/g)].map((match) => Number(match[1]))).toEqual([1, 2, 3, 4, 5, 6]);
     expect(html).toContain('.td-columns[data-count="6"]');
+  });
+
+  it("keeps nested lists together when printing a resume page", () => {
+    const html = renderStyledHtml({ type: "doc", content: [] }, styleConfig(), "zh-CN");
+
+    expect(html).toContain(".td-resume-page li > ol,\n.td-resume-page li > ul {\n  break-inside: avoid;");
   });
 });
 

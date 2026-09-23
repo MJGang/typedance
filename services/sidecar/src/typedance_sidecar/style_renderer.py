@@ -177,7 +177,7 @@ def generate_template_css(config: TemplateStyleConfig) -> str:
         if block_name in LIST_BLOCKS:
             rules.extend(_generate_list_css(
                 f".td-resume-{block_name}",
-                f".td-resume-{block_name}Text",
+                f".td-resume-{block_name}Item, .td-resume-{block_name}Text",
                 style,
             ))
         else:

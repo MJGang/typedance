@@ -8,10 +8,10 @@ import {
   syncHeading2DecorationDom,
 } from "./ResumeHeading"
 
-function headingNode(level: 1 | 2 | 3): ProseMirrorNode {
+function headingNode(level: 1 | 2 | 3, attrs: Record<string, unknown> = {}): ProseMirrorNode {
   return {
     type: { name: "heading" },
-    attrs: { level },
+    attrs: { level, ...attrs },
   } as unknown as ProseMirrorNode
 }
 
@@ -41,6 +41,18 @@ describe("ResumeHeading", () => {
     expect((view.dom as HTMLElement).tagName).toBe(`H${level}`)
     expect(view.contentDOM).toBe(view.dom)
     expect((view.dom as HTMLElement).children).toHaveLength(0)
+  })
+
+  it("applies saved heading alignment and updates it when the node changes", () => {
+    const view = createResumeHeadingNodeView(headingNode(1, { textAlign: "left" }), () => "minimal-line")
+    const dom = view.dom as HTMLElement
+    const update = view.update as (node: ProseMirrorNode) => boolean
+
+    expect(dom.style.textAlign).toBe("left")
+    expect(update(headingNode(1, { textAlign: "center" }))).toBe(true)
+    expect(dom.style.textAlign).toBe("center")
+    expect(update(headingNode(1, { textAlign: null }))).toBe(true)
+    expect(dom.style.textAlign).toBe("")
   })
 
   it("requests a NodeView rebuild when the heading level changes", () => {

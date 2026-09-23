@@ -267,7 +267,11 @@ function getBlockName(node: TipTapNode): string {
   return node.type
 }
 
-const layoutCSS = `.td-columns {
+const layoutCSS = `body.td-resume-page,
+body.td-resume-page * {
+  box-sizing: border-box;
+}
+.td-columns {
   display: grid;
   align-items: stretch;
   gap: 10px;
@@ -278,6 +282,10 @@ const layoutCSS = `.td-columns {
 }
 :where(.td-resume-page ul, .td-resume-page ol) {
   padding-left: 0;
+}
+.td-resume-page li > ol,
+.td-resume-page li > ul {
+  break-inside: avoid;
 }
 .td-columns[data-count="2"] {
   grid-template-columns: repeat(2, minmax(0, 1fr));

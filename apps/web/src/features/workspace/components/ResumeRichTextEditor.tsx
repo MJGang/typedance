@@ -36,7 +36,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { clearDuplicateCanvasNodeIds, looksLikeMarkdown } from "../editor"
 import type { ResumeDocJson, ResumeEditorChange } from "../editor"
-import { createResumeHeading, syncHeading2DecorationDom } from "../editor/ResumeHeading"
+import { blockStyleToCss, createResumeHeading, syncHeading2DecorationDom } from "../editor/ResumeHeading"
 import { ColumnsNodeView } from "./ColumnsNodeView"
 
 export type MarginConfig = {
@@ -327,20 +327,6 @@ function inlineStyleToCss(attrs: Record<string, unknown>): string {
   }
   if (typeof attrs.backgroundColor === "string" && /^#[0-9a-fA-F]{6}$/.test(attrs.backgroundColor)) {
     rules.push(`background-color: ${attrs.backgroundColor}`)
-  }
-  return rules.join("; ")
-}
-
-function blockStyleToCss(attrs: Record<string, unknown>): string {
-  const rules: string[] = []
-  if (attrs.textAlign === "left" || attrs.textAlign === "center" || attrs.textAlign === "right" || attrs.textAlign === "justify") {
-    rules.push(`text-align: ${attrs.textAlign}`)
-  }
-  if (typeof attrs.lineHeight === "string" && attrs.lineHeight !== DEFAULT_LINE_HEIGHT) {
-    rules.push(`line-height: ${attrs.lineHeight}`)
-  }
-  if (typeof attrs.indent === "number" && attrs.indent > 0) {
-    rules.push(`margin-left: ${attrs.indent * 1.5}em`)
   }
   return rules.join("; ")
 }
