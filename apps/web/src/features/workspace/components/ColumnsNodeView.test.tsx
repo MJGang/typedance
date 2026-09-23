@@ -70,6 +70,13 @@ beforeAll(() => {
 })
 
 describe("ColumnsNodeView", () => {
+  it("does not render a separate arrow inside the resize handle", async () => {
+    renderColumnsEditor()
+
+    const handle = await screen.findByRole("separator", { name: /调整第 1 栏/ })
+    expect(handle.querySelector("svg")).toBeNull()
+  })
+
   it("persists keyboard column resizing in the document", async () => {
     const onChange = renderColumnsEditor()
 

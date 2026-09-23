@@ -964,40 +964,24 @@ textarea {
   pointer-events: auto;
   opacity: 0;
   outline: none;
-  transition: opacity 160ms ease;
   touch-action: none;
 }
 
 .td-column-resize-handle::after {
   position: absolute;
-  top: 50%;
+  top: 0;
   left: 50%;
   width: 3px;
-  height: clamp(30px, 70%, 48px);
+  height: 100%;
   border-radius: 999px;
   background: #3b82f6;
   content: "";
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
 }
 
-.td-column-resize-arrows {
-  position: absolute;
-  z-index: 1;
-  top: 50%;
-  left: 50%;
-  width: 28px;
-  height: 18px;
-  color: var(--foreground);
-  opacity: 0;
-  pointer-events: none;
-  filter: drop-shadow(0 0 2px var(--background));
-  transform: translate(-50%, -50%);
-  transition: opacity 160ms ease;
-}
-
-.td-columns-editor:hover .td-column-resize-handle,
-.td-columns-editor[data-resizing="true"] .td-column-resize-handle,
-.td-column-resize-handle:focus-visible {
+.td-column-resize-handle:hover,
+.td-columns-editor:not(:has(.td-column-resize-handle:hover)) .td-column-resize-handle:focus-visible,
+.td-columns-editor[data-resizing="true"] .td-column-resize-handle[data-active="true"] {
   opacity: 1;
 }
 
@@ -1007,15 +991,6 @@ textarea {
 
 .td-column-resize-handle:focus-visible::after {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 45%, transparent);
-}
-
-.td-column-resize-handle:hover .td-column-resize-arrows,
-.td-column-resize-handle:focus-visible .td-column-resize-arrows {
-  opacity: 1;
-}
-
-.td-columns-editor[data-resizing="true"] .td-column-resize-arrows {
-  opacity: 0;
 }
 
 /* 拖拽 handle 样式 */

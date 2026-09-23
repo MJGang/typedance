@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react"
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react"
-import { MoveHorizontal } from "lucide-react"
 import {
   MIN_COLUMN_WIDTH_PERCENT,
   columnGridTemplate,
@@ -242,9 +241,7 @@ export function ColumnsNodeView({ editor, getPos, node, updateAttributes }: Reac
                 onPointerUp={(event) => finishPointerEvent(event, true)}
                 onPointerCancel={(event) => finishPointerEvent(event, false)}
                 onLostPointerCapture={() => finishPointerResize(false)}
-              >
-                <MoveHorizontal className="td-column-resize-arrows" aria-hidden="true" />
-              </div>
+              />
             )
           })}
         </div>
