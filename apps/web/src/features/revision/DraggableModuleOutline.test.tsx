@@ -119,10 +119,11 @@ describe("DraggableModuleOutline", () => {
 
     rerender(
       <DraggableModuleOutline
-        {...createProps({ saveStatus: "error", onRetrySave })}
+        {...createProps({ saveStatus: "error", saveError: "Duplicate canvasNodeId: node_1", onRetrySave })}
       />,
     )
     expect(screen.getByText("保存失败")).toHaveAttribute("aria-live", "polite")
+    expect(screen.getByText("保存失败").parentElement).toHaveAttribute("title", "Duplicate canvasNodeId: node_1")
     fireEvent.click(screen.getByRole("button", { name: "重试保存" }))
     expect(onRetrySave).toHaveBeenCalledTimes(1)
   })

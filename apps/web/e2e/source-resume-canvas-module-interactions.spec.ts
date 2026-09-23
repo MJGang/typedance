@@ -200,7 +200,7 @@ async function installWorkspaceRoutes(page: Page) {
   })
 }
 
-test("keeps a saved column layout in the same document position after reopening", async ({ page }) => {
+test("keeps separate column rows and edits alignment inside a column after reopening", async ({ page }) => {
   const documentId = "doc_columns_reload"
   const workspace = buildLongWorkspace(documentId)
   workspace.document.template_id = "classic-a4"
@@ -243,17 +243,28 @@ test("keeps a saved column layout in the same document position after reopening"
   await expect(page.locator(".td-source-resume-canvas .td-columns-editor")).toHaveCount(2)
   await page.waitForTimeout(800)
   expect(workspace.source_resume_canvas!.version).toBe(1)
+  await page.getByRole("button", { name: "显示格式工具栏" }).click()
+  const personalInfoCell = page.locator(".td-source-resume-canvas .td-columns-editor").first().locator(".td-column").nth(2).locator("p")
+  await personalInfoCell.click()
+  const alignmentButton = page.getByRole("button", { name: "对齐方式" })
+  await expect(alignmentButton).toBeEnabled()
+  await alignmentButton.click()
+  await page.getByRole("button", { name: "右对齐" }).click()
+  await expect(personalInfoCell).toHaveCSS("text-align", "right")
+  await expect.poll(() => workspace.source_resume_canvas!.version).toBe(2)
+  await page.keyboard.press("Escape")
   const initialTexts = await columns.locator(".td-column").allTextContents()
   const initialPrevious = await columns.evaluate((element) => element.previousElementSibling?.textContent)
   const initialNext = await columns.evaluate((element) => element.nextElementSibling?.textContent)
   await columns.getByRole("separator", { name: /调整第 1 栏与第 2 栏宽度/ }).press("ArrowRight")
-  await expect.poll(() => workspace.source_resume_canvas!.version).toBe(2)
+  await expect.poll(() => workspace.source_resume_canvas!.version).toBe(3)
   const savedContent = (workspace.source_resume_canvas!.doc_json as {
     content: Array<{ type: string; attrs?: { widths?: number[] }; content?: unknown[] }>
   }).content
   expect(savedContent[0]?.type).toBe("heading")
   expect(savedContent[1]?.type).toBe("columns")
   expect(savedContent[1]?.content).toHaveLength(3)
+  expect(((savedContent[1]?.content as Array<{ content: Array<{ attrs?: { textAlign?: string } }> }>)[2]?.content[0]?.attrs?.textAlign)).toBe("right")
   expect(savedContent[31]?.type).toBe("columns")
   expect(savedContent[31]?.content).toHaveLength(2)
   expect(savedContent[31]?.attrs?.widths).toEqual([55, 45])
@@ -264,8 +275,9 @@ test("keeps a saved column layout in the same document position after reopening"
   expect(await columns.evaluate((element) => element.previousElementSibling?.textContent)).toBe(initialPrevious)
   expect(await columns.evaluate((element) => element.nextElementSibling?.textContent)).toBe(initialNext)
   await expect(columns).toHaveAttribute("data-widths", "55,45")
+  await expect(personalInfoCell).toHaveCSS("text-align", "right")
   await page.waitForTimeout(800)
-  expect(workspace.source_resume_canvas!.version).toBe(2)
+  expect(workspace.source_resume_canvas!.version).toBe(3)
 })
 
 async function getOutlinePosition(page: Page) {

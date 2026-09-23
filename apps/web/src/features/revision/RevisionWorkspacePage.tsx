@@ -271,6 +271,7 @@ export function RevisionWorkspacePage() {
     latestSavedCanvas,
     localDocJson: localCanvasDocJson,
     retry: retryCanvasSave,
+    saveError: canvasSaveError,
     saveStatus: canvasSaveStatus,
   } = useSourceCanvasAutosave(documentId, handleSavedCanvas)
   if (latestSavedCanvas?.document_id === documentId) {
@@ -774,6 +775,7 @@ export function RevisionWorkspacePage() {
                   onPageCountChange={setSourceCanvasPageCount}
                   onPageMarginsChange={setSourceCanvasPageMargins}
                   onRetrySave={retryCanvasSave}
+                  saveError={canvasSaveError}
                   saveStatus={canvasSaveStatus}
                   templateStyle={selectedTemplateStyle}
                   toolbarVisible={editorToolbarVisible}

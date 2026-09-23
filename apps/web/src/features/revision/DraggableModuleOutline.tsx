@@ -61,6 +61,7 @@ export type DraggableModuleOutlineProps = {
   outlineTop?: number
   panelWidth: number
   saveStatus: DraftCanvasSaveStatus
+  saveError?: string | null
   onRetrySave?: () => void
   onExpandedChange: (expanded: boolean) => void
   onActivateModule: (moduleId: string) => void
@@ -201,6 +202,7 @@ export function DraggableModuleOutline({
   outlineTop = 0,
   panelWidth,
   saveStatus,
+  saveError,
   onRetrySave,
   onExpandedChange,
   onActivateModule,
@@ -319,6 +321,7 @@ export function DraggableModuleOutline({
               "flex min-h-8 items-center justify-between gap-2 border-t border-border px-3 py-1 text-xs text-muted-foreground",
               saveStatus === "error" && "text-destructive",
             )}
+            title={saveError ?? undefined}
           >
             <span aria-live="polite">{saveStatusLabel}</span>
             {saveStatus === "error" && onRetrySave ? (

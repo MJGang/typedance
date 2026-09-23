@@ -15,12 +15,14 @@ type AutosaveSnapshot = {
   documentId?: string
   latestSavedCanvas: SourceResumeCanvas | null
   localDocJson: ResumeDocJson | null
+  saveError: string | null
   saveStatus: DraftCanvasSaveStatus
 }
 
 const emptySnapshot: AutosaveSnapshot = {
   latestSavedCanvas: null,
   localDocJson: null,
+  saveError: null,
   saveStatus: "idle",
 }
 
@@ -47,6 +49,7 @@ class SourceCanvasAutosaveCoordinator {
   private latestVersion = 0
   private listeners = new Set<(snapshot: AutosaveSnapshot) => void>()
   private pendingSave: PendingSave | null = null
+  private saveError: string | null = null
   private saveStatus: DraftCanvasSaveStatus = "idle"
 
   constructor(private readonly documentId: string) {}
@@ -56,6 +59,7 @@ class SourceCanvasAutosaveCoordinator {
       documentId: this.documentId,
       latestSavedCanvas: this.latestSavedCanvas,
       localDocJson: this.latestLocalDocJson,
+      saveError: this.saveError,
       saveStatus: this.saveStatus,
     }
   }
@@ -78,6 +82,7 @@ class SourceCanvasAutosaveCoordinator {
     this.latestLocalDocJson = docJson
     this.pendingSave = { docJson, version: this.latestVersion }
     this.failed = false
+    this.saveError = null
     this.saveStatus = "idle"
     this.clearDebounceTimer()
     this.notify()
@@ -97,6 +102,7 @@ class SourceCanvasAutosaveCoordinator {
 
   retry() {
     this.failed = false
+    this.saveError = null
     this.saveStatus = "idle"
     this.notify()
     return this.drain()
@@ -126,13 +132,15 @@ class SourceCanvasAutosaveCoordinator {
             saving.docJson as unknown as Record<string, unknown>,
           )
           this.latestSavedCanvas = savedCanvas
+          this.saveError = null
           this.notify()
-        } catch {
+        } catch (error) {
           const queuedAfterFailure = this.pendingSave as PendingSave | null
           if (!queuedAfterFailure || queuedAfterFailure.version < saving.version) {
             this.pendingSave = saving
           }
           this.failed = true
+          this.saveError = error instanceof Error ? error.message : "未知保存错误"
           this.saveStatus = "error"
           this.notify()
           return false
@@ -240,6 +248,7 @@ export function useSourceCanvasAutosave(
     latestSavedCanvas: snapshot.latestSavedCanvas,
     localDocJson: snapshot.localDocJson,
     retry,
+    saveError: snapshot.saveError,
     saveStatus: snapshot.saveStatus,
   }
 }

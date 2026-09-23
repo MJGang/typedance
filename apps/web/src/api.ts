@@ -782,11 +782,13 @@ async function parseTemplateResponse<T>(
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
-    const details = Array.isArray(payload?.detail)
+    const details = typeof payload?.detail === "string"
       ? payload.detail
-          .map((item: Record<string, unknown>) => JSON.stringify(item))
-          .join(", ")
-      : `${response.status}`;
+      : Array.isArray(payload?.detail)
+        ? payload.detail
+            .map((item: Record<string, unknown>) => JSON.stringify(item))
+            .join(", ")
+        : `${response.status}`;
     throw new Error(`${fallbackMessage}: ${details}`);
   }
 

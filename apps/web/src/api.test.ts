@@ -261,6 +261,17 @@ describe("revision api", () => {
     expect(canvas.doc_json).toEqual(responsePayload.doc_json)
   })
 
+  it("reports the server reason when a source canvas save is rejected", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ detail: "Duplicate canvasNodeId: node_1" }),
+      { status: 400, headers: { "content-type": "application/json" } },
+    )))
+
+    const { saveSourceResumeCanvas } = await import("./api")
+    await expect(saveSourceResumeCanvas("doc_1", { type: "doc", content: [] }))
+      .rejects.toThrow("Duplicate canvasNodeId: node_1")
+  })
+
   it("accepts a revision proposal", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       id: "prop_1",

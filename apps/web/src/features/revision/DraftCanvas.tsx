@@ -48,6 +48,7 @@ type DraftCanvasProps = {
   onPageCountChange?: (pageCount: number) => void
   onPageMarginsChange?: (margins: PageMargins) => void
   onRetrySave?: () => void
+  saveError?: string | null
   saveStatus: DraftCanvasSaveStatus
   templateStyle?: TemplateStyleConfig
   toolbarVisible?: boolean
@@ -378,6 +379,7 @@ function DraftCanvasWorkspace({
   onPageCountChange,
   onPageMarginsChange,
   onRetrySave,
+  saveError,
   saveStatus,
   templateStyle = defaultClassicA4Style,
   toolbarVisible = true,
@@ -665,6 +667,7 @@ function DraftCanvasWorkspace({
         <div
           className="absolute left-3 z-20 flex items-center gap-2 rounded-md border border-destructive/30 bg-background px-3 py-1 text-xs text-destructive shadow-sm"
           style={{ top: outlineTop }}
+          title={saveError ?? undefined}
         >
           <span aria-live="polite">保存失败</span>
           {onRetrySave ? (
@@ -684,6 +687,7 @@ function DraftCanvasWorkspace({
           outlineTop={outlineTop}
           panelWidth={outlineLayout.panelWidth}
           saveStatus={saveStatus}
+          saveError={saveError}
           onRetrySave={onRetrySave}
           onExpandedChange={setOutlineExpanded}
           onActivateModule={setActiveModuleId}

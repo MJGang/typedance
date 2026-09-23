@@ -980,10 +980,11 @@ describe("DraftCanvas", () => {
 
   it("announces save failures without hiding the original canvas", () => {
     const onRetrySave = vi.fn()
-    render(<DraftCanvas canvas={canvas} onChange={vi.fn()} onRetrySave={onRetrySave} saveStatus="error" />)
+    render(<DraftCanvas canvas={canvas} onChange={vi.fn()} onRetrySave={onRetrySave} saveError="Duplicate canvasNodeId: node_1" saveStatus="error" />)
 
     expect(screen.getByTestId("canvas-node-mod_1")).toBeInTheDocument()
     expect(screen.getByText("保存失败")).toHaveAttribute("aria-live", "polite")
+    expect(screen.getByText("保存失败").parentElement).toHaveAttribute("title", "Duplicate canvasNodeId: node_1")
     fireEvent.click(screen.getByRole("button", { name: "重试保存" }))
     expect(onRetrySave).toHaveBeenCalledTimes(1)
   })

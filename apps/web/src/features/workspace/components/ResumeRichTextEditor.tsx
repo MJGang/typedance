@@ -672,12 +672,13 @@ function getSelectionAnchorModuleId(editor: Editor): string | null {
 }
 
 function getActiveToolbarBlock(editor: NonNullable<ReturnType<typeof useEditor>>): ToolbarBlock {
-  if (editor.isActive("columns")) return "columns"
   if (editor.isActive("heading", { level: 1 })) return "heading1"
   if (editor.isActive("heading", { level: 2 })) return "heading2"
   if (editor.isActive("heading", { level: 3 })) return "heading3"
   if (editor.isActive("bulletList")) return "bulletList"
   if (editor.isActive("orderedList")) return "orderedList"
+  if (editor.isActive("paragraph")) return "paragraph"
+  if (editor.isActive("columns")) return "columns"
   return "paragraph"
 }
 
