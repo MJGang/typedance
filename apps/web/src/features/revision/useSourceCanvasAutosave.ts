@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { SourceResumeCanvas } from "@typedance/contracts"
 import { saveSourceResumeCanvas } from "@/api"
+import { clearDuplicateCanvasNodeIds } from "../workspace/editor"
 import type { ResumeDocJson, ResumeEditorChange } from "../workspace/editor"
 import type { DraftCanvasSaveStatus } from "./DraftCanvas"
 
@@ -101,6 +102,11 @@ class SourceCanvasAutosaveCoordinator {
   }
 
   retry() {
+    if (this.pendingSave) {
+      const docJson = clearDuplicateCanvasNodeIds(this.pendingSave.docJson)
+      this.pendingSave = { ...this.pendingSave, docJson }
+      this.latestLocalDocJson = docJson
+    }
     this.failed = false
     this.saveError = null
     this.saveStatus = "idle"

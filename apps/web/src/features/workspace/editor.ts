@@ -16,6 +16,31 @@ export type ResumeEditorChange = {
   docJson: ResumeDocJson
 }
 
+export function clearDuplicateCanvasNodeIds(docJson: ResumeDocJson): ResumeDocJson {
+  const seen = new Set<string>()
+  let changed = false
+
+  const visit = (node: ResumeNodeJson): ResumeNodeJson => {
+    const id = node.attrs?.canvasNodeId
+    let attrs = node.attrs
+    if (typeof id === "string" && id) {
+      if (seen.has(id)) {
+        attrs = { ...attrs, canvasNodeId: null, sourceBlockId: null }
+        changed = true
+      } else {
+        seen.add(id)
+      }
+    }
+    const content = node.content?.map(visit)
+    return attrs === node.attrs && content === undefined
+      ? node
+      : { ...node, attrs, ...(content && { content }) }
+  }
+
+  const content = docJson.content?.map(visit)
+  return changed ? { ...docJson, content } : docJson
+}
+
 export function looksLikeMarkdown(text: string): boolean {
   const normalized = text.replace(/\r\n?/g, "\n").trim()
 

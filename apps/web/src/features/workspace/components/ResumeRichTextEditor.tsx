@@ -1,8 +1,8 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type PointerEvent, type ReactNode } from "react"
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react"
 import { Extension, Mark, type Editor } from "@tiptap/core"
 import { Markdown } from "@tiptap/markdown"
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
-import { Plugin, TextSelection } from "@tiptap/pm/state"
+import { Plugin, TextSelection, type Transaction } from "@tiptap/pm/state"
 import { EditorContent, ReactNodeViewRenderer, useEditor, useEditorState } from "@tiptap/react"
 import type { JSONContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
@@ -34,7 +34,7 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { looksLikeMarkdown } from "../editor"
+import { clearDuplicateCanvasNodeIds, looksLikeMarkdown } from "../editor"
 import type { ResumeDocJson, ResumeEditorChange } from "../editor"
 import { createResumeHeading, syncHeading2DecorationDom } from "../editor/ResumeHeading"
 import { ColumnsNodeView } from "./ColumnsNodeView"
@@ -394,6 +394,31 @@ const InlineStyle = Mark.create({
 export const BlockStyle = Extension.create({
   name: "blockStyle",
 
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      appendTransaction(transactions, oldState, newState) {
+        if (!transactions.some((transaction) => transaction.docChanged)) return null
+
+        const originalPositions = new Map<string, number>()
+        oldState.doc.descendants((node, pos) => {
+          const id = node.attrs.canvasNodeId
+          if (typeof id !== "string" || !id || originalPositions.has(id)) return
+          const mappedPos = transactions.reduce(
+            (position, transaction) => transaction.mapping.map(position, 1),
+            pos,
+          )
+          if (newState.doc.nodeAt(mappedPos)?.attrs.canvasNodeId === id) {
+            originalPositions.set(id, mappedPos)
+          }
+        })
+
+        const tr = newState.tr
+        clearDuplicateSourceCanvasIds(tr, originalPositions)
+        return tr.docChanged ? tr : null
+      },
+    })]
+  },
+
   addGlobalAttributes() {
     return [
       {
@@ -462,6 +487,29 @@ export const BlockStyle = Extension.create({
     ]
   },
 })
+
+function clearDuplicateSourceCanvasIds(tr: Transaction, originalPositions = new Map<string, number>()) {
+  const positionsById = new Map<string, number[]>()
+  tr.doc.descendants((node, pos) => {
+    const id = node.attrs.canvasNodeId
+    if (typeof id !== "string" || !id) return
+    const positions = positionsById.get(id) ?? []
+    positions.push(pos)
+    positionsById.set(id, positions)
+  })
+
+  for (const [id, positions] of positionsById) {
+    if (positions.length < 2) continue
+    const originalPos = originalPositions.get(id)
+    const retainedPos = originalPos !== undefined && positions.includes(originalPos) ? originalPos : positions[0]
+    for (const pos of positions) {
+      if (pos === retainedPos) continue
+      const node = tr.doc.nodeAt(pos)
+      if (!node) continue
+      tr.setNodeMarkup(pos, undefined, { ...node.attrs, canvasNodeId: null, sourceBlockId: null })
+    }
+  }
+}
 
 type SourceCanvasAttrs = {
   canvasNodeId: unknown
@@ -711,6 +759,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
     onSelectionUpdateRef.current = onSelectionUpdate
     const onSourceCanvasModuleChangeRef = useRef(onSourceCanvasModuleChange)
     onSourceCanvasModuleChangeRef.current = onSourceCanvasModuleChange
+    const normalizedDocJson = useMemo(() => clearDuplicateCanvasNodeIds(docJson), [docJson])
     const heading2StyleRef = useRef(templateStyle.blocks.heading2.decorationStyle)
     heading2StyleRef.current = templateStyle.blocks.heading2.decorationStyle
     const resumeHeadingRef = useRef(createResumeHeading(() => heading2StyleRef.current))
@@ -831,7 +880,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
           footerRight: "",
         }),
       ],
-      content: docJson as unknown as JSONContent,
+      content: normalizedDocJson as unknown as JSONContent,
       editable,
       editorProps: {
         attributes: {
@@ -841,6 +890,12 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       },
       onCreate: ({ editor }) => {
         syncHeading2DecorationDom(editor, heading2StyleRef.current)
+        if (normalizedDocJson !== docJson) {
+          onChangeRef.current({
+            plainText: editor.getText({ blockSeparator: "\n\n" }),
+            docJson: editor.getJSON() as ResumeDocJson,
+          })
+        }
       },
       onUpdate: ({ editor }) => {
         syncHeading2DecorationDom(editor, heading2StyleRef.current)
@@ -1001,14 +1056,14 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         editor.setEditable(editable)
       }
       const current = JSON.stringify(editor.getJSON())
-      const next = JSON.stringify(docJson)
+      const next = JSON.stringify(normalizedDocJson)
       if (current !== next) {
         const currentSelection = editor.state.selection
         if (currentSelection instanceof TextSelection) {
           const { anchor, head } = currentSelection
           editor
             .chain()
-            .setContent(docJson as unknown as JSONContent, { emitUpdate: false })
+            .setContent(normalizedDocJson as unknown as JSONContent, { emitUpdate: false })
             .command(({ tr }) => {
               const minPosition = TextSelection.atStart(tr.doc).from
               const maxPosition = TextSelection.atEnd(tr.doc).to
@@ -1022,10 +1077,10 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
             })
             .run()
         } else {
-          editor.commands.setContent(docJson as unknown as JSONContent, { emitUpdate: false })
+          editor.commands.setContent(normalizedDocJson as unknown as JSONContent, { emitUpdate: false })
         }
       }
-    }, [docJson, editor, editable])
+    }, [normalizedDocJson, editor, editable])
 
     useEffect(() => {
       if (!editor || editor.isDestroyed) return
