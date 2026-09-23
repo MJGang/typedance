@@ -259,6 +259,9 @@ describe("ColumnsNodeView", () => {
     expect(document.body.style.cursor).toBe("ew-resize")
     expect(document.body).toHaveClass("td-column-resizing")
     expect(document.body.style.userSelect).toBe("none")
+    expect([...columns.querySelectorAll(".td-column-width-label")].map((label) => label.textContent)).toEqual(["50%", "50%"])
+    fireEvent.pointerMove(handle, { pointerId: 7, clientX: 140 })
+    expect([...columns.querySelectorAll(".td-column-width-label")].map((label) => label.textContent)).toEqual(["70%", "30%"])
     fireEvent.pointerUp(handle, { pointerId: 7, clientX: 140 })
 
     await waitFor(() => {
@@ -268,6 +271,7 @@ describe("ColumnsNodeView", () => {
     expect(document.body.style.cursor).toBe("")
     expect(document.body.style.userSelect).toBe("")
     expect(document.body).not.toHaveClass("td-column-resizing")
+    expect(columns.querySelector(".td-column-width-label")).toBeNull()
   })
 
   it("cancels an active resize on window blur", async () => {
@@ -292,6 +296,7 @@ describe("ColumnsNodeView", () => {
 
     await waitFor(() => expect(columns).not.toHaveAttribute("data-resizing"))
     expect(columns).toHaveAttribute("data-widths", "50,50")
+    expect(columns.querySelector(".td-column-width-label")).toBeNull()
     expect(document.body.style.cursor).toBe("")
     expect(document.body.style.userSelect).toBe("")
   })

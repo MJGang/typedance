@@ -278,6 +278,29 @@ test("keeps separate column rows and edits alignment inside a column after reope
   await expect(personalInfoCell).toHaveCSS("text-align", "right")
   await page.waitForTimeout(800)
   expect(workspace.source_resume_canvas!.version).toBe(3)
+
+  const personalColumns = page.locator(".td-source-resume-canvas .td-columns-editor").first()
+  const resizeHandle = personalColumns.getByRole("separator", { name: "调整第 1 栏与第 2 栏宽度" })
+  const handleBox = await resizeHandle.boundingBox()
+  if (!handleBox) throw new Error("Missing column resize handle")
+  const pointerX = handleBox.x + handleBox.width / 2
+  const pointerY = handleBox.y + handleBox.height / 2
+  await page.mouse.move(pointerX, pointerY)
+  await page.mouse.down()
+  const widthLabels = personalColumns.locator(".td-column-width-label")
+  await expect(widthLabels).toHaveText(["33%", "33%", "33%"])
+  for (let index = 0; index < 3; index += 1) {
+    const labelBox = await widthLabels.nth(index).boundingBox()
+    const cellBox = await personalColumns.locator(".td-column").nth(index).boundingBox()
+    if (!labelBox || !cellBox) throw new Error("Missing column width label or cell")
+    expect(Math.abs(labelBox.x + labelBox.width / 2 - cellBox.x - cellBox.width / 2)).toBeLessThan(3)
+    expect(Math.abs(labelBox.y + labelBox.height / 2 - cellBox.y - cellBox.height / 2)).toBeLessThan(3)
+  }
+  await page.mouse.move(pointerX + 30, pointerY, { steps: 5 })
+  await expect(widthLabels.first()).not.toHaveText("33%")
+  await expect(widthLabels.nth(2)).toHaveText("33%")
+  await page.mouse.up()
+  await expect(widthLabels).toHaveCount(0)
 })
 
 async function getOutlinePosition(page: Page) {

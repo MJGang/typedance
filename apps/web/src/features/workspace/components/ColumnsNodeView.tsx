@@ -224,6 +224,17 @@ export function ColumnsNodeView({ editor, getPos, node, updateAttributes }: Reac
           contentEditable={false}
           style={{ gridTemplateColumns: overlayTemplate }}
         >
+          {isResizing ? draftWidths.map((width, index) => (
+            <span
+              key={`width-${index}`}
+              className="td-column-width-label pointer-events-none z-10 min-w-11 justify-self-center self-center rounded-full bg-zinc-600 px-2 py-1 text-center text-[13px] leading-none font-semibold text-white shadow-sm"
+              style={{ gridColumn: index * 2 + 1, gridRow: 1 }}
+              contentEditable={false}
+              aria-hidden="true"
+            >
+              {Math.round(width)}%
+            </span>
+          )) : null}
           {Array.from({ length: count - 1 }, (_, dividerIndex) => {
             const pairTotal = draftWidths[dividerIndex] + draftWidths[dividerIndex + 1]
             return (
@@ -237,7 +248,7 @@ export function ColumnsNodeView({ editor, getPos, node, updateAttributes }: Reac
                 aria-valuenow={Math.round(draftWidths[dividerIndex])}
                 className="td-column-resize-handle"
                 data-active={isResizing && pointerResizeRef.current?.dividerIndex === dividerIndex || undefined}
-                style={{ gridColumn: dividerIndex * 2 + 2 }}
+                style={{ gridColumn: dividerIndex * 2 + 2, gridRow: 1 }}
                 tabIndex={0}
                 onKeyDown={(event) => resizeWithKeyboard(dividerIndex, event)}
                 onPointerDown={(event) => startPointerResize(dividerIndex, event)}
