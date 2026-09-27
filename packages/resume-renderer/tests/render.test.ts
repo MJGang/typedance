@@ -121,7 +121,7 @@ describe("renderResumeHtml", () => {
     expect(html).toContain("<h1>Ada Lovelace</h1>");
     expect(html).toContain("<strong>analytical</strong>");
     expect(html).toContain("<ul>");
-    expect(html).toContain("<li>Designed programmable computation notes</li>");
+    expect(html).toContain("<li><p>Designed programmable computation notes</p></li>");
     expect(html).not.toContain("Stale snapshot");
   });
 
@@ -163,9 +163,86 @@ describe("renderResumeHtml", () => {
     expect(html).toContain("class=\"resume-body\"");
     expect(html).toContain("负责产品设计");
   });
+
+  it("preserves empty blocks and trailing line breaks in the unstyled document", () => {
+    const html = renderResumeHtml({
+      id: "resume_empty_lines",
+      title: "Empty lines",
+      target_language: "en-US",
+      template_id: "classic-a4",
+      doc_json: {
+        type: "doc",
+        content: [
+          { type: "paragraph" },
+          { type: "paragraph", content: [] },
+          { type: "heading", attrs: { level: 1 } },
+          { type: "paragraph", content: [{ type: "text", text: "Last line" }, { type: "hardBreak" }] },
+          {
+            type: "bulletList",
+            content: [{ type: "listItem", content: [{ type: "paragraph" }, { type: "paragraph", content: [{ type: "text", text: "After empty line" }] }] }],
+          },
+        ],
+      },
+      plain_text_snapshot: "Must not replace empty paragraphs",
+      source_refs: [],
+      accepted_edit_ids: [],
+      created_at: "2026-09-23T00:00:00.000Z",
+      updated_at: "2026-09-23T00:00:00.000Z",
+    });
+
+    expect(html).toContain('<body class="td-resume-page">');
+    expect(html).toContain('<p><br /></p>\n    <p><br /></p>');
+    expect(html).toContain('<h1><br /></h1>');
+    expect(html).toContain('<p>Last line<br /><br /></p>');
+    expect(html).toContain('<li><p><br /></p><p>After empty line</p></li>');
+    expect(html).not.toContain("Must not replace empty paragraphs");
+  });
 });
 
 describe("renderStyledHtml", () => {
+  it("keeps editable blank lines in paragraphs, headings, list items, and columns", () => {
+    const html = renderStyledHtml({
+      type: "doc",
+      content: [
+        { type: "paragraph", attrs: { lineHeight: "2" } },
+        { type: "paragraph", content: [] },
+        { type: "heading", attrs: { level: 1 } },
+        { type: "heading", attrs: { level: 2 } },
+        { type: "heading", attrs: { level: 3 }, content: [{ type: "text", text: "Heading" }, { type: "hardBreak" }] },
+        { type: "paragraph", content: [{ type: "text", text: "One" }, { type: "hardBreak" }, { type: "text", text: "Two" }] },
+        { type: "paragraph", content: [{ type: "hardBreak" }, { type: "hardBreak" }] },
+        {
+          type: "bulletList",
+          content: [{
+            type: "listItem",
+            content: [
+              { type: "paragraph" },
+              { type: "paragraph", content: [{ type: "text", text: "Bullet" }, { type: "hardBreak" }] },
+              { type: "orderedList", content: [{ type: "listItem", content: [{ type: "paragraph" }] }] },
+            ],
+          }],
+        },
+        { type: "columns", content: [{ type: "column", content: [{ type: "paragraph" }] }] },
+      ],
+    }, styleConfig(), "en-US");
+
+    const body = html.match(/<body[^>]*>([\s\S]*?)<\/body>/)?.[1] ?? "";
+    expect(html).toContain('<body class="td-resume-page">');
+    expect(body).toContain('<p class="td-resume-paragraph" style="line-height: 2"><br /></p>');
+    expect(body).toContain('<h1 class="td-resume-heading1"><br /></h1>');
+    expect(body).toContain('<span class="td-heading-content"><br /></span>');
+    expect(body).toContain('<h3 class="td-resume-heading3">Heading<br /><br /></h3>');
+    expect(body).toContain('<p class="td-resume-paragraph">One<br />Two</p>');
+    expect(body).toContain('<p class="td-resume-paragraph"><br /><br /><br /></p>');
+    expect(body).toContain('<li class="td-resume-bulletListItem">');
+    expect(body).toContain('<p class="td-resume-paragraph td-resume-bulletListText"><br /></p>');
+    expect(body).toContain('<p class="td-resume-paragraph td-resume-bulletListText">Bullet<br /><br /></p>');
+    expect(body).toContain('<li class="td-resume-orderedListItem">');
+    expect(body).toContain('<p class="td-resume-paragraph td-resume-orderedListText"><br /></p>');
+    expect(body).toMatch(/<div class="td-column">\s*<p class="td-resume-paragraph"><br \/><\/p>\s*<\/div>/);
+    expect(body.match(/<p\b/g)).toHaveLength(8);
+  });
+
   it("preserves custom column widths and vertically centers column content", () => {
     const html = renderStyledHtml({
       type: "doc",

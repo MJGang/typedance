@@ -161,6 +161,13 @@ function renderInlineContent(node: TipTapNode): string {
   return (node.content ?? []).map(renderInlineContent).join("")
 }
 
+function renderTextBlockContent(node: TipTapNode): string {
+  const children = node.content ?? []
+  const content = children.map(renderInlineContent).join("")
+  // ProseMirror adds a display-only trailing break to keep blank editable lines visible.
+  return !content || children[children.length - 1]?.type === "hardBreak" ? `${content}<br />` : content
+}
+
 function renderBlock(node: TipTapNode): string {
   const content = (node.content ?? []).map(renderInlineContent).join("")
 
@@ -182,11 +189,11 @@ function renderBlock(node: TipTapNode): string {
   if (node.type === "heading") {
     const rawLevel = node.attrs?.level
     const level = typeof rawLevel === "number" && rawLevel >= 1 && rawLevel <= 3 ? rawLevel : 2
-    return `<h${level}>${content}</h${level}>`
+    return `<h${level}>${renderTextBlockContent(node)}</h${level}>`
   }
 
   if (node.type === "paragraph") {
-    return content ? `<p>${content}</p>` : ""
+    return `<p>${renderTextBlockContent(node)}</p>`
   }
 
   if (node.type === "bulletList" || node.type === "orderedList") {
@@ -197,13 +204,7 @@ function renderBlock(node: TipTapNode): string {
 
   if (node.type === "listItem") {
     const itemContent = (node.content ?? [])
-      .map((child) => {
-        if (child.type === "paragraph") {
-          return renderInlineContent(child)
-        }
-
-        return renderBlock(child)
-      })
+      .map(renderBlock)
       .filter(Boolean)
       .join("")
     return itemContent ? `<li>${itemContent}</li>` : ""
@@ -250,7 +251,7 @@ export function renderResumeHtml(resume: ResumeVersion): string {
   const body = renderDocJson(resume.doc_json) ?? renderSnapshot(resume.plain_text_snapshot)
   const layoutStyles = layoutCSS
 
-  return `<!doctype html>\n<html lang="${escapeHtml(resume.target_language)}">\n  <head>\n    <meta charset="utf-8" />\n    <style>\n      @page { size: A4; margin: 20mm 22mm; }\n      body {\n        font-family: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;\n        color: #1f2937;\n        line-height: 1.6;\n        font-size: 11px;\n      }\n      .resume-header {\n        border-bottom: 2px solid #174ea6;\n        margin-bottom: 16px;\n        padding-bottom: 12px;\n      }\n      h1 {\n        font-size: 22px;\n        margin: 0 0 4px;\n        font-weight: 700;\n        color: #101827;\n      }\n      .resume-title {\n        font-size: 11px;\n        margin: 0;\n        color: #174ea6;\n        font-weight: 600;\n      }\n      .resume-body p {\n        margin: 0 0 8px;\n        font-size: 10px;\n        line-height: 1.55;\n        color: #374151;\n      }\n      .muted { color: #9ca3af; font-style: italic; }\n${layoutStyles}\n    </style>\n  </head>\n  <body>\n    ${body}\n  </body>\n</html>`
+  return `<!doctype html>\n<html lang="${escapeHtml(resume.target_language)}">\n  <head>\n    <meta charset="utf-8" />\n    <style>\n      @page { size: A4; margin: 20mm 22mm; }\n      body {\n        font-family: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;\n        color: #1f2937;\n        line-height: 1.6;\n        font-size: 11px;\n      }\n      .resume-header {\n        border-bottom: 2px solid #174ea6;\n        margin-bottom: 16px;\n        padding-bottom: 12px;\n      }\n      h1 {\n        font-size: 22px;\n        margin: 0 0 4px;\n        font-weight: 700;\n        color: #101827;\n      }\n      .resume-title {\n        font-size: 11px;\n        margin: 0;\n        color: #174ea6;\n        font-weight: 600;\n      }\n      .resume-body p {\n        margin: 0 0 8px;\n        font-size: 10px;\n        line-height: 1.55;\n        color: #374151;\n      }\n      .muted { color: #9ca3af; font-style: italic; }\n${layoutStyles}\n    </style>\n  </head>\n  <body class="td-resume-page">\n    ${body}\n  </body>\n</html>`
 }
 
 // ---------------------------------------------------------------------------
@@ -353,7 +354,7 @@ function renderStyledBlock(
   }
 
   if (node.type === "heading") {
-    const content = (node.content ?? []).map(renderInlineContent).join("")
+    const content = renderTextBlockContent(node)
     const level = headingNumber(blockName)
     const style = blockAttrsToCss(node.attrs)
     if (level === 2) {
@@ -367,9 +368,9 @@ function renderStyledBlock(
   }
 
   if (node.type === "paragraph") {
-    const content = (node.content ?? []).map(renderInlineContent).join("")
+    const content = renderTextBlockContent(node)
     const style = blockAttrsToCss(node.attrs)
-    return content ? `<p class="td-resume-paragraph"${styleAttribute(style)}>${content}</p>` : ""
+    return `<p class="td-resume-paragraph"${styleAttribute(style)}>${content}</p>`
   }
 
   if (node.type === "bulletList" || node.type === "orderedList") {
@@ -386,16 +387,17 @@ function renderStyledBlock(
     const itemContent = (node.content ?? [])
       .map((child) => {
         if (child.type === "paragraph") {
-          const content = renderInlineContent(child)
+          const content = renderTextBlockContent(child)
           const textClass = parentBlockName ? ` td-resume-${parentBlockName}Text` : ""
           const style = blockAttrsToCss(child.attrs)
-          return content ? `<p class="td-resume-paragraph${textClass}"${styleAttribute(style)}>${content}</p>` : ""
+          return `<p class="td-resume-paragraph${textClass}"${styleAttribute(style)}>${content}</p>`
         }
         return renderStyledBlock(child, heading2Style)
       })
       .filter(Boolean)
       .join("\n        ")
-    return itemContent ? `<li>\n        ${itemContent}\n      </li>` : ""
+    const itemClass = parentBlockName ? ` class="td-resume-${parentBlockName}Item"` : ""
+    return itemContent ? `<li${itemClass}>\n        ${itemContent}\n      </li>` : ""
   }
 
   // Fallback for unknown node types
@@ -423,5 +425,5 @@ export function renderStyledHtml(
   const blockCSS = generateTemplateCSS(config)
   const layoutStyles = layoutCSS
 
-  return `<!doctype html>\n<html lang="${escapeHtml(lang)}">\n  <head>\n    <meta charset="utf-8" />\n    <style>\n      @page { size: A4; margin: 20mm 22mm; }\n      body {\n        font-family: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;\n        color: #1f2937;\n        line-height: 1.6;\n        font-size: 11px;\n        margin: 0;\n        padding: 0;\n      }\n${blockCSS ? `\n${blockCSS}` : ""}\n${layoutStyles}\n    </style>\n  </head>\n  <body>\n    ${body}\n  </body>\n</html>`
+  return `<!doctype html>\n<html lang="${escapeHtml(lang)}">\n  <head>\n    <meta charset="utf-8" />\n    <style>\n      @page { size: A4; margin: 20mm 22mm; }\n      body {\n        font-family: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;\n        color: #1f2937;\n        line-height: 1.6;\n        font-size: 11px;\n        margin: 0;\n        padding: 0;\n      }\n${blockCSS ? `\n${blockCSS}` : ""}\n${layoutStyles}\n    </style>\n  </head>\n  <body class="td-resume-page">\n    ${body}\n  </body>\n</html>`
 }

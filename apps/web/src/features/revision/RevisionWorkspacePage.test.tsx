@@ -3,15 +3,15 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { useState, type ReactNode } from "react"
 import { MemoryRouter, Outlet, Route, Routes, useNavigate } from "react-router-dom"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
-import type { ContextSource, ContextSourceChild, TemplateStyleConfig, WorkspaceView } from "@typedance/contracts"
+import type { CanvasPrintSnapshot, ContextSource, ContextSourceChild, TemplateStyleConfig, WorkspaceView } from "@typedance/contracts"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { defaultClassicA4Style } from "../templates/data"
 import { RevisionWorkspacePage } from "./RevisionWorkspacePage"
 
 const apiMocks = vi.hoisted(() => ({
   getRevisionWorkspaceView: vi.fn(),
-  exportRevisionDocumentPdf: vi.fn(),
-  exportRevisionDocumentHtml: vi.fn(),
+  exportCanvasPdf: vi.fn(),
+  exportCanvasHtml: vi.fn(),
   saveSourceResumeCanvas: vi.fn(),
   updateRevisionDocument: vi.fn(),
   listTemplateStyles: vi.fn(),
@@ -45,6 +45,19 @@ const draftCanvasMocks = vi.hoisted(() => ({
   render: vi.fn(),
 }))
 
+const printSnapshotMocks = vi.hoisted(() => ({
+  prepareCanvasPrintSnapshot: vi.fn(),
+}))
+
+const printSnapshot: CanvasPrintSnapshot = {
+  html: '<div class="ProseMirror"><p>Updated canvas text</p><p><br></p><h2>项目经验</h2></div>',
+  page_width: 794,
+  page_height: 1123,
+  page_tops: [0, 1147, 2294],
+}
+
+vi.mock("./canvasPrintSnapshot", () => printSnapshotMocks)
+
 const clipboardMocks = vi.hoisted(() => ({
   writeText: vi.fn(),
 }))
@@ -65,8 +78,8 @@ vi.mock("@assistant-ui/react", () => ({
 
 vi.mock("@/api", () => ({
   getRevisionWorkspaceView: (...args: unknown[]) => apiMocks.getRevisionWorkspaceView(...args),
-  exportRevisionDocumentPdf: (...args: unknown[]) => apiMocks.exportRevisionDocumentPdf(...args),
-  exportRevisionDocumentHtml: (...args: unknown[]) => apiMocks.exportRevisionDocumentHtml(...args),
+  exportCanvasPdf: (...args: unknown[]) => apiMocks.exportCanvasPdf(...args),
+  exportCanvasHtml: (...args: unknown[]) => apiMocks.exportCanvasHtml(...args),
   saveSourceResumeCanvas: (...args: unknown[]) => apiMocks.saveSourceResumeCanvas(...args),
   updateRevisionDocument: (...args: unknown[]) => apiMocks.updateRevisionDocument(...args),
   listTemplateStyles: (...args: unknown[]) => apiMocks.listTemplateStyles(...args),
@@ -134,7 +147,7 @@ vi.mock("./DraftCanvas", () => ({
     draftCanvasMocks.render({ canvas, templateStyle, toolbarVisible }),
     <section aria-label="原始简历画布">
       {toolbarVisible ? <div role="toolbar" aria-label="简历格式工具栏">{toolbarEnd}</div> : null}
-      <p>{canvasText(canvas?.doc_json)}</p>
+      <div className="ProseMirror"><p>{canvasText(canvas?.doc_json)}</p></div>
       {canvas?.module_anchors.map((anchor) => <button key={anchor.module_id} type="button">{anchor.title}</button>)}
       <button
         type="button"
@@ -355,6 +368,7 @@ describe("RevisionWorkspacePage", () => {
     Object.values(apiMocks).forEach((mock) => mock.mockReset())
     Object.values(agentHostMocks).forEach((mock) => mock.mockReset())
     draftCanvasMocks.render.mockReset()
+    printSnapshotMocks.prepareCanvasPrintSnapshot.mockReset().mockResolvedValue(printSnapshot)
     clipboardMocks.writeText.mockReset()
     toastMocks.error.mockReset()
     toastMocks.success.mockReset()
@@ -365,8 +379,8 @@ describe("RevisionWorkspacePage", () => {
 
     apiMocks.getRevisionWorkspaceView.mockResolvedValue(workspace)
     apiMocks.listTemplateStyles.mockResolvedValue([customTemplateStyle])
-    apiMocks.exportRevisionDocumentPdf.mockResolvedValue({ fileName: "resume.pdf", format: "pdf" })
-    apiMocks.exportRevisionDocumentHtml.mockResolvedValue({ fileName: "resume.html", format: "html" })
+    apiMocks.exportCanvasPdf.mockResolvedValue({ fileName: "resume.pdf", format: "pdf" })
+    apiMocks.exportCanvasHtml.mockResolvedValue({ fileName: "resume.html", format: "html" })
     apiMocks.saveSourceResumeCanvas.mockImplementation(async (documentId: string, docJson: Record<string, unknown>) => ({
       ...workspace.source_resume_canvas!,
       document_id: documentId,
@@ -939,7 +953,11 @@ describe("RevisionWorkspacePage", () => {
     expect(screen.queryByRole("button", { name: "返回工作区列表" })).not.toBeInTheDocument()
   })
 
-  it("switches the canvas template and exports PDF and HTML with the same selected style", async () => {
+  it("applies the selected template to the canvas and captures it afresh for each export", async () => {
+    const htmlSnapshot: CanvasPrintSnapshot = { ...printSnapshot, page_tops: [0, 1155, 2310] }
+    printSnapshotMocks.prepareCanvasPrintSnapshot
+      .mockResolvedValueOnce(printSnapshot)
+      .mockResolvedValueOnce(htmlSnapshot)
     renderPage()
 
     const templateSelector = await screen.findByRole("combobox", { name: "选择模板" })
@@ -964,6 +982,10 @@ describe("RevisionWorkspacePage", () => {
     }))
 
     fireEvent.click(await screen.findByRole("button", { name: "调整页边距" }))
+    fireEvent.click(screen.getByRole("button", { name: "编辑画布" }))
+    await screen.findByText("Updated canvas text")
+    const editor = screen.getByTestId("revision-draft-panel").querySelector(".ProseMirror")
+    expect(editor).toHaveTextContent("Updated canvas text")
     const titlebar = screen.getByTestId("revision-workspace-titlebar")
     fireEvent.click(within(titlebar).getByRole("button", { name: "显示格式工具栏" }))
     const toolbar = await screen.findByRole("toolbar", { name: "简历格式工具栏" })
@@ -973,27 +995,22 @@ describe("RevisionWorkspacePage", () => {
     fireEvent.keyDown(exportButton, { key: "ArrowDown" })
     fireEvent.click(await screen.findByRole("menuitem", { name: "导出 PDF" }))
 
-    await waitFor(() => expect(apiMocks.exportRevisionDocumentPdf).toHaveBeenCalledWith(
+    await waitFor(() => expect(apiMocks.exportCanvasPdf).toHaveBeenCalledWith(
       "doc_1",
       "旧简历重构1",
-      expect.objectContaining({
-        docJson: workspace.source_resume_canvas?.doc_json,
-        pageMargins: { top: 88, bottom: 72, left: 42, right: 48 },
-        templateStyle: customTemplateStyle,
-      }),
+      { printSnapshot },
     ))
+    expect(printSnapshotMocks.prepareCanvasPrintSnapshot).toHaveBeenNthCalledWith(1, editor)
 
     fireEvent.keyDown(exportButton, { key: "ArrowDown" })
     fireEvent.click(await screen.findByRole("menuitem", { name: "导出 HTML" }))
-    await waitFor(() => expect(apiMocks.exportRevisionDocumentHtml).toHaveBeenCalledWith(
+    await waitFor(() => expect(apiMocks.exportCanvasHtml).toHaveBeenCalledWith(
       "doc_1",
       "旧简历重构1",
-      expect.objectContaining({
-        docJson: workspace.source_resume_canvas?.doc_json,
-        pageMargins: { top: 88, bottom: 72, left: 42, right: 48 },
-        templateStyle: customTemplateStyle,
-      }),
+      { printSnapshot: htmlSnapshot },
     ))
+    expect(printSnapshotMocks.prepareCanvasPrintSnapshot).toHaveBeenNthCalledWith(2, editor)
+    expect(printSnapshotMocks.prepareCanvasPrintSnapshot).toHaveBeenCalledTimes(2)
   })
 
   it("keeps the current template when persisting a template change fails", async () => {

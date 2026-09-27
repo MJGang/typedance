@@ -226,6 +226,41 @@ def test_export_layout_matches_editor_box_sizing_and_list_item_typography():
     assert ".td-resume-page li > ol,\n.td-resume-page li > ul {\n  break-inside: avoid;" in html
 
 
+@pytest.mark.parametrize("container", ["paragraph", "heading1", "heading2", "heading3", "bulletList", "orderedList", "column"])
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        ([], "<br>"),
+        ([{"type": "hardBreak"}], "<br><br>"),
+        ([{"type": "text", "text": "Before"}, {"type": "hardBreak"}], "Before<br><br>"),
+        ([{"type": "text", "text": "Before"}, {"type": "hardBreak"}, {"type": "text", "text": "After"}], "Before<br>After"),
+    ],
+)
+def test_export_preserves_empty_and_trailing_text_lines(container, content, expected):
+    text_block = {"type": "paragraph", "content": content}
+    if container.startswith("heading"):
+        text_block = {"type": "heading", "attrs": {"level": int(container[-1])}, "content": content}
+        node = text_block
+    elif container in {"bulletList", "orderedList"}:
+        node = {"type": container, "content": [{"type": "listItem", "content": [text_block]}]}
+    elif container == "column":
+        node = {"type": "columns", "content": [{"type": "column", "content": [text_block]}]}
+    else:
+        node = text_block
+    resume = ResumeVersion.new(ResumeVersionCreate(
+        title="Blank line layout",
+        target_language="en-US",
+        template_id="classic-a4",
+        doc_json={"type": "doc", "content": [node]},
+        plain_text_snapshot="",
+    ))
+
+    html = render_resume_html(resume)
+
+    closing_tag = "span" if container == "heading2" else (f"h{container[-1]}" if container.startswith("heading") else "p")
+    assert f">{expected}</{closing_tag}>" in html
+
+
 def test_rendered_html_allows_paragraph_lines_to_split_across_print_pages():
     resume = ResumeVersion(
         id="test-print-line-fragmentation",

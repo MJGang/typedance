@@ -4,6 +4,7 @@ export * from "./legacy/template-style";
 export * from "./revision/document";
 export * from "./revision/source";
 export * from "./revision/source-canvas";
+export * from "./revision/canvas-print";
 export * from "./revision/module";
 export * from "./revision/claim";
 export * from "./revision/evidence";

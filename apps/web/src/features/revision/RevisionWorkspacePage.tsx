@@ -10,8 +10,8 @@ import { Field, FieldDescription, FieldGroup } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
-  exportRevisionDocumentHtml,
-  exportRevisionDocumentPdf,
+  exportCanvasHtml,
+  exportCanvasPdf,
   getRevisionWorkspaceView,
   listTemplateStyles,
   updateRevisionDocument,
@@ -20,7 +20,7 @@ import { updateWorkspaceConversation } from "@/agentHost"
 import { AgentChatPanel } from "./AgentChatPanel"
 import { DraftCanvas, type CanvasPatchFlash } from "./DraftCanvas"
 import { PanelResizeHandle } from "./PanelResizeHandle"
-import { DEFAULT_SOURCE_CANVAS_PAGE_MARGINS, type PageMargins } from "./pageMargins"
+import { prepareCanvasPrintSnapshot } from "./canvasPrintSnapshot"
 import {
   LEFT_PANEL_MIN_WIDTH,
   RIGHT_PANEL_MIN_WIDTH,
@@ -103,7 +103,6 @@ export function RevisionWorkspacePage() {
   const workbenchSidebarVisible = chromeContext?.workbenchSidebarVisible ?? true
   const [state, setState] = useState<LoadState>({ status: "loading" })
   const [exportingFormat, setExportingFormat] = useState<RevisionExportFormat | null>(null)
-  const [sourceCanvasPageMargins, setSourceCanvasPageMargins] = useState<PageMargins | null>(null)
   const [sourceCanvasPageCount, setSourceCanvasPageCount] = useState(1)
   const [isSavingTemplate, setIsSavingTemplate] = useState(false)
   const [editorToolbarVisible, setEditorToolbarVisible] = useState(false)
@@ -447,11 +446,12 @@ export function RevisionWorkspacePage() {
     if (!workspace || !sourceCanvas || !selectedTemplateStyle || exportingFormat) return
     setExportingFormat(format)
     try {
-      const exportDocument = format === "pdf" ? exportRevisionDocumentPdf : exportRevisionDocumentHtml
+      const editor = draftPanelRef.current?.querySelector<HTMLElement>(".ProseMirror")
+      if (!editor) throw new Error("画布尚未准备好")
+      const printSnapshot = await prepareCanvasPrintSnapshot(editor)
+      const exportDocument = format === "pdf" ? exportCanvasPdf : exportCanvasHtml
       const result = await exportDocument(workspace.document.id, workspace.document.title, {
-        docJson: sourceCanvas.doc_json as Record<string, unknown>,
-        pageMargins: sourceCanvasPageMargins ?? DEFAULT_SOURCE_CANVAS_PAGE_MARGINS,
-        templateStyle: selectedTemplateStyle,
+        printSnapshot,
       })
       if (!result) return
       toast.success(`${format === "pdf" ? "PDF" : "HTML"} 导出成功`, {
@@ -466,7 +466,7 @@ export function RevisionWorkspacePage() {
     } finally {
       setExportingFormat(null)
     }
-  }, [exportingFormat, selectedTemplateStyle, sourceCanvas, sourceCanvasPageMargins, workspace])
+  }, [exportingFormat, selectedTemplateStyle, sourceCanvas, workspace])
 
   const openRenameDialog = useCallback(() => {
     if (!workspace || isSavingTitle) return
@@ -773,7 +773,6 @@ export function RevisionWorkspacePage() {
                   patchFlash={canvasPatchFlash}
                   onChange={handleCanvasChange}
                   onPageCountChange={setSourceCanvasPageCount}
-                  onPageMarginsChange={setSourceCanvasPageMargins}
                   onRetrySave={retryCanvasSave}
                   saveError={canvasSaveError}
                   saveStatus={canvasSaveStatus}

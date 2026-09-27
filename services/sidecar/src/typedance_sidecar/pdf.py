@@ -260,6 +260,16 @@ def _render_inline(node: object) -> str:
     return "".join(_render_inline(child) for child in content)
 
 
+def _render_text_block_content(node: dict[str, Any]) -> str:
+    body = _render_inline(node)
+    content = node.get("content")
+    last_child = content[-1] if isinstance(content, list) and content else None
+    # ProseMirror 的空文本块和段尾换行都有一个额外的展示行，导出也要保留其高度。
+    if not body or (_is_tiptap_node(last_child) and last_child.get("type") == "hardBreak"):
+        body += "<br>"
+    return body
+
+
 def _render_block(
     node: object,
     parent_list_class: str | None = None,
@@ -305,7 +315,7 @@ def _render_block(
         level = raw_level if isinstance(raw_level, int) and 1 <= raw_level <= 3 else 2
         cls = _block_class(node)
         style = _block_style_css(attrs)
-        body = "".join(_render_inline(child) for child in children)
+        body = _render_text_block_content(node)
         if level == 2:
             return (
                 f'<h2 class="{cls}" data-heading-style="{heading2_style}"{_style_attr(style)}>'
@@ -318,9 +328,9 @@ def _render_block(
 
     if node_type == "paragraph":
         cls = _block_class(node)
-        body = "".join(_render_inline(child) for child in children)
+        body = _render_text_block_content(node)
         style = _block_style_css(node.get("attrs"))
-        return f"<p class=\"{cls}\"{_style_attr(style)}>{body}</p>" if body else ""
+        return f"<p class=\"{cls}\"{_style_attr(style)}>{body}</p>"
 
     if node_type in {"bulletList", "orderedList"}:
         cls = _block_class(node)
@@ -333,7 +343,7 @@ def _render_block(
         cls = parent_list_class or _block_class(node)
         body = "".join(
             (
-                f"<p class=\"td-resume-paragraph {cls}Text\"{_style_attr(_block_style_css(child.get('attrs')))}>{_render_inline(child)}</p>"
+                f"<p class=\"td-resume-paragraph {cls}Text\"{_style_attr(_block_style_css(child.get('attrs')))}>{_render_text_block_content(child)}</p>"
                 if _is_tiptap_node(child) and child.get("type") == "paragraph"
                 else _render_block(child, heading2_style=heading2_style)
             )

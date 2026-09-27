@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import type { CanvasPrintSnapshot } from "@typedance/contracts"
 import { getTemplateSample } from "./api"
+
+const printSnapshot: CanvasPrintSnapshot = {
+  html: '<div class="ProseMirror"><p>当前画布</p><p><br></p><h2>项目经验</h2></div>',
+  page_width: 794,
+  page_height: 1123,
+  page_tops: [0, 1147, 2294],
+}
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -595,7 +603,7 @@ describe("revision api", () => {
     expect(workspace.document.current_draft_id).toBeUndefined()
   })
 
-  it("exports a revision document PDF with the current canvas and page margins", async () => {
+  it("exports a canvas PDF with its measured print snapshot", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(
       "%PDF-1.4 revision pdf",
       {
@@ -616,27 +624,8 @@ describe("revision api", () => {
     }))
     vi.stubGlobal("showSaveFilePicker", showSaveFilePicker)
 
-    const { exportRevisionDocumentPdf } = await import("./api")
-    const docJson = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "当前画布" }] }] }
-    const templateStyle = {
-      template_id: "classic-a4",
-      preset: "classic",
-      theme: { accentColor: "#174EA6" },
-      blocks: {
-        heading1: {},
-        heading2: { decorationStyle: "minimal-line" as const },
-        heading3: {},
-        paragraph: { fontSize: "10px" },
-        bulletList: {},
-        orderedList: {},
-      },
-      updated_at: "2026-06-05T00:00:00.000Z",
-    }
-    const result = await exportRevisionDocumentPdf("doc_1", "张三", {
-      docJson,
-      pageMargins: { top: 80, bottom: 70, left: 44, right: 46 },
-      templateStyle,
-    })
+    const { exportCanvasPdf } = await import("./api")
+    const result = await exportCanvasPdf("doc_1", "张三", { printSnapshot })
 
     expect(showSaveFilePicker).toHaveBeenCalledWith({
       suggestedName: "resume-张三.pdf",
@@ -645,14 +634,12 @@ describe("revision api", () => {
       ],
     })
     expect(fetch).toHaveBeenCalledWith(
-      "http://127.0.0.1:4317/documents/doc_1/export/pdf",
+      "http://127.0.0.1:4317/documents/doc_1/canvas-export/pdf",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          source_doc_json: docJson,
-          page_margins: { top: 80, bottom: 70, left: 44, right: 46 },
-          template_style: templateStyle,
+          print_snapshot: printSnapshot,
         }),
       },
     )
@@ -666,7 +653,7 @@ describe("revision api", () => {
     })
   })
 
-  it("exports a revision document HTML with the current canvas and template style", async () => {
+  it("exports canvas HTML with the same measured print snapshot", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(
       "<!doctype html><html><body>当前画布</body></html>",
       {
@@ -688,37 +675,16 @@ describe("revision api", () => {
       revokeObjectURL: vi.fn(),
     })
 
-    const { exportRevisionDocumentHtml } = await import("./api")
-    const docJson = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "当前画布" }] }] }
-    const templateStyle = {
-      template_id: "classic-a4",
-      preset: "classic",
-      theme: { accentColor: "#174EA6" },
-      blocks: {
-        heading1: {},
-        heading2: { decorationStyle: "minimal-line" as const },
-        heading3: {},
-        paragraph: { fontSize: "10px" },
-        bulletList: {},
-        orderedList: {},
-      },
-      updated_at: "2026-06-05T00:00:00.000Z",
-    }
-    const result = await exportRevisionDocumentHtml("doc_1", "张三", {
-      docJson,
-      pageMargins: { top: 80, bottom: 70, left: 44, right: 46 },
-      templateStyle,
-    })
+    const { exportCanvasHtml } = await import("./api")
+    const result = await exportCanvasHtml("doc_1", "张三", { printSnapshot })
 
     expect(fetch).toHaveBeenCalledWith(
-      "http://127.0.0.1:4317/documents/doc_1/export/html",
+      "http://127.0.0.1:4317/documents/doc_1/canvas-export/html",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          source_doc_json: docJson,
-          page_margins: { top: 80, bottom: 70, left: 44, right: 46 },
-          template_style: templateStyle,
+          print_snapshot: printSnapshot,
         }),
       },
     )

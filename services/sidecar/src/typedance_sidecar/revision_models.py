@@ -1,6 +1,6 @@
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .models import Language, utc_now
 
@@ -37,6 +37,22 @@ ExportArtifactStatus = Literal["succeeded"]
 ContextSourceType = Literal["file", "directory", "webpage"]
 
 DEFAULT_TEMPLATE_ID = "classic-a4"
+
+
+class CanvasPrintSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    html: str = Field(min_length=1, max_length=5_000_000)
+    page_width: float = Field(gt=0, allow_inf_nan=False)
+    page_height: float = Field(gt=0, allow_inf_nan=False)
+    page_tops: list[Annotated[float, Field(ge=0, allow_inf_nan=False)]] = Field(min_length=1)
+
+    @field_validator("page_tops")
+    @classmethod
+    def validate_page_tops(cls, page_tops: list[float]) -> list[float]:
+        if any(current <= previous for previous, current in zip(page_tops, page_tops[1:])):
+            raise ValueError("page_tops must be strictly increasing")
+        return page_tops
 
 
 class Document(BaseModel):

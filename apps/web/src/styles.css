@@ -1888,6 +1888,28 @@ body.td-column-reordering .td-source-resume-canvas .rm-with-pagination .page * {
   display: flex !important;
 }
 
+/* 页框和页间距只作装饰，不能挤占 A4 的排版尺寸。 */
+.td-source-resume-canvas .rm-with-pagination {
+  border: 0 !important;
+  outline: 1px solid #e5e5e5;
+}
+
+.td-source-resume-canvas .rm-with-pagination .page {
+  margin-bottom: 0;
+}
+
+/* 栅栏行占满内容宽度，跨页时整行避开分页浮动区。 */
+.td-source-resume-canvas .td-columns-editor {
+  display: table;
+  width: 100%;
+}
+
+/* 标题及其装饰作为整体避开分页浮动区，防止背景跨页拉长。 */
+.td-source-resume-canvas .rm-with-pagination :is(h1, h2, h3) {
+  display: table !important;
+  width: 100%;
+}
+
 @media print {
   .td-module-interaction-only {
     display: none !important;

@@ -16,6 +16,7 @@ import {
   userConfirmationSchema,
   workspaceViewSchema,
   type DocumentListItem,
+  type CanvasPrintSnapshot,
   type Document as RevisionDocument,
   type ContextSource,
   type ContextSourceChild,
@@ -451,19 +452,10 @@ export async function confirmEvidenceLink(evidenceLinkId: string): Promise<Evide
   )
 }
 
-type RevisionExportPageMargins = {
-  top: number
-  bottom: number
-  left: number
-  right: number
-}
-
 type RevisionDocumentExportFormat = "pdf" | "html"
 
 type RevisionDocumentExportOptions = {
-  docJson?: Record<string, unknown>
-  pageMargins?: RevisionExportPageMargins
-  templateStyle?: TemplateStyleConfig
+  printSnapshot: CanvasPrintSnapshot
 }
 
 type RevisionDocumentExportResult = {
@@ -505,11 +497,11 @@ async function chooseRevisionExportPathInTauri(format: RevisionDocumentExportFor
   return chooseHtmlSavePathInTauri(fileName)
 }
 
-export async function exportRevisionDocument(
+export async function exportCanvasDocument(
   format: RevisionDocumentExportFormat,
   documentId: string,
   title: string,
-  options: RevisionDocumentExportOptions = {},
+  options: RevisionDocumentExportOptions,
 ): Promise<RevisionDocumentExportResult | null> {
   const config = REVISION_EXPORT_CONFIG[format]
   let fileHandle: FileSystemFileHandle | null = null
@@ -544,16 +536,11 @@ export async function exportRevisionDocument(
 
   const body: {
     output_path?: string
-    source_doc_json?: Record<string, unknown>
-    page_margins?: RevisionExportPageMargins
-    template_style?: TemplateStyleConfig
-  } = {}
+    print_snapshot: CanvasPrintSnapshot
+  } = { print_snapshot: options.printSnapshot }
   if (outputPath) body.output_path = outputPath
-  if (options.docJson) body.source_doc_json = options.docJson
-  if (options.pageMargins) body.page_margins = options.pageMargins
-  if (options.templateStyle) body.template_style = options.templateStyle
 
-  const response = await fetch(`${baseUrl}/documents/${documentId}/export/${format}`, {
+  const response = await fetch(`${baseUrl}/documents/${documentId}/canvas-export/${format}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -594,20 +581,20 @@ export async function exportRevisionDocument(
   return { fileName, filePath, artifactId, format }
 }
 
-export async function exportRevisionDocumentPdf(
+export async function exportCanvasPdf(
   documentId: string,
   title: string,
-  options: RevisionDocumentExportOptions = {},
+  options: RevisionDocumentExportOptions,
 ): Promise<RevisionDocumentExportResult | null> {
-  return exportRevisionDocument("pdf", documentId, title, options)
+  return exportCanvasDocument("pdf", documentId, title, options)
 }
 
-export async function exportRevisionDocumentHtml(
+export async function exportCanvasHtml(
   documentId: string,
   title: string,
-  options: RevisionDocumentExportOptions = {},
+  options: RevisionDocumentExportOptions,
 ): Promise<RevisionDocumentExportResult | null> {
-  return exportRevisionDocument("html", documentId, title, options)
+  return exportCanvasDocument("html", documentId, title, options)
 }
 
 export async function exportResumePdf(

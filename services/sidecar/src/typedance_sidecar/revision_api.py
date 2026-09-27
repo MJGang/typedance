@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
@@ -6,8 +7,9 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .canvas_export import CanvasExportService
 from .context_sources import (
     build_webpage_source,
     file_uri,
@@ -23,12 +25,14 @@ from .context_sources import (
 from .import_resume_file_text import ImportResumeFileError, extract_import_resume_file_text
 from .models import Language, TemplateStyleConfig, utc_now
 from .revision_models import (
+    CanvasPrintSnapshot,
     ContextSource,
     ContextSourceChild,
     DEFAULT_TEMPLATE_ID,
     Document,
     DraftVersion,
     EvidenceLink,
+    ExportArtifact,
     ParsedBlock,
     RenderProjection,
     RevisionIssue,
@@ -146,6 +150,13 @@ class ExportDocumentRequest(BaseModel):
         if not isinstance(doc_json.get("content"), list):
             raise ValueError("source_doc_json.content must be a list")
         return doc_json
+
+
+class CanvasExportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    print_snapshot: CanvasPrintSnapshot
+    output_path: str | None = None
 
 
 class ConfirmClaimRequest(BaseModel):
@@ -690,12 +701,21 @@ def create_revision_router(
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"Revision {export_format.upper()} export failed") from exc
 
+        return export_artifact_response(document_id, export_format, artifact, bool(request.output_path), repo)
+
+    def export_artifact_response(
+        document_id: str,
+        export_format: Literal["pdf", "html"],
+        artifact: ExportArtifact,
+        has_output_path: bool,
+        repo: RevisionRepository,
+    ) -> FileResponse:
         if artifact.file_path is None:
             raise HTTPException(status_code=500, detail=f"Revision {export_format.upper()} export did not produce a file")
 
         export_path = Path(artifact.file_path)
         document = require_document(repo, document_id)
-        filename = export_path.name if request.output_path else f"resume-{document.title or document.id}.{export_format}"
+        filename = export_path.name if has_output_path else f"resume-{document.title or document.id}.{export_format}"
         media_type = "application/pdf" if export_format == "pdf" else "text/html; charset=utf-8"
         path_header_name = "X-Pdf-Path" if export_format == "pdf" else "X-Html-Path"
         return FileResponse(
@@ -724,6 +744,41 @@ def create_revision_router(
         repo: RevisionRepository = Depends(repository),
     ) -> FileResponse:
         return export_revision_document_response(document_id, "html", payload, repo)
+
+    def export_canvas_response(
+        document_id: str,
+        export_format: Literal["pdf", "html"],
+        payload: CanvasExportRequest,
+        repo: RevisionRepository,
+    ) -> FileResponse:
+        require_document(repo, document_id)
+        try:
+            artifact = CanvasExportService(repo, output_dir=export_dir()).export_document(
+                document_id,
+                export_format,
+                print_snapshot=payload.print_snapshot,
+                output_path=Path(payload.output_path) if payload.output_path else None,
+            )
+        except Exception as exc:
+            logging.getLogger(__name__).exception("Canvas %s export failed", export_format)
+            raise HTTPException(status_code=500, detail=f"Canvas {export_format.upper()} export failed") from exc
+        return export_artifact_response(document_id, export_format, artifact, bool(payload.output_path), repo)
+
+    @router.post("/documents/{document_id}/canvas-export/pdf")
+    def export_canvas_pdf(
+        document_id: str,
+        payload: CanvasExportRequest,
+        repo: RevisionRepository = Depends(repository),
+    ) -> FileResponse:
+        return export_canvas_response(document_id, "pdf", payload, repo)
+
+    @router.post("/documents/{document_id}/canvas-export/html")
+    def export_canvas_html(
+        document_id: str,
+        payload: CanvasExportRequest,
+        repo: RevisionRepository = Depends(repository),
+    ) -> FileResponse:
+        return export_canvas_response(document_id, "html", payload, repo)
 
     @router.get("/drafts/{draft_id}/issues", response_model=list[RevisionIssue])
     def list_issues(
