@@ -28,6 +28,7 @@ describe("desktop window controls", () => {
 
   it("does not call desktop APIs outside Tauri", async () => {
     await minimizeDesktopWindow()
+    await closeDesktopWindow()
 
     expect(getCurrentWindow).not.toHaveBeenCalled()
   })
@@ -63,14 +64,14 @@ describe("desktop window controls", () => {
     expect(unlisten).toHaveBeenCalledOnce()
   })
 
-  it("requests a managed application shutdown in Tauri", async () => {
+  it("requests a window close so the desktop host can hide it to the tray", async () => {
     const invoke = vi.fn()
     window.__TAURI_INTERNALS__ = { invoke }
 
     await closeDesktopWindow()
 
-    expect(invoke).toHaveBeenCalledWith("shutdown_application")
-    expect(getCurrentWindow).not.toHaveBeenCalled()
-    expect(windowApi.close).not.toHaveBeenCalled()
+    expect(getCurrentWindow).toHaveBeenCalledOnce()
+    expect(windowApi.close).toHaveBeenCalledOnce()
+    expect(invoke).not.toHaveBeenCalled()
   })
 })

@@ -2,7 +2,11 @@
 
 mod runtime;
 
-use tauri::Manager;
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Manager,
+};
 #[cfg(not(debug_assertions))]
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
@@ -24,39 +28,70 @@ async fn open_exported_pdf(app: tauri::AppHandle, file_path: String) -> Result<(
         .map_err(|error| error.to_string())
 }
 
-#[tauri::command]
-fn shutdown_application(app: tauri::AppHandle) {
-    if !runtime::request_managed_shutdown(&app) {
-        std::process::exit(0);
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
     }
+}
+
+fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
+    let show = MenuItem::with_id(app, "show", "显示窗口", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &quit])?;
+
+    TrayIconBuilder::with_id("main")
+        .icon(tauri::include_image!("icons/icon.ico"))
+        .tooltip("TypeDance")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        })
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => show_main_window(app),
+            "quit" => {
+                app.remove_tray_by_id("main");
+                if !runtime::request_managed_shutdown(app) {
+                    app.exit(0);
+                }
+            }
+            _ => {}
+        })
+        .build(app)?;
+
+    Ok(())
 }
 
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
+            show_main_window(app);
         }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![
-            open_exported_pdf,
-            shutdown_application
-        ])
+        .invoke_handler(tauri::generate_handler![open_exported_pdf])
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if runtime::request_managed_shutdown(window.app_handle()) {
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
+                    if let Err(error) = window.hide() {
+                        eprintln!("Failed to hide desktop window: {error}");
+                    }
                 }
             }
         })
         .setup(|app| {
-            #[cfg(debug_assertions)]
-            let _ = app;
+            setup_tray(app)?;
             #[cfg(not(debug_assertions))]
             {
                 match runtime::start_release_services(app.handle()) {

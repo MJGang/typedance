@@ -1,7 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { isTauri } from "@/tauri"
 
-type DesktopWindowAction = "minimize" | "toggleMaximize"
+type DesktopWindowAction = "close" | "minimize" | "toggleMaximize"
 
 async function runDesktopWindowAction(action: DesktopWindowAction) {
   if (!isTauri()) return
@@ -15,6 +15,7 @@ async function runDesktopWindowAction(action: DesktopWindowAction) {
 
 export const minimizeDesktopWindow = () => runDesktopWindowAction("minimize")
 export const toggleMaximizeDesktopWindow = () => runDesktopWindowAction("toggleMaximize")
+export const closeDesktopWindow = () => runDesktopWindowAction("close")
 
 export async function subscribeDesktopWindowMaximized(listener: (maximized: boolean) => void) {
   if (!isTauri()) return () => {}
@@ -37,15 +38,5 @@ export async function subscribeDesktopWindowMaximized(listener: (maximized: bool
   } catch (error) {
     console.error("Failed to subscribe to desktop window resize events:", error)
     return () => {}
-  }
-}
-
-export async function closeDesktopWindow() {
-  if (!isTauri()) return
-
-  try {
-    await window.__TAURI_INTERNALS__!.invoke("shutdown_application")
-  } catch (error) {
-    console.error("Failed to shut down desktop application:", error)
   }
 }
