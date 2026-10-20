@@ -297,6 +297,16 @@ def create_revision_router(
         )
         return repo.save_document(document)
 
+    @router.post("/documents/{document_id}/duplicate", response_model=Document, status_code=201)
+    def duplicate_document(
+        document_id: str,
+        repo: RevisionRepository = Depends(repository),
+    ) -> Document:
+        document = repo.duplicate_document(document_id)
+        if document is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        return document
+
     @router.get("/documents", response_model=list[Document])
     def list_documents(repo: RevisionRepository = Depends(repository)) -> list[Document]:
         return repo.list_documents()

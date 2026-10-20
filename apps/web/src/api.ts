@@ -91,6 +91,15 @@ export async function listRevisionDocuments(): Promise<DocumentListItem[]> {
   )
 }
 
+export async function duplicateRevisionDocument(documentId: string): Promise<RevisionDocument> {
+  const response = await fetch(`${baseUrl}/documents/${documentId}/duplicate`, { method: "POST" })
+  return parseTemplateResponse(
+    response,
+    (value) => documentSchema.parse(value),
+    "Failed to duplicate revision document",
+  )
+}
+
 export async function updateRevisionDocument(
   documentId: string,
   data: Partial<Pick<RevisionDocument, "title" | "template_id">>,

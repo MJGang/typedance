@@ -1,3 +1,10 @@
+import { PAGE_SIZES } from "tiptap-pagination-plus"
+
+export const SOURCE_CANVAS_PAGE_SIZE = {
+  width: PAGE_SIZES.A4.pageWidth,
+  height: PAGE_SIZES.A4.pageHeight,
+}
+
 export type PageMargins = {
   top: number
   bottom: number
@@ -93,4 +100,9 @@ export function savePageMarginPreferences(
   } catch {
     // Page margin preferences are local UI state and remain best-effort.
   }
+}
+
+export function copyPageMarginPreferences(sourceDocumentId: string, targetDocumentId: string): void {
+  const margins = loadPageMarginPreferences(sourceDocumentId, SOURCE_CANVAS_PAGE_SIZE)
+  if (margins) savePageMarginPreferences(targetDocumentId, margins, SOURCE_CANVAS_PAGE_SIZE)
 }

@@ -90,6 +90,47 @@ describe("exportResumePdf", () => {
 })
 
 describe("revision api", () => {
+  it("duplicates a revision document without sending a request body", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      id: "doc_copy",
+      pack_id: "resume",
+      title: "技术简历 副本",
+      template_id: "custom-a4",
+      status: "active",
+      target_language: "zh-CN",
+      current_draft_id: null,
+      accepted_draft_id: null,
+      created_at: "2026-10-20T08:00:00.000Z",
+      updated_at: "2026-10-20T08:00:00.000Z",
+    }), { status: 201 })))
+
+    const { duplicateRevisionDocument } = await import("./api")
+    const duplicate = await duplicateRevisionDocument("doc_original")
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:4317/documents/doc_original/duplicate",
+      { method: "POST" },
+    )
+    expect(duplicate).toMatchObject({ id: "doc_copy", title: "技术简历 副本", template_id: "custom-a4" })
+    expect(duplicate.current_draft_id).toBeUndefined()
+  })
+
+  it("rejects an invalid duplicate document response", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: "doc_copy" }))))
+    const { duplicateRevisionDocument } = await import("./api")
+
+    await expect(duplicateRevisionDocument("doc_original")).rejects.toThrow()
+  })
+
+  it("surfaces the sidecar error when duplication fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ detail: "Document not found" }), { status: 404 },
+    )))
+    const { duplicateRevisionDocument } = await import("./api")
+
+    await expect(duplicateRevisionDocument("missing")).rejects.toThrow("Document not found")
+  })
+
   it("lists revision documents for the workspace dashboard", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify([
       {

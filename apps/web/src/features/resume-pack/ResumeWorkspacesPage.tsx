@@ -17,9 +17,11 @@ import { BlankGuidedResumeModal } from "../home/BlankGuidedResumeModal"
 import { ImportOldResumeModal } from "../home/ImportOldResumeModal"
 import { resumePackPaths } from "./routes"
 import { RevisionWorkspaceCard } from "./RevisionWorkspaceCard"
+import { useResumePackNavigation } from "./ResumePackNavigation"
 
 export function ResumeWorkspacesPage() {
   const navigate = useNavigate()
+  const { documentsVersion, documentsChanged } = useResumePackNavigation()
   const [documents, setDocuments] = useState<DocumentListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
@@ -53,7 +55,7 @@ export function ResumeWorkspacesPage() {
 
   useEffect(() => {
     void loadDocuments()
-  }, [loadDocuments])
+  }, [loadDocuments, documentsVersion])
 
   const handleDeleteDialogOpenChange = (open: boolean) => {
     if (open || deletingDocumentId) return
@@ -67,6 +69,7 @@ export function ResumeWorkspacesPage() {
     setDeletingDocumentId(target.id)
     try {
       await deleteRevisionDocument(target.id)
+      documentsChanged(target.id)
       setDocuments((currentDocuments) => currentDocuments.filter((document) => document.id !== target.id))
       setDocumentPendingDelete(null)
       toast.success("工作台已删除", {

@@ -15,7 +15,6 @@ import { generateWorkspaceTemplateCSS } from "@typedance/resume-renderer"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { TemplateStyleConfig } from "../templates/types"
-import { PAGE_SIZES } from "tiptap-pagination-plus"
 import type { ResumeDocJson, ResumeEditorChange } from "../workspace/editor"
 import { defaultClassicA4Style } from "../templates/data"
 import {
@@ -32,11 +31,11 @@ import {
 import { PageMarginGuides, type PageBounds } from "./PageMarginGuides"
 import {
   DEFAULT_SOURCE_CANVAS_PAGE_MARGINS,
+  SOURCE_CANVAS_PAGE_SIZE,
   clampPageMargins,
   loadPageMarginPreferences,
   savePageMarginPreferences,
   type PageMargins,
-  type PageSize,
 } from "./pageMargins"
 
 export type { DraftCanvasSaveStatus } from "./DraggableModuleOutline"
@@ -192,10 +191,6 @@ function readPositivePixelVariable(element: HTMLElement, name: string): number |
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
-const SOURCE_CANVAS_PAGE_SIZE: PageSize = {
-  width: PAGE_SIZES.A4.pageWidth,
-  height: PAGE_SIZES.A4.pageHeight,
-}
 
 function getFirstPageBounds(root: HTMLElement): PageBounds | null {
   const paginatedEditor = root.querySelector<HTMLElement>(".rm-with-pagination")

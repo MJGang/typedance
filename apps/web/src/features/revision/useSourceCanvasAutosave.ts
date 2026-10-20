@@ -202,6 +202,10 @@ function getSourceCanvasAutosaveCoordinator(documentId: string) {
   return coordinator
 }
 
+export function flushSourceCanvasSaves(documentId: string): Promise<boolean> {
+  return coordinatorRegistry.get(documentId)?.flush() ?? Promise.resolve(true)
+}
+
 export function useSourceCanvasAutosave(
   documentId: string | undefined,
   onSaved: (canvas: SourceResumeCanvas) => void,

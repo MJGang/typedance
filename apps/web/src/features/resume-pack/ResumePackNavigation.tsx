@@ -1,10 +1,22 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { FileText, LayoutTemplate } from "lucide-react"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { resumePackPaths } from "./routes"
 
-const NavigationContext = createContext<{ resume: string; templates: string } | null>(null)
+type ResumePackNavigation = {
+  resume: string
+  templates: string
+  documentsVersion: number
+  documentsChanged: (deletedId?: string) => void
+}
+const NavigationContext = createContext<ResumePackNavigation | null>(null)
+
+export function useResumePackNavigation() {
+  const navigation = useContext(NavigationContext)
+  if (!navigation) throw new Error("ResumePackNavigationProvider is required")
+  return navigation
+}
 
 export function ResumePackNavigationProvider({ children }: { children: ReactNode }) {
   const { pathname } = useLocation()
@@ -12,24 +24,30 @@ export function ResumePackNavigationProvider({ children }: { children: ReactNode
     resume: resumePackPaths.workspaces as string,
     templates: resumePackPaths.template("classic-a4"),
   })
+  const [documentsVersion, setDocumentsVersion] = useState(0)
+  const documentsChanged = useCallback((deletedId?: string) => {
+    setDocumentsVersion((version) => version + 1)
+    if (deletedId) setDestinations((current) => current.resume === resumePackPaths.workspace(deletedId)
+      ? { ...current, resume: resumePackPaths.workspaces } : current)
+  }, [])
   useEffect(() => {
     const mode = pathname.startsWith(`${resumePackPaths.workspaces}/`)
       ? "resume" : pathname.startsWith(resumePackPaths.templates) ? "templates" : null
     if (!mode) return
     setDestinations((current) => current[mode] === pathname ? current : { ...current, [mode]: pathname })
   }, [pathname])
-  return <NavigationContext.Provider value={destinations}>{children}</NavigationContext.Provider>
+  const value = useMemo(() => ({ ...destinations, documentsVersion, documentsChanged }), [destinations, documentsVersion, documentsChanged])
+  return <NavigationContext.Provider value={value}>{children}</NavigationContext.Provider>
 }
 
 export function ResumePackModeSwitch() {
-  const destinations = useContext(NavigationContext)
+  const destinations = useResumePackNavigation()
   const { pathname } = useLocation()
   const navigate = useNavigate()
-  if (!destinations) throw new Error("ResumePackModeSwitch requires ResumePackNavigationProvider")
   const mode = pathname.startsWith(resumePackPaths.templates) ? "templates" : "resume"
   return (
-    <nav aria-label="简历与模板" className="px-3 py-3">
-      <ToggleGroup type="single" variant="outline" spacing={0} value={mode} className="w-full"
+    <nav aria-label="简历与模板" className="shrink-0 px-3 pb-4">
+      <ToggleGroup type="single" variant="outline" spacing={0} value={mode} className="h-12 w-full overflow-hidden rounded-xl border border-border [&>[data-slot=toggle-group-item]]:h-full [&>[data-slot=toggle-group-item]]:border-0"
         onValueChange={(value) => {
           if (value === "resume" || value === "templates") navigate(destinations[value])
         }}>

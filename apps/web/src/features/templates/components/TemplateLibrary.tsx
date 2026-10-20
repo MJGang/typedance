@@ -1,19 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useBlocker, useLocation, useNavigate, useOutletContext, useParams } from "react-router-dom"
-import { deleteTemplateStyle, getTemplateSample, listTemplateStyles, saveTemplateStyle } from "@/api"
+import { FileCheck2 } from "lucide-react"
+import { deleteTemplateStyle, getTemplateSample, listTemplateStyles, saveTemplateStyle, updateRevisionDocument } from "@/api"
 import type { RevisionWorkspaceChromeContext } from "@/components/SiteLayout"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useResumePackNavigation } from "../../resume-pack/ResumePackNavigation"
 import { resumePackPaths } from "../../resume-pack/routes"
+import type { ResumeDocJson } from "../../workspace/editor"
 import type { TargetLanguage, UiLanguage } from "../../workspace/types"
 import { builtInSamples, defaultClassicA4Style, templateRegistry } from "../data"
 import { buildTemplateThemes, isDefaultTemplateId, type TemplateTheme } from "../theme-options"
 import type { TemplateSampleContent, TemplateStyleConfig } from "../types"
 import { TemplateDetail } from "./TemplateDetail"
 import { TemplateSidebar } from "./TemplateSidebar"
+import { DEMO_PREVIEW_ID, useTemplatePreview } from "../useTemplatePreview"
 
 function upsertTemplateStyle(styles: TemplateStyleConfig[], nextStyle: TemplateStyleConfig) {
   return styles.some((style) => style.template_id === nextStyle.template_id)
@@ -44,6 +49,11 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
   const [nameDraft, setNameDraft] = useState("")
   const [deletingTheme, setDeletingTheme] = useState<TemplateTheme | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [saveAsOpen, setSaveAsOpen] = useState(false)
+  const [saveAsName, setSaveAsName] = useState("")
+  const [savedAsDestination, setSavedAsDestination] = useState<{ path: string; locationKey: string } | null>(null)
+  const preview = useTemplatePreview()
+  const { documentsChanged } = useResumePackNavigation()
   const sampleId = templateRegistry[0].sampleContentIds[targetLanguage] ?? "sample-tech-zh"
   const visibleSample = sample.id === sampleId ? sample : builtInSamples[sampleId]
 
@@ -82,6 +92,12 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
   const blocker = useBlocker(({ currentLocation, nextLocation }) => (
     hasUnsavedStyleChanges && currentLocation.pathname !== nextLocation.pathname
   ))
+
+  useEffect(() => {
+    if (!savedAsDestination || hasUnsavedStyleChanges) return
+    setSavedAsDestination(null)
+    if (currentLocationKey.current === savedAsDestination.locationKey) navigate(savedAsDestination.path)
+  }, [savedAsDestination, hasUnsavedStyleChanges, navigate])
 
   useEffect(() => {
     if (stylesLoaded && !selectedTheme) navigate(resumePackPaths.template(defaultClassicA4Style.template_id), { replace: true })
@@ -148,6 +164,43 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
     finally { setIsSavingStyle(false) }
   }
 
+  const handleSaveAsTemplate = async () => {
+    if (!selectedTheme || !saveAsName.trim() || isSavingStyle) return
+    setIsSavingStyle(true)
+    setActionError(null)
+    const requestedAtLocation = locationKey
+    try {
+      const saved = await saveTemplateStyle({
+        ...selectedTheme.styleConfig,
+        template_id: `custom-theme-${crypto.randomUUID()}`,
+        name: saveAsName.trim(), preset: "", updated_at: new Date().toISOString(),
+      })
+      markSaved(saved)
+      handleDiscardStyleChanges()
+      setSaveAsOpen(false)
+      setSavedAsDestination({ path: resumePackPaths.template(saved.template_id), locationKey: requestedAtLocation })
+      setStyleStatus("模板已另存")
+    } catch { setActionError("另存模板失败，请稍后重试。") }
+    finally { setIsSavingStyle(false) }
+  }
+
+  const handleApplyTemplate = async () => {
+    if (!selectedTheme || !preview.selectedDocument || preview.loading || preview.error || isSavingStyle) return
+    const target = preview.selectedDocument
+    setIsSavingStyle(true)
+    if (hasUnsavedStyleChanges) setStyleStatus("主题正在保存")
+    try {
+      if (hasUnsavedStyleChanges) {
+        try { markSaved(await saveTemplateStyle(selectedTheme.styleConfig)) }
+        catch { setStyleStatus("主题样式保存失败，请稍后重试"); return }
+      }
+      await updateRevisionDocument(target.id, { template_id: selectedTheme.id })
+      documentsChanged()
+      setStyleStatus(`已应用到 ${target.title}`)
+    } catch { setStyleStatus("模板应用失败，请稍后重试") }
+    finally { setIsSavingStyle(false) }
+  }
+
   const handleRenameTheme = async () => {
     if (!renamingTheme || !nameDraft.trim() || isSavingStyle) return
     setIsSavingStyle(true)
@@ -200,9 +253,40 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
             }}
             onSaveStyle={handleSaveCurrentTheme} hasUnsavedStyleChanges={hasUnsavedStyleChanges} isSavingStyle={isSavingStyle}
             onResetTheme={selectedTheme.id === defaultClassicA4Style.template_id ? () => void handleResetClassicTheme() : undefined}
-            sampleStatus={sampleStatus} styleStatus={styleStatus} />
+            onSaveAsTemplate={() => { setSaveAsName(`${selectedTheme.title} 副本`); setActionError(null); setSaveAsOpen(true) }}
+            previewId={preview.previewId}
+            previewDocJson={preview.docJson as ResumeDocJson | undefined}
+            previewLoading={preview.loading}
+            previewError={preview.error ?? (preview.empty ? "这份简历还没有内容。" : null)}
+            onRetryPreview={preview.retry}
+            previewControls={<>
+              <div className="flex items-center gap-2">
+                <label htmlFor="template-preview-content" className="shrink-0 text-xs text-muted-foreground">预览内容</label>
+                <Select value={preview.previewId} onValueChange={preview.setPreviewId} disabled={isSavingStyle}>
+                  <SelectTrigger id="template-preview-content" size="sm" className="w-44"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectGroup>
+                    <SelectItem value={DEMO_PREVIEW_ID}>内置演示简历</SelectItem>
+                    {preview.documents.map((document) => <SelectItem key={document.id} value={document.id}>{document.title}</SelectItem>)}
+                  </SelectGroup></SelectContent>
+                </Select>
+              </div>
+              <Button variant="outline" size="sm" className="ml-auto" disabled={!preview.selectedDocument || preview.loading || !!preview.error || isSavingStyle}
+                title={hasUnsavedStyleChanges ? "保存当前模板样式并应用到所选简历" : undefined} onClick={() => void handleApplyTemplate()}>
+                <FileCheck2 data-icon="inline-start" />{preview.selectedDocument ? `应用到 ${preview.selectedDocument.title}` : "选择简历后应用"}
+              </Button>
+            </>}
+            sampleStatus={preview.isDemo ? sampleStatus : ""} styleStatus={styleStatus} />
         )}
       </main>
+      <Dialog open={saveAsOpen} onOpenChange={(open) => { if (!isSavingStyle) setSaveAsOpen(open) }}>
+        <DialogContent><DialogHeader><DialogTitle>另存为新模板</DialogTitle><DialogDescription>以当前样式创建独立模板，原模板保持原来的已保存样式。</DialogDescription></DialogHeader>
+          <form onSubmit={(event) => { event.preventDefault(); void handleSaveAsTemplate() }}>
+            <FieldGroup><Field><FieldLabel htmlFor="save-as-template-name">模板名称</FieldLabel><Input id="save-as-template-name" value={saveAsName} disabled={isSavingStyle} onChange={(event) => setSaveAsName(event.target.value)} autoFocus /></Field></FieldGroup>
+            {actionError ? <p role="alert" className="mt-2 text-sm text-destructive">{actionError}</p> : null}
+            <DialogFooter className="mt-4"><Button type="button" variant="outline" disabled={isSavingStyle} onClick={() => setSaveAsOpen(false)}>取消</Button><Button type="submit" disabled={!saveAsName.trim() || isSavingStyle}>创建模板</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Dialog open={blocker.state === "blocked"} onOpenChange={(open) => { if (!open && !isSavingStyle) blocker.reset?.() }}>
         <DialogContent onEscapeKeyDown={(event) => { if (isSavingStyle) event.preventDefault() }} onPointerDownOutside={(event) => { if (isSavingStyle) event.preventDefault() }}>
           <DialogHeader><DialogTitle>还有未保存的主题样式</DialogTitle><DialogDescription>切换前可以保存当前模板，或放弃本次修改。</DialogDescription></DialogHeader>

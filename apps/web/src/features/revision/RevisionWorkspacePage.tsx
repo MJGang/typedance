@@ -666,8 +666,11 @@ export function RevisionWorkspacePage() {
               navigation={(
                 <div className="flex min-h-0 shrink-0 flex-col">
                   <ResumePackModeSwitch />
-                  <ResumeDocumentList activeDocument={workspace.document} />
-                  <Separator className="mx-3 w-auto" />
+                  <ResumeDocumentList activeDocument={workspace.document} onDocumentRenamed={(document) => {
+                    setState((current) => current.status === "loaded" && current.workspace.document.id === document.id
+                      ? { ...current, workspace: { ...current.workspace, document } } : current)
+                  }} />
+                  <div className="px-3"><Separator className="h-px w-full" /></div>
                 </div>
               )}
               workspaceId={workspace.document.id}

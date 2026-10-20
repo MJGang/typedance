@@ -4,6 +4,7 @@ import { MemoryRouter, useLocation } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ResumeWorkspacesPage } from "./ResumeWorkspacesPage"
+import { ResumePackNavigationProvider } from "./ResumePackNavigation"
 
 const apiMocks = vi.hoisted(() => ({
   deleteRevisionDocument: vi.fn(),
@@ -31,10 +32,10 @@ function LocationProbe() {
 function renderPage() {
   render(
     <MemoryRouter initialEntries={["/packs/resume/workspaces"]}>
-      <TooltipProvider>
+      <ResumePackNavigationProvider><TooltipProvider>
         <ResumeWorkspacesPage />
         <LocationProbe />
-      </TooltipProvider>
+      </TooltipProvider></ResumePackNavigationProvider>
     </MemoryRouter>,
   )
 }
@@ -101,6 +102,7 @@ describe("ResumeWorkspacesPage", () => {
       "删除后无法恢复",
     )
 
+    apiMocks.listRevisionDocuments.mockResolvedValue([])
     fireEvent.click(screen.getByRole("button", { name: "删除工作台" }))
 
     await waitFor(() => {

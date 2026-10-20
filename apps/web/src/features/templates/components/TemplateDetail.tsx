@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { RotateCcw, Save } from "lucide-react"
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { CopyPlus, RotateCcw, Save } from "lucide-react"
 import { generateTemplateCSS, generateWorkspaceTemplateCSS } from "@typedance/resume-renderer"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { DEFAULT_SOURCE_CANVAS_PAGE_MARGINS, loadPageMarginPreferences, SOURCE_CANVAS_PAGE_SIZE } from "../../revision/pageMargins"
 import type { UiLanguage } from "../../workspace/types"
 import type { ResumeDocJson } from "../../workspace/editor"
 import type { BlockType, TemplateStyleConfig } from "../types"
@@ -24,6 +26,13 @@ type TemplateDetailProps = {
   onResetTheme?: () => void
   sampleStatus: string
   styleStatus: string
+  onSaveAsTemplate: () => void
+  previewControls: ReactNode
+  previewId: string
+  previewDocJson?: ResumeDocJson
+  previewLoading: boolean
+  previewError?: string | null
+  onRetryPreview: () => void
 }
 
 type TemplateStatusTextProps = {
@@ -82,13 +91,17 @@ export function TemplateDetail({
   onResetTheme,
   sampleStatus,
   styleStatus,
+  onSaveAsTemplate,
+  previewControls,
+  previewId,
+  previewDocJson,
+  previewLoading,
+  previewError,
+  onRetryPreview,
 }: TemplateDetailProps) {
   const [activeBlock, setActiveBlock] = useState<BlockType>("paragraph")
-  const [sampleDoc, setSampleDoc] = useState<ResumeDocJson>(sample.doc_json as ResumeDocJson)
-
-  useEffect(() => {
-    setSampleDoc(sample.doc_json as ResumeDocJson)
-  }, [sample.id, sample.doc_json])
+  const previewMargins = useMemo(() => loadPageMarginPreferences(previewId, SOURCE_CANVAS_PAGE_SIZE)
+    ?? DEFAULT_SOURCE_CANVAS_PAGE_MARGINS, [previewId])
 
   const cssText = useMemo(
     () => generateTemplateCSS(theme.styleConfig),
@@ -114,12 +127,20 @@ export function TemplateDetail({
             <Badge variant={theme.source === "default" ? "default" : "secondary"}>
               {theme.source === "default" ? "官方默认" : "我的主题"}
             </Badge>
+            <Badge variant="secondary">模板编辑</Badge>
+          </div>
+          <TemplateStatusText status={styleStatus} className="m-0 text-xs text-muted-foreground" />
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
             {onResetTheme && (
               <Button type="button" variant="outline" size="sm" onClick={onResetTheme} disabled={isSavingStyle}>
                 <RotateCcw data-icon="inline-start" />
                 重置
               </Button>
             )}
+            <Button type="button" variant="outline" size="sm" onClick={onSaveAsTemplate} disabled={isSavingStyle}>
+              <CopyPlus data-icon="inline-start" />另存为新模板
+            </Button>
             <Button
               type="button"
               size="sm"
@@ -129,34 +150,35 @@ export function TemplateDetail({
               <Save data-icon="inline-start" />
               {isSavingStyle ? "保存中..." : "保存"}
             </Button>
-          </div>
-          <TemplateStatusText status={styleStatus} className="m-0 text-xs text-muted-foreground" />
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(18rem,0.85fr)] gap-3 p-3 xl:grid-cols-[minmax(0,1fr)_minmax(320px,380px)] xl:grid-rows-none">
-        <div className="flex min-h-0 flex-col gap-3 overflow-hidden rounded-lg border border-border bg-card p-3 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
-            <div>
-              <h3 className="m-0 text-sm font-semibold">演示简历</h3>
-            </div>
-            <p aria-live="polite" className="m-0 text-xs text-muted-foreground">{sampleStatus}</p>
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(18rem,0.85fr)] xl:grid-cols-[minmax(0,1fr)_380px] xl:grid-rows-none">
+        <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+          <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-x-5 gap-y-2 border-b border-border px-3 py-2">
+            <h2 className="m-0 text-sm font-semibold">模板预览</h2>
+            {previewControls}
           </div>
-          <div className="td-template-editor-wrapper min-h-0 flex-1 overflow-y-auto overflow-x-hidden rounded-md bg-muted/45 px-4 py-5">
+          <div className="td-template-editor-wrapper min-h-0 flex-1 overflow-auto bg-muted/30 px-4 py-3">
             <style>{cssText}</style>
             <style>{elementCssText}</style>
-            <ResumeRichTextEditor
+            {previewLoading ? <Skeleton aria-label="预览正在加载" className="mx-auto h-96 max-w-3xl" /> : previewError ? (
+              <div className="flex h-full flex-col items-center justify-center gap-3"><p role="alert" className="text-sm text-muted-foreground">{previewError}</p><Button variant="outline" onClick={onRetryPreview}>重新加载预览</Button></div>
+            ) : <ResumeRichTextEditor
+              key={previewId}
               ariaLabel="主题演示简历预览"
-              docJson={sampleDoc}
+              docJson={previewDocJson ?? sample.doc_json as ResumeDocJson}
               templateStyle={theme.styleConfig}
+              marginConfig={previewMargins}
               editable={false}
               onChange={() => undefined}
               onSelectionUpdate={handleSelectionUpdate}
-            />
+            />}
           </div>
+          {sampleStatus ? <p aria-live="polite" className="sr-only">{sampleStatus}</p> : null}
         </div>
 
-        <fieldset disabled={isSavingStyle} aria-label="模板样式设置" className="min-h-0 min-w-0 overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+        <fieldset disabled={isSavingStyle} aria-label="模板样式设置" className="min-h-0 min-w-0 overflow-hidden border-t border-border bg-background xl:border-t-0 xl:border-l">
           <StylePanel
             styleConfig={theme.styleConfig}
             selectedThemeId={theme.id}

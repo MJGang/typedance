@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router-dom"
 import { SiteLayout } from "@/components/SiteLayout"
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
-import { saveTemplateStyle } from "@/api"
+import { getRevisionWorkspaceView, listRevisionDocuments, saveTemplateStyle, updateRevisionDocument } from "@/api"
 import { TemplateLibrary } from "./components/TemplateLibrary"
 import { TemplateStatusText } from "./components/TemplateDetail"
 import { InspectorAccordion } from "./components/style-panel/InspectorControls"
@@ -32,14 +32,16 @@ vi.mock("@/api", () => ({
   getTemplateStyle: vi.fn(async () => { throw new Error("no local style"); }),
   listTemplateStyles: vi.fn(async () => [defaultClassicA4Style, customThemeStyle]),
   listRevisionDocuments: vi.fn(async () => []),
+  getRevisionWorkspaceView: vi.fn(),
+  updateRevisionDocument: vi.fn(),
   deleteTemplateStyle: vi.fn(async () => undefined),
   saveTemplateSample: vi.fn(async () => builtInSamples["sample-tech-zh"]),
   saveTemplateStyle: vi.fn(async () => defaultClassicA4Style),
 }))
 
 vi.mock("../workspace/components/ResumeRichTextEditor", () => ({
-  ResumeRichTextEditor: ({ ariaLabel }: { ariaLabel?: string }) => (
-    <div aria-label={ariaLabel} data-testid="mock-resume-editor" />
+  ResumeRichTextEditor: ({ ariaLabel, docJson }: { ariaLabel?: string; docJson?: unknown }) => (
+    <div aria-label={ariaLabel} data-testid="mock-resume-editor">{JSON.stringify(docJson)}</div>
   ),
 }))
 
@@ -188,6 +190,54 @@ describe("TemplateLibrary", () => {
       expect(saveTemplateStyle).toHaveBeenCalledTimes(1)
     })
     expect(await screen.findByText("主题样式已保存")).toBeInTheDocument()
+  })
+
+  it("saves the current style draft as an independent template", async () => {
+    renderThemeLibrary()
+    await screen.findByLabelText("主题演示简历预览")
+    updateLetterSpacing("0.8px")
+    fireEvent.click(screen.getByRole("button", { name: "另存为新模板" }))
+    const dialog = screen.getByRole("dialog", { name: "另存为新模板" })
+    fireEvent.change(within(dialog).getByLabelText("模板名称"), { target: { value: "投递专用" } })
+    vi.mocked(saveTemplateStyle).mockImplementationOnce(async (style) => style)
+    fireEvent.click(within(dialog).getByRole("button", { name: "创建模板" }))
+    await screen.findByRole("heading", { name: "投递专用" })
+    expect(saveTemplateStyle).toHaveBeenCalledWith(expect.objectContaining({
+      template_id: expect.stringMatching(/^custom-theme-/), name: "投递专用",
+      blocks: expect.objectContaining({ paragraph: expect.objectContaining({ letterSpacing: "0.8px" }) }),
+    }))
+    expect(screen.getByRole("link", { name: "编辑模板 经典 A4" })).toBeInTheDocument()
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+
+  it("previews a real resume without rewriting its structured layout and applies only its template", async () => {
+    const docJson = { type: "doc", content: [{ type: "columns", attrs: { count: 4 }, content: [{ type: "column", content: [{ type: "paragraph", attrs: { textAlign: "right" }, content: [{ type: "text", text: "真实简历内容" }] }] }] }] }
+    const document = { id: "doc-preview", title: "agent简历", pack_id: "resume", template_id: "classic-a4" }
+    vi.mocked(listRevisionDocuments).mockResolvedValueOnce([document] as never)
+    vi.mocked(getRevisionWorkspaceView).mockResolvedValueOnce({ document, source_resume_canvas: { doc_json: docJson } } as never)
+    vi.mocked(updateRevisionDocument).mockResolvedValueOnce(document as never)
+    renderThemeLibrary("/packs/resume/templates/custom-theme-test")
+    await waitFor(() => expect(screen.getByTestId("mock-resume-editor")).toHaveTextContent("真实简历内容"))
+    expect(screen.getByTestId("mock-resume-editor")).toHaveTextContent('"textAlign":"right"')
+    fireEvent.click(screen.getByRole("button", { name: "应用到 agent简历" }))
+    await waitFor(() => expect(updateRevisionDocument).toHaveBeenCalledWith("doc-preview", { template_id: "custom-theme-test" }))
+    expect(saveTemplateStyle).not.toHaveBeenCalled()
+    expect(await screen.findByText("已应用到 agent简历")).toBeInTheDocument()
+  })
+
+  it("does not apply an unsaved template when saving it fails", async () => {
+    const document = { id: "doc-preview", title: "agent简历", pack_id: "resume", template_id: "classic-a4" }
+    vi.mocked(listRevisionDocuments).mockResolvedValueOnce([document] as never)
+    vi.mocked(getRevisionWorkspaceView).mockResolvedValueOnce({ document, source_resume_canvas: { doc_json: builtInSamples["sample-tech-zh"].doc_json } } as never)
+    renderThemeLibrary()
+    const apply = await screen.findByRole("button", { name: "应用到 agent简历" })
+    await waitFor(() => expect(apply).toBeEnabled())
+    updateLetterSpacing("0.7px")
+    vi.mocked(saveTemplateStyle).mockRejectedValueOnce(new Error("save failed"))
+    fireEvent.click(apply)
+    await screen.findByText("主题样式保存失败，请稍后重试")
+    expect(updateRevisionDocument).not.toHaveBeenCalled()
+    expect(screen.getByPlaceholderText("如 0.5px")).toHaveValue("0.7px")
   })
 
   it("keeps the selected accent and H2 decoration when saving fails", async () => {

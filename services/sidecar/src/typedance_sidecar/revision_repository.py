@@ -1,6 +1,7 @@
 import json
 import sqlite3
-from typing import TypeVar
+from typing import Any, TypeVar
+from uuid import uuid4
 
 from pydantic import BaseModel
 
@@ -457,6 +458,96 @@ class RevisionRepository:
 
     def get_document(self, document_id: str) -> Document | None:
         return self._get("documents", Document, document_id)
+
+    def duplicate_document(self, document_id: str) -> Document | None:
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+            original = self.get_document(document_id)
+            if original is None:
+                self.connection.rollback()
+                return None
+
+            now = utc_now()
+            document = original.model_copy(update={
+                "id": f"doc_{uuid4().hex}",
+                "title": f"{original.title} 副本",
+                "current_draft_id": None,
+                "accepted_draft_id": None,
+                "created_at": now,
+                "updated_at": now,
+            })
+            sources = self.list_source_documents(original.id)
+            source_ids = {source.id: f"src_{uuid4().hex}" for source in sources}
+            block_ids: dict[str, str] = {}
+            node_ids: dict[str, str] = {}
+            module_ids: dict[str, str] = {}
+            reference_fields = {
+                "sourceBlockId": (block_ids, "block"),
+                "source_block_id": (block_ids, "block"),
+                "canvasNodeId": (node_ids, "node"),
+                "canvas_node_id": (node_ids, "node"),
+                "moduleId": (module_ids, "mod"),
+                "module_id": (module_ids, "mod"),
+            }
+
+            def copy_references(value: Any, field: str | None = None) -> Any:
+                if isinstance(value, dict):
+                    return {key: copy_references(item, key) for key, item in value.items()}
+                if isinstance(value, list):
+                    item_field = "canvas_node_id" if field == "canvas_node_ids" else None
+                    return [copy_references(item, item_field) for item in value]
+                if not isinstance(value, str) or not value:
+                    return value
+                if field in {"source_document_id", "sourceDocumentId"}:
+                    return source_ids.get(value, value)
+                if field == "document_id" and value == original.id:
+                    return document.id
+                if field in reference_fields:
+                    identifiers, prefix = reference_fields[field]
+                    if value not in identifiers:
+                        identifiers[value] = f"{prefix}_{uuid4().hex}"
+                    return identifiers[value]
+                return value
+
+            self._save_without_commit("documents", document, {})
+            for source in sources:
+                copied_source = source.model_copy(deep=True, update={
+                    "id": source_ids[source.id],
+                    "document_id": document.id,
+                    "metadata": copy_references(source.metadata),
+                    "created_at": now,
+                })
+                # Import files are read-only references; deleting a document only deletes its database rows.
+                self._save_without_commit("source_documents", copied_source, {"document_id": document.id})
+                for block in self.list_parsed_blocks(source.id):
+                    if block.id not in block_ids:
+                        block_ids[block.id] = f"block_{uuid4().hex}"
+                    copied_block = block.model_copy(deep=True, update={
+                        "id": block_ids[block.id],
+                        "source_document_id": copied_source.id,
+                        "source_span": copy_references(block.source_span),
+                    })
+                    self._save_without_commit("parsed_blocks", copied_block, {"source_document_id": copied_source.id})
+
+            canvas = self.get_source_resume_canvas(original.id)
+            if canvas is not None:
+                canvas_payload = copy_references(canvas.model_dump())
+                canvas_payload.update(
+                    id=f"canvas_{uuid4().hex}",
+                    document_id=document.id,
+                    old_resume_source_id=source_ids[canvas.old_resume_source_id],
+                    version=1,
+                    created_at=now,
+                    updated_at=now,
+                )
+                canvas_payload["source_snapshot_hash"] = source_canvas_hash(canvas_payload["doc_json"])
+                copied_canvas = SourceResumeCanvas.model_validate(canvas_payload)
+                self._save_without_commit("source_resume_canvases", copied_canvas, {"document_id": document.id})
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return document
 
     def list_documents(self) -> list[Document]:
         rows = self.connection.execute(
