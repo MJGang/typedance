@@ -56,6 +56,6 @@ def _extract_with_sharepoint2text(data: bytes, extension: str) -> str:
             ignore_images=True,
             include_attachments=False,
         )
-        return "\n\n".join(result.get_full_text() for result in results)
+        return "\n\n".join(result.full_text for result in results)
     except Exception as exc:
         raise ImportResumeFileError(f"Failed to extract text from .{extension} file") from exc

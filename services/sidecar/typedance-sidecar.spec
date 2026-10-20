@@ -13,7 +13,7 @@ datas = []
 binaries = []
 hiddenimports = collect_submodules("typedance_sidecar")
 
-for package in ["fastapi", "playwright", "sharepoint_to_text", "uvicorn"]:
+for package in ["fastapi", "playwright", "sharepoint2text", "uvicorn"]:
     package_datas, package_binaries, package_hiddenimports = collect_all(package)
     datas += package_datas
     binaries += package_binaries

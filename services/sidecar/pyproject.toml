@@ -7,7 +7,7 @@ dependencies = [
   "mcp>=1.27,<2",
   "pydantic>=2.7.0",
   "python-multipart>=0.0.29",
-  "sharepoint-to-text>=1.1.11",
+  "sharepoint-to-text==2.0.1",
   "uvicorn>=0.30.0",
   "playwright>=1.40.0",
 ]
