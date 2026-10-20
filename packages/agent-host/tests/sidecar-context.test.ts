@@ -8,6 +8,7 @@ describe("sidecar context provider", () => {
         id: "doc_1",
         pack_id: "resume",
         title: "刚铭俊",
+        template_id: "classic-a4",
         status: "active",
         target_language: "zh-CN",
         created_at: "2026-06-16T08:00:00.000Z",
