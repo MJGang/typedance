@@ -17,7 +17,8 @@ import { useResumePackNavigation } from "./ResumePackNavigation"
 import { flushSourceCanvasSaves } from "../revision/useSourceCanvasAutosave"
 import { copyPageMarginPreferences } from "../revision/pageMargins"
 
-export function ResumeDocumentList({ activeDocument, onDocumentRenamed }: {
+export function ResumeDocumentList({ activeDocumentId, activeDocument, onDocumentRenamed }: {
+  activeDocumentId?: string
   activeDocument?: { id: string; title: string }
   onDocumentRenamed?: (document: ResumeDocument) => void
 }) {
@@ -35,7 +36,7 @@ export function ResumeDocumentList({ activeDocument, onDocumentRenamed }: {
   const [actionError, setActionError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const actionInFlight = useRef(false)
-  const activeId = activeDocument?.id
+  const activeId = activeDocumentId ?? activeDocument?.id
   useEffect(() => {
     currentLocationKey.current = locationKey
     return () => { currentLocationKey.current = null }

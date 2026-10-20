@@ -11,6 +11,7 @@ import { InspectorAccordion } from "./components/style-panel/InspectorControls"
 import { ThemeSelector } from "./components/style-panel/ThemeSelector"
 import { TypographySection } from "./components/style-panel/sections/TypographySection"
 import { builtInSamples, defaultClassicA4Style } from "./data"
+import { PANEL_WIDTH_STORAGE_KEY } from "../revision/panelLayout"
 import {
   ARIAL_FONT_VALUE,
   MICROSOFT_YAHEI_FONT_STACK,
@@ -68,6 +69,7 @@ describe("TemplateLibrary", () => {
   afterEach(() => {
     vi.clearAllMocks()
     cleanup()
+    localStorage.clear()
   })
 
   function LocationProbe() {
@@ -167,6 +169,13 @@ describe("TemplateLibrary", () => {
       }))
     })
     expect(await screen.findByText("主题已重置为官方默认")).toBeInTheDocument()
+  })
+
+  it("uses the same saved sidebar width as the resume editor", async () => {
+    localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, JSON.stringify({ left: 340, right: 420 }))
+    renderThemeLibrary()
+    await screen.findByLabelText("主题演示简历预览")
+    expect(screen.getByRole("complementary", { name: "模板列表" })).toHaveStyle({ width: "340px" })
   })
 
   it("keeps theme style edits as a draft until the user saves", async () => {

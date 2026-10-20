@@ -231,7 +231,7 @@ export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN"
   return (
     <div className="flex h-full min-h-0 overflow-hidden bg-sidebar">
       {chrome.workbenchSidebarVisible ? (
-        <TemplateSidebar themes={stylesLoaded ? themes : []} selectedThemeId={selectedId}
+        <TemplateSidebar themes={stylesLoaded ? themes : []} selectedThemeId={selectedId} width={chrome.panels.panelLayout.left}
           busy={!stylesLoaded || isSavingStyle || hasUnsavedStyleChanges}
           onCreate={() => void handleCreateTheme()}
           onRename={(theme) => { setRenamingTheme(theme); setNameDraft(theme.title); setActionError(null) }}

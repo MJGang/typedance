@@ -4,14 +4,16 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { SiteSidebar } from "./SiteSidebar"
 import { GlobalTitleBar } from "./GlobalTitleBar"
-import { useState, type Dispatch, type SetStateAction } from "react"
+import { useState, type CSSProperties, type Dispatch, type SetStateAction } from "react"
 import { ResumePackNavigationProvider } from "@/features/resume-pack/ResumePackNavigation"
+import { useResumePackPanels } from "@/features/resume-pack/useResumePackPanels"
 
 export type RevisionWorkspaceChromeContext = {
   assistantPanelVisible: boolean
   setAssistantPanelVisible: Dispatch<SetStateAction<boolean>>
   workbenchSidebarVisible: boolean
   setWorkbenchSidebarVisible: Dispatch<SetStateAction<boolean>>
+  panels: ReturnType<typeof useResumePackPanels>
 }
 
 export function SiteLayout() {
@@ -19,11 +21,13 @@ export function SiteLayout() {
   const isWorkbenchRoute = /^\/packs\/resume\/(?:workspaces\/[^/]+|templates(?:\/[^/]+)?)$/.test(location.pathname)
   const [assistantPanelVisible, setAssistantPanelVisible] = useState(true)
   const [workbenchSidebarVisible, setWorkbenchSidebarVisible] = useState(true)
+  const panels = useResumePackPanels(workbenchSidebarVisible || !isWorkbenchRoute, assistantPanelVisible)
 
   return (
     <ResumePackNavigationProvider>
     <TooltipProvider>
-      <SidebarProvider className="bg-sidebar">
+      <SidebarProvider ref={panels.containerRef} className="bg-sidebar"
+        style={{ "--sidebar-width": `${panels.panelLayout.left}px` } as CSSProperties}>
         <GlobalTitleBar
           isWorkbenchRoute={isWorkbenchRoute}
           workbenchSidebarVisible={workbenchSidebarVisible}
@@ -45,6 +49,7 @@ export function SiteLayout() {
                 setAssistantPanelVisible,
                 workbenchSidebarVisible,
                 setWorkbenchSidebarVisible,
+                panels,
               } satisfies RevisionWorkspaceChromeContext}
             />
           </main>

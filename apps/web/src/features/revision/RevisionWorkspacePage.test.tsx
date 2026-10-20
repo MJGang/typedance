@@ -6,6 +6,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import type { CanvasPrintSnapshot, ContextSource, ContextSourceChild, TemplateStyleConfig, WorkspaceView } from "@typedance/contracts"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ResumePackNavigationProvider } from "../resume-pack/ResumePackNavigation"
+import { useResumePackPanels } from "../resume-pack/useResumePackPanels"
 import { defaultClassicA4Style } from "../templates/data"
 import { RevisionWorkspacePage } from "./RevisionWorkspacePage"
 
@@ -293,17 +294,19 @@ function ChromeHarness({ assistantVisible, sidebarVisible }: { assistantVisible:
   const navigate = useNavigate()
   const [assistantPanelVisible, setAssistantPanelVisible] = useState(assistantVisible)
   const [workbenchSidebarVisible, setWorkbenchSidebarVisible] = useState(sidebarVisible)
+  const panels = useResumePackPanels(workbenchSidebarVisible, assistantPanelVisible)
 
   return (
-    <>
+    <div ref={panels.containerRef}>
       <button type="button" onClick={() => navigate("/packs/resume/workspaces/doc_2")}>切换工作区</button>
       <Outlet context={{
         assistantPanelVisible,
         setAssistantPanelVisible,
         workbenchSidebarVisible,
         setWorkbenchSidebarVisible,
+        panels,
       }} />
-    </>
+    </div>
   )
 }
 
@@ -435,6 +438,22 @@ describe("RevisionWorkspacePage", () => {
     agentHostMocks.listWorkspacePlugins.mockResolvedValue([])
     agentHostMocks.listConversationMessages.mockResolvedValue([])
     agentHostMocks.listAgentRunEvents.mockResolvedValue([])
+  })
+
+  it("keeps the sidebar and editor frame visible while workspace data is loading", async () => {
+    const pending = deferred<WorkspaceView>()
+    apiMocks.getRevisionWorkspaceView.mockReturnValueOnce(pending.promise)
+    renderPage()
+    await waitFor(() => expect(apiMocks.getRevisionWorkspaceView).toHaveBeenCalled())
+    const navigation = screen.getByRole("navigation", { name: "简历与模板" })
+    const frame = screen.getByTestId("revision-workspace-grid")
+    expect(navigation).toBeInTheDocument()
+    expect(frame).toBeInTheDocument()
+    expect(screen.getByText("加载工作台")).toBeInTheDocument()
+    await act(async () => pending.resolve(workspace))
+    expect(await screen.findByTestId("revision-workspace-titlebar")).toBeInTheDocument()
+    expect(screen.getByTestId("revision-workspace-grid")).toBe(frame)
+    expect(screen.getByRole("navigation", { name: "简历与模板" })).toBe(navigation)
   })
 
   it("loads the route-level workbench with context, canvas, and AI chat", async () => {

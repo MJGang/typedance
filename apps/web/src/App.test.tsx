@@ -48,6 +48,11 @@ function renderSiteLayoutAt(pathname: string) {
 
 describe("App", () => {
   beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", class ResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify([]), { status: 200 })))
     vi.stubGlobal(
       "matchMedia",

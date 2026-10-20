@@ -12,14 +12,15 @@ type TemplateSidebarProps = {
   themes: TemplateTheme[]
   selectedThemeId: string
   busy: boolean
+  width: number
   onCreate: () => void
   onRename: (theme: TemplateTheme) => void
   onDelete: (theme: TemplateTheme) => void
 }
 
-export function TemplateSidebar({ themes, selectedThemeId, busy, onCreate, onRename, onDelete }: TemplateSidebarProps) {
+export function TemplateSidebar({ themes, selectedThemeId, busy, width, onCreate, onRename, onDelete }: TemplateSidebarProps) {
   return (
-    <aside aria-label="模板列表" className="flex h-full w-[272px] shrink-0 flex-col bg-sidebar">
+    <aside aria-label="模板列表" className="flex h-full shrink-0 flex-col bg-sidebar" style={{ width }}>
       <ResumePackModeSwitch />
       <div className="flex min-h-0 flex-1 flex-col gap-3 px-3 pb-4">
         <h2 className="px-1 text-sm font-semibold">模板列表</h2>

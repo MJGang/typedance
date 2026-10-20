@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useOutletContext, useParams } from "react-router-dom"
 import { AlertCircle, Copy, Download, FileText, Loader2, PanelRight, RefreshCcw, SlidersHorizontal, SquarePen } from "lucide-react"
 import { toast } from "sonner"
@@ -24,9 +24,6 @@ import { prepareCanvasPrintSnapshot } from "./canvasPrintSnapshot"
 import {
   LEFT_PANEL_MIN_WIDTH,
   RIGHT_PANEL_MIN_WIDTH,
-  loadPanelWidths,
-  resolvePanelLayout,
-  savePanelWidths,
 } from "./panelLayout"
 import { ThemeSelector } from "../templates/components/style-panel/ThemeSelector"
 import { buildTemplateThemes, type TemplateTheme } from "../templates/theme-options"
@@ -100,10 +97,15 @@ async function fetchWorkspaceData(documentId: string) {
 
 export function RevisionWorkspacePage() {
   const { documentId } = useParams<{ documentId: string }>()
-  const chromeContext = useOutletContext<Partial<RevisionWorkspaceChromeContext> | undefined>()
-  const assistantPanelVisible = chromeContext?.assistantPanelVisible ?? true
-  const setAssistantPanelVisible = chromeContext?.setAssistantPanelVisible
-  const workbenchSidebarVisible = chromeContext?.workbenchSidebarVisible ?? true
+  const chromeContext = useOutletContext<RevisionWorkspaceChromeContext>()
+  const { assistantPanelVisible, setAssistantPanelVisible, workbenchSidebarVisible, panels } = chromeContext
+  const {
+    panelLayout,
+    updateLeft: updateLeftPanelWidth,
+    updateRight: updateRightPanelWidth,
+    persistLeft: persistLeftPanelWidth,
+    persistRight: persistRightPanelWidth,
+  } = panels
   const [state, setState] = useState<LoadState>({ status: "loading" })
   const [exportingFormat, setExportingFormat] = useState<RevisionExportFormat | null>(null)
   const [sourceCanvasPageCount, setSourceCanvasPageCount] = useState(1)
@@ -121,8 +123,6 @@ export function RevisionWorkspacePage() {
   const [conversationRefreshToken, setConversationRefreshToken] = useState(0)
   const [contextSources, setContextSources] = useState<ContextSource[]>([])
   const [canvasPatchFlash, setCanvasPatchFlash] = useState<CanvasPatchFlash | null>(null)
-  const [containerWidth, setContainerWidth] = useState(0)
-  const [requestedPanelWidths, setRequestedPanelWidths] = useState(loadPanelWidths)
   const canvasPatchFlashSequenceRef = useRef(0)
   const mountedRef = useRef(false)
   const currentDocumentIdRef = useRef(documentId)
@@ -131,7 +131,6 @@ export function RevisionWorkspacePage() {
   const renameRequestEpochRef = useRef(0)
   const templateSaveRequestEpochRef = useRef(0)
   const draftPanelRef = useRef<HTMLDivElement>(null)
-  const workspaceLayoutRef = useRef<HTMLDivElement>(null)
   const titleSaveInFlightRef = useRef(false)
   currentDocumentIdRef.current = documentId
 
@@ -206,30 +205,6 @@ export function RevisionWorkspacePage() {
         ? currentConversationId
         : undefined
     ))
-  }, [])
-
-  const updateLeftPanelWidth = useCallback((left: number) => {
-    setRequestedPanelWidths((current) => ({ ...current, left }))
-  }, [])
-
-  const updateRightPanelWidth = useCallback((right: number) => {
-    setRequestedPanelWidths((current) => ({ ...current, right }))
-  }, [])
-
-  const persistLeftPanelWidth = useCallback((left: number) => {
-    setRequestedPanelWidths((current) => {
-      const next = { ...current, left }
-      savePanelWidths(next)
-      return next
-    })
-  }, [])
-
-  const persistRightPanelWidth = useCallback((right: number) => {
-    setRequestedPanelWidths((current) => {
-      const next = { ...current, right }
-      savePanelWidths(next)
-      return next
-    })
   }, [])
 
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId)
@@ -411,16 +386,6 @@ export function RevisionWorkspacePage() {
     }
   }, [isSavingTemplate, themes, workspace])
 
-  useEffect(() => {
-    const container = workspaceLayoutRef.current
-    if (!container) return
-    const updateWidth = () => setContainerWidth(container.getBoundingClientRect().width)
-    updateWidth()
-    const observer = new ResizeObserver(updateWidth)
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [workspace?.document.id])
-
   const sourceCanvas = workspace?.source_resume_canvas
     ? {
         ...workspace.source_resume_canvas,
@@ -581,49 +546,89 @@ export function RevisionWorkspacePage() {
     )
   }
 
+  const renderWorkspace = (content: ReactNode) => (
+    <div className="flex h-full min-h-0 overflow-hidden bg-sidebar">
+      {workbenchSidebarVisible ? (
+        <>
+          <div className="h-full shrink-0" style={{ width: panelLayout.left }}>
+            <WorkbenchSidebar
+              navigation={(
+                <div className="flex min-h-0 shrink-0 flex-col">
+                  <ResumePackModeSwitch />
+                  <ResumeDocumentList activeDocumentId={documentId} activeDocument={workspace?.document} onDocumentRenamed={(document) => {
+                    setState((current) => current.status === "loaded" && current.workspace.document.id === document.id
+                      ? { ...current, workspace: { ...current.workspace, document } } : current)
+                  }} />
+                  <div className="px-3"><Separator className="h-px w-full" /></div>
+                </div>
+              )}
+              workspaceId={documentId}
+              activeConversationId={activeConversationId}
+              conversationRefreshToken={conversationRefreshToken}
+              onSelectConversation={handleSelectConversation}
+              onStartNewConversation={handleStartNewConversation}
+              onContextSourcesChange={setContextSources}
+              onConversationsChange={handleConversationsChange}
+            />
+          </div>
+          <PanelResizeHandle
+            ariaLabel="调整左侧面板宽度"
+            direction={1}
+            min={LEFT_PANEL_MIN_WIDTH}
+            max={panelLayout.leftMax}
+            value={panelLayout.left}
+            onResize={updateLeftPanelWidth}
+            onResizeEnd={persistLeftPanelWidth}
+            showVisualLine={false}
+          />
+        </>
+      ) : null}
+      {content}
+    </div>
+  )
+
+  const renderStatus = (content: ReactNode) => renderWorkspace(
+    <>
+      <main data-testid="revision-workspace-grid" className="mr-1 mb-1 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background">
+        <div className="h-12 shrink-0 border-b border-border" />
+        <div className="flex min-h-0 flex-1 items-center justify-center gap-2">{content}</div>
+      </main>
+    </>,
+  )
+
   if (state.status === "loading") {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
+    return renderStatus(
+      <>
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         <span className="text-sm text-muted-foreground">加载工作台</span>
-      </div>
+      </>
     )
   }
 
   if (state.status === "error") {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center px-6">
-        <div className="max-w-sm text-center">
-          <AlertCircle className="mx-auto mb-3 h-5 w-5 text-destructive" />
-          <p className="text-sm text-muted-foreground">{state.message}</p>
-          <Button className="mt-4" variant="outline" onClick={loadWorkspace}>
-            <RefreshCcw className="mr-2 h-4 w-4" />
-            重试
-          </Button>
-        </div>
+    return renderStatus(
+      <div className="max-w-sm text-center">
+        <AlertCircle className="mx-auto mb-3 h-5 w-5 text-destructive" />
+        <p className="text-sm text-muted-foreground">{state.message}</p>
+        <Button className="mt-4" variant="outline" onClick={loadWorkspace}>
+          <RefreshCcw className="mr-2 h-4 w-4" />
+          重试
+        </Button>
       </div>
     )
   }
 
-  if (!workspace) return null
+  if (!workspace) return renderStatus(null)
   if (!selectedTheme || !selectedTemplateStyle) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center px-6">
-        <div className="max-w-sm text-center">
-          <AlertCircle className="mx-auto mb-3 h-5 w-5 text-destructive" />
-          <p role="alert" className="text-sm text-muted-foreground">
-            当前文档配置的模板不可用，请检查主题库。
-          </p>
-        </div>
+    return renderStatus(
+      <div className="max-w-sm text-center">
+        <AlertCircle className="mx-auto mb-3 h-5 w-5 text-destructive" />
+        <p role="alert" className="text-sm text-muted-foreground">
+          当前文档配置的模板不可用，请检查主题库。
+        </p>
       </div>
     )
   }
-  const panelLayout = resolvePanelLayout({
-    containerWidth,
-    leftVisible: workbenchSidebarVisible,
-    rightVisible: assistantPanelVisible,
-    requested: requestedPanelWidths,
-  })
   const exportDisabled = !sourceCanvas || exportingFormat !== null
   const exportTitlebarAction = (
     <DropdownMenu>
@@ -657,43 +662,8 @@ export function RevisionWorkspacePage() {
       </DropdownMenuContent>
     </DropdownMenu>
   )
-  return (
-    <div ref={workspaceLayoutRef} className="flex h-full min-h-0 overflow-hidden bg-sidebar">
-      {workbenchSidebarVisible ? (
-        <>
-          <div className="h-full shrink-0" style={{ width: panelLayout.left }}>
-            <WorkbenchSidebar
-              navigation={(
-                <div className="flex min-h-0 shrink-0 flex-col">
-                  <ResumePackModeSwitch />
-                  <ResumeDocumentList activeDocument={workspace.document} onDocumentRenamed={(document) => {
-                    setState((current) => current.status === "loaded" && current.workspace.document.id === document.id
-                      ? { ...current, workspace: { ...current.workspace, document } } : current)
-                  }} />
-                  <div className="px-3"><Separator className="h-px w-full" /></div>
-                </div>
-              )}
-              workspaceId={workspace.document.id}
-              activeConversationId={activeConversationId}
-              conversationRefreshToken={conversationRefreshToken}
-              onSelectConversation={handleSelectConversation}
-              onStartNewConversation={handleStartNewConversation}
-              onContextSourcesChange={setContextSources}
-              onConversationsChange={handleConversationsChange}
-            />
-          </div>
-          <PanelResizeHandle
-            ariaLabel="调整左侧面板宽度"
-            direction={1}
-            min={LEFT_PANEL_MIN_WIDTH}
-            max={panelLayout.leftMax}
-            value={panelLayout.left}
-            onResize={updateLeftPanelWidth}
-            onResizeEnd={persistLeftPanelWidth}
-            showVisualLine={false}
-          />
-        </>
-      ) : null}
+  return renderWorkspace(
+    <>
       <main
         data-testid="revision-workspace-grid"
         className="relative mr-1 mb-1 grid min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-border bg-background"
@@ -914,7 +884,7 @@ export function RevisionWorkspacePage() {
           </form>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   )
 }
 
