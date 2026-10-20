@@ -9,7 +9,6 @@ import {
   MoreHorizontal,
   Pin,
   Plus,
-  Settings,
   SquarePen,
   Trash2,
 } from "lucide-react"
@@ -30,7 +29,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { AiSettingsDialog } from "@/features/settings/AiSettingsDialog"
+import { SettingsButton } from "@/features/settings/SettingsDialog"
 import {
   addDirectoryContextSource,
   addFileContextSource,
@@ -89,7 +88,6 @@ export function WorkbenchSidebar({
   const [webDialogOpen, setWebDialogOpen] = useState(false)
   const [webUrl, setWebUrl] = useState("")
   const [pluginDialogOpen, setPluginDialogOpen] = useState(false)
-  const [aiSettingsOpen, setAiSettingsOpen] = useState(false)
   const [renamingConversation, setRenamingConversation] = useState<AgentConversation | null>(null)
   const [deletingConversation, setDeletingConversation] = useState<AgentConversation | null>(null)
   const [renameDraft, setRenameDraft] = useState("")
@@ -317,7 +315,7 @@ export function WorkbenchSidebar({
       </div>
 
       <div className="p-2">
-        <SidebarAction icon={Settings} label="设置" onClick={() => setAiSettingsOpen(true)} />
+        <SettingsButton />
       </div>
 
       <Dialog open={webDialogOpen} onOpenChange={setWebDialogOpen}>
@@ -367,7 +365,6 @@ export function WorkbenchSidebar({
         </DialogContent>
       </Dialog>
 
-      <AiSettingsDialog open={aiSettingsOpen} onOpenChange={setAiSettingsOpen} />
       <Dialog open={renamingConversation !== null} onOpenChange={(open) => {
         if (!open) {
           setRenamingConversation(null)

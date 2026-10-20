@@ -6,11 +6,13 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   windows-installer:
     runs-on: windows-latest
+    env:
+      TYPEDANCE_UPDATE_REPOSITORY: ${{ vars.TYPEDANCE_UPDATE_REPOSITORY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -48,16 +50,22 @@ jobs:
 
       - name: Build NSIS release
         shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: pnpm release
 
       - name: Publish GitHub Release
         shell: pwsh
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.TYPEDANCE_RELEASE_TOKEN }}
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           gh release create $env:GITHUB_REF_NAME `
             "artifacts/release/TypeDance_${version}_x64-setup.exe" `
             "artifacts/release/TypeDance_${version}_x64-setup.exe.sha256" `
-            --generate-notes `
+            "artifacts/release/TypeDance_${version}_x64-setup.exe.sig" `
+            "artifacts/release/latest.json" `
+            --repo $env:TYPEDANCE_UPDATE_REPOSITORY `
+            --notes-file docs/release-notes.md `
             --title "TypeDance $version"

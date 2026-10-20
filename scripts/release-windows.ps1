@@ -66,6 +66,20 @@ if ($env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     throw "uv is required to provision the Python 3.11 release environment"
 }
+if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+    throw "TAURI_SIGNING_PRIVATE_KEY is required to build signed updater artifacts. See docs/windows-release.md."
+}
+if ($env:TYPEDANCE_UPDATE_REPOSITORY -notmatch '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$') {
+    throw "TYPEDANCE_UPDATE_REPOSITORY must name a public owner/repo. The private source repository cannot serve anonymous client updates."
+}
+try {
+    $updateRepositoryInfo = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:TYPEDANCE_UPDATE_REPOSITORY" -Headers @{ "User-Agent" = "TypeDance-release" }
+    if ($updateRepositoryInfo.private -ne $false) {
+        throw "The update repository must be public"
+    }
+} catch {
+    throw "The update repository must be accessible without authentication: $env:TYPEDANCE_UPDATE_REPOSITORY"
+}
 
 Set-Location $repositoryRoot
 $version = Read-ReleaseVersion
@@ -104,6 +118,7 @@ if (Test-Path -LiteralPath $bundleRoot) {
 
 Invoke-Checked "corepack" @(
     "pnpm", "--filter", "@typedance/desktop", "exec", "tauri", "build",
+    "--ci",
     "--config", "src-tauri/tauri.release.conf.json",
     "--bundles", "nsis"
 )
@@ -121,10 +136,16 @@ New-Item -ItemType Directory -Force -Path $releaseRoot | Out-Null
 $artifactName = "TypeDance_${version}_x64-setup.exe"
 $artifactPath = Join-Path $releaseRoot $artifactName
 Copy-Item -LiteralPath $installers[0].FullName -Destination $artifactPath -Force
+$signaturePath = "$($installers[0].FullName).sig"
+if (-not (Test-Path -LiteralPath $signaturePath)) {
+    throw "Signed updater artifact is missing: $signaturePath"
+}
+Copy-Item -LiteralPath $signaturePath -Destination "$artifactPath.sig" -Force
 
 $hash = (Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $hashPath = "$artifactPath.sha256"
 Set-Content -LiteralPath $hashPath -Encoding ascii -NoNewline -Value "$hash  $artifactName`n"
+Invoke-Checked "node" @("scripts/release/write-update-manifest.mjs")
 
 Write-Host "[release] Installer: $artifactPath"
 Write-Host "[release] SHA256:   $hashPath"

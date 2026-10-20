@@ -91,7 +91,7 @@ describe("WorkbenchSidebar", () => {
     await waitFor(() => expect(apiMocks.listContextSources).toHaveBeenCalledWith("doc_1"))
     fireEvent.click(screen.getByRole("button", { name: "设置" }))
 
-    expect(await screen.findByText("AI 设置")).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "AI 设置" })).toBeInTheDocument()
     expect(await screen.findByDisplayValue("deepseek-v4-flash")).toBeInTheDocument()
     expect(screen.getByDisplayValue("https://api.deepseek.com")).toBeInTheDocument()
     expect(agentHostMocks.getModelSettings).toHaveBeenCalledTimes(1)

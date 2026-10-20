@@ -206,6 +206,11 @@ export function flushSourceCanvasSaves(documentId: string): Promise<boolean> {
   return coordinatorRegistry.get(documentId)?.flush() ?? Promise.resolve(true)
 }
 
+export async function flushAllSourceCanvasSaves(): Promise<boolean> {
+  const results = await Promise.all([...coordinatorRegistry.values()].map((coordinator) => coordinator.flush()))
+  return results.every(Boolean)
+}
+
 export function useSourceCanvasAutosave(
   documentId: string | undefined,
   onSaved: (canvas: SourceResumeCanvas) => void,

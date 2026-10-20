@@ -1,6 +1,7 @@
 #![deny(warnings)]
 
 mod runtime;
+mod updater;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -25,6 +26,14 @@ async fn open_exported_pdf(app: tauri::AppHandle, file_path: String) -> Result<(
 
     app.opener()
         .open_path(file_path, None::<&str>)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn open_client_update_logs(app: tauri::AppHandle) -> Result<(), String> {
+    let url = updater::update_releases_url().ok_or("更新服务尚未配置。")?;
+    app.opener()
+        .open_url(url, None::<&str>)
         .map_err(|error| error.to_string())
 }
 
@@ -79,7 +88,17 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![open_exported_pdf])
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updater::ClientUpdater::default())
+        .invoke_handler(tauri::generate_handler![
+            open_exported_pdf,
+            open_client_update_logs,
+            updater::get_client_update_state,
+            updater::check_client_update,
+            updater::download_client_update,
+            updater::cancel_client_update,
+            updater::install_client_update,
+        ])
         .on_window_event(|window, event| {
             if window.label() == "main" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {

@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { AiSettingsDialog } from "./AiSettingsDialog"
+import { AiSettingsPanel } from "./AiSettingsPanel"
 
 const agentHostMocks = vi.hoisted(() => ({
   clearModelApiKey: vi.fn(),
@@ -22,7 +22,7 @@ const configuredSettings = {
   api_key: { configured: true, preview: "...a9f2" },
 }
 
-describe("AiSettingsDialog", () => {
+describe("AiSettingsPanel", () => {
   beforeEach(() => {
     Object.values(agentHostMocks).forEach((mock) => mock.mockReset())
     agentHostMocks.getModelSettings.mockResolvedValue(configuredSettings)
@@ -34,7 +34,7 @@ describe("AiSettingsDialog", () => {
   })
 
   it("loads redacted settings and saves a replacement API key", async () => {
-    render(<AiSettingsDialog open onOpenChange={() => undefined} />)
+    render(<AiSettingsPanel />)
 
     expect(await screen.findByText("已配置 ...a9f2")).toBeInTheDocument()
     expect(screen.getByLabelText("模型")).toHaveValue("deepseek-v4-flash")
@@ -53,7 +53,7 @@ describe("AiSettingsDialog", () => {
   })
 
   it("requires confirmation before clearing the configured API key", async () => {
-    render(<AiSettingsDialog open onOpenChange={() => undefined} />)
+    render(<AiSettingsPanel />)
     await screen.findByText("已配置 ...a9f2")
 
     fireEvent.click(screen.getByRole("button", { name: "清除密钥" }))

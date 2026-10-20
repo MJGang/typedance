@@ -13,24 +13,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import type { ModelSettingsResponse } from "@typedance/contracts"
 
-type AiSettingsDialogProps = {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}
-
-export function AiSettingsDialog({ open, onOpenChange }: AiSettingsDialogProps) {
+export function AiSettingsPanel() {
   const [settings, setSettings] = useState<ModelSettingsResponse | null>(null)
   const [model, setModel] = useState("")
   const [baseUrl, setBaseUrl] = useState("")
@@ -41,7 +28,6 @@ export function AiSettingsDialog({ open, onOpenChange }: AiSettingsDialogProps) 
   const [clearConfirmationOpen, setClearConfirmationOpen] = useState(false)
 
   useEffect(() => {
-    if (!open) return
     let cancelled = false
     setLoading(true)
     void getModelSettings()
@@ -58,7 +44,7 @@ export function AiSettingsDialog({ open, onOpenChange }: AiSettingsDialogProps) 
     return () => {
       cancelled = true
     }
-  }, [open])
+  }, [])
 
   function applySettings(value: ModelSettingsResponse) {
     setSettings(value)
@@ -102,12 +88,11 @@ export function AiSettingsDialog({ open, onOpenChange }: AiSettingsDialogProps) 
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>AI 设置</DialogTitle>
-            <DialogDescription>配置保存在本机用户目录，不会写入安装包或项目 .env。</DialogDescription>
-          </DialogHeader>
+      <div className="flex flex-col gap-6">
+          <div className="flex flex-col gap-2">
+            <h2 className="text-lg font-semibold">AI 设置</h2>
+            <p className="text-sm text-muted-foreground">配置保存在本机，仅用于 AI 对话。</p>
+          </div>
           <form id="ai-settings-form" onSubmit={(event) => void handleSubmit(event)}>
             <FieldGroup className="gap-4">
               <Field data-disabled={loading}>
@@ -148,7 +133,7 @@ export function AiSettingsDialog({ open, onOpenChange }: AiSettingsDialogProps) 
               </Field>
             </FieldGroup>
           </form>
-          <DialogFooter>
+          <div className="flex justify-end gap-2">
             {settings?.api_key.configured ? (
               <Button type="button" variant="outline" disabled={clearing || saving} onClick={() => setClearConfirmationOpen(true)}>
                 清除密钥
@@ -158,9 +143,8 @@ export function AiSettingsDialog({ open, onOpenChange }: AiSettingsDialogProps) 
               {saving ? <Loader2 data-icon="inline-start" className="animate-spin" /> : null}
               保存
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+      </div>
 
       <AlertDialog open={clearConfirmationOpen} onOpenChange={setClearConfirmationOpen}>
         <AlertDialogContent>

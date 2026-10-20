@@ -6,6 +6,7 @@ import { PanelResizeHandle } from "../revision/PanelResizeHandle"
 import { LEFT_PANEL_MIN_WIDTH } from "../revision/panelLayout"
 import { ResumeDocumentList } from "./ResumeDocumentList"
 import { ResumePackModeSwitch } from "./ResumePackNavigation"
+import { SettingsButton } from "../settings/SettingsDialog"
 
 export function ResumeWorkspaceEntry() {
   const { workbenchSidebarVisible, panels } = useOutletContext<RevisionWorkspaceChromeContext>()
@@ -16,7 +17,8 @@ export function ResumeWorkspaceEntry() {
         <>
           <aside aria-label="简历导航" className="flex h-full shrink-0 flex-col bg-sidebar" style={{ width: panels.panelLayout.left }}>
             <ResumePackModeSwitch />
-            <ResumeDocumentList openFirstDocument />
+            <div className="min-h-0 flex-1 overflow-y-auto"><ResumeDocumentList openFirstDocument /></div>
+            <div className="p-2"><SettingsButton /></div>
           </aside>
           <PanelResizeHandle
             ariaLabel="调整左侧面板宽度"

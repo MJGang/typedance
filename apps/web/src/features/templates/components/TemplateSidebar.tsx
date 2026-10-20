@@ -7,6 +7,7 @@ import { ResumePackModeSwitch } from "@/features/resume-pack/ResumePackNavigatio
 import { resumePackPaths } from "@/features/resume-pack/routes"
 import { cn } from "@/lib/utils"
 import type { TemplateTheme } from "../theme-options"
+import { SettingsButton } from "@/features/settings/SettingsDialog"
 
 type TemplateSidebarProps = {
   themes: TemplateTheme[]
@@ -53,6 +54,7 @@ export function TemplateSidebar({ themes, selectedThemeId, busy, width, onCreate
           ))}
         </div>
       </div>
+      <div className="p-2"><SettingsButton /></div>
     </aside>
   )
 }

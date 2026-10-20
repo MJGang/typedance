@@ -308,6 +308,32 @@ pub(crate) fn start_release_services(app: &AppHandle) -> Result<ManagedProcesses
     Ok(processes)
 }
 
+#[cfg(not(debug_assertions))]
+pub(crate) fn restore_release_services(app: &AppHandle) -> Result<(), String> {
+    let Some(processes) = app.try_state::<ManagedProcesses>() else {
+        return Ok(());
+    };
+    if !processes
+        .children
+        .lock()
+        .map_err(|error| error.to_string())?
+        .is_empty()
+    {
+        return Ok(());
+    }
+    let resumed = start_release_services(app)?;
+    let children = resumed
+        .children
+        .into_inner()
+        .map_err(|error| error.to_string())?;
+    *processes
+        .children
+        .lock()
+        .map_err(|error| error.to_string())? = children;
+    processes.shutdown_started.store(false, Ordering::SeqCst);
+    Ok(())
+}
+
 pub(crate) fn request_managed_shutdown(app: &AppHandle) -> bool {
     let Some(processes) = app.try_state::<ManagedProcesses>() else {
         return false;
