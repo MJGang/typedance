@@ -30,10 +30,10 @@ uv --version
 
 ## 构建安装包
 
-当前源码仓库是私有仓库。客户端通过匿名 HTTPS 检查更新，因此更新产物必须发布到独立的公开仓库；无需公开源码。准备一个带默认分支的公开仓库（创建时初始化 README 即可），然后设置：
+源码仓库 `MJGang/typedance` 已公开，客户端更新产物发布到该仓库的 GitHub Releases。客户端通过匿名 HTTPS 检查更新。本机构建前设置：
 
 ```powershell
-$env:TYPEDANCE_UPDATE_REPOSITORY = "<公开仓库的 owner/repo>"
+$env:TYPEDANCE_UPDATE_REPOSITORY = "MJGang/typedance"
 ```
 
 该配置会在构建时写入客户端，用于更新清单和更新日志地址。未配置的开发构建显示「更新服务尚未配置」；正式构建缺少配置或仓库不能匿名访问时会直接中止。
@@ -92,15 +92,16 @@ gh auth status
 pnpm release:publish
 ```
 
-脚本读取根 `package.json` 的版本，以 `v<version>` 创建 GitHub Release，并上传安装包与 SHA-256 文件。正式发布前应确认对应提交和版本标签已经推送。
+脚本读取根 `package.json` 的版本，以 `v<version>` 创建 GitHub Release，并上传安装包、SHA-256 文件、更新签名与 `latest.json`。正式发布前应确认对应提交和版本标签已经推送。
 
 也可以推送匹配版本的 `v*` 标签，由 `.github/workflows/release-windows.yml` 在干净的 Windows runner 中重新执行 `pnpm release` 并发布产物。
 
 CI 需要在源码仓库的 Actions 配置以下内容：
 
-- variable `TYPEDANCE_UPDATE_REPOSITORY`：公开发布仓库的 `owner/repo`。
+- variable `TYPEDANCE_UPDATE_REPOSITORY`：`MJGang/typedance`。
 - secret `TAURI_SIGNING_PRIVATE_KEY`：私钥文件内容；以及可选的 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。
-- secret `TYPEDANCE_RELEASE_TOKEN`：对公开发布仓库拥有 Contents 写权限的 GitHub token。源码仓库的默认 `github.token` 无法向另一个仓库发布 Release。
+
+工作流通过 `contents: write` 授权的 `github.token` 发布到本仓库，不需要额外的发布 token。
 
 构建会先匿名验证发布仓库可访问。发布只上传安装包、校验文件、签名与版本清单；私钥和 token 不会打包进应用。
 

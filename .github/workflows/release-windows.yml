@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   windows-installer:
@@ -58,7 +58,7 @@ jobs:
       - name: Publish GitHub Release
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.TYPEDANCE_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           gh release create $env:GITHUB_REF_NAME `
