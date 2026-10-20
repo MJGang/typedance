@@ -1,18 +1,21 @@
-import { createBrowserRouter } from "react-router-dom"
+import { createBrowserRouter, Navigate } from "react-router-dom"
 import { SiteLayout } from "./components/SiteLayout"
-import { TemplateLibrary } from "./features/templates/components/TemplateLibrary"
+import { TemplateWorkspacePage } from "./features/templates/components/TemplateWorkspacePage"
 import { RevisionWorkspacePage } from "./features/revision/RevisionWorkspacePage"
-import { ResumeWorkspacesPage } from "./features/resume-pack/ResumeWorkspacesPage"
+import { ResumeWorkspaceEntry } from "./features/resume-pack/ResumeWorkspaceEntry"
+import { resumePackPaths } from "./features/resume-pack/routes"
 
-export const router = createBrowserRouter([
+export const appRoutes = [
   {
     element: <SiteLayout />,
     children: [
-      { path: "/", element: <ResumeWorkspacesPage /> },
-      { path: "/packs/resume/workspaces", element: <ResumeWorkspacesPage /> },
+      { path: "/", element: <Navigate to={resumePackPaths.workspaces} replace /> },
+      { path: resumePackPaths.workspaces, element: <ResumeWorkspaceEntry /> },
       { path: "/packs/resume/workspaces/:documentId", element: <RevisionWorkspacePage /> },
-      { path: "/packs/resume/templates", element: <TemplateLibrary /> },
-      { path: "/packs/resume/templates/:templateId", element: <TemplateLibrary /> },
+      { path: resumePackPaths.templates, element: <Navigate to={resumePackPaths.template("classic-a4")} replace /> },
+      { path: "/packs/resume/templates/:templateId", element: <TemplateWorkspacePage /> },
     ],
   },
-])
+]
+
+export const router = createBrowserRouter(appRoutes)

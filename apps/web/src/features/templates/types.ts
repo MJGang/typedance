@@ -27,7 +27,6 @@ export type ResumeTemplateDefinition = {
   futureConfig: Record<UiLanguage, string[]>
 }
 
-export type TemplateLibraryTab = "templates" | "samples"
 export type ClassValidationReason = "blocked" | "not_allowed"
 export type ClassValidationIssue = { className: string; reason: ClassValidationReason }
 

@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest"
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { BrowserRouter } from "react-router-dom"
 import { SidebarProvider } from "@/components/ui/sidebar"
@@ -21,7 +21,6 @@ import { GlobalTitleBar } from "./GlobalTitleBar"
 
 function renderTitleBar(overrides: Partial<React.ComponentProps<typeof GlobalTitleBar>> = {}) {
   const props = {
-    isWorkbenchRoute: true,
     workbenchSidebarVisible: true,
     setWorkbenchSidebarVisible: vi.fn(),
     ...overrides,
@@ -96,10 +95,6 @@ describe("GlobalTitleBar", () => {
     expect(screen.getByTestId("global-titlebar")).toHaveClass("bg-sidebar")
     expect(screen.getByTestId("global-titlebar")).not.toHaveClass("border-b")
 
-    cleanup()
-    renderTitleBar({ isWorkbenchRoute: false })
-    expect(screen.getByTestId("global-titlebar")).toHaveClass("bg-sidebar")
-    expect(screen.getByTestId("global-titlebar")).not.toHaveClass("border-b")
   })
 
   it("renders the close icon in white on destructive hover", () => {

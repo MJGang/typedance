@@ -1278,87 +1278,6 @@ body.td-column-reordering .td-columns-resize-overlay {
   min-width: max-content;
 }
 
-.td-template-library {
-  min-height: calc(100svh - 3.75rem);
-  overflow: auto;
-  padding: 1.25rem;
-  background: var(--background);
-}
-
-.td-template-library-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.td-template-library-heading h1,
-.td-template-library-heading h2 {
-  margin: 0;
-  font-size: 1.25rem;
-}
-
-.td-template-library-heading p:not(.td-eyebrow) {
-  margin: 0.35rem 0 0;
-  color: var(--muted-foreground);
-  font-size: 0.86rem;
-}
-
-.td-template-tabs {
-  display: inline-flex;
-  gap: 0.25rem;
-  margin-bottom: 1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 0.25rem;
-  background: var(--card);
-}
-
-.td-template-tabs button {
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--foreground);
-  padding: 0.45rem 0.75rem;
-}
-
-.td-template-tabs button[aria-selected="true"] {
-  background: var(--primary);
-  color: var(--primary-foreground);
-}
-
-.td-template-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 1rem;
-}
-
-.td-template-card {
-  display: grid;
-  height: auto;
-  min-height: 23rem;
-  justify-items: stretch;
-  gap: 0.75rem;
-  padding: 0.75rem;
-  text-align: left;
-  white-space: normal;
-}
-
-.td-template-card-title {
-  font-weight: 700;
-}
-
-.td-template-card-description {
-  color: var(--muted-foreground);
-  font-size: 0.85rem;
-}
-
-.td-template-card-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem;
-}
 
 .td-template-preview {
   position: relative;
@@ -1512,20 +1431,17 @@ body.td-column-reordering .td-columns-resize-overlay {
   margin-bottom: 1rem;
 }
 
-.td-template-detail-panel,
-.td-template-sample-editor {
+.td-template-detail-panel {
   display: grid;
   gap: 1rem;
 }
 
 .td-template-detail-panel h2,
-.td-template-detail-panel h3,
-.td-template-sample-editor h2 {
+.td-template-detail-panel h3 {
   margin: 0;
 }
 
-.td-template-detail-panel p,
-.td-template-sample-editor p {
+.td-template-detail-panel p {
   margin: 0;
   color: var(--muted-foreground);
   font-size: 0.86rem;

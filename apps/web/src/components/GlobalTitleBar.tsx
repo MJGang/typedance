@@ -2,7 +2,6 @@ import { useEffect, useState, type Dispatch, type SetStateAction } from "react"
 import { ArrowLeft, ArrowRight, Copy, Minus, Moon, PanelLeft, Square, Sun, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { useSidebar } from "@/components/ui/sidebar"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   closeDesktopWindow,
@@ -13,21 +12,18 @@ import {
 import { useAppHistoryNavigation } from "@/hooks/useAppHistoryNavigation"
 
 type GlobalTitleBarProps = {
-  isWorkbenchRoute: boolean
   workbenchSidebarVisible: boolean
   setWorkbenchSidebarVisible: Dispatch<SetStateAction<boolean>>
 }
 
 export function GlobalTitleBar({
-  isWorkbenchRoute,
   workbenchSidebarVisible,
   setWorkbenchSidebarVisible,
 }: GlobalTitleBarProps) {
-  const { open: siteSidebarVisible, toggleSidebar } = useSidebar()
   const { canGoBack, canGoForward, goBack, goForward } = useAppHistoryNavigation()
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"))
   const [isMaximized, setIsMaximized] = useState(false)
-  const leftSidebarVisible = isWorkbenchRoute ? workbenchSidebarVisible : siteSidebarVisible
+  const leftSidebarVisible = workbenchSidebarVisible
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark)
@@ -55,11 +51,7 @@ export function GlobalTitleBar({
   }, [])
 
   const toggleLeftSidebar = () => {
-    if (isWorkbenchRoute) {
-      setWorkbenchSidebarVisible((visible) => !visible)
-      return
-    }
-    toggleSidebar()
+    setWorkbenchSidebarVisible((visible) => !visible)
   }
 
   return (

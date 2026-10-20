@@ -26,7 +26,7 @@ function upsertTemplateStyle(styles: TemplateStyleConfig[], nextStyle: TemplateS
     : [nextStyle, ...styles]
 }
 
-export function TemplateLibrary({ uiLanguage = "zh-CN", targetLanguage = "zh-CN" }: {
+export function TemplateWorkspacePage({ uiLanguage = "zh-CN", targetLanguage = "zh-CN" }: {
   uiLanguage?: UiLanguage
   targetLanguage?: TargetLanguage
 }) {

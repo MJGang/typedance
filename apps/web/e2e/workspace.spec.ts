@@ -12,14 +12,14 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-test("home guides users toward importing an old resume", async ({ page }) => {
+test("empty workspace exposes import from the sidebar", async ({ page }) => {
   await page.goto("/")
 
-  await expect(page.getByRole("button", { name: "简历 Resume Pack" })).toBeVisible()
-  await expect(page.getByRole("heading", { name: "工作台" })).toBeVisible()
-  await expect(page.getByText("还没有工作台")).toBeVisible()
+  await expect(page.getByRole("radio", { name: "简历", exact: true })).toBeChecked()
+  await expect(page.getByRole("heading", { name: "开始编辑简历" })).toBeVisible()
+  await expect(page.getByText("还没有简历。")).toBeVisible()
 
-  await page.getByRole("button", { name: "导入旧简历" }).first().click()
+  await page.getByRole("button", { name: "导入", exact: true }).click()
   await expect(page.getByRole("dialog", { name: "导入旧简历" })).toBeVisible()
   await expect(page.getByLabel("项目名称")).toBeVisible()
   await expect(page.getByLabel("旧简历内容")).toBeVisible()
@@ -28,14 +28,13 @@ test("home guides users toward importing an old resume", async ({ page }) => {
   await expect(page.getByText("请粘贴简历内容或选择一个文件。")).toBeVisible()
 })
 
-test("opens theme library and classic A4 theme detail", async ({ page }) => {
+test("switches directly from resumes to the default template editor", async ({ page }) => {
   await page.goto("/")
 
-  await page.getByRole("link", { name: "模板" }).click()
-  await expect(page.getByRole("heading", { name: "主题库" })).toBeVisible()
-
-  await page.getByRole("button", { name: /经典 A4/ }).first().click()
-  await expect(page.getByText("返回主题库")).toBeVisible()
+  await page.getByRole("radio", { name: "模板", exact: true }).click()
+  await expect(page).toHaveURL(/\/packs\/resume\/templates\/classic-a4$/)
+  await expect(page.getByRole("link", { name: "编辑模板 经典 A4" })).toHaveAttribute("aria-current", "page")
+  await expect(page.getByText("返回主题库")).toHaveCount(0)
   await expect(page.getByLabel("主题演示简历预览")).toBeVisible()
   await expect(page.getByRole("combobox", { name: "选择主题" })).toHaveText(/经典 A4/)
 })

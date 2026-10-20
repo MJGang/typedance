@@ -17,10 +17,11 @@ import { useResumePackNavigation } from "./ResumePackNavigation"
 import { flushSourceCanvasSaves } from "../revision/useSourceCanvasAutosave"
 import { copyPageMarginPreferences } from "../revision/pageMargins"
 
-export function ResumeDocumentList({ activeDocumentId, activeDocument, onDocumentRenamed }: {
+export function ResumeDocumentList({ activeDocumentId, activeDocument, onDocumentRenamed, openFirstDocument = false }: {
   activeDocumentId?: string
   activeDocument?: { id: string; title: string }
   onDocumentRenamed?: (document: ResumeDocument) => void
+  openFirstDocument?: boolean
 }) {
   const navigate = useNavigate()
   const { key: locationKey, pathname } = useLocation()
@@ -37,6 +38,7 @@ export function ResumeDocumentList({ activeDocumentId, activeDocument, onDocumen
   const [busy, setBusy] = useState(false)
   const actionInFlight = useRef(false)
   const activeId = activeDocumentId ?? activeDocument?.id
+  const initialSelectionPending = useRef(openFirstDocument)
   useEffect(() => {
     currentLocationKey.current = locationKey
     return () => { currentLocationKey.current = null }
@@ -46,14 +48,20 @@ export function ResumeDocumentList({ activeDocumentId, activeDocument, onDocumen
     setLoading(true)
     setError(false)
     void listRevisionDocuments().then((items) => {
-      if (!cancelled) setDocuments(items.filter((item) => item.pack_id === "resume"))
+      if (cancelled) return
+      const resumes = items.filter((item) => item.pack_id === "resume")
+      setDocuments(resumes)
+      if (initialSelectionPending.current && !activeId) {
+        initialSelectionPending.current = false
+        if (resumes[0]) navigate(resumePackPaths.workspace(resumes[0].id), { replace: true })
+      }
     }).catch(() => {
       if (!cancelled) setError(true)
     }).finally(() => {
       if (!cancelled) setLoading(false)
     })
     return () => { cancelled = true }
-  }, [activeId, refresh, documentsVersion])
+  }, [activeId, refresh, documentsVersion, navigate])
 
   const handleDuplicate = async (item: DocumentListItem) => {
     if (actionInFlight.current) return
@@ -103,10 +111,10 @@ export function ResumeDocumentList({ activeDocumentId, activeDocument, onDocumen
     <section aria-label="我的简历" className="flex min-h-0 flex-col gap-3 px-3 pb-4">
       <h2 className="px-1 text-sm font-semibold">我的简历</h2>
       <div className="flex gap-2">
-        <Button variant="outline" size="sm" className="min-w-0 flex-1" onClick={() => setDialog("new")}>
+        <Button variant="outline" size="sm" className="min-w-0 flex-1" onClick={() => { initialSelectionPending.current = false; setDialog("new") }}>
           <FilePlus2 data-icon="inline-start" />新建简历
         </Button>
-        <Button variant="outline" size="sm" className="min-w-0 flex-1" onClick={() => setDialog("import")}>
+        <Button variant="outline" size="sm" className="min-w-0 flex-1" onClick={() => { initialSelectionPending.current = false; setDialog("import") }}>
           <Upload data-icon="inline-start" />导入
         </Button>
       </div>

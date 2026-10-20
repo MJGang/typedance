@@ -5,7 +5,7 @@ import { createMemoryRouter, RouterProvider, useLocation } from "react-router-do
 import { SiteLayout } from "@/components/SiteLayout"
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { getRevisionWorkspaceView, listRevisionDocuments, saveTemplateStyle, updateRevisionDocument } from "@/api"
-import { TemplateLibrary } from "./components/TemplateLibrary"
+import { TemplateWorkspacePage } from "./components/TemplateWorkspacePage"
 import { TemplateStatusText } from "./components/TemplateDetail"
 import { InspectorAccordion } from "./components/style-panel/InspectorControls"
 import { ThemeSelector } from "./components/style-panel/ThemeSelector"
@@ -46,7 +46,7 @@ vi.mock("../workspace/components/ResumeRichTextEditor", () => ({
   ),
 }))
 
-describe("TemplateLibrary", () => {
+describe("TemplateWorkspacePage", () => {
   beforeAll(() => {
     // 数据路由创建的是 Node Request，需要使用同一环境的 AbortController。
     vi.stubGlobal("AbortController", transferableAbortController().constructor)
@@ -77,22 +77,19 @@ describe("TemplateLibrary", () => {
     return <span data-testid="template-location">{location.pathname}</span>
   }
 
-  function renderThemeLibrary(initialPath = "/packs/resume/templates") {
+  function renderThemeLibrary(initialPath = "/packs/resume/templates/classic-a4") {
     const templateLibraryRoute = (
       <div>
         <LocationProbe />
-        <TemplateLibrary uiLanguage="zh-CN" targetLanguage="zh-CN" />
+        <TemplateWorkspacePage uiLanguage="zh-CN" targetLanguage="zh-CN" />
       </div>
     )
 
     const router = createMemoryRouter([{
       element: <SiteLayout />,
       children: [
-        ...["/packs/resume/templates", "/packs/resume/templates/:templateId"].map((path) => ({
-          path,
-          element: templateLibraryRoute,
-        })),
-        { path: "/packs/resume/workspaces", element: <><LocationProbe /><h1>简历列表</h1></> },
+        { path: "/packs/resume/templates/:templateId", element: templateLibraryRoute },
+        { path: "/packs/resume/workspaces", element: <><LocationProbe /><h1>开始编辑简历</h1></> },
       ],
     }], { initialEntries: [initialPath] })
     return render(<RouterProvider router={router} />)
@@ -209,7 +206,9 @@ describe("TemplateLibrary", () => {
     const dialog = screen.getByRole("dialog", { name: "另存为新模板" })
     fireEvent.change(within(dialog).getByLabelText("模板名称"), { target: { value: "投递专用" } })
     vi.mocked(saveTemplateStyle).mockImplementationOnce(async (style) => style)
-    fireEvent.click(within(dialog).getByRole("button", { name: "创建模板" }))
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "创建模板" }))
+    })
     await screen.findByRole("heading", { name: "投递专用" })
     expect(saveTemplateStyle).toHaveBeenCalledWith(expect.objectContaining({
       template_id: expect.stringMatching(/^custom-theme-/), name: "投递专用",
@@ -302,7 +301,7 @@ describe("TemplateLibrary", () => {
     vi.mocked(saveTemplateStyle).mockImplementationOnce(() => new Promise((resolve) => { finishCreation = resolve }))
     fireEvent.click(screen.getByRole("button", { name: "新建模板" }))
     fireEvent.click(screen.getByRole("radio", { name: "简历" }))
-    await screen.findByRole("heading", { name: "简历列表" })
+    await screen.findByRole("heading", { name: "开始编辑简历" })
     await act(async () => { finishCreation(customThemeStyle) })
     expect(screen.getByTestId("template-location")).toHaveTextContent("/packs/resume/workspaces")
   })
