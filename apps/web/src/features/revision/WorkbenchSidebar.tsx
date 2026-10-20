@@ -55,6 +55,7 @@ import { chooseContextDirectoryPathInTauri, chooseContextFilePathsInTauri, isTau
 import type { AgentConversation, AgentPluginSummary, ContextSource, ContextSourceChild } from "@typedance/contracts"
 
 type WorkbenchSidebarProps = {
+  navigation?: import("react").ReactNode
   workspaceId: string
   activeConversationId?: string
   conversationRefreshToken?: number
@@ -71,6 +72,7 @@ type DirectoryNodeProps = {
 }
 
 export function WorkbenchSidebar({
+  navigation,
   workspaceId,
   activeConversationId,
   conversationRefreshToken = 0,
@@ -222,6 +224,7 @@ export function WorkbenchSidebar({
 
   return (
     <aside className="flex h-full w-full min-w-0 flex-col bg-sidebar text-sidebar-foreground">
+      {navigation}
       <div className="flex shrink-0 flex-col gap-1 px-2 py-3">
         <SidebarAction icon={SquarePen} iconName="new-conversation" label="新对话" onClick={() => void handleNewConversation()} />
         <SidebarAction icon={PluginGridIcon} iconName="plugin-grid" label="插件" onClick={() => void openPlugins()} />

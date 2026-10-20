@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import { SiteSidebar } from "./SiteSidebar"
 import { GlobalTitleBar } from "./GlobalTitleBar"
 import { useState, type Dispatch, type SetStateAction } from "react"
+import { ResumePackNavigationProvider } from "@/features/resume-pack/ResumePackNavigation"
 
 export type RevisionWorkspaceChromeContext = {
   assistantPanelVisible: boolean
@@ -15,11 +16,12 @@ export type RevisionWorkspaceChromeContext = {
 
 export function SiteLayout() {
   const location = useLocation()
-  const isWorkbenchRoute = /^\/packs\/resume\/workspaces\/[^/]+$/.test(location.pathname)
+  const isWorkbenchRoute = /^\/packs\/resume\/(?:workspaces\/[^/]+|templates(?:\/[^/]+)?)$/.test(location.pathname)
   const [assistantPanelVisible, setAssistantPanelVisible] = useState(true)
   const [workbenchSidebarVisible, setWorkbenchSidebarVisible] = useState(true)
 
   return (
+    <ResumePackNavigationProvider>
     <TooltipProvider>
       <SidebarProvider className="bg-sidebar">
         <GlobalTitleBar
@@ -49,5 +51,6 @@ export function SiteLayout() {
         </SidebarInset>
       </SidebarProvider>
     </TooltipProvider>
+    </ResumePackNavigationProvider>
   )
 }

@@ -5,6 +5,7 @@ import { MemoryRouter, Outlet, Route, Routes, useNavigate } from "react-router-d
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import type { CanvasPrintSnapshot, ContextSource, ContextSourceChild, TemplateStyleConfig, WorkspaceView } from "@typedance/contracts"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { ResumePackNavigationProvider } from "../resume-pack/ResumePackNavigation"
 import { defaultClassicA4Style } from "../templates/data"
 import { RevisionWorkspacePage } from "./RevisionWorkspacePage"
 
@@ -15,6 +16,7 @@ const apiMocks = vi.hoisted(() => ({
   saveSourceResumeCanvas: vi.fn(),
   updateRevisionDocument: vi.fn(),
   listTemplateStyles: vi.fn(),
+  listRevisionDocuments: vi.fn(),
   listContextSources: vi.fn(),
   addFileContextSource: vi.fn(),
   addDirectoryContextSource: vi.fn(),
@@ -83,6 +85,7 @@ vi.mock("@/api", () => ({
   saveSourceResumeCanvas: (...args: unknown[]) => apiMocks.saveSourceResumeCanvas(...args),
   updateRevisionDocument: (...args: unknown[]) => apiMocks.updateRevisionDocument(...args),
   listTemplateStyles: (...args: unknown[]) => apiMocks.listTemplateStyles(...args),
+  listRevisionDocuments: (...args: unknown[]) => apiMocks.listRevisionDocuments(...args),
   listContextSources: (...args: unknown[]) => apiMocks.listContextSources(...args),
   addFileContextSource: (...args: unknown[]) => apiMocks.addFileContextSource(...args),
   addDirectoryContextSource: (...args: unknown[]) => apiMocks.addDirectoryContextSource(...args),
@@ -308,12 +311,14 @@ function renderPage(assistantPanelVisible = true, workbenchSidebarVisible = true
   return render(
     <TooltipProvider>
       <MemoryRouter initialEntries={["/packs/resume/workspaces/doc_1"]}>
+        <ResumePackNavigationProvider>
         <Routes>
           <Route element={<ChromeHarness assistantVisible={assistantPanelVisible} sidebarVisible={workbenchSidebarVisible} />}>
             <Route path="/packs/resume/workspaces/:documentId" element={<RevisionWorkspacePage />} />
             <Route path="/packs/resume/workspaces" element={<div>工作区列表</div>} />
           </Route>
         </Routes>
+        </ResumePackNavigationProvider>
       </MemoryRouter>
     </TooltipProvider>,
   )
@@ -379,6 +384,7 @@ describe("RevisionWorkspacePage", () => {
 
     apiMocks.getRevisionWorkspaceView.mockResolvedValue(workspace)
     apiMocks.listTemplateStyles.mockResolvedValue([customTemplateStyle])
+    apiMocks.listRevisionDocuments.mockResolvedValue([{ ...workspace.document, pack_id: "resume" }])
     apiMocks.exportCanvasPdf.mockResolvedValue({ fileName: "resume.pdf", format: "pdf" })
     apiMocks.exportCanvasHtml.mockResolvedValue({ fileName: "resume.html", format: "html" })
     apiMocks.saveSourceResumeCanvas.mockImplementation(async (documentId: string, docJson: Record<string, unknown>) => ({
@@ -438,7 +444,8 @@ describe("RevisionWorkspacePage", () => {
     const draftPanel = await screen.findByTestId("revision-draft-panel")
     expect(draftPanel).toHaveClass("overflow-x-auto", "overflow-y-hidden", "overscroll-x-contain")
     expect(draftPanel).not.toHaveClass("overflow-hidden")
-    expect(screen.getAllByText("旧简历重构1")).toHaveLength(1)
+    expect(screen.getByRole("heading", { name: "旧简历重构1" })).toBeInTheDocument()
+    expect(await screen.findByRole("link", { name: "打开简历 旧简历重构1" })).toHaveAttribute("aria-current", "page")
     expect(screen.queryByText("工作区")).not.toBeInTheDocument()
     expect(screen.queryByTestId("revision-workspace-header")).not.toBeInTheDocument()
     expect(screen.getByText("上下文")).toBeInTheDocument()
@@ -822,7 +829,7 @@ describe("RevisionWorkspacePage", () => {
     const sidebar = screen.getAllByRole("button", { name: "新对话" })[0].closest("aside")
     expect(sidebar).not.toBeNull()
     if (!sidebar) throw new Error("Workbench sidebar is missing")
-    expect(within(sidebar).queryByText("旧简历重构1")).not.toBeInTheDocument()
+    expect(await within(sidebar).findByRole("link", { name: "打开简历 旧简历重构1" })).toBeInTheDocument()
     expect(within(sidebar).queryByRole("button", { name: "工作区操作" })).not.toBeInTheDocument()
 
     await openWorkspaceRenameDialog()
@@ -840,6 +847,7 @@ describe("RevisionWorkspacePage", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "重命名工作区" })).not.toBeInTheDocument())
     expect(within(titlebar).getByText("一二三四五六七八九十")).toBeInTheDocument()
+    expect(within(sidebar).getByRole("link", { name: "打开简历 一二三四五六七八九十" })).toHaveAttribute("aria-current", "page")
   })
 
   it("keeps the dialog open and exposes an accessible error after rename failure", async () => {

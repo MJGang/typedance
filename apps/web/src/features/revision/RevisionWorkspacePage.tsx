@@ -33,6 +33,9 @@ import { buildTemplateThemes, type TemplateTheme } from "../templates/theme-opti
 import { resumeDocToPlainText } from "../workspace/editor"
 import { useSourceCanvasAutosave } from "./useSourceCanvasAutosave"
 import { WorkbenchSidebar } from "./WorkbenchSidebar"
+import { ResumePackModeSwitch } from "../resume-pack/ResumePackNavigation"
+import { ResumeDocumentList } from "../resume-pack/ResumeDocumentList"
+import { Separator } from "@/components/ui/separator"
 import type { RevisionWorkspaceChromeContext } from "@/components/SiteLayout"
 import type { AgentConversation, AgentRunEvent, ContextSource, SourceResumeCanvas, WorkspaceView } from "@typedance/contracts"
 
@@ -660,6 +663,13 @@ export function RevisionWorkspacePage() {
         <>
           <div className="h-full shrink-0" style={{ width: panelLayout.left }}>
             <WorkbenchSidebar
+              navigation={(
+                <div className="flex min-h-0 shrink-0 flex-col">
+                  <ResumePackModeSwitch />
+                  <ResumeDocumentList activeDocument={workspace.document} />
+                  <Separator className="mx-3 w-auto" />
+                </div>
+              )}
               workspaceId={workspace.document.id}
               activeConversationId={activeConversationId}
               conversationRefreshToken={conversationRefreshToken}

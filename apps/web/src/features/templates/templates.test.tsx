@@ -1,7 +1,8 @@
 import "@testing-library/jest-dom/vitest"
+import { transferableAbortController } from "node:util"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
-import { TooltipProvider } from "@/components/ui/tooltip"
+import { createMemoryRouter, RouterProvider, useLocation } from "react-router-dom"
+import { SiteLayout } from "@/components/SiteLayout"
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { saveTemplateStyle } from "@/api"
 import { TemplateLibrary } from "./components/TemplateLibrary"
@@ -30,6 +31,7 @@ vi.mock("@/api", () => ({
   getTemplateSample: vi.fn(async () => { throw new Error("no local sample"); }),
   getTemplateStyle: vi.fn(async () => { throw new Error("no local style"); }),
   listTemplateStyles: vi.fn(async () => [defaultClassicA4Style, customThemeStyle]),
+  listRevisionDocuments: vi.fn(async () => []),
   deleteTemplateStyle: vi.fn(async () => undefined),
   saveTemplateSample: vi.fn(async () => builtInSamples["sample-tech-zh"]),
   saveTemplateStyle: vi.fn(async () => defaultClassicA4Style),
@@ -43,6 +45,13 @@ vi.mock("../workspace/components/ResumeRichTextEditor", () => ({
 
 describe("TemplateLibrary", () => {
   beforeAll(() => {
+    // 数据路由创建的是 Node Request，需要使用同一环境的 AbortController。
+    vi.stubGlobal("AbortController", transferableAbortController().constructor)
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
+      matches: false, media: query, onchange: null,
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
+    })))
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
       value: vi.fn(),
@@ -72,17 +81,17 @@ describe("TemplateLibrary", () => {
       </div>
     )
 
-    return render(
-      <MemoryRouter initialEntries={[initialPath]}>
-        <TooltipProvider>
-          <Routes>
-            {["/packs/resume/templates", "/packs/resume/templates/:templateId"].map((path) => (
-              <Route key={path} path={path} element={templateLibraryRoute} />
-            ))}
-          </Routes>
-        </TooltipProvider>
-      </MemoryRouter>,
-    )
+    const router = createMemoryRouter([{
+      element: <SiteLayout />,
+      children: [
+        ...["/packs/resume/templates", "/packs/resume/templates/:templateId"].map((path) => ({
+          path,
+          element: templateLibraryRoute,
+        })),
+        { path: "/packs/resume/workspaces", element: <><LocationProbe /><h1>简历列表</h1></> },
+      ],
+    }], { initialEntries: [initialPath] })
+    return render(<RouterProvider router={router} />)
   }
 
   function clickButtonText(label: string | RegExp) {
@@ -121,13 +130,15 @@ describe("TemplateLibrary", () => {
     expect(within(listbox).queryByText("现代")).not.toBeInTheDocument()
   })
 
-  it("renders theme cards and opens theme detail", async () => {
+  it("opens the template editor directly and lists templates beside the shared mode switch", async () => {
     renderThemeLibrary()
-    expect(await screen.findByRole("heading", { name: "主题库" })).toBeInTheDocument()
-    clickButtonText(/经典 A4/)
-    expect(screen.getByRole("button", { name: "返回主题库" })).toBeInTheDocument()
-    expect(screen.getByTestId("template-location")).toHaveTextContent("/packs/resume/templates/classic-a4")
-    expect(screen.getByLabelText("主题演示简历预览")).toBeInTheDocument()
+    expect(await screen.findByLabelText("主题演示简历预览")).toBeInTheDocument()
+    expect(screen.getByRole("radio", { name: "模板" })).toBeChecked()
+    expect(screen.getByRole("radio", { name: "简历" })).not.toBeChecked()
+    expect(screen.getByRole("link", { name: "编辑模板 经典 A4" })).toHaveAttribute("aria-current", "page")
+    expect(screen.getByRole("link", { name: "编辑模板 我的黑白主题" })).toBeInTheDocument()
+    expect(screen.queryByText("全部模板")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "返回主题库" })).not.toBeInTheDocument()
     expect(screen.getByText("主题样式")).toBeInTheDocument()
     expect(screen.getByRole("radio", { name: "标题1" })).toBeInTheDocument()
     expect(screen.getByRole("radio", { name: "标题2" })).toBeInTheDocument()
@@ -140,7 +151,7 @@ describe("TemplateLibrary", () => {
   it("opens the official classic theme from the route id and resets it", async () => {
     renderThemeLibrary("/packs/resume/templates/classic-a4")
 
-    expect(await screen.findByRole("button", { name: "返回主题库" })).toBeInTheDocument()
+    expect(await screen.findByLabelText("主题演示简历预览")).toBeInTheDocument()
     expect(screen.getByTestId("template-location")).toHaveTextContent("/packs/resume/templates/classic-a4")
 
     clickButtonText("重置")
@@ -159,7 +170,7 @@ describe("TemplateLibrary", () => {
   it("keeps theme style edits as a draft until the user saves", async () => {
     renderThemeLibrary("/packs/resume/templates/classic-a4")
 
-    expect(await screen.findByRole("button", { name: "返回主题库" })).toBeInTheDocument()
+    expect(await screen.findByLabelText("主题演示简历预览")).toBeInTheDocument()
     vi.mocked(saveTemplateStyle).mockClear()
 
     updateLetterSpacing("0.5px")
@@ -181,7 +192,7 @@ describe("TemplateLibrary", () => {
 
   it("keeps the selected accent and H2 decoration when saving fails", async () => {
     renderThemeLibrary("/packs/resume/templates/classic-a4")
-    expect(await screen.findByRole("button", { name: "返回主题库" })).toBeInTheDocument()
+    expect(await screen.findByLabelText("主题演示简历预览")).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("radio", { name: "标题2" }))
     fireEvent.click(screen.getByRole("radio", { name: /左线底纹/ }))
@@ -200,18 +211,54 @@ describe("TemplateLibrary", () => {
   it("asks before leaving a theme with unsaved style edits", async () => {
     renderThemeLibrary("/packs/resume/templates/classic-a4")
 
-    const backButton = await screen.findByRole("button", { name: "返回主题库" })
+    await screen.findByLabelText("主题演示简历预览")
     vi.mocked(saveTemplateStyle).mockClear()
 
     updateLetterSpacing("0.5px")
 
-    fireEvent.click(backButton)
+    fireEvent.click(screen.getByRole("radio", { name: "简历" }))
 
     expect(screen.getByRole("dialog", { name: "还有未保存的主题样式" })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "不保存返回" }))
+    fireEvent.click(screen.getByRole("button", { name: "放弃修改并切换" }))
 
     expect(saveTemplateStyle).not.toHaveBeenCalled()
-    expect(screen.getByTestId("template-location")).toHaveTextContent("/packs/resume/templates")
+    await waitFor(() => expect(screen.getByTestId("template-location")).toHaveTextContent("/packs/resume/workspaces"))
+  })
+
+  it("keeps the draft when cancelling a template switch", async () => {
+    renderThemeLibrary("/packs/resume/templates/classic-a4")
+    await screen.findByLabelText("主题演示简历预览")
+    updateLetterSpacing("0.5px")
+    fireEvent.click(screen.getByRole("link", { name: "编辑模板 我的黑白主题" }))
+    const dialog = await screen.findByRole("dialog", { name: "还有未保存的主题样式" })
+    fireEvent.click(within(dialog).getByRole("button", { name: "继续编辑" }))
+    expect(screen.getByTestId("template-location")).toHaveTextContent("/packs/resume/templates/classic-a4")
+    expect(screen.getByPlaceholderText("如 0.5px")).toHaveValue("0.5px")
+  })
+
+  it("does not pull the user back when a template creation finishes after switching to resumes", async () => {
+    renderThemeLibrary("/packs/resume/templates/classic-a4")
+    await screen.findByLabelText("主题演示简历预览")
+    let finishCreation!: (style: typeof customThemeStyle) => void
+    vi.mocked(saveTemplateStyle).mockImplementationOnce(() => new Promise((resolve) => { finishCreation = resolve }))
+    fireEvent.click(screen.getByRole("button", { name: "新建模板" }))
+    fireEvent.click(screen.getByRole("radio", { name: "简历" }))
+    await screen.findByRole("heading", { name: "简历列表" })
+    await act(async () => { finishCreation(customThemeStyle) })
+    expect(screen.getByTestId("template-location")).toHaveTextContent("/packs/resume/workspaces")
+  })
+
+  it("stays in the template editor when saving before a mode switch fails", async () => {
+    renderThemeLibrary("/packs/resume/templates/classic-a4")
+    await screen.findByLabelText("主题演示简历预览")
+    updateLetterSpacing("0.5px")
+    vi.mocked(saveTemplateStyle).mockRejectedValueOnce(new Error("save failed"))
+    fireEvent.click(screen.getByRole("radio", { name: "简历" }))
+    const dialog = await screen.findByRole("dialog", { name: "还有未保存的主题样式" })
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存并切换" }))
+    expect(await screen.findByText("主题样式保存失败，请稍后重试")).toBeInTheDocument()
+    expect(screen.getByTestId("template-location")).toHaveTextContent("/packs/resume/templates/classic-a4")
+    expect(screen.getByRole("dialog")).toBeInTheDocument()
   })
 
   it("animates pending style status dots", () => {
@@ -293,12 +340,15 @@ describe("TemplateLibrary", () => {
     ]))
   })
 
-  it("filters custom and default themes", async () => {
+  it("switches between custom and default templates directly from the sidebar", async () => {
     renderThemeLibrary()
-    expect(await screen.findByRole("heading", { name: "主题库" })).toBeInTheDocument()
-    clickButtonText("官方")
-    expect(document.body.textContent).toContain("经典 A4")
-    expect(document.body.textContent).not.toContain("我的黑白主题")
+    await screen.findByLabelText("主题演示简历预览")
+    fireEvent.click(screen.getByRole("link", { name: "编辑模板 我的黑白主题" }))
+    expect(await screen.findByRole("heading", { name: "我的黑白主题" })).toBeInTheDocument()
+    expect(screen.getByRole("combobox", { name: "选择主题" })).toHaveTextContent("我的黑白主题")
+    fireEvent.click(screen.getByRole("link", { name: "编辑模板 经典 A4" }))
+    expect(await screen.findByRole("heading", { name: "经典 A4" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "重置" })).toBeInTheDocument()
   })
 
 })

@@ -7,13 +7,16 @@ import { SiteLayout, type RevisionWorkspaceChromeContext } from "./components/Si
 import { SiteSidebar } from "./components/SiteSidebar";
 import { SidebarProvider } from "./components/ui/sidebar";
 import { TooltipProvider } from "./components/ui/tooltip";
+import { ResumePackNavigationProvider } from "./features/resume-pack/ResumePackNavigation";
 
 function renderSidebarAt(pathname: string) {
   render(
     <TooltipProvider>
       <SidebarProvider>
         <MemoryRouter initialEntries={[pathname]}>
+          <ResumePackNavigationProvider>
           <SiteSidebar />
+          </ResumePackNavigationProvider>
         </MemoryRouter>
       </SidebarProvider>
     </TooltipProvider>,
@@ -45,6 +48,7 @@ function renderSiteLayoutAt(pathname: string) {
 
 describe("App", () => {
   beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify([]), { status: 200 })))
     vi.stubGlobal(
       "matchMedia",
       vi.fn((query: string) => ({
@@ -74,21 +78,22 @@ describe("App", () => {
     render(<App />)
 
     expect(await screen.findByRole("heading", { name: "工作台" })).toBeInTheDocument()
-    expect(screen.getByText("Resume Pack")).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "工作台" })).toHaveAttribute("data-active", "true")
+    expect(screen.getByRole("radio", { name: "简历" })).toBeChecked()
+    expect(screen.getByRole("radio", { name: "模板" })).not.toBeChecked()
     expect(screen.queryByRole("link", { name: "简历成品" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "切换 Pack" })).not.toBeInTheDocument()
   })
 
-  it("marks resume pack entries active on nested pages", () => {
+  it("marks resume pack entries active on nested pages", async () => {
     renderSidebarAt("/packs/resume/templates/classic-a4")
 
-    expect(screen.getByRole("link", { name: "工作台" })).not.toHaveAttribute("data-active")
-    expect(screen.getByRole("link", { name: "模板" })).toHaveAttribute("data-active", "true")
+    expect(screen.getByRole("radio", { name: "简历" })).not.toBeChecked()
+    expect(screen.getByRole("radio", { name: "模板" })).toBeChecked()
+    await screen.findByText("还没有简历。")
     expect(document.querySelector('[data-slot="sidebar-container"]')).toHaveClass("!top-9", "!bottom-0", "!h-auto")
   })
 
-  it("frames the full site content as a rounded card with four-pixel right and bottom spacing", () => {
+  it("frames the full site content as a rounded card with four-pixel right and bottom spacing", async () => {
     renderSiteLayoutAt("/packs/resume/workspaces")
 
     const shell = document.querySelector('[data-slot="sidebar-wrapper"]')
@@ -107,6 +112,7 @@ describe("App", () => {
       "border-border",
     )
     expect(contentInset).not.toHaveClass("pt-9", "rounded-l-xl")
+    await screen.findByText("还没有简历。")
   })
 
   it("uses the route-level workbench shell on workspace pages", () => {
