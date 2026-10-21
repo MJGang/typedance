@@ -62,7 +62,10 @@ describe("Langfuse agent tracing", () => {
     expect(metadata(root, "agent_run_id")).toBe(run.id);
     expect(metadata(root, "status")).toBe("completed");
     expect(generations).toHaveLength(2);
-    expect(JSON.parse(String(generations[0].attributes[Attr.OBSERVATION_USAGE_DETAILS]))).toEqual({ input: 100, output: 30, total: 130, input_cached_tokens: 20, input_cache_miss_tokens: 80, output_reasoning_tokens: 10 });
+    const usage = JSON.parse(String(generations[0].attributes[Attr.OBSERVATION_USAGE_DETAILS]));
+    expect(usage).toEqual({ input: 80, output: 20, total: 130, input_cached_tokens: 20, output_reasoning_tokens: 10 });
+    expect(usage.input + usage.input_cached_tokens + usage.output + usage.output_reasoning_tokens).toBe(usage.total);
+    expect(metadata(generations[0], "provider_usage")).toMatchObject({ inputTokens: 100, outputTokens: 30, cacheMissInputTokens: 80 });
     expect(generations[0].attributes[Attr.OBSERVATION_MODEL]).toBe("deepseek-test");
     expect(generations[0].attributes[Attr.OBSERVATION_COMPLETION_START_TIME]).toBeDefined();
     expect(generations[1].attributes[Attr.OBSERVATION_OUTPUT]).toContain("recovered");
@@ -176,6 +179,20 @@ describe("Langfuse agent tracing", () => {
       expect(span.attributes[Attr.OBSERVATION_LEVEL]).toBe("ERROR");
       expect(span.attributes[Attr.OBSERVATION_STATUS_MESSAGE]).toBe("provider unavailable");
     }
+  });
+
+  it.each([
+    { usage: { inputTokens: 100, outputTokens: 30, totalTokens: 130 }, expected: { input: 100, output: 30, total: 130 } },
+    { usage: { inputTokens: 100, cacheReadInputTokens: 100, cacheMissInputTokens: 0, outputTokens: 30, reasoningOutputTokens: 30, totalTokens: 130 }, expected: { input: 0, input_cached_tokens: 100, output: 0, output_reasoning_tokens: 30, total: 130 } },
+    { usage: { inputTokens: 100, outputTokens: 30, cacheMissInputTokens: 80, totalTokens: 130 }, expected: { input: 100, output: 30, total: 130 } },
+  ])("preserves totals with exclusive usage buckets: $expected", async ({ usage, expected }) => {
+    const instance = telemetry();
+    const { host, start } = setup(instance, { async *stream() { yield { type: "final", output: {}, usage }; } });
+    const { run } = start(); await host.waitForRun(run.id); await instance.flush();
+    const generation = instance.exporter.getFinishedSpans().find((span) => span.name === "model.generate")!;
+    const details = JSON.parse(String(generation.attributes[Attr.OBSERVATION_USAGE_DETAILS]));
+    expect(details).toEqual(expected);
+    expect(Object.entries(details).filter(([key]) => key !== "total").reduce((sum, [, value]) => sum + Number(value), 0)).toBe(details.total);
   });
 
   it("keeps the agent successful when the exporter fails", async () => {

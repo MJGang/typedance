@@ -246,6 +246,7 @@ class LangfuseAgentObserver implements HarnessRuntimeObserver {
           span.setAttributes(createObservationAttributes("generation", {
             ...(typeof event.output.model === "string" ? { model: event.output.model } : {}),
             ...(event.usage ? { usageDetails: usageDetails(event.usage) } : {}),
+            ...(event.usage ? { metadata: { provider_usage: event.usage } } : {}),
           }));
         }
       },
@@ -266,11 +267,18 @@ class LangfuseAgentObserver implements HarnessRuntimeObserver {
 }
 
 function usageDetails(usage: HarnessModelUsage): Record<string, number> {
-  const details: Record<string, number | undefined> = {
-    input: usage.inputTokens, output: usage.outputTokens, total: usage.totalTokens,
-    input_cached_tokens: usage.cacheReadInputTokens,
-    input_cache_miss_tokens: usage.cacheMissInputTokens,
-    output_reasoning_tokens: usage.reasoningOutputTokens,
-  };
-  return Object.fromEntries(Object.entries(details).filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] >= 0));
+  const details: Record<string, number> = {};
+  const valid = (value: number | undefined): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
+  for (const [key, inclusive, subsetKey, subset] of [
+    ["input", usage.inputTokens, "input_cached_tokens", usage.cacheReadInputTokens],
+    ["output", usage.outputTokens, "output_reasoning_tokens", usage.reasoningOutputTokens],
+  ] as const) {
+    // Flat Langfuse usage is stored unchanged: each token belongs to exactly one bucket.
+    const knownSubset = valid(subset) && (!valid(inclusive) || subset <= inclusive);
+    if (valid(inclusive)) details[key] = inclusive - (knownSubset ? subset : 0);
+    if (knownSubset) details[subsetKey] = subset;
+  }
+  if (valid(usage.totalTokens)) details.total = usage.totalTokens;
+  // Cache misses are already in input; preserve the provider's count only in metadata.
+  return details;
 }

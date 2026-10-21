@@ -38,7 +38,7 @@ Agent Host 日志会打印 `Langfuse: enabled` 或 `disabled`，不打印密钥�
 | 验证器名 | verification 的开始、结束与结果 |
 | 其他运行事件 | 计划、证据、记忆、用户输入、画布修改提议和应用等已发生的 Harness 事件 |
 
-DeepSeek 的用量来自 SSE 中的 `usage`，包括输入、输出、总量、缓存命中/未命中和推理 Token；未返回的字段不估算。缓存和推理细分是总量的子集，不应再次加到总 Token 中。价格由 Langfuse 对模型的定价配置决定；没有匹配价格时不虚构费用。中途取消可能收不到最终用量。
+DeepSeek 的用量来自 SSE 中的 `usage`，包括输入、输出、总量、缓存命中/未命中和推理 Token；未返回的字段不估算。上报前转换成 [Langfuse 要求的互斥用量桶](https://langfuse.com/docs/observability/features/token-and-cost-tracking#usage-details-contract)：`input` 扣除缓存命中，`output` 扣除推理 Token，缓存命中和推理分别记录为独立桶；缓存未命中已包含在 `input` 中。提供方原始计数保留在 generation 的 `provider_usage` metadata。例如输入 100（命中 20、未命中 80）、输出 30（推理 10），上报 `input: 80`、`input_cached_tokens: 20`、`output: 20`、`output_reasoning_tokens: 10`，总量仍为 130。价格由 Langfuse 对模型的定价配置决定；没有匹配价格时不虚构费用。中途取消可能收不到最终用量。
 
 各轮 generation 和工具是同一根运行的子观测，使用显式父上下文，避免并发对话串线。子 Agent 观测仅反映已有生命周期事件；运行时未提供独立子运行关联的事件，不会被推断成更深的调用树。Python 业务执行时间体现在对应工具跨度内，不增加 Python 函数级自动埋点。
 
