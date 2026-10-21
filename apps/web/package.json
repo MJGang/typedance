@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "tsc -b && vite build",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers=2 --minWorkers=1",
     "test:e2e": "playwright test",
     "lint": "eslint src --ext ts,tsx"
   },

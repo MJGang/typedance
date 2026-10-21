@@ -8,6 +8,7 @@
     "build": "corepack pnpm --filter @typedance/harness-contracts build && corepack pnpm --filter @typedance/contracts build && corepack pnpm --filter @typedance/harness-core build && corepack pnpm --filter @typedance/harness-server build && corepack pnpm --filter @typedance/agent-host build && corepack pnpm --filter @typedance/resume-renderer build && corepack pnpm --filter @typedance/web build",
     "test": "corepack pnpm --filter @typedance/harness-contracts test && corepack pnpm --filter @typedance/contracts test && corepack pnpm --filter @typedance/harness-core test && corepack pnpm --filter @typedance/harness-server test && corepack pnpm --filter @typedance/agent-host test && corepack pnpm --filter @typedance/resume-renderer test && corepack pnpm --filter @typedance/resume-markdown test && corepack pnpm --filter @typedance/web test && corepack pnpm --filter @typedance/sidecar test",
     "lint": "corepack pnpm --filter @typedance/web lint",
+    "verify:change": "node scripts/verify-change.mjs",
     "release:test": "node --test scripts/release/*.test.mjs",
     "release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-windows.ps1",
     "release:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release/smoke-installer.ps1",
