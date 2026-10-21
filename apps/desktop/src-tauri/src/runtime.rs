@@ -126,6 +126,26 @@ where
         .collect()
 }
 
+#[cfg(any(not(debug_assertions), test))]
+fn langfuse_environment<I>(environment: I) -> Vec<(OsString, OsString)>
+where
+    I: IntoIterator<Item = (OsString, OsString)>,
+{
+    const KEYS: &[&str] = &[
+        "LANGFUSE_ENABLED",
+        "LANGFUSE_BASE_URL",
+        "LANGFUSE_PUBLIC_KEY",
+        "LANGFUSE_SECRET_KEY",
+        "LANGFUSE_CAPTURE_CONTENT",
+        "LANGFUSE_TRACING_ENVIRONMENT",
+        "LANGFUSE_RELEASE",
+    ];
+    environment
+        .into_iter()
+        .filter(|(key, _)| KEYS.contains(&key.to_string_lossy().to_ascii_uppercase().as_str()))
+        .collect()
+}
+
 #[derive(Default)]
 pub(crate) struct ManagedProcesses {
     children: Mutex<Vec<CommandChild>>,
@@ -281,6 +301,7 @@ pub(crate) fn start_release_services(app: &AppHandle) -> Result<ManagedProcesses
         .map_err(|error| format!("Unable to prepare Agent Host: {error}"))?
         .env_clear()
         .envs(child_environment)
+        .envs(langfuse_environment(std::env::vars_os()))
         .env("AGENT_HOST_HOST", "127.0.0.1")
         .env("AGENT_HOST_PORT", "4327")
         .env("TYPEDANCE_DATA_DIR", &paths.data_dir)
@@ -462,7 +483,8 @@ mod tests {
     use std::path::Path;
 
     use super::{
-        filter_environment, health_response_is_ok, resolve_release_paths, ManagedProcesses,
+        filter_environment, health_response_is_ok, langfuse_environment, resolve_release_paths,
+        ManagedProcesses,
     };
 
     #[test]
@@ -527,6 +549,28 @@ mod tests {
         assert!(filtered.iter().any(|(key, _)| key == "PATH"));
         assert!(!filtered.iter().any(|(key, _)| key == "DEEPSEEK_API_KEY"));
         assert!(!filtered.iter().any(|(key, _)| key == "TYPEDANCE_ENV_FILE"));
+    }
+
+    #[test]
+    fn langfuse_settings_are_only_forwarded_to_agent_host() {
+        let environment = [
+            ("LANGFUSE_ENABLED".into(), "true".into()),
+            ("LANGFUSE_BASE_URL".into(), "http://localhost:3000".into()),
+            ("LANGFUSE_PUBLIC_KEY".into(), "pk-test".into()),
+            ("LANGFUSE_SECRET_KEY".into(), "sk-test".into()),
+            ("LANGFUSE_CAPTURE_CONTENT".into(), "true".into()),
+            ("LANGFUSE_TRACING_ENVIRONMENT".into(), "test".into()),
+            ("LANGFUSE_RELEASE".into(), "v1".into()),
+            ("LANGFUSE_UNKNOWN".into(), "unused".into()),
+            ("DEEPSEEK_API_KEY".into(), "secret".into()),
+            ("TYPEDANCE_ENV_FILE".into(), "private.env".into()),
+        ];
+        assert!(filter_environment(environment.clone()).is_empty());
+        let host_environment = langfuse_environment(environment);
+        assert_eq!(host_environment.len(), 7);
+        assert!(host_environment
+            .iter()
+            .any(|(key, _)| key == "LANGFUSE_SECRET_KEY"));
     }
 
     #[test]

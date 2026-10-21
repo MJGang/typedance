@@ -80,7 +80,17 @@ export type HarnessModelStreamEvent =
   | {
       type: "final";
       output: Record<string, unknown>;
+      usage?: HarnessModelUsage;
     };
+
+export type HarnessModelUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheMissInputTokens?: number;
+  reasoningOutputTokens?: number;
+};
 
 export type HarnessModelAdapter = {
   stream(request: HarnessModelRequest): AsyncIterable<HarnessModelStreamEvent>;

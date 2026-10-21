@@ -19,6 +19,7 @@ import {
   RESUME_PRIMARY_AGENT_ID,
 } from "./resume-plugin";
 import { createSidecarContextProvider } from "./sidecar-context";
+import { createLangfuseTelemetry } from "./observability/langfuse";
 
 async function main(): Promise<void> {
   const env = loadExplicitEnvironment(process.env, (path) => readFileSync(path, "utf8"));
@@ -33,7 +34,9 @@ async function main(): Promise<void> {
     ? createResumePluginLoader(env.TYPEDANCE_PLUGIN_ROOT)
     : createResumePluginLoader();
 
+  const telemetry = createLangfuseTelemetry(env);
   const runtime = createHarnessRuntime({
+    observer: telemetry?.observer,
     skillContentLoader: pluginLoader.createSkillContentLoader(),
     model: createDeepSeekModelAdapter({
       resolveSettings: async () => {
@@ -69,10 +72,21 @@ async function main(): Promise<void> {
     console.log(`TypeDance Agent Host listening on http://${hostname}:${port}`);
     console.log(`Model: ${model}`);
     console.log(`Sidecar: ${sidecarUrl}`);
+    console.log(`Langfuse: ${telemetry ? "enabled" : "disabled"}`);
   });
 
+  let shuttingDown = false;
   const shutdown = async () => {
-    await server.close();
+    if (shuttingDown) return;
+    shuttingDown = true;
+    const closed = server.close();
+    server.nodeServer.closeAllConnections();
+    try {
+      await telemetry?.shutdown();
+    } catch {
+      console.warn("Langfuse 退出上报失败。");
+    }
+    await closed;
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown());

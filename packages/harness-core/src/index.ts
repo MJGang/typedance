@@ -2,6 +2,7 @@ export * from "./event/event-log";
 export * from "./memory/memory-store";
 export * from "./mcp/mcp-manager";
 export * from "./model/model-adapter";
+export * from "./observability";
 export * from "./permission/permission-engine";
 export * from "./plugin/plugin-file-loader";
 export * from "./plugin/plugin-installer";
