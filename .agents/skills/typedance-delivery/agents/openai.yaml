@@ -1,4 +1,4 @@
 interface:
   display_name: "TypeDance交付"
-  short_description: "完成项目修改后的验证、自查、提交、推送和PR交付流程"
-  default_prompt: "使用 $typedance-delivery 完成本次 TypeDance 修改并交付可验收的 PR。"
+  short_description: "完成个人项目的验证、提交、推送，在检查通过后自动合并PR并同步主分支"
+  default_prompt: "使用 $typedance-delivery 完成本次 TypeDance 修改，检查通过后自动合并 PR 并同步 main。"
