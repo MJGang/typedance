@@ -45,6 +45,7 @@ export {
   createDeepSeekModelAdapter,
   type DeepSeekModelAdapterOptions,
 } from "./model/deepseek";
+export { createLangfuseTelemetry, type LangfuseTelemetry } from "./observability/langfuse";
 export {
   buildAgentHostPromptBundle,
   collectPromptFragments,
@@ -232,12 +233,23 @@ export class AgentHost {
       },
     });
     const model = input.model ?? this.#defaultModel;
+    const agentRun = this.store.createRun({
+      run: {
+        conversation_id: conversationId,
+        assistant_message_id: assistantMessage.id,
+        status: "running",
+        model,
+        mutation_mode: mutationMode,
+        started_at: timestamp,
+      },
+    });
     const context = {
       ...pack.defaultContext,
       ...input.context,
       pack_id: pack.id,
       workspace_id: workspaceId,
       conversation_id: conversationId,
+      agent_run_id: agentRun.id,
       user_message_id: userMessage.id,
       assistant_message_id: assistantMessage.id,
       mutation_mode: mutationMode,
@@ -251,16 +263,6 @@ export class AgentHost {
       },
       user_message: content,
       context,
-    });
-    const agentRun = this.store.createRun({
-      run: {
-        conversation_id: conversationId,
-        assistant_message_id: assistantMessage.id,
-        status: "running",
-        model,
-        mutation_mode: mutationMode,
-        started_at: timestamp,
-      },
     });
     this.#runtimeRunIds.set(agentRun.id, harnessRun.id);
     this.store.updateMessage(assistantMessage.id, { run_id: agentRun.id });

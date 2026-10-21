@@ -10,7 +10,8 @@ import type {
 import { HarnessEventLog } from "./event/event-log";
 import { HarnessMemoryStore, type HarnessMemoryRecord, type HarnessMemoryScope } from "./memory/memory-store";
 import { HarnessMcpManager, type HarnessMcpServerRegistration } from "./mcp/mcp-manager";
-import type { HarnessModelAdapter, HarnessModelMessage, HarnessModelTool, HarnessPromptBundle } from "./model/model-adapter";
+import type { HarnessModelAdapter, HarnessModelMessage, HarnessModelTool, HarnessPromptBundle, HarnessModelRequest, HarnessModelStreamEvent } from "./model/model-adapter";
+import { observeSafely, type HarnessRuntimeObserver } from "./observability";
 import { HarnessPermissionEngine, type HarnessPermissionRequirement } from "./permission/permission-engine";
 import {
   HarnessPluginRegistry,
@@ -38,6 +39,7 @@ export type HarnessRuntimeOptions = {
   now?: () => Date;
   model?: HarnessModelAdapter;
   skillContentLoader?: HarnessSkillContentLoader;
+  observer?: HarnessRuntimeObserver;
 };
 
 export type HarnessRuntimeToolResult =
@@ -61,12 +63,14 @@ export class HarnessRuntime {
 
   #now: () => Date;
   #model?: HarnessModelAdapter;
+  #observer?: HarnessRuntimeObserver;
   #controllers = new Map<string, AbortController>();
   #executing = new Set<string>();
 
   constructor(options: HarnessRuntimeOptions = {}) {
     this.#now = options.now ?? (() => new Date());
     this.#model = options.model;
+    this.#observer = options.observer;
     this.events = new HarnessEventLog();
     this.memory = new HarnessMemoryStore(this.#now);
     this.permissions = new HarnessPermissionEngine(this.#now);
@@ -409,7 +413,7 @@ export class HarnessRuntime {
             contextual: basePrompt.contextual,
             conversation: [...conversation],
           };
-      const stream = this.#model.stream({
+      const stream = this.#streamModel({
         signal,
         runId: input.runId,
         capabilityPolicy: skillContext.policy,
@@ -420,7 +424,7 @@ export class HarnessRuntime {
         availableTools,
       });
 
-      for await (const event of cancellableStream(stream, signal)) {
+      for await (const event of stream) {
         this.#assertActive(input.runId);
         if (event.type === "reasoning_summary_delta") {
           this.appendReasoningSummaryDelta(input.runId, event.summaryId, event.delta);
@@ -489,6 +493,22 @@ export class HarnessRuntime {
     };
     this.failRun(input.runId, error);
     throw new Error(error.message);
+  }
+
+  async *#streamModel(request: HarnessModelRequest): AsyncIterable<HarnessModelStreamEvent> {
+    const observation = observeSafely(() => this.#observer?.onModelStart?.(request));
+    let error: unknown;
+    try {
+      for await (const event of cancellableStream(this.#model!.stream(request), request.signal)) {
+        observeSafely(() => observation?.onEvent?.(event));
+        yield event;
+      }
+    } catch (caught) {
+      error = caught;
+      throw caught;
+    } finally {
+      observeSafely(() => observation?.end?.({ error, canceled: request.signal.aborted }));
+    }
   }
 
   remember(input: {
@@ -587,7 +607,9 @@ export class HarnessRuntime {
       ...event,
     } as HarnessRunEvent;
 
-    return this.events.append(fullEvent);
+    const appended = this.events.append(fullEvent);
+    observeSafely(() => this.#observer?.onRunEvent?.(appended));
+    return appended;
   }
 }
 

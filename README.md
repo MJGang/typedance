@@ -3,6 +3,7 @@
 > 本地优先的 AI-native Office 文档工作台，让 AI、上下文、画布和导出成为文档生产的原生能力。
 
 开发协作与 Codex 默认交付流程见 [工程协作流程](docs/development-workflow.md)。
+Agent 全链路监控的配置和验证见 [Langfuse 接入](docs/langfuse.md)。
 
 TypeDance 的目标不是做一个简历改稿工具，而是做一个原生支持 AI 的 Office 文档工作台。
 

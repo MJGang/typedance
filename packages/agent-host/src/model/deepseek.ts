@@ -4,6 +4,7 @@ import type {
   HarnessModelTool,
   HarnessModelRequest,
   HarnessModelStreamEvent,
+  HarnessModelUsage,
 } from "@typedance/harness-core";
 import { renderAgentHostPromptSections } from "../prompt";
 
@@ -27,6 +28,14 @@ type DeepSeekStreamDelta = {
 };
 
 type DeepSeekStreamChunk = {
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    prompt_cache_hit_tokens?: number;
+    prompt_cache_miss_tokens?: number;
+    completion_tokens_details?: { reasoning_tokens?: number };
+  } | null;
   choices?: Array<{
     delta?: DeepSeekStreamDelta;
     finish_reason?: string | null;
@@ -121,8 +130,19 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
       }
 
       let emittedAssistantContent = false;
+      let usage: HarnessModelUsage | undefined;
       const toolCalls = new Map<number, DeepSeekToolCall>();
       for await (const chunk of parseDeepSeekSse(response.body)) {
+        if (chunk.usage) {
+          usage = {
+            inputTokens: chunk.usage.prompt_tokens,
+            outputTokens: chunk.usage.completion_tokens,
+            totalTokens: chunk.usage.total_tokens,
+            cacheReadInputTokens: chunk.usage.prompt_cache_hit_tokens,
+            cacheMissInputTokens: chunk.usage.prompt_cache_miss_tokens,
+            reasoningOutputTokens: chunk.usage.completion_tokens_details?.reasoning_tokens,
+          };
+        }
         const delta = chunk.choices?.[0]?.delta;
         const reasoning = normalizeDelta(delta?.reasoning_content);
         if (reasoning) {
@@ -175,6 +195,7 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
 
       yield {
         type: "final",
+        ...(usage ? { usage } : {}),
         output: {
           model,
           empty: !emittedAssistantContent,
