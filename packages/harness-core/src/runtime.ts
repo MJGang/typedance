@@ -286,7 +286,9 @@ export class HarnessRuntime {
       tool_call: call,
     });
 
-    const result = await this.tools.invoke(call, { signal: this.getRunSignal(runId) });
+    const signal = this.getRunSignal(runId);
+    const result = await withRunSignal(this.tools.invoke(call, { signal }), signal);
+    this.#assertActive(runId);
     this.#appendEvent(runId, {
       type: "tool.call.completed",
       result: result.result,

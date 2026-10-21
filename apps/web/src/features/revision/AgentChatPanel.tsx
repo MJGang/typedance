@@ -183,11 +183,16 @@ function AgentChatContent({
   const knownRunEventIdsRef = useRef<Set<string>>(new Set())
   const subscriptionRef = useRef<ReturnType<typeof createAgentRunEventSource> | null>(null)
   const loadGenerationRef = useRef(0)
-  const sendingRef = useRef(false)
-  const activeConversationRef = useRef(activeConversationId)
+  const pendingSendRef = useRef<{
+    workspaceId: string
+    expectedConversationId: string | undefined
+    createdConversationId?: string
+    invalidated: boolean
+  } | null>(null)
   const callbacksRef = useRef({ onCanvasPatchApplied, onConversationUpdated })
 
   useEffect(() => { callbacksRef.current = { onCanvasPatchApplied, onConversationUpdated } }, [onCanvasPatchApplied, onConversationUpdated])
+  useEffect(() => () => { if (pendingSendRef.current) pendingSendRef.current.invalidated = true }, [])
 
   const loadMessages = useCallback(async (conversationId = activeConversationId) => {
     const generation = ++loadGenerationRef.current
@@ -342,7 +347,16 @@ function AgentChatContent({
   }, [loadMessages])
 
   useEffect(() => {
-    activeConversationRef.current = activeConversationId
+    const pending = pendingSendRef.current
+    if (pending) {
+      if (pending.workspaceId !== workspaceId) pending.invalidated = true
+      if (pending.expectedConversationId !== activeConversationId) {
+        if (pending.createdConversationId !== undefined && pending.createdConversationId === activeConversationId) {
+          pending.expectedConversationId = activeConversationId
+          pending.createdConversationId = undefined
+        } else pending.invalidated = true
+      }
+    }
     let disposed = false
     setRunningRunId(null)
     setReconnecting(false)
@@ -355,17 +369,20 @@ function AgentChatContent({
       subscriptionRef.current?.close()
       subscriptionRef.current = null
     }
-  }, [activeConversationId, loadMessages, subscribeRun])
+  }, [workspaceId, activeConversationId, loadMessages, subscribeRun])
 
   const handleSend = useCallback(async () => {
     const content = input.trim()
-    if (!content || runningRunId || sendingRef.current) return
-    sendingRef.current = true
+    if (!content || runningRunId || pendingSendRef.current) return
+    const pending = { workspaceId, expectedConversationId: activeConversationId, createdConversationId: undefined as string | undefined, invalidated: false }
+    pendingSendRef.current = pending
     try {
       let conversationId = activeConversationId
       if (!conversationId) {
         const conversation = await createWorkspaceConversation(workspaceId)
+        if (pending.invalidated) return
         conversationId = conversation.id
+        pending.createdConversationId = conversationId
         onConversationCreated(conversation.id)
       }
       const run = await startConversationRun({
@@ -377,18 +394,19 @@ function AgentChatContent({
         mutationMode,
         context: { document_id: workspaceId },
       })
-      if (activeConversationRef.current && activeConversationRef.current !== conversationId) return
+      if (pending.invalidated) return
       setInput("")
       setMentions([])
       setMentionQuery(null)
       setRunningRunId(run.id)
       await loadMessages(conversationId)
+      if (pending.invalidated) return
       onConversationUpdated?.()
       subscribeRun(run, conversationId)
     } catch {
       toast.error("发送失败")
     } finally {
-      sendingRef.current = false
+      if (pendingSendRef.current === pending) pendingSendRef.current = null
     }
   }, [activeConversationId, input, loadMessages, mentions, model, mutationMode, onConversationCreated, onConversationUpdated, runningRunId, subscribeRun, workspaceId])
 

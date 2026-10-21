@@ -149,6 +149,38 @@ describe("AgentChatPanel", () => {
     expect(screen.queryByText("旧会话迟到消息")).not.toBeInTheDocument()
   })
 
+  it("ignores a pending send after the user clears the selected conversation", async () => {
+    let finishSend!: (value: unknown) => void
+    agentHostMocks.startConversationRun.mockImplementation(() => new Promise((resolve) => { finishSend = resolve }))
+    agentHostMocks.listConversationMessages.mockResolvedValue([])
+    const props = { workspaceId: "doc_1", contextSources: [], onConversationCreated: () => {} }
+    const view = render(<AgentChatPanel {...props} activeConversationId="conv_1" />)
+    typeComposerText(screen.getByRole("textbox"), "old conversation request")
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+    await waitFor(() => expect(agentHostMocks.startConversationRun).toHaveBeenCalledOnce())
+    view.rerender(<AgentChatPanel {...props} activeConversationId={undefined} />)
+    await act(async () => { finishSend({ id: "stale", conversation_id: "conv_1", status: "running" }) })
+    expect(agentHostMocks.createAgentRunEventSource).not.toHaveBeenCalled()
+    expect(screen.getByText("从当前画布开始")).toBeInTheDocument()
+  })
+
+  it("does not install a subscription if selection changes while messages are loading", async () => {
+    let finishLoad!: (value: unknown) => void
+    agentHostMocks.listConversationMessages.mockResolvedValueOnce([])
+      .mockImplementationOnce(() => new Promise((resolve) => { finishLoad = resolve }))
+    agentHostMocks.startConversationRun.mockResolvedValue({ id: "stale", conversation_id: "conv_1", status: "running" })
+    const props = { workspaceId: "doc_1", contextSources: [], onConversationCreated: () => {} }
+    const view = render(<AgentChatPanel {...props} activeConversationId="conv_1" />)
+    await waitFor(() => expect(agentHostMocks.listConversationMessages).toHaveBeenCalledOnce())
+    typeComposerText(screen.getByRole("textbox"), "old conversation request")
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+    await waitFor(() => expect(agentHostMocks.listConversationMessages).toHaveBeenCalledTimes(2))
+    view.rerender(<AgentChatPanel {...props} activeConversationId={undefined} />)
+    await act(async () => { finishLoad([assistantMessage("stale answer", "stale")]) })
+    expect(agentHostMocks.createAgentRunEventSource).not.toHaveBeenCalled()
+    expect(screen.queryByText("stale answer")).not.toBeInTheDocument()
+  })
+
   it("shows the active conversation title in the chat header", async () => {
     agentHostMocks.listConversationMessages.mockResolvedValue([])
     const onToggleConversationPinned = vi.fn()

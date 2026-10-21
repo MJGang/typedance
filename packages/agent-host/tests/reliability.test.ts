@@ -9,14 +9,29 @@ afterEach(async () => { await Promise.all(servers.splice(0).map((server) => serv
 function deferred() { let resolve!: () => void; const promise = new Promise<void>((r) => { resolve = r; }); return { promise, resolve }; }
 function setup(model: HarnessModelAdapter, contextProvider?: AgentHostContextProvider) {
   const runtime = createHarnessRuntime({ model });
-  runtime.registerPlugin({ id: "test", name: "Test", version: "1", module_format: "esm", scopes: ["test"], agents: [{ id: "test.agent", name: "Test", role: "primary" }] });
+  runtime.registerPlugin({ id: "test", name: "Test", version: "1", module_format: "esm", scopes: ["test"], agents: [{ id: "test.agent", name: "Test", role: "primary", allowed_tool_names: ["test.tool"] }] });
   const host = createAgentHost({ runtime, contextProvider, packs: [{ id: "resume", primaryAgentId: "test.agent", capabilityPolicy: { pluginIds: ["test"] } }] });
   const conversation = host.createConversation("ws");
   const start = () => host.startConversationRun("ws", conversation.id, { message: { content: "test" } });
-  return { host, conversation, start };
+  return { runtime, host, conversation, start };
 }
 
 describe("host execution reliability", () => {
+  it("releases a canceled conversation even when its tool ignores the signal", async () => {
+    const entered = deferred(); const release = deferred(); let passes = 0;
+    const { runtime, host, start } = setup({ async *stream() {
+      if (++passes === 1) yield { type: "tool_call", call: { id: "blocked", name: "test.tool", origin: "plugin", input: {} } };
+      else yield { type: "final", output: {} };
+    } });
+    runtime.registerTool({ name: "test.tool", origin: "plugin", handler: async () => { entered.resolve(); await release.promise; return {}; } });
+    const first = start(); await entered.promise; host.cancelAgentRun(first.id); await host.waitForRun(first.id);
+    const count = host.listAgentRunEvents(first.id).length;
+    const next = start(); await host.waitForRun(next.id);
+    expect(host.getAgentRun(next.id).status).toBe("completed");
+    release.resolve(); await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(host.listAgentRunEvents(first.id)).toHaveLength(count);
+    expect(host.listAgentRunEvents(first.id).at(-1)?.type).toBe("run_cancelled");
+  });
   it("rejects concurrent sends and deletion without appending messages, then releases the lock", async () => {
     const release = deferred();
     const { host, conversation, start } = setup({ async *stream() { await release.promise; yield { type: "final", output: {} }; } });

@@ -38,9 +38,12 @@ describe("run cancellation", () => {
     runtime.registerTool({ name: "test.tool", origin: "plugin", handler });
     const pending = execute(); const rejected = expect(pending).rejects.toMatchObject({ name: "AbortError" });
     await ready.promise; runtime.cancelRun(run.id); expect(toolSignal?.aborted).toBe(true);
-    release.resolve(); await rejected;
+    await rejected;
+    const eventCount = runtime.getEvents(run.id).length;
+    release.resolve(); await new Promise((resolve) => setTimeout(resolve, 0));
     expect(handler).toHaveBeenCalledOnce(); expect(model.stream).toHaveBeenCalledOnce();
     expect(runtime.getRun(run.id).status).toBe("canceled");
+    expect(runtime.getEvents(run.id)).toHaveLength(eventCount);
   });
 
   it("keeps one immutable terminal event and rejects attempts to reopen the run", () => {
