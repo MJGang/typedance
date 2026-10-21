@@ -4,11 +4,13 @@ import type {
   HarnessPromptBundle,
   HarnessPromptSection,
 } from "@typedance/harness-core";
+import type { AgentHostContextItem } from "./sidecar-context";
 
 export type AgentHostPromptBundleInput = {
   messages: HarnessModelMessage[];
   skillContext: HarnessAgentSkillContext;
   contributors?: AgentHostPromptContributor[];
+  contextItems?: AgentHostContextItem[];
 };
 
 export type AgentHostPromptFragment = HarnessPromptSection & {
@@ -46,6 +48,20 @@ const CONTEXTUAL_MESSAGE_BUDGET_CHARS = 12_000;
 const TRUNCATION_NOTICE = "\n\n[Prompt section truncated by Agent Host budget]";
 
 const defaultPromptContributors: AgentHostPromptContributor[] = [
+  {
+    id: "agent_host.context_items",
+    collect: ({ contextItems = [] }) => {
+      const totalWeight = contextItems.reduce((sum, item) => sum + (item.kind === "workspace" ? 2 : 1), 0);
+      return contextItems.map((item, index) => createPromptFragment({
+        slot: "contextual",
+        source: item.id,
+        priority: 100 + index,
+        maxChars: Math.min(12_000, Math.floor(24_000 * (item.kind === "workspace" ? 2 : 1) / totalWeight)),
+        content: item.content,
+        provenance: { kind: item.kind, sourceId: item.sourceId, path: item.path },
+      }));
+    },
+  },
   {
     id: "agent_host.plugin_instructions",
     collect: ({ skillContext }) =>

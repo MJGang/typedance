@@ -45,6 +45,7 @@ export type HarnessPromptBundle = {
 };
 
 export type HarnessModelRequest = {
+  signal: AbortSignal;
   runId: string;
   capabilityPolicy: HarnessResolvedCapabilityPolicy;
   agentId: string;

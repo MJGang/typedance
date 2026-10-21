@@ -9,7 +9,7 @@ export type HarnessMcpServerRegistration = {
   id: string;
   name: string;
   tools: HarnessMcpToolDefinition[];
-  callTool(toolName: string, input: Record<string, unknown>): Promise<unknown> | unknown;
+  callTool(toolName: string, input: Record<string, unknown>, context?: { signal: AbortSignal }): Promise<unknown> | unknown;
 };
 
 export class HarnessMcpManager {

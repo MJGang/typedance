@@ -11,6 +11,7 @@ import {
   cancelAgentRun,
   createWorkspaceConversation,
   createAgentRunEventSource,
+  getConversationActiveRun,
   listAgentRunEvents,
   listConversationMessages,
   startConversationRun,
@@ -168,6 +169,7 @@ function AgentChatContent({
   const [messages, setMessages] = useState<AgentMessage[]>([])
   const [runEvents, setRunEvents] = useState<Record<string, AgentRunEvent[]>>({})
   const [runningRunId, setRunningRunId] = useState<string | null>(null)
+  const [reconnecting, setReconnecting] = useState(false)
   const [input, setInput] = useState("")
   const [mentions, setMentions] = useState<ContextMention[]>([])
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
@@ -179,23 +181,45 @@ function AgentChatContent({
   const messageListRef = useRef<HTMLDivElement>(null)
   const shouldFollowLatestRef = useRef(true)
   const knownRunEventIdsRef = useRef<Set<string>>(new Set())
+  const subscriptionRef = useRef<ReturnType<typeof createAgentRunEventSource> | null>(null)
+  const loadGenerationRef = useRef(0)
+  const pendingSendRef = useRef<{
+    workspaceId: string
+    expectedConversationId: string | undefined
+    createdConversationId?: string
+    invalidated: boolean
+  } | null>(null)
+  const callbacksRef = useRef({ onCanvasPatchApplied, onConversationUpdated })
+
+  useEffect(() => { callbacksRef.current = { onCanvasPatchApplied, onConversationUpdated } }, [onCanvasPatchApplied, onConversationUpdated])
+  useEffect(() => () => { if (pendingSendRef.current) pendingSendRef.current.invalidated = true }, [])
 
   const loadMessages = useCallback(async (conversationId = activeConversationId) => {
+    const generation = ++loadGenerationRef.current
     if (!conversationId) {
       setMessages([])
       setRunEvents({})
       knownRunEventIdsRef.current.clear()
-      return
+      return null
     }
     try {
-      const nextMessages = await listConversationMessages(conversationId)
-      setMessages(nextMessages)
+      const [nextMessages, activeRun] = await Promise.all([
+        listConversationMessages(conversationId), getConversationActiveRun(conversationId),
+      ])
       const runIds = nextMessages.map((message) => message.run_id).filter((runId): runId is string => !!runId)
       const eventEntries = await Promise.all(runIds.map(async (runId) => [runId, await listAgentRunEvents(runId)] as const))
+      if (generation !== loadGenerationRef.current) return null
+      const eventsByRun = Object.fromEntries(eventEntries)
+      setMessages(nextMessages.map((message) => {
+        const deltas = message.run_id ? eventsByRun[message.run_id]?.filter((event) => event.type === "assistant_delta") : []
+        return deltas?.length ? { ...message, content: deltas.map((event) => String(event.payload.delta ?? "")).join("") } : message
+      }))
       knownRunEventIdsRef.current = new Set(eventEntries.flatMap(([, events]) => events.map((event) => event.id)))
       setRunEvents(Object.fromEntries(eventEntries))
+      return activeRun
     } catch {
-      toast.error("消息加载失败")
+      if (generation === loadGenerationRef.current) toast.error("消息加载失败")
+      return null
     }
   }, [activeConversationId])
 
@@ -203,10 +227,6 @@ function AgentChatContent({
     shouldFollowLatestRef.current = true
     setShowScrollToBottom(false)
   }, [activeConversationId])
-
-  useEffect(() => {
-    void loadMessages()
-  }, [loadMessages])
 
   useLayoutEffect(() => {
     const messageList = messageListRef.current
@@ -280,39 +300,29 @@ function AgentChatContent({
   }, [input])
 
   const subscribeRun = useCallback((run: AgentRun, conversationId: string) => {
+    subscriptionRef.current?.close()
     const source = createAgentRunEventSource(run.id)
-    const close = (fallbackError?: { code: string; message: string }) => {
+    subscriptionRef.current = source
+    setRunningRunId(run.id)
+    setReconnecting(false)
+    const close = () => {
       source.close()
+      if (subscriptionRef.current !== source) return
+      subscriptionRef.current = null
       setRunningRunId((current) => current === run.id ? null : current)
-      if (fallbackError) {
-        const timestamp = new Date().toISOString()
-        setRunEvents((current) => {
-          const currentEvents = current[run.id] ?? []
-          if (currentEvents.some((event) => terminalEvents.has(event.type))) return current
-          return {
-            ...current,
-            [run.id]: [
-              ...currentEvents,
-              {
-                id: `local_${run.id}_stream_failed`,
-                run_id: run.id,
-                sequence: currentEvents.length,
-                type: "run_failed",
-                payload: { error: fallbackError },
-                created_at: timestamp,
-              },
-            ],
-          }
-        })
-      }
+      setReconnecting(false)
       void loadMessages(conversationId).finally(() => {
-        onConversationUpdated?.()
+        callbacksRef.current.onConversationUpdated?.()
       })
     }
     for (const eventType of streamedEventTypes) {
       source.addEventListener(eventType, (event) => {
+        if (subscriptionRef.current !== source) return
         const parsed = JSON.parse((event as MessageEvent).data) as AgentRunEvent
-        if (knownRunEventIdsRef.current.has(parsed.id)) return
+        if (knownRunEventIdsRef.current.has(parsed.id)) {
+          if (terminalEvents.has(parsed.type)) close()
+          return
+        }
         knownRunEventIdsRef.current.add(parsed.id)
         setRunEvents((current) => ({
           ...current,
@@ -327,25 +337,52 @@ function AgentChatContent({
           }
         }
         if (parsed.type === "canvas_patch_applied") {
-          onCanvasPatchApplied?.(parsed)
+          callbacksRef.current.onCanvasPatchApplied?.(parsed)
         }
         if (terminalEvents.has(parsed.type)) close()
       })
     }
-    source.onerror = () => close({
-      code: "agent_event_stream_disconnected",
-      message: "Agent event stream disconnected before the run finished.",
+    source.addEventListener("open", () => { if (subscriptionRef.current === source) setReconnecting(false) })
+    source.onerror = () => { if (subscriptionRef.current === source) setReconnecting(true) }
+  }, [loadMessages])
+
+  useEffect(() => {
+    const pending = pendingSendRef.current
+    if (pending) {
+      if (pending.workspaceId !== workspaceId) pending.invalidated = true
+      if (pending.expectedConversationId !== activeConversationId) {
+        if (pending.createdConversationId !== undefined && pending.createdConversationId === activeConversationId) {
+          pending.expectedConversationId = activeConversationId
+          pending.createdConversationId = undefined
+        } else pending.invalidated = true
+      }
+    }
+    let disposed = false
+    setRunningRunId(null)
+    setReconnecting(false)
+    void loadMessages().then((run) => {
+      if (!disposed && run && activeConversationId) subscribeRun(run, activeConversationId)
     })
-  }, [loadMessages, onCanvasPatchApplied, onConversationUpdated])
+    return () => {
+      disposed = true
+      loadGenerationRef.current += 1
+      subscriptionRef.current?.close()
+      subscriptionRef.current = null
+    }
+  }, [workspaceId, activeConversationId, loadMessages, subscribeRun])
 
   const handleSend = useCallback(async () => {
     const content = input.trim()
-    if (!content || runningRunId) return
+    if (!content || runningRunId || pendingSendRef.current) return
+    const pending = { workspaceId, expectedConversationId: activeConversationId, createdConversationId: undefined as string | undefined, invalidated: false }
+    pendingSendRef.current = pending
     try {
       let conversationId = activeConversationId
       if (!conversationId) {
         const conversation = await createWorkspaceConversation(workspaceId)
+        if (pending.invalidated) return
         conversationId = conversation.id
+        pending.createdConversationId = conversationId
         onConversationCreated(conversation.id)
       }
       const run = await startConversationRun({
@@ -357,15 +394,19 @@ function AgentChatContent({
         mutationMode,
         context: { document_id: workspaceId },
       })
+      if (pending.invalidated) return
       setInput("")
       setMentions([])
       setMentionQuery(null)
       setRunningRunId(run.id)
       await loadMessages(conversationId)
+      if (pending.invalidated) return
       onConversationUpdated?.()
       subscribeRun(run, conversationId)
     } catch {
       toast.error("发送失败")
+    } finally {
+      if (pendingSendRef.current === pending) pendingSendRef.current = null
     }
   }, [activeConversationId, input, loadMessages, mentions, model, mutationMode, onConversationCreated, onConversationUpdated, runningRunId, subscribeRun, workspaceId])
 
@@ -409,6 +450,7 @@ function AgentChatContent({
           </div>
         ) : <div />}
         <div className="flex items-center gap-2">
+          {reconnecting ? <span role="status" className="text-xs text-muted-foreground">连接中断，正在重连</span> : null}
           {runningRunId ? <span className="size-2 rounded-full bg-sky-500" /> : null}
           {onHide ? (
             <Button type="button" variant="ghost" size="icon-sm" aria-label="隐藏 AI 面板" onClick={onHide}>

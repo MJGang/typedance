@@ -6,6 +6,18 @@ import {
   type HarnessRunStatus,
 } from "@typedance/harness-contracts";
 
+export function isTerminalRunStatus(status: HarnessRunStatus): boolean {
+  return status === "completed" || status === "failed" || status === "canceled";
+}
+
+const transitions: Record<HarnessRunStatus, readonly HarnessRunStatus[]> = {
+  queued: ["running", "failed", "canceled"],
+  running: ["awaiting_permission", "awaiting_user_input", "completed", "failed", "canceled"],
+  awaiting_permission: ["running", "failed", "canceled"],
+  awaiting_user_input: ["running", "failed", "canceled"],
+  completed: [], failed: [], canceled: [],
+};
+
 export class HarnessRunStore {
   #runs = new Map<string, HarnessRun>();
   #nextId = 1;
@@ -40,6 +52,10 @@ export class HarnessRunStore {
 
   updateStatus(runId: string, status: HarnessRunStatus): HarnessRun {
     const existing = this.get(runId);
+    if (existing.status === status) return existing;
+    if (!transitions[existing.status].includes(status)) {
+      throw new Error(`Invalid run transition: ${existing.status} -> ${status}`);
+    }
     const updated = harnessRunSchema.parse({
       ...existing,
       status,

@@ -71,6 +71,7 @@ function makeRequest(): HarnessModelRequest {
     toolNames: [],
   };
   return {
+    signal: new AbortController().signal,
     runId: "run-1",
     capabilityPolicy: {
       scopeIds: ["pack:resume"],

@@ -42,6 +42,7 @@ const agentHostMocks = vi.hoisted(() => ({
   startConversationRun: vi.fn(),
   listAgentRunEvents: vi.fn(),
   createAgentRunEventSource: vi.fn(),
+  getConversationActiveRun: vi.fn(),
 }))
 
 const draftCanvasMocks = vi.hoisted(() => ({
@@ -111,6 +112,7 @@ vi.mock("@/agentHost", () => ({
   startConversationRun: (...args: unknown[]) => agentHostMocks.startConversationRun(...args),
   listAgentRunEvents: (...args: unknown[]) => agentHostMocks.listAgentRunEvents(...args),
   createAgentRunEventSource: (...args: unknown[]) => agentHostMocks.createAgentRunEventSource(...args),
+  getConversationActiveRun: (...args: unknown[]) => agentHostMocks.getConversationActiveRun(...args),
 }))
 
 vi.mock("@/tauri", () => ({
@@ -437,6 +439,7 @@ describe("RevisionWorkspacePage", () => {
     })
     agentHostMocks.listWorkspacePlugins.mockResolvedValue([])
     agentHostMocks.listConversationMessages.mockResolvedValue([])
+    agentHostMocks.getConversationActiveRun.mockResolvedValue(null)
     agentHostMocks.listAgentRunEvents.mockResolvedValue([])
   })
 

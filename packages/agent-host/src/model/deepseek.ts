@@ -96,6 +96,7 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
       const tools = buildDeepSeekTools(request.availableTools, toolNameMap);
 
       const response = await fetchImpl(`${baseUrl}/chat/completions`, {
+        signal: request.signal,
         method: "POST",
         headers: {
           authorization: `Bearer ${apiKey}`,

@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { AgentRunEventSource } from "./agentRunStream"
 import {
   agentConversationSchema,
   agentMessageSchema,
@@ -20,9 +21,31 @@ import {
 } from "@typedance/contracts"
 
 const agentHostBaseUrl = import.meta.env.VITE_AGENT_HOST_URL ?? "http://127.0.0.1:4327"
+let sessionToken: Promise<string> | undefined
+
+async function getSessionToken(): Promise<string> {
+  sessionToken ??= fetch(`${agentHostBaseUrl}/session`, { cache: "no-store", signal: AbortSignal.timeout(5_000) })
+    .then(async (response) => {
+      if (!response.ok) throw new Error("Agent Host session unavailable")
+      return z.object({ token: z.string().min(32) }).parse(await response.json()).token
+    }).catch((error) => { sessionToken = undefined; throw error })
+  return sessionToken
+}
+
+async function agentHostFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const send = async () => {
+    const headers = new Headers(init.headers)
+    headers.set("authorization", `Bearer ${await getSessionToken()}`)
+    return fetch(input, { ...init, headers })
+  }
+  const response = await send()
+  if (response.status !== 401) return response
+  sessionToken = undefined
+  return send()
+}
 
 export async function listWorkspaceConversations(workspaceId: string): Promise<AgentConversation[]> {
-  const response = await fetch(`${agentHostBaseUrl}/workspaces/${encodeURIComponent(workspaceId)}/conversations`)
+  const response = await agentHostFetch(`${agentHostBaseUrl}/workspaces/${encodeURIComponent(workspaceId)}/conversations`)
   return parseAgentHostResponse(
     response,
     (value) => z.array(agentConversationSchema).parse(value),
@@ -31,7 +54,7 @@ export async function listWorkspaceConversations(workspaceId: string): Promise<A
 }
 
 export async function createWorkspaceConversation(workspaceId: string, name?: string | null): Promise<AgentConversation> {
-  const response = await fetch(`${agentHostBaseUrl}/workspaces/${encodeURIComponent(workspaceId)}/conversations`, {
+  const response = await agentHostFetch(`${agentHostBaseUrl}/workspaces/${encodeURIComponent(workspaceId)}/conversations`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(name ? { name } : {}),
@@ -47,7 +70,7 @@ export async function updateWorkspaceConversation(
   conversationId: string,
   patch: Partial<Pick<AgentConversation, "name" | "pinned">>,
 ): Promise<AgentConversation> {
-  const response = await fetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}`, {
+  const response = await agentHostFetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(patch),
@@ -60,14 +83,14 @@ export async function updateWorkspaceConversation(
 }
 
 export async function deleteWorkspaceConversation(conversationId: string): Promise<void> {
-  const response = await fetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}`, {
+  const response = await agentHostFetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}`, {
     method: "DELETE",
   })
   if (!response.ok) throw new Error(`Failed to delete workspace conversation: ${response.status}`)
 }
 
 export async function listConversationMessages(conversationId: string): Promise<AgentMessage[]> {
-  const response = await fetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}/messages`)
+  const response = await agentHostFetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}/messages`)
   return parseAgentHostResponse(
     response,
     (value) => z.array(agentMessageSchema).parse(value),
@@ -84,7 +107,7 @@ export async function startConversationRun(input: {
   mutationMode?: CanvasMutationMode
   context?: Record<string, unknown>
 }): Promise<AgentRun> {
-  const response = await fetch(
+  const response = await agentHostFetch(
     `${agentHostBaseUrl}/workspaces/${encodeURIComponent(input.workspaceId)}/conversations/${encodeURIComponent(input.conversationId)}/runs`,
     {
       method: "POST",
@@ -108,7 +131,7 @@ export async function startConversationRun(input: {
 }
 
 export async function getAgentRun(runId: string): Promise<AgentRun> {
-  const response = await fetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}`)
+  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}`)
   return parseAgentHostResponse(
     response,
     (value) => agentRunSchema.parse(value),
@@ -117,7 +140,7 @@ export async function getAgentRun(runId: string): Promise<AgentRun> {
 }
 
 export async function cancelAgentRun(runId: string): Promise<void> {
-  const response = await fetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/cancel`, {
+  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/cancel`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ reason: "User cancelled" }),
@@ -127,7 +150,7 @@ export async function cancelAgentRun(runId: string): Promise<void> {
 
 export async function listAgentRunEvents(runId: string, afterSequence = -1): Promise<AgentRunEvent[]> {
   const searchParams = new URLSearchParams({ after: String(afterSequence) })
-  const response = await fetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/events?${searchParams}`)
+  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/events?${searchParams}`)
   return parseAgentHostResponse(
     response,
     (value) => z.array(agentRunEventSchema).parse(value),
@@ -135,13 +158,22 @@ export async function listAgentRunEvents(runId: string, afterSequence = -1): Pro
   )
 }
 
-export function createAgentRunEventSource(runId: string, afterSequence = -1): EventSource {
-  const searchParams = new URLSearchParams({ after: String(afterSequence), stream: "1" })
-  return new EventSource(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/events?${searchParams}`)
+export function createAgentRunEventSource(runId: string, afterSequence = -1): AgentRunEventSource {
+  return new AgentRunEventSource({
+    runId, afterSequence,
+    fetchStream: (after, signal) => agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/events?${new URLSearchParams({ after: String(after), stream: "1" })}`, { signal }),
+    getRun: () => getAgentRun(runId),
+    listEvents: (after) => listAgentRunEvents(runId, after),
+  })
+}
+
+export async function getConversationActiveRun(conversationId: string): Promise<AgentRun | null> {
+  const response = await agentHostFetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}/active-run`)
+  return parseAgentHostResponse(response, (value) => agentRunSchema.nullable().parse(value), "Failed to load active run")
 }
 
 export async function listWorkspacePlugins(workspaceId: string): Promise<AgentPluginSummary[]> {
-  const response = await fetch(`${agentHostBaseUrl}/workspaces/${encodeURIComponent(workspaceId)}/plugins`)
+  const response = await agentHostFetch(`${agentHostBaseUrl}/workspaces/${encodeURIComponent(workspaceId)}/plugins`)
   return parseAgentHostResponse(
     response,
     (value) => z.array(agentPluginSummarySchema).parse(value),
@@ -150,7 +182,7 @@ export async function listWorkspacePlugins(workspaceId: string): Promise<AgentPl
 }
 
 export async function getModelSettings(): Promise<ModelSettingsResponse> {
-  const response = await fetch(`${agentHostBaseUrl}/settings/model`)
+  const response = await agentHostFetch(`${agentHostBaseUrl}/settings/model`)
   return parseAgentHostResponse(
     response,
     (value) => modelSettingsResponseSchema.parse(value),
@@ -160,7 +192,7 @@ export async function getModelSettings(): Promise<ModelSettingsResponse> {
 
 export async function updateModelSettings(input: ModelSettingsUpdate): Promise<ModelSettingsResponse> {
   const payload = modelSettingsUpdateSchema.parse(input)
-  const response = await fetch(`${agentHostBaseUrl}/settings/model`, {
+  const response = await agentHostFetch(`${agentHostBaseUrl}/settings/model`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
@@ -173,7 +205,7 @@ export async function updateModelSettings(input: ModelSettingsUpdate): Promise<M
 }
 
 export async function clearModelApiKey(): Promise<ModelSettingsResponse> {
-  const response = await fetch(`${agentHostBaseUrl}/settings/model/api-key`, { method: "DELETE" })
+  const response = await agentHostFetch(`${agentHostBaseUrl}/settings/model/api-key`, { method: "DELETE" })
   return parseAgentHostResponse(
     response,
     (value) => modelSettingsResponseSchema.parse(value),
