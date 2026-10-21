@@ -8,6 +8,7 @@ $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $releaseRoot = Join-Path $repositoryRoot "artifacts\release"
 $tauriRoot = Join-Path $repositoryRoot "apps\desktop\src-tauri"
 $bundleRoot = Join-Path $tauriRoot "target\release\bundle\nsis"
+$releaseTimings = [System.Collections.Generic.List[object]]::new()
 
 function Invoke-Checked {
     param(
@@ -16,9 +17,28 @@ function Invoke-Checked {
     )
 
     Write-Host "[release] $FilePath $($Arguments -join ' ')"
-    & $FilePath @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "$FilePath exited with code $LASTEXITCODE"
+    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
+    $phaseExitCode = -1
+    try {
+        & $FilePath @Arguments
+        $phaseExitCode = $LASTEXITCODE
+        if ($phaseExitCode -ne 0) {
+            throw "$FilePath exited with code $phaseExitCode"
+        }
+    } finally {
+        $stopwatch.Stop()
+        $releaseTimings.Add([pscustomobject]@{
+            command = "$FilePath $($Arguments -join ' ')"
+            seconds = [Math]::Round($stopwatch.Elapsed.TotalSeconds, 3)
+            exit_code = $phaseExitCode
+        })
+        New-Item -ItemType Directory -Force -Path $releaseRoot | Out-Null
+        [IO.File]::WriteAllText(
+            (Join-Path $releaseRoot "timings.json"),
+            (ConvertTo-Json -InputObject $releaseTimings.ToArray() -Depth 4),
+            [Text.UTF8Encoding]::new($false)
+        )
+        Write-Host "[release-timing] $FilePath completed in $([Math]::Round($stopwatch.Elapsed.TotalSeconds, 1))s (exit $phaseExitCode)"
     }
 }
 
@@ -85,13 +105,22 @@ if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
 if ($env:TYPEDANCE_UPDATE_REPOSITORY -notmatch '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$') {
     throw "TYPEDANCE_UPDATE_REPOSITORY must name a public owner/repo. The private source repository cannot serve anonymous client updates."
 }
-try {
-    $updateRepositoryInfo = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:TYPEDANCE_UPDATE_REPOSITORY" -Headers @{ "User-Agent" = "TypeDance-release" }
-    if ($updateRepositoryInfo.private -ne $false) {
-        throw "The update repository must be public"
+for ($attempt = 1; ; $attempt++) {
+    try {
+        $updateRepositoryInfo = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:TYPEDANCE_UPDATE_REPOSITORY" -Headers @{ "User-Agent" = "TypeDance-release" } -TimeoutSec 15
+        break
+    } catch {
+        $status = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 0 }
+        $transient = $status -eq 0 -or $status -eq 429 -or $status -ge 500
+        if (-not $transient -or $attempt -ge 3) {
+            throw "The update repository must be accessible without authentication: $env:TYPEDANCE_UPDATE_REPOSITORY (HTTP $status): $($_.Exception.Message)"
+        }
+        Write-Warning "Public repository check failed (HTTP $status), retrying attempt $($attempt + 1)/3."
+        Start-Sleep -Seconds (2 * $attempt)
     }
-} catch {
-    throw "The update repository must be accessible without authentication: $env:TYPEDANCE_UPDATE_REPOSITORY"
+}
+if ($updateRepositoryInfo.private -ne $false) {
+    throw "The update repository must be public"
 }
 
 Set-Location $repositoryRoot
@@ -116,9 +145,7 @@ Invoke-Checked $releasePython @(
     "--output", "apps/desktop/src-tauri/resources/ms-playwright"
 )
 Assert-NoForbiddenReleaseInputs
-Invoke-Checked "cargo" @(
-    "test", "--manifest-path", "apps/desktop/src-tauri/Cargo.toml", "--lib"
-)
+Invoke-Checked "corepack" @("pnpm", "release:rust-test")
 
 if (Test-Path -LiteralPath $bundleRoot) {
     $resolvedBundleRoot = (Resolve-Path -LiteralPath $bundleRoot).Path

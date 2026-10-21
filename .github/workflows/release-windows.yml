@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      compare_compression:
+        description: "比较同一批运行文件的 LZMA 和 ZLIB 打包时间与体积；手动运行不发布 Release"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -11,6 +17,7 @@ permissions:
 jobs:
   windows-installer:
     runs-on: windows-latest
+    timeout-minutes: 45
     env:
       TYPEDANCE_UPDATE_REPOSITORY: ${{ vars.TYPEDANCE_UPDATE_REPOSITORY }}
     steps:
@@ -24,6 +31,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
+          shared-key: typedance-windows-release
           workspaces: apps/desktop/src-tauri -> target
           cache-on-failure: true
 
@@ -54,6 +62,7 @@ jobs:
         run: python -m playwright install chromium
 
       - name: Verify tag version
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
@@ -69,6 +78,7 @@ jobs:
         run: pnpm release
 
       - name: Publish GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -83,6 +93,32 @@ jobs:
             --notes-file docs/release-notes.md `
             --title "TypeDance $version"
 
+      - name: Smoke test installed package
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: pnpm release:smoke
+
+      - name: Compare NSIS compression on identical runtime files
+        if: github.event_name == 'workflow_dispatch' && inputs.compare_compression
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release/benchmark-nsis.ps1
+
+      - name: Summarize release timings
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path artifacts/release/timings.json) {
+            "### 发布阶段耗时" | Add-Content $env:GITHUB_STEP_SUMMARY
+            "| 阶段 | 秒 | 退出码 |" | Add-Content $env:GITHUB_STEP_SUMMARY
+            "| --- | ---: | ---: |" | Add-Content $env:GITHUB_STEP_SUMMARY
+            Get-Content artifacts/release/timings.json -Raw | ConvertFrom-Json | ForEach-Object {
+              "| $($_.command) | $($_.seconds) | $($_.exit_code) |" | Add-Content $env:GITHUB_STEP_SUMMARY
+            }
+          }
+
       - name: Keep installer artifacts
         if: always()
         continue-on-error: true
@@ -94,6 +130,8 @@ jobs:
             artifacts/release/TypeDance_*_x64-setup.exe.sha256
             artifacts/release/TypeDance_*_x64-setup.exe.sig
             artifacts/release/latest.json
+            artifacts/release/timings.json
+            artifacts/release/nsis-benchmark.json
           retention-days: 3
           compression-level: 0
           if-no-files-found: warn

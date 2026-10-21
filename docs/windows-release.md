@@ -67,6 +67,24 @@ artifacts/release/latest.json
 
 版本必须在根 `package.json`、`apps/desktop/package.json`、`tauri.conf.json` 和 `Cargo.toml` 中保持一致。
 
+## 构建耗时与缓存
+
+`0.1.1` 的成功发布基线为 18 分 41 秒，其中 Rust 的测试与正式编译约 6 分 21 秒，NSIS 的 LZMA 压缩约 5 分 8 秒。原流程分别使用 debug/test 和 release profile，且只在版本标签下写缓存。
+
+当前流程统一通过 `pnpm release:rust-test` 执行 release profile 的原生测试，启用与桌面生产构建相同的 `tauri/custom-protocol` feature。`main` 的代码检查通过后会执行同一命令，预热 Rust release 依赖缓存；版本发布使用相同的 `shared-key` 读取默认分支缓存。应用自身仍由 Cargo 按当前源码重新构建，不缓存或复用历史安装包。
+
+版本标签不能直接读取其他标签创建的缓存，因此首次默认分支预热必须成功完成。Rust 工具链、依赖或编译选项变更仍可能触发重新编译，不能保证每次发布都达到固定耗时。
+
+NSIS 默认使用 ZLIB，减少安装包生成时间；代价是安装包可能大于 LZMA。压缩不会改变包含的运行文件、更新公钥或更新签名校验。每次构建会保存 `artifacts/release/timings.json`，并在 Actions Summary 中展示各阶段耗时和退出码；失败阶段也会记录。
+
+需要验证完整打包或比较压缩算法时，在 Actions 中手动运行 **Release Windows**。也可使用：
+
+```powershell
+gh workflow run release-windows.yml --ref main -f compare_compression=true
+```
+
+手动运行执行完整测试、签名构建、运行时健康检查和安装卸载检查，产物只保留为 Actions artifacts，不创建或覆盖 GitHub Release。启用比较时，基于同一批已经编译的运行文件分别执行 LZMA 和 ZLIB 打包，不再次编译 Rust；结果保存在 `artifacts/release/nsis-benchmark.json`。对比实验的耗时应单独计算，不计作正常发布路径的耗时。
+
 ## 验证安装与卸载
 
 关闭正在运行的 TypeDance，并确认系统中没有已安装的 TypeDance，然后执行：
