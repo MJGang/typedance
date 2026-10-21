@@ -22,6 +22,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+          cache-on-failure: true
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -77,3 +82,18 @@ jobs:
             --repo $env:TYPEDANCE_UPDATE_REPOSITORY `
             --notes-file docs/release-notes.md `
             --title "TypeDance $version"
+
+      - name: Keep installer artifacts
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-installer-${{ github.run_id }}
+          path: |
+            artifacts/release/TypeDance_*_x64-setup.exe
+            artifacts/release/TypeDance_*_x64-setup.exe.sha256
+            artifacts/release/TypeDance_*_x64-setup.exe.sig
+            artifacts/release/latest.json
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: warn

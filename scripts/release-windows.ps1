@@ -60,6 +60,19 @@ function Assert-NoForbiddenReleaseInputs {
     }
 }
 
+function Get-ReleaseSha256 {
+    param([Parameter(Mandatory = $true)][string]$LiteralPath)
+
+    $stream = [System.IO.File]::OpenRead($LiteralPath)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return [BitConverter]::ToString($sha256.ComputeHash($stream)).Replace("-", "").ToLowerInvariant()
+    } finally {
+        $stream.Dispose()
+        $sha256.Dispose()
+    }
+}
+
 if ($env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
     throw "Windows x64 is required to build the NSIS release"
 }
@@ -142,7 +155,7 @@ if (-not (Test-Path -LiteralPath $signaturePath)) {
 }
 Copy-Item -LiteralPath $signaturePath -Destination "$artifactPath.sig" -Force
 
-$hash = (Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$hash = Get-ReleaseSha256 -LiteralPath $artifactPath
 $hashPath = "$artifactPath.sha256"
 Set-Content -LiteralPath $hashPath -Encoding ascii -NoNewline -Value "$hash  $artifactName`n"
 Invoke-Checked "node" @("scripts/release/write-update-manifest.mjs")
