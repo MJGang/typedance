@@ -56,3 +56,21 @@ jobs:
       - name: Verify change
         shell: pwsh
         run: node scripts/verify-change.mjs --base $env:VERIFY_BASE --head HEAD
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: github.ref == 'refs/heads/main' && steps.plan.outputs.runtime == 'true'
+
+      - name: Restore shared release Rust cache
+        if: github.ref == 'refs/heads/main' && steps.plan.outputs.runtime == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: typedance-windows-release
+          workspaces: apps/desktop/src-tauri -> target
+          cache-on-failure: true
+
+      - name: Test native release profile and warm default-branch cache
+        if: github.ref == 'refs/heads/main' && steps.plan.outputs.runtime == 'true'
+        shell: pwsh
+        env:
+          TYPEDANCE_UPDATE_REPOSITORY: ${{ vars.TYPEDANCE_UPDATE_REPOSITORY }}
+        run: pnpm release:rust-test

@@ -28,6 +28,7 @@
     },
     "windows": {
       "nsis": {
+        "compression": "zlib",
         "installMode": "currentUser",
         "languages": ["SimpChinese", "English"],
         "installerIcon": "icons/icon.ico"
