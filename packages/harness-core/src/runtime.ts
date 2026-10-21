@@ -19,7 +19,8 @@ import {
   type HarnessCapabilityPolicyInput,
   type HarnessResolvedCapabilityPolicy,
 } from "./plugin/plugin-registry";
-import { HarnessRunStore } from "./run/run-store";
+import { HarnessRunStore, isTerminalRunStatus } from "./run/run-store";
+import { cancellableStream, withRunSignal } from "./run/cancellation";
 import {
   HarnessSkillRegistry,
   type HarnessAgentSkillContext,
@@ -60,6 +61,8 @@ export class HarnessRuntime {
 
   #now: () => Date;
   #model?: HarnessModelAdapter;
+  #controllers = new Map<string, AbortController>();
+  #executing = new Set<string>();
 
   constructor(options: HarnessRuntimeOptions = {}) {
     this.#now = options.now ?? (() => new Date());
@@ -73,6 +76,7 @@ export class HarnessRuntime {
 
   createRun(request: HarnessRunRequest): HarnessRun {
     const run = this.runs.create(request);
+    this.#controllers.set(run.id, new AbortController());
     this.#appendEvent(run.id, {
       type: "run.started",
       capability_policy: run.capability_policy,
@@ -90,6 +94,11 @@ export class HarnessRuntime {
 
   getRun(runId: string): HarnessRun {
     return this.runs.get(runId);
+  }
+
+  getRunSignal(runId: string): AbortSignal {
+    this.runs.get(runId);
+    return this.#controllers.get(runId)!.signal;
   }
 
   streamEvents(runId: string, options: { afterSequence?: number } = {}): AsyncIterableIterator<HarnessRunEvent> {
@@ -213,24 +222,21 @@ export class HarnessRuntime {
   }
 
   completeRun(runId: string, output: Record<string, unknown> = {}): HarnessRunEvent {
-    this.runs.updateStatus(runId, "completed");
-    return this.#appendEvent(runId, {
+    return this.#finishRun(runId, "completed", {
       type: "run.completed",
       output,
     });
   }
 
   failRun(runId: string, error: { code: string; message: string; details?: Record<string, unknown> }): HarnessRunEvent {
-    this.runs.updateStatus(runId, "failed");
-    return this.#appendEvent(runId, {
+    return this.#finishRun(runId, "failed", {
       type: "run.failed",
       error,
     });
   }
 
   cancelRun(runId: string, reason?: string): HarnessRunEvent {
-    this.runs.updateStatus(runId, "canceled");
-    return this.#appendEvent(runId, {
+    return this.#finishRun(runId, "canceled", {
       type: "run.canceled",
       reason,
     });
@@ -249,14 +255,14 @@ export class HarnessRuntime {
         description: tool.description,
         inputSchema: tool.inputSchema,
         outputSchema: tool.outputSchema,
-        handler: (input) => registered.callTool(tool.name, input),
+        handler: (input, _call, context) => registered.callTool(tool.name, input, context),
       });
     }
     return registered;
   }
 
   async invokeTool(runId: string, input: HarnessToolCall): Promise<HarnessRuntimeToolResult> {
-    this.runs.get(runId);
+    this.#assertActive(runId);
     const call = this.tools.parseCall(input);
     const registration = this.tools.get(call.name);
     const requirement = registration.requiresPermission?.(call.input, call);
@@ -280,7 +286,7 @@ export class HarnessRuntime {
       tool_call: call,
     });
 
-    const result = await this.tools.invoke(call);
+    const result = await this.tools.invoke(call, { signal: this.getRunSignal(runId) });
     this.#appendEvent(runId, {
       type: "tool.call.completed",
       result: result.result,
@@ -351,15 +357,34 @@ export class HarnessRuntime {
     messages: HarnessModelMessage[];
     prompt?: HarnessPromptBundle;
   }): Promise<Record<string, unknown>> {
+    this.#assertActive(input.runId);
+    if (this.#executing.has(input.runId)) throw new Error(`Run is already executing: ${input.runId}`);
+    this.#executing.add(input.runId);
+    try {
+      return await this.#executeAgentTurn(input);
+    } catch (error) {
+      if (!isTerminalRunStatus(this.getRun(input.runId).status)) {
+        this.failRun(input.runId, { code: "agent_turn_failed", message: error instanceof Error ? error.message : "Agent turn failed" });
+      }
+      throw error;
+    } finally {
+      this.#executing.delete(input.runId);
+    }
+  }
+
+  async #executeAgentTurn(input: {
+    runId: string; agentId: string; model?: string; messages: HarnessModelMessage[]; prompt?: HarnessPromptBundle;
+  }): Promise<Record<string, unknown>> {
+    const signal = this.getRunSignal(input.runId);
     if (!this.#model) {
       throw new Error("Harness model adapter is not configured");
     }
 
     const policy = this.#resolveRunPolicy(input.runId);
-    const skillContext = await this.buildAgentSkillContext({
+    const skillContext = await withRunSignal(this.buildAgentSkillContext({
       policy,
       agentId: input.agentId,
-    });
+    }), signal);
     const availableTools = this.#modelVisibleTools(skillContext);
     const availableToolNames = availableTools.map((tool) => tool.name);
     const basePrompt = input.prompt ?? {
@@ -371,6 +396,7 @@ export class HarnessRuntime {
     const maxModelPasses = 8;
 
     for (let pass = 0; pass < maxModelPasses; pass += 1) {
+      this.#assertActive(input.runId);
       let assistantContent = "";
       const toolCalls: HarnessToolCall[] = [];
       let finalOutput: Record<string, unknown> | undefined;
@@ -382,6 +408,7 @@ export class HarnessRuntime {
             conversation: [...conversation],
           };
       const stream = this.#model.stream({
+        signal,
         runId: input.runId,
         capabilityPolicy: skillContext.policy,
         agentId: input.agentId,
@@ -391,7 +418,8 @@ export class HarnessRuntime {
         availableTools,
       });
 
-      for await (const event of stream) {
+      for await (const event of cancellableStream(stream, signal)) {
+        this.#assertActive(input.runId);
         if (event.type === "reasoning_summary_delta") {
           this.appendReasoningSummaryDelta(input.runId, event.summaryId, event.delta);
           continue;
@@ -418,11 +446,13 @@ export class HarnessRuntime {
           toolCalls,
         });
         for (const call of toolCalls) {
+          this.#assertActive(input.runId);
           const result = await this.invokeAgentTool({
             runId: input.runId,
             agentId: input.agentId,
             call,
           });
+          this.#assertActive(input.runId);
           if (result.status === "permission_required") {
             const error = {
               code: "agent_tool_permission_required",
@@ -446,6 +476,7 @@ export class HarnessRuntime {
       }
 
       const output = finalOutput ?? {};
+      this.#assertActive(input.runId);
       this.completeRun(input.runId, output);
       return output;
     }
@@ -509,6 +540,23 @@ export class HarnessRuntime {
 
   #resolveRunPolicy(runId: string): HarnessResolvedCapabilityPolicy {
     return normalizeContractCapabilityPolicy(this.runs.get(runId).capability_policy);
+  }
+
+  #assertActive(runId: string): void {
+    this.getRunSignal(runId).throwIfAborted();
+    if (isTerminalRunStatus(this.getRun(runId).status)) throw new Error(`Run has already ended: ${runId}`);
+  }
+
+  #finishRun(runId: string, status: "completed" | "failed" | "canceled", event: Record<string, unknown>): HarnessRunEvent {
+    if (isTerminalRunStatus(this.getRun(runId).status)) {
+      const terminal = this.events.get(runId).find((item) => item.type === "run.completed" || item.type === "run.failed" || item.type === "run.canceled");
+      if (!terminal) throw new Error(`Terminal event missing for run: ${runId}`);
+      return terminal;
+    }
+    this.runs.updateStatus(runId, status);
+    const terminal = this.#appendEvent(runId, event);
+    this.#controllers.get(runId)?.abort(new DOMException(typeof event.reason === "string" ? event.reason : `Run ${status}`, "AbortError"));
+    return terminal;
   }
 
   #modelVisibleToolNames(context: HarnessAgentSkillContext): string[] {

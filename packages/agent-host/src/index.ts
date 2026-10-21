@@ -1,7 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createLocalAccess, HttpError, readJson, type LocalAccessOptions } from "./local-access";
 import type { AddressInfo } from "node:net";
 import type { HarnessRun, HarnessRunEvent } from "@typedance/harness-contracts";
-import type { HarnessRuntime } from "@typedance/harness-core";
+import { withRunSignal, type HarnessRuntime } from "@typedance/harness-core";
 import {
   canvasMutationModeSchema,
   contextMentionSchema,
@@ -92,6 +93,7 @@ export class AgentHost {
   readonly store: AgentHostStore;
   #packs = new Map<string, AgentHostPackDefinition>();
   #runTasks = new Map<string, Promise<Record<string, unknown> | undefined>>();
+  #activeConversations = new Set<string>();
   #runtimeRunIds = new Map<string, string>();
   #subscribers = new Map<string, Set<(event: AgentRunEvent) => void>>();
   #defaultModel?: string;
@@ -165,11 +167,16 @@ export class AgentHost {
   }
 
   deleteConversation(conversationId: string): boolean {
+    if (this.#activeConversations.has(conversationId)) throw new HttpError(409, "conversation_run_active");
     return this.store.deleteConversation(conversationId);
   }
 
   listMessages(conversationId: string): AgentMessage[] {
     return this.store.listMessages(conversationId);
+  }
+
+  getConversationActiveRun(conversationId: string): AgentRun | null {
+    return this.store.listRuns(conversationId).find((run) => run.status === "running") ?? null;
   }
 
   getAgentRun(runId: string): AgentRun {
@@ -194,6 +201,7 @@ export class AgentHost {
     if (!conversation || conversation.workspace_id !== workspaceId) {
       throw new Error(`Unknown conversation for workspace: ${conversationId}`);
     }
+    if (this.#activeConversations.has(conversationId)) throw new HttpError(409, "conversation_run_active");
 
     const content = input.message.content.trim();
     if (!content) {
@@ -202,6 +210,7 @@ export class AgentHost {
 
     const timestamp = this.#timestamp();
     const mentions = (input.message.mentions ?? []).map((mention) => contextMentionSchema.parse(mention));
+    const mutationMode = canvasMutationModeSchema.parse(input.mutationMode ?? "review");
     const userMessage = this.store.appendMessage({
       message: {
         id: this.#messageId(),
@@ -222,7 +231,6 @@ export class AgentHost {
         created_at: timestamp,
       },
     });
-    const mutationMode = canvasMutationModeSchema.parse(input.mutationMode ?? "review");
     const model = input.model ?? this.#defaultModel;
     const context = {
       ...pack.defaultContext,
@@ -265,6 +273,7 @@ export class AgentHost {
       updated_at: timestamp,
     });
 
+    this.#activeConversations.add(conversationId);
     const projector = this.#projectHarnessEvents(harnessRun.id, agentRun.id, assistantMessage.id, conversationId);
     const task = this.#startAgentTurn(pack, harnessRun, conversationId, assistantMessage.id, content, mentions, model, context);
     const combinedTask = (async () => {
@@ -281,6 +290,7 @@ export class AgentHost {
     void combinedTask.finally(() => {
       this.#runTasks.delete(agentRun.id);
       this.#runtimeRunIds.delete(agentRun.id);
+      this.#activeConversations.delete(conversationId);
     });
     return agentRun;
   }
@@ -290,13 +300,17 @@ export class AgentHost {
   }
 
   cancelAgentRun(runId: string, reason?: string): HarnessRunEvent {
-    return this.runtime.cancelRun(this.#runtimeRunIds.get(runId) ?? runId, reason);
+    const run = this.getAgentRun(runId);
+    const runtimeRunId = this.#runtimeRunIds.get(runId);
+    if (!runtimeRunId || run.status !== "running") throw new HttpError(409, "agent_run_not_active");
+    return this.runtime.cancelRun(runtimeRunId, reason);
   }
 
   streamAgentRunEvents(runId: string, options: { afterSequence?: number } = {}): AsyncIterableIterator<AgentRunEvent> {
+    const run = this.getAgentRun(runId);
     const pending = this.store.listRunEvents(runId, options.afterSequence ?? -1);
     const waiting: Array<(value: IteratorResult<AgentRunEvent>) => void> = [];
-    let closed = false;
+    let closed = run.status !== "running";
 
     const subscriber = (event: AgentRunEvent) => {
       if (event.sequence <= (options.afterSequence ?? -1)) return;
@@ -309,8 +323,10 @@ export class AgentHost {
     };
 
     const subscribers = this.#subscribers.get(runId) ?? new Set<(event: AgentRunEvent) => void>();
-    subscribers.add(subscriber);
-    this.#subscribers.set(runId, subscribers);
+    if (!closed) {
+      subscribers.add(subscriber);
+      this.#subscribers.set(runId, subscribers);
+    }
 
     const close = () => {
       closed = true;
@@ -357,17 +373,21 @@ export class AgentHost {
     context: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
     try {
-      const messages = await this.#buildModelMessages(conversationId, assistantMessageId, mentions, userMessage, context);
-      const skillContext = await this.runtime.buildAgentSkillContext({
+      const signal = this.runtime.getRunSignal(run.id);
+      signal.throwIfAborted();
+      const { messages, contextItems } = await withRunSignal(this.#buildModelMessages(conversationId, assistantMessageId, mentions, userMessage, context, signal), signal);
+      signal.throwIfAborted();
+      const skillContext = await withRunSignal(this.runtime.buildAgentSkillContext({
         policy: {
           scopeIds: pack.capabilityPolicy.scopeIds ?? [],
           pluginIds: pack.capabilityPolicy.pluginIds ?? [],
         },
         agentId: pack.primaryAgentId,
-      });
+      }), signal);
       const prompt = buildAgentHostPromptBundle({
         messages,
         skillContext,
+        contextItems,
       });
       return await this.runtime.runAgentTurn({
         runId: run.id,
@@ -392,7 +412,8 @@ export class AgentHost {
     assistantMessageId: string,
     mentions: ContextMention[],
     userMessage: string,
-    context: Record<string, unknown>
+    context: Record<string, unknown>,
+    signal: AbortSignal
   ) {
     const history = this.store
       .listMessages(conversationId)
@@ -405,19 +426,10 @@ export class AgentHost {
     const contextInput = {
       workspaceId: String(context.workspace_id ?? ""),
       mentions,
+      signal,
     };
-    const contextBlocks = (await Promise.all([
-      this.#contextProvider?.loadWorkspaceContext?.(contextInput),
-      this.#contextProvider?.loadMentionedContext(contextInput),
-    ])).filter((block): block is string => Boolean(block));
-    const contextBlock = contextBlocks.join("\n\n");
-    if (!contextBlock) {
-      return history.length > 0 ? history : fallback;
-    }
-    return [
-      { role: "system" as const, content: contextBlock },
-      ...(history.length > 0 ? history : fallback),
-    ];
+    const contextItems = await this.#contextProvider?.loadContext(contextInput) ?? [];
+    return { messages: history.length > 0 ? history : fallback, contextItems };
   }
 
   async #projectHarnessEvents(
@@ -574,7 +586,7 @@ export function createAgentHost(options: AgentHostOptions): AgentHost {
   return new AgentHost(options);
 }
 
-export type AgentHostServerOptions = {
+export type AgentHostServerOptions = LocalAccessOptions & {
   host: AgentHost;
   modelSettings?: ModelSettingsService;
 };
@@ -592,11 +604,14 @@ type RouteContext = {
   request: IncomingMessage;
   response: ServerResponse;
   pathname: string;
+  authorize: ReturnType<typeof createLocalAccess>;
 };
 
 export function createAgentHostServer(options: AgentHostServerOptions): AgentHostHttpServer {
+  const authorize = createLocalAccess(options);
   const nodeServer = createServer((request, response) => {
     void handleRequest({
+      authorize,
       host: options.host,
       modelSettings: options.modelSettings,
       request,
@@ -632,20 +647,15 @@ export function createAgentHostServer(options: AgentHostServerOptions): AgentHos
 }
 
 async function handleRequest(context: RouteContext): Promise<void> {
-  setCorsHeaders(context.response);
-
-  if (context.request.method === "OPTIONS") {
-    context.response.writeHead(204).end();
-    return;
-  }
-
   try {
+    if (context.authorize(context.request, context.response, context.pathname)) return;
     const handled = await route(context);
     if (!handled) {
       writeJson(context.response, 404, { error: "not_found" });
     }
   } catch (error) {
     if (error instanceof HttpError) {
+      if (error.status === 413) context.response.setHeader("connection", "close");
       writeJson(context.response, error.status, { error: error.code });
       return;
     }
@@ -731,6 +741,12 @@ async function route(context: RouteContext): Promise<boolean> {
     return true;
   }
 
+  const activeRunMatch = /^\/conversations\/([^/]+)\/active-run$/.exec(pathname);
+  if (request.method === "GET" && activeRunMatch) {
+    writeJson(response, 200, host.getConversationActiveRun(decodeURIComponent(activeRunMatch[1] ?? "")));
+    return true;
+  }
+
   const conversationRunsMatch = /^\/workspaces\/([^/]+)\/conversations\/([^/]+)\/runs$/.exec(pathname);
   if (request.method === "POST" && conversationRunsMatch) {
     const body = await readJson(request);
@@ -772,8 +788,13 @@ async function route(context: RouteContext): Promise<boolean> {
 
   const agentRunCancelMatch = /^\/agent-runs\/([^/]+)\/cancel$/.exec(pathname);
   if (request.method === "POST" && agentRunCancelMatch) {
+    const runId = decodeURIComponent(agentRunCancelMatch[1] ?? "");
+    if (host.getAgentRun(runId).status !== "running") {
+      response.writeHead(204).end();
+      return true;
+    }
     const body = await readJson(request);
-    const event = host.cancelAgentRun(decodeURIComponent(agentRunCancelMatch[1] ?? ""), optionalString(body.reason));
+    const event = host.cancelAgentRun(runId, optionalString(body.reason));
     writeJson(response, 200, event);
     return true;
   }
@@ -830,6 +851,7 @@ async function streamAgentRunEvents(
   runId: string,
   afterSequence: number
 ): Promise<void> {
+  const stream = host.streamAgentRunEvents(runId, { afterSequence });
   response.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
     "cache-control": "no-cache, no-transform",
@@ -837,15 +859,16 @@ async function streamAgentRunEvents(
   });
   response.flushHeaders();
 
-  const stream = host.streamAgentRunEvents(runId, { afterSequence });
-  request.on("close", () => {
+  response.on("close", () => {
     void stream.return?.();
     response.destroy();
   });
 
   for await (const event of stream) {
-    response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    await writeStreamChunk(response, `id: ${event.sequence}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    if (event.type === "run_completed" || event.type === "run_failed" || event.type === "run_cancelled") break;
   }
+  response.end();
 }
 
 async function streamEvents(
@@ -863,33 +886,33 @@ async function streamEvents(
   response.flushHeaders();
 
   const stream = runtime.streamEvents(runId, { afterSequence });
-  request.on("close", () => {
+  response.on("close", () => {
     void stream.return?.();
     response.destroy();
   });
 
   for await (const event of stream) {
-    response.write(formatSseEvent(event));
+    await writeStreamChunk(response, formatSseEvent(event));
+    if (event.type === "run.completed" || event.type === "run.failed" || event.type === "run.canceled") break;
   }
+  response.end();
 }
 
 function formatSseEvent(event: HarnessRunEvent): string {
   return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
-function setCorsHeaders(response: ServerResponse): void {
-  response.setHeader("access-control-allow-origin", "*");
-  response.setHeader("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-  response.setHeader("access-control-allow-headers", "content-type");
-}
-
-class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-  ) {
-    super(code);
-  }
+function writeStreamChunk(response: ServerResponse, chunk: string): Promise<void> {
+  if (response.destroyed || response.write(chunk)) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      response.off("drain", done);
+      response.off("close", done);
+      resolve();
+    };
+    response.once("drain", done);
+    response.once("close", done);
+  });
 }
 
 function writeJson(response: ServerResponse, status: number, body: unknown): void {
@@ -897,31 +920,6 @@ function writeJson(response: ServerResponse, status: number, body: unknown): voi
   response.end(JSON.stringify(body));
 }
 
-function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    request.on("data", (chunk: Buffer) => chunks.push(chunk));
-    request.on("error", reject);
-    request.on("end", () => {
-      const text = Buffer.concat(chunks).toString("utf8").trim();
-      if (!text) {
-        resolve({});
-        return;
-      }
-
-      try {
-        const parsed = JSON.parse(text);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          resolve(parsed as Record<string, unknown>);
-          return;
-        }
-        reject(new Error("JSON body must be an object"));
-      } catch (error) {
-        reject(error);
-      }
-    });
-  });
-}
 
 function requiredString(value: unknown, field: string): string {
   if (typeof value === "string" && value.trim()) {

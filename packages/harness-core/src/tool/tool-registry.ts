@@ -9,7 +9,8 @@ import type { HarnessPermissionRequirement } from "../permission/permission-engi
 
 export type HarnessToolHandler = (
   input: Record<string, unknown>,
-  call: HarnessToolCall
+  call: HarnessToolCall,
+  context: { signal: AbortSignal }
 ) => Promise<unknown> | unknown;
 
 export type HarnessToolRegistration = {
@@ -67,7 +68,8 @@ export class HarnessToolRegistry {
     return harnessToolCallSchema.parse(input);
   }
 
-  async invoke(call: HarnessToolCall): Promise<HarnessToolInvocationResult> {
+  async invoke(call: HarnessToolCall, context = { signal: new AbortController().signal }): Promise<HarnessToolInvocationResult> {
+    context.signal.throwIfAborted();
     const parsedCall = this.parseCall(call);
     const registration = this.get(parsedCall.name);
 
@@ -76,7 +78,7 @@ export class HarnessToolRegistry {
     }
 
     try {
-      const output = await registration.handler(parsedCall.input, parsedCall);
+      const output = await registration.handler(parsedCall.input, parsedCall, context);
       const result = harnessToolResultSchema.parse({
         tool_call_id: parsedCall.id,
         status: "completed",

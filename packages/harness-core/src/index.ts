@@ -7,6 +7,7 @@ export * from "./plugin/plugin-file-loader";
 export * from "./plugin/plugin-installer";
 export * from "./plugin/plugin-registry";
 export * from "./run/run-store";
+export * from "./run/cancellation";
 export * from "./runtime";
 export * from "./skill/skill-registry";
 export * from "./tool/tool-registry";

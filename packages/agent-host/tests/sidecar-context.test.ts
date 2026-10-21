@@ -50,12 +50,12 @@ describe("sidecar context provider", () => {
       fetch: fetchMock as unknown as typeof fetch,
     });
 
-    const context = await provider.loadWorkspaceContext?.({ workspaceId: "doc_1", mentions: [] });
+    const context = await provider.loadContext({ workspaceId: "doc_1", mentions: [] });
 
-    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:4317/documents/doc_1/workspace-view");
-    expect(context).toContain("Current active resume canvas");
-    expect(context).toContain("刚铭俊");
-    expect(context).toContain("前端技术负责人 / 前端架构师 / AI 应用开发");
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:4317/documents/doc_1/workspace-view", { signal: undefined });
+    expect(context[0]?.content).toContain("Current active resume canvas");
+    expect(context[0]?.content).toContain("刚铭俊");
+    expect(context[0]?.content).toContain("前端技术负责人 / 前端架构师 / AI 应用开发");
   });
 
   it("returns explicit no-canvas context instead of silently omitting current document evidence", async () => {
@@ -65,10 +65,10 @@ describe("sidecar context provider", () => {
       fetch: fetchMock as unknown as typeof fetch,
     });
 
-    const context = await provider.loadWorkspaceContext?.({ workspaceId: "doc_missing", mentions: [] });
+    const context = await provider.loadContext({ workspaceId: "doc_missing", mentions: [] });
 
-    expect(context).toContain("Current active resume canvas: unavailable");
-    expect(context).toContain("document_id: doc_missing");
-    expect(context).toContain("Do not summarize, score, or rewrite the current document");
+    expect(context[0]?.content).toContain("Current active resume canvas: unavailable");
+    expect(context[0]?.content).toContain("document_id: doc_missing");
+    expect(context[0]?.content).toContain("Do not summarize, score, or rewrite the current document");
   });
 });

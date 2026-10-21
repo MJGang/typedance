@@ -6,6 +6,7 @@ import type { AgentMessage, ContextSource } from "@typedance/contracts"
 import { AgentChatPanel } from "./AgentChatPanel"
 
 const agentHostMocks = vi.hoisted(() => ({
+  getConversationActiveRun: vi.fn(),
   cancelAgentRun: vi.fn(),
   createWorkspaceConversation: vi.fn(),
   createAgentRunEventSource: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock("@assistant-ui/react", () => ({
 }))
 
 vi.mock("@/agentHost", () => ({
+  getConversationActiveRun: (...args: unknown[]) => agentHostMocks.getConversationActiveRun(...args),
   cancelAgentRun: (...args: unknown[]) => agentHostMocks.cancelAgentRun(...args),
   createWorkspaceConversation: (...args: unknown[]) => agentHostMocks.createWorkspaceConversation(...args),
   createAgentRunEventSource: (...args: unknown[]) => agentHostMocks.createAgentRunEventSource(...args),
@@ -113,8 +115,38 @@ function mockMessageListScroll(
 describe("AgentChatPanel", () => {
   beforeEach(() => {
     Object.values(agentHostMocks).forEach((mock) => mock.mockReset())
+    agentHostMocks.getConversationActiveRun.mockResolvedValue(null)
     agentHostMocks.listAgentRunEvents.mockResolvedValue([])
     agentHostMocks.createAgentRunEventSource.mockReturnValue(eventSourceStub())
+  })
+
+  it("restores an active run and treats a disconnected stream as reconnecting", async () => {
+    const events = controllableEventSource()
+    agentHostMocks.createAgentRunEventSource.mockReturnValue(events.source)
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage("", "active")])
+    agentHostMocks.getConversationActiveRun.mockResolvedValue({ id: "active", conversation_id: "conv_1", status: "running" })
+    render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
+    await waitFor(() => expect(agentHostMocks.createAgentRunEventSource).toHaveBeenCalledWith("active"))
+    act(() => events.source.onerror?.(new Event("error")))
+    expect(screen.getByRole("status")).toHaveTextContent("正在重连")
+    expect(screen.queryByText("处理失败")).not.toBeInTheDocument()
+    expect(events.source.close).not.toHaveBeenCalled()
+    act(() => events.dispatch("assistant_delta", { id: "resume", run_id: "active", sequence: 0, type: "assistant_delta", payload: { delta: "恢复后的回答" }, created_at: "2026-10-21T00:00:00.000Z" }))
+    expect(await screen.findByText("恢复后的回答")).toBeInTheDocument()
+  })
+
+  it("closes the previous subscription on conversation switch and ignores late events", async () => {
+    const events = controllableEventSource()
+    agentHostMocks.createAgentRunEventSource.mockReturnValue(events.source)
+    agentHostMocks.listConversationMessages.mockImplementation(async (id) => id === "conv_1" ? [assistantMessage("", "active")] : [])
+    agentHostMocks.getConversationActiveRun.mockImplementation(async (id) => id === "conv_1" ? { id: "active", status: "running" } : null)
+    const props = { workspaceId: "doc_1", contextSources: [], onConversationCreated: () => {} }
+    const view = render(<AgentChatPanel {...props} activeConversationId="conv_1" />)
+    await waitFor(() => expect(agentHostMocks.createAgentRunEventSource).toHaveBeenCalledWith("active"))
+    view.rerender(<AgentChatPanel {...props} activeConversationId="conv_2" />)
+    await waitFor(() => expect(events.source.close).toHaveBeenCalled())
+    act(() => events.dispatch("assistant_delta", { id: "late", run_id: "active", sequence: 0, type: "assistant_delta", payload: { delta: "旧会话迟到消息" }, created_at: "2026-10-21T00:00:00.000Z" }))
+    expect(screen.queryByText("旧会话迟到消息")).not.toBeInTheDocument()
   })
 
   it("shows the active conversation title in the chat header", async () => {

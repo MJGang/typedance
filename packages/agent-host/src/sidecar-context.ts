@@ -3,11 +3,19 @@ import { workspaceViewSchema, type ContextMention, type WorkspaceView } from "@t
 export type AgentHostContextProviderInput = {
   workspaceId: string;
   mentions: ContextMention[];
+  signal?: AbortSignal;
+};
+
+export type AgentHostContextItem = {
+  id: string;
+  kind: "workspace" | "mention" | "notice";
+  content: string;
+  sourceId?: string;
+  path?: string;
 };
 
 export type AgentHostContextProvider = {
-  loadWorkspaceContext?(input: AgentHostContextProviderInput): Promise<string | undefined>;
-  loadMentionedContext(input: AgentHostContextProviderInput): Promise<string | undefined>;
+  loadContext(input: AgentHostContextProviderInput): Promise<AgentHostContextItem[]>;
 };
 
 export type SidecarContextProviderOptions = {
@@ -41,49 +49,45 @@ export function createSidecarContextProvider(options: SidecarContextProviderOpti
   const maxSources = options.maxSources ?? 6;
   const maxCharactersPerSource = options.maxCharactersPerSource ?? 16000;
 
-  return {
-    async loadWorkspaceContext(input) {
-      if (!input.workspaceId) return undefined;
-
+  return { async loadContext(input) {
+    const mentions = dedupeMentions(input.mentions);
+    const selected = mentions.slice(0, maxSources);
+    const workspaceTask = (async (): Promise<AgentHostContextItem[]> => {
+      if (!input.workspaceId) return [];
+      let content: string;
       try {
-        const response = await fetchImpl(`${baseUrl}/documents/${encodeURIComponent(input.workspaceId)}/workspace-view`);
-        if (!response.ok) {
-          return formatUnavailableWorkspaceContext(input.workspaceId, `sidecar returned ${response.status}`);
-        }
-
-        const workspace = workspaceViewSchema.parse(await response.json());
-        return formatWorkspaceContext(workspace, maxCharactersPerSource)
-          ?? formatUnavailableWorkspaceContext(input.workspaceId, "workspace has no readable source resume canvas content");
+        const response = await fetchImpl(`${baseUrl}/documents/${encodeURIComponent(input.workspaceId)}/workspace-view`, { signal: input.signal });
+        content = response.ok
+          ? formatWorkspaceContext(workspaceViewSchema.parse(await response.json()), maxCharactersPerSource)
+            ?? formatUnavailableWorkspaceContext(input.workspaceId, "workspace has no readable source resume canvas content")
+          : formatUnavailableWorkspaceContext(input.workspaceId, `sidecar returned ${response.status}`);
       } catch (error) {
-        const reason = error instanceof Error ? error.message : "unknown error";
-        return formatUnavailableWorkspaceContext(input.workspaceId, reason);
+        input.signal?.throwIfAborted();
+        content = formatUnavailableWorkspaceContext(input.workspaceId, error instanceof Error ? error.message : "unknown error");
       }
-    },
-
-    async loadMentionedContext(input) {
-      const uniqueMentions = dedupeMentions(input.mentions).slice(0, maxSources);
-      if (uniqueMentions.length === 0) return undefined;
-
-      const blocks: string[] = [];
-      for (const mention of uniqueMentions) {
-        const url = new URL(`${baseUrl}/context-sources/${encodeURIComponent(mention.context_source_id)}/content`);
-        if (mention.target_path) url.searchParams.set("path", mention.target_path);
-        const response = await fetchImpl(url);
-        if (!response.ok) {
-          blocks.push(formatUnavailableContext(mention, response.status));
-          continue;
-        }
-
-        const content = await response.json() as ContextSourceContentResponse;
-        blocks.push(formatContextBlock(content, maxCharactersPerSource));
+      return [{ id: "workspace.current", kind: "workspace", sourceId: input.workspaceId, content }];
+    })();
+    const mentionTasks = selected.map(async (mention, index): Promise<AgentHostContextItem> => {
+      const url = new URL(`${baseUrl}/context-sources/${encodeURIComponent(mention.context_source_id)}/content`);
+      if (mention.target_path) url.searchParams.set("path", mention.target_path);
+      let content: string;
+      try {
+        const response = await fetchImpl(url, { signal: input.signal });
+        content = response.ok
+          ? formatContextBlock(await response.json() as ContextSourceContentResponse, maxCharactersPerSource)
+          : formatUnavailableContext(mention, response.status);
+      } catch (error) {
+        input.signal?.throwIfAborted();
+        content = `Mentioned context unavailable: ${mention.label}. ${error instanceof Error ? error.message : "Read failed"}`;
       }
-
-      return [
-        "User-mentioned read-only context sources:",
-        ...blocks,
-      ].join("\n\n");
-    },
-  };
+      return { id: `mention.${index}`, kind: "mention", sourceId: mention.context_source_id, path: mention.target_path ?? undefined, content };
+    });
+    const [workspace, loadedMentions] = await Promise.all([workspaceTask, Promise.all(mentionTasks)]);
+    return [...workspace, ...loadedMentions, ...(mentions.length > selected.length ? [{
+      id: "context.omitted", kind: "notice" as const,
+      content: `Context source limit: ${mentions.length - selected.length} mentioned sources were not loaded. Do not claim to have read them.`,
+    }] : [])];
+  } };
 }
 
 function formatWorkspaceContext(workspace: WorkspaceView, maxCharacters: number): string | undefined {

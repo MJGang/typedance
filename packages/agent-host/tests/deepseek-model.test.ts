@@ -241,6 +241,7 @@ function makeRequest(input: {
 }): HarnessModelRequest {
   const skillContext = input.skillContext ?? makeSkillContext({});
   return {
+    signal: new AbortController().signal,
     runId: input.runId,
     agentId: input.agentId,
     model: input.model,

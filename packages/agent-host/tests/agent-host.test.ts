@@ -7,6 +7,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createAgentHost, createAgentHostServer, createMemoryAgentHostStore, type AgentHostHttpServer } from "../src";
 import { createFileModelSettings } from "../src/model-settings";
 
+const authToken = "test-agent-host-token-01234567890123456789";
+const apiFetch: typeof fetch = (input, init = {}) => fetch(input, { ...init, headers: { authorization: `Bearer ${authToken}`, ...init.headers } });
+
 const servers: AgentHostHttpServer[] = [];
 const tempDirectories: string[] = [];
 
@@ -25,13 +28,13 @@ describe("agent host", () => {
       },
     });
     const host = createAgentHost({ runtime, packs: [] });
-    const server = createAgentHostServer({ host });
+    const server = createAgentHostServer({ authToken, host });
     servers.push(server);
     server.listen(0, "127.0.0.1");
     await once(server.nodeServer, "listening");
 
     for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE"]) {
-      const response = await fetch(`${server.url}/settings/model`, {
+      const response = await apiFetch(`${server.url}/settings/model`, {
         method: "OPTIONS",
         headers: {
           origin: "http://tauri.localhost",
@@ -41,7 +44,7 @@ describe("agent host", () => {
       });
 
       expect(response.status).toBe(204);
-      expect(response.headers.get("access-control-allow-origin")).toBe("*");
+      expect(response.headers.get("access-control-allow-origin")).toBe("http://tauri.localhost");
       expect(response.headers.get("access-control-allow-methods")?.split(",")).toContain(method);
       expect(response.headers.get("access-control-allow-headers")?.split(",")).toContain("content-type");
     }
@@ -59,17 +62,17 @@ describe("agent host", () => {
     const dataDir = await mkdtemp(join(tmpdir(), "typedance-agent-host-http-"));
     tempDirectories.push(dataDir);
     const modelSettings = createFileModelSettings(dataDir, {});
-    const server = createAgentHostServer({ host, modelSettings });
+    const server = createAgentHostServer({ authToken, host, modelSettings });
     servers.push(server);
     server.listen(0, "127.0.0.1");
     await once(server.nodeServer, "listening");
 
-    expect(await fetch(`${server.url}/health`).then((response) => response.json())).toEqual({
+    expect(await apiFetch(`${server.url}/health`).then((response) => response.json())).toEqual({
       status: "ok",
       service: "agent-host",
     });
 
-    const updated = await fetch(`${server.url}/settings/model`, {
+    const updated = await apiFetch(`${server.url}/settings/model`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -86,7 +89,7 @@ describe("agent host", () => {
       api_key: { configured: true, preview: "...a9f2" },
     });
 
-    const invalid = await fetch(`${server.url}/settings/model`, {
+    const invalid = await apiFetch(`${server.url}/settings/model`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ model: "", base_url: "not-a-url" }),
@@ -94,7 +97,7 @@ describe("agent host", () => {
     expect(invalid.status).toBe(400);
     expect(await invalid.json()).toEqual({ error: "invalid_model_settings" });
 
-    const cleared = await fetch(`${server.url}/settings/model/api-key`, { method: "DELETE" });
+    const cleared = await apiFetch(`${server.url}/settings/model/api-key`, { method: "DELETE" });
     expect(cleared.status).toBe(200);
     expect((await cleared.json()).api_key).toEqual({ configured: false, preview: null });
   });
@@ -139,7 +142,7 @@ describe("agent host", () => {
         },
       ],
       contextProvider: {
-        loadMentionedContext: async ({ mentions }) => `Context: ${mentions.map((mention) => mention.label).join(", ")}`,
+        loadContext: async ({ mentions }) => [{ id: "mention.0", kind: "mention", content: `Context: ${mentions.map((mention) => mention.label).join(", ")}` }],
       },
       now: (() => {
         let tick = 0;
@@ -174,7 +177,7 @@ describe("agent host", () => {
     expect("messages" in (seenRequests[0] ?? {})).toBe(false);
     expect(seenRequests[0]?.prompt.contextual[0]).toMatchObject({
       slot: "contextual",
-      source: "message.system",
+      source: "mention.0",
     });
     expect(seenRequests[0]?.prompt.contextual[0]?.content).toContain("Context:");
     expect(seenRequests[0]?.prompt.conversation).toEqual([
@@ -324,23 +327,23 @@ describe("agent host", () => {
         },
       ],
       contextProvider: {
-        loadWorkspaceContext: async () => [
+        loadContext: async () => [{ id: "workspace.current", kind: "workspace", content: [
           "Current active resume canvas:",
           "  document_id: doc_1",
           "  title: 刚铭俊",
           "  content:",
           "    刚铭俊",
           "    前端技术负责人 / 前端架构师 / AI 应用开发",
-        ].join("\n"),
-        loadMentionedContext: async () => undefined,
+        ].join("\n") }],
       },
     });
 
     const conversation = host.createConversation("doc_1");
-    host.startConversationRun("doc_1", conversation.id, {
+    const previousRun = host.startConversationRun("doc_1", conversation.id, {
       message: { content: "上一份是张择天的简历" },
       mutationMode: "suggest",
     });
+    await host.waitForRun(previousRun.id);
     const run = host.startConversationRun("doc_1", conversation.id, {
       message: { content: "检查这份简历质量" },
       mutationMode: "suggest",
@@ -657,16 +660,16 @@ describe("agent host", () => {
         },
       ],
     });
-    const server = createAgentHostServer({ host });
+    const server = createAgentHostServer({ authToken, host });
     servers.push(server);
     server.listen(0, "127.0.0.1");
     await once(server.nodeServer, "listening");
 
-    const created = await fetch(`${server.url}/workspaces/doc_1/conversations`, { method: "POST" });
+    const created = await apiFetch(`${server.url}/workspaces/doc_1/conversations`, { method: "POST" });
     expect(created.status).toBe(201);
     const conversation = await created.json();
 
-    const runResponse = await fetch(`${server.url}/workspaces/doc_1/conversations/${conversation.id}/runs`, {
+    const runResponse = await apiFetch(`${server.url}/workspaces/doc_1/conversations/${conversation.id}/runs`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -678,9 +681,9 @@ describe("agent host", () => {
     const run = await runResponse.json();
     await host.waitForRun(run.id);
 
-    const messages = await fetch(`${server.url}/conversations/${conversation.id}/messages`).then((response) => response.json());
+    const messages = await apiFetch(`${server.url}/conversations/${conversation.id}/messages`).then((response) => response.json());
     expect(messages[1].content).toBe("收到。");
-    const events = await fetch(`${server.url}/agent-runs/${run.id}/events`).then((response) => response.json());
+    const events = await apiFetch(`${server.url}/agent-runs/${run.id}/events`).then((response) => response.json());
     expect(events.some((event: { type: string }) => event.type === "assistant_delta")).toBe(true);
   });
 });
