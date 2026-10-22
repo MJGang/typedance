@@ -43,6 +43,7 @@ export function CanvasReferences({ editor, canvasVersion }: { editor: Editor | n
       getRevision: () => getState()?.revision ?? 0,
       track: (reference) => editor.view.dispatch(editor.state.tr.setMeta(referenceTrackerKey, { type: "add", reference })),
       untrack: (id) => editor.view.dispatch(editor.state.tr.setMeta(referenceTrackerKey, { type: "remove", id })),
+      setOrdinals: (ordinals) => editor.view.dispatch(editor.state.tr.setMeta(referenceTrackerKey, { type: "renumber", ordinals })),
       locate: (reference) => {
         if (reference.source.kind !== "canvas") return false
         const source = getState()?.references.find((item) => item.id === reference.id)?.source ?? reference.source

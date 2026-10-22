@@ -7,7 +7,7 @@ import type { CanvasReferenceSource, TrackedCanvasReference } from "./EditorRefe
 
 export type TrackedReference = TrackedCanvasReference & { text: string; ordinal: number }
 type ReferenceState = { revision: number; references: TrackedReference[] }
-type ReferenceAction = { type: "add"; reference: EditorReference } | { type: "remove"; id: string }
+type ReferenceAction = { type: "add"; reference: EditorReference } | { type: "remove"; id: string } | { type: "renumber"; ordinals: Pick<EditorReference, "id" | "ordinal">[] }
 export const referenceTrackerKey = new PluginKey<ReferenceState>("typedance-editor-references")
 
 export function referenceMatches(doc: ProseMirrorNode, source: CanvasReferenceSource, text: string): boolean {
@@ -34,6 +34,10 @@ export function updateReferenceState(transaction: Transaction, previous: Referen
       changed: !referenceMatches(transaction.doc, action.reference.source, action.reference.text),
     }]
   } else if (action?.type === "remove") references = references.filter((reference) => reference.id !== action.id)
+  else if (action?.type === "renumber") {
+    const ordinals = new Map(action.ordinals.map(({ id, ordinal }) => [id, ordinal]))
+    references = references.map((reference) => ({ ...reference, ordinal: ordinals.get(reference.id) ?? reference.ordinal }))
+  }
   return { revision, references }
 }
 
@@ -61,7 +65,7 @@ export const ReferenceTracker = Extension.create({
               number.textContent = String(reference.ordinal)
               marker.appendChild(number)
               return marker
-            }, { key: reference.id, side: -1 }),
+            }, { key: `${reference.id}:${reference.ordinal}`, side: -1 }),
           ]))
         },
       },
