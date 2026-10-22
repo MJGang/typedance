@@ -10,6 +10,7 @@ export type CanvasReferenceBridge = {
   getSnapshot: () => EditorSnapshot
   track: (reference: EditorReference) => void
   untrack: (id: string) => void
+  setOrdinals: (ordinals: Pick<EditorReference, "id" | "ordinal">[]) => void
   locate: (reference: EditorReference) => boolean
   apply: (reference: EditorReference, preview: TextEditPreview) => boolean
   undo: (previewId: string) => boolean
@@ -42,15 +43,27 @@ export function useEditorReferences() {
 export function EditorReferencesProvider({ documentId, children, onReferenceAdded }: { documentId: string; children: ReactNode; onReferenceAdded?: () => void }) {
   const [pending, setPending] = useState<PendingReference[]>([])
   const pendingRef = useRef(pending)
-  pendingRef.current = pending
   const known = useRef(new Map<string, PendingReference>())
-  const ordinal = useRef(0)
   const canvas = useRef<CanvasReferenceBridge | null>(null)
   const composerFocus = useRef<(() => void) | null>(null)
   const applications = useRef(new Map<string, number>())
   const onAdded = useRef(onReferenceAdded)
   onAdded.current = onReferenceAdded
 
+  const commitPending = useCallback((items: PendingReference[]) => {
+    const ordinals: Pick<EditorReference, "id" | "ordinal">[] = []
+    const next = items.map((item, index) => {
+      const latest = known.current.get(item.reference.id) ?? item
+      const ordinal = index + 1
+      if (latest.reference.source.kind === "canvas" && latest.reference.ordinal !== ordinal) ordinals.push({ id: latest.reference.id, ordinal })
+      const updated = { ...latest, reference: { ...latest.reference, ordinal } }
+      known.current.set(updated.reference.id, updated)
+      return updated
+    })
+    pendingRef.current = next
+    if (ordinals.length) canvas.current?.setOrdinals(ordinals)
+    setPending(next)
+  }, [])
   const registerCanvas = useCallback((bridge: CanvasReferenceBridge) => {
     canvas.current = bridge
     return () => { if (canvas.current === bridge) canvas.current = null }
@@ -62,14 +75,14 @@ export function EditorReferencesProvider({ documentId, children, onReferenceAdde
   }, [])
   const add = useCallback((input: Pick<EditorReference, "text" | "label" | "source" | "comment">) => {
     if (pendingRef.current.length >= 12) { toast.error("一次最多引用 12 处内容"); return }
-    const reference: EditorReference = { ...input, id: crypto.randomUUID(), ordinal: ++ordinal.current, document_id: documentId }
+    const reference: EditorReference = { ...input, id: crypto.randomUUID(), ordinal: pendingRef.current.length + 1, document_id: documentId }
     const item = { reference, changed: false }
     known.current.set(reference.id, item)
     if (reference.source.kind === "canvas") canvas.current?.track(reference)
-    setPending((current) => [...current, known.current.get(reference.id) ?? item])
+    commitPending([...pendingRef.current, known.current.get(reference.id) ?? item])
     onAdded.current?.()
     composerFocus.current?.()
-  }, [documentId])
+  }, [documentId, commitPending])
   const updateTracked = useCallback((tracked: TrackedCanvasReference[]) => {
     let changed = false
     for (const item of tracked) {
@@ -78,31 +91,31 @@ export function EditorReferencesProvider({ documentId, children, onReferenceAdde
       known.current.set(item.id, { reference: { ...existing.reference, source: item.source }, changed: item.changed })
       if (pendingRef.current.some((pendingItem) => pendingItem.reference.id === item.id && pendingItem.changed !== item.changed)) changed = true
     }
-    if (changed) setPending((current) => current.map((item) => known.current.get(item.reference.id) ?? item))
-  }, [])
+    if (changed) commitPending(pendingRef.current)
+  }, [commitPending])
   const editComment = useCallback((id: string, comment: string) => {
     const existing = known.current.get(id)
     if (!existing) return
     const next = { ...existing, reference: { ...existing.reference, comment } }
     known.current.set(id, next)
-    setPending((current) => current.map((item) => item.reference.id === id ? next : item))
-  }, [])
+    commitPending(pendingRef.current)
+  }, [commitPending])
   const remove = useCallback((id: string) => {
     canvas.current?.untrack(id)
     known.current.delete(id)
-    setPending((current) => current.filter((item) => item.reference.id !== id))
-  }, [])
+    commitPending(pendingRef.current.filter((item) => item.reference.id !== id))
+  }, [commitPending])
   const clear = useCallback(() => {
     for (const item of pendingRef.current) {
       canvas.current?.untrack(item.reference.id)
       known.current.delete(item.reference.id)
     }
-    setPending([])
-  }, [])
+    commitPending([])
+  }, [commitPending])
   const consume = useCallback((ids: string[]) => {
     const sentIds = new Set(ids)
-    setPending((current) => current.filter((item) => !sentIds.has(item.reference.id)))
-  }, [])
+    commitPending(pendingRef.current.filter((item) => !sentIds.has(item.reference.id)))
+  }, [commitPending])
   const getPayload = useCallback(() => {
     const references = pendingRef.current.map((item) => {
       const latest = known.current.get(item.reference.id) ?? item

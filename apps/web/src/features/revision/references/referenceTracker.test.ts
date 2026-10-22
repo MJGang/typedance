@@ -47,4 +47,13 @@ describe("reference anchors", () => {
     expect(referenceTrackerKey.getState(state)?.references[0]?.source.content_revision).toBe(1)
     expect(referenceTrackerKey.getState(state)?.references[0]?.changed).toBe(false)
   })
+  it("updates only the marker number, preserving its identity, anchor, stale flag and document revision", () => {
+    let state = setup()
+    state = state.apply(state.tr.insertText("新", 5, 6))
+    const before = referenceTrackerKey.getState(state)!
+    const next = state.apply(state.tr.setMeta(referenceTrackerKey, { type: "renumber", ordinals: [{ id: "ref", ordinal: 2 }] }))
+    expect(next.doc.eq(state.doc)).toBe(true)
+    expect(referenceTrackerKey.getState(next)).toEqual({ ...before, references: [{ ...before.references[0], ordinal: 2 }] })
+    expect(referenceTrackerKey.getState(next)?.references[0]?.changed).toBe(true)
+  })
 })
