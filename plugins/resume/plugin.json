@@ -18,7 +18,7 @@
       "instruction_files": [
         "skills/workspace.md"
       ],
-      "tool_names": []
+      "tool_names": ["resume.read"]
     },
     {
       "id": "resume.review",
@@ -27,7 +27,7 @@
       "instruction_files": [
         "skills/review.md"
       ],
-      "tool_names": []
+      "tool_names": ["resume.view_pages"]
     },
     {
       "id": "resume.revision",
@@ -53,6 +53,8 @@
         "resume.revision"
       ],
       "allowed_tool_names": [
+        "resume.read",
+        "resume.view_pages",
         "resume.propose_text_edit"
       ]
     },

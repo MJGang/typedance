@@ -8,6 +8,7 @@ import { toast } from "sonner"
 import { useEditorReferences, type CanvasReferenceBridge } from "./EditorReferences"
 import { referenceMatches, referenceTrackerKey } from "./referenceTracker"
 import { ReferenceSelectionPopover } from "./ReferenceSelectionPopover"
+import { prepareCanvasPrintSnapshot } from "../canvasPrintSnapshot"
 
 type CanvasSelection = Pick<EditorReference, "text" | "label" | "source"> & { rect: DOMRect; key: string }
 
@@ -38,8 +39,12 @@ export function CanvasReferences({ editor, canvasVersion }: { editor: Editor | n
     const getState = () => referenceTrackerKey.getState(editor.state)
     const appliedReferences = new Map<string, EditorReference>()
     const bridge: CanvasReferenceBridge = {
-      getSnapshot: () => ({ document_id: documentId, editor_session_id: sessionId.current, content_revision: getState()?.revision ?? 0,
-        canvas_version: version.current, doc_json: editor.getJSON(), plain_text: editor.getText({ blockSeparator: "\n" }) }),
+      getSnapshot: async () => {
+        const printSnapshot = await prepareCanvasPrintSnapshot(editor.view.dom)
+        if (editor.isDestroyed) throw new Error("编辑器已切换，请重新发送")
+        return { document_id: documentId, editor_session_id: sessionId.current, content_revision: getState()?.revision ?? 0,
+          canvas_version: version.current, doc_json: editor.getJSON(), plain_text: editor.getText({ blockSeparator: "\n" }), print_snapshot: printSnapshot }
+      },
       getRevision: () => getState()?.revision ?? 0,
       track: (reference) => editor.view.dispatch(editor.state.tr.setMeta(referenceTrackerKey, { type: "add", reference })),
       untrack: (id) => editor.view.dispatch(editor.state.tr.setMeta(referenceTrackerKey, { type: "remove", id })),

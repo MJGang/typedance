@@ -41,7 +41,7 @@ describe("resume plugin registration", () => {
 
     const plugins = runtime.resolvePluginsForPolicy({ scopeIds: ["pack:resume"] });
     expect(plugins.map((plugin) => plugin.id)).toEqual(["resume.agent"]);
-    expect(plugins[0]?.skills.flatMap((skill) => skill.tool_names)).toEqual(["resume.propose_text_edit"]);
+    expect(plugins[0]?.skills.flatMap((skill) => skill.tool_names)).toEqual(["resume.read", "resume.view_pages", "resume.propose_text_edit"]);
     expect(plugins[0]?.mcp_servers).toEqual([]);
     expect(plugins[0]?.permissions).toEqual([]);
 

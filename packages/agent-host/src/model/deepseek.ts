@@ -5,6 +5,7 @@ import type {
   HarnessModelRequest,
   HarnessModelStreamEvent,
   HarnessModelUsage,
+  HarnessModelContent,
 } from "@typedance/harness-core";
 import { renderAgentHostPromptSections } from "../prompt";
 
@@ -72,9 +73,10 @@ type DeepSeekToolCallDelta = {
 
 type DeepSeekMessage =
   | {
-      role: "system" | "user";
+      role: "system";
       content: string;
     }
+  | { role: "user"; content: DeepSeekContent }
   | {
       role: "assistant";
       content: string | null;
@@ -83,8 +85,15 @@ type DeepSeekMessage =
   | {
       role: "tool";
       tool_call_id: string;
-      content: string;
+      content: DeepSeekContent;
     };
+
+type DeepSeekContent = string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail?: string } }>;
+
+function toDeepSeekContent(content: HarnessModelContent): DeepSeekContent {
+  return typeof content === "string" ? content : content.map((part) => part.type === "text"
+    ? part : { type: "image_url", image_url: { url: part.image_url, ...(part.detail ? { detail: part.detail } : {}) } });
+}
 
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 
@@ -230,7 +239,7 @@ function toDeepSeekMessage(message: HarnessModelMessage, toolNameMap: ProviderTo
     return {
       role: "tool",
       tool_call_id: message.toolCallId,
-      content: message.content,
+      content: toDeepSeekContent(message.content),
     };
   }
   if (message.role === "assistant") {
@@ -248,10 +257,9 @@ function toDeepSeekMessage(message: HarnessModelMessage, toolNameMap: ProviderTo
       ...(toolCalls && toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
     };
   }
-  return {
-    role: message.role,
-    content: message.content,
-  };
+  return message.role === "user"
+    ? { role: "user", content: toDeepSeekContent(message.content) }
+    : { role: "system", content: message.content };
 }
 
 type ProviderToolNameMap = {

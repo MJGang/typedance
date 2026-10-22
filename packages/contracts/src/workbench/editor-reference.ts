@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { canvasPrintSnapshotSchema } from "../revision/canvas-print";
 
 export const editorReferenceSourceSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -32,6 +33,7 @@ export const editorSnapshotSchema = z.object({
   canvas_version: z.number().int().positive(),
   doc_json: z.record(z.unknown()),
   plain_text: z.string().max(120_000),
+  print_snapshot: canvasPrintSnapshotSchema.optional(),
 });
 
 export const textEditPreviewSchema = z.object({

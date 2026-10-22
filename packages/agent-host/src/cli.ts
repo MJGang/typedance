@@ -20,6 +20,7 @@ import {
 } from "./resume-plugin";
 import { createSidecarContextProvider } from "./sidecar-context";
 import { createSidecarTextEditPreviewer } from "./text-edit";
+import { createSidecarPageReader } from "./resume-tools";
 import { createLangfuseTelemetry } from "./observability/langfuse";
 
 async function main(): Promise<void> {
@@ -57,7 +58,11 @@ async function main(): Promise<void> {
     runtime,
     defaultModel: model,
     contextProvider: createSidecarContextProvider({ baseUrl: sidecarUrl }),
-    textEditPreviewer: createSidecarTextEditPreviewer(sidecarUrl),
+    resumeTools: {
+      textEditPreviewer: createSidecarTextEditPreviewer(sidecarUrl),
+      pageReader: createSidecarPageReader(sidecarUrl),
+      supportsImages: async (requestedModel) => (requestedModel || model || (await modelSettings.resolve()).model) === "deepseek-flash",
+    },
     store: createJsonFileAgentHostStore(storeFile),
     packs: [
       {

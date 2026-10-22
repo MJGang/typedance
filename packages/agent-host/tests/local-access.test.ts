@@ -32,7 +32,7 @@ describe("local service access", () => {
     const url = await start();
     const { token } = await fetch(`${url}/session`, { headers: { origin: "http://127.0.0.1:5173" } }).then((r) => r.json());
     const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
-    expect((await fetch(`${url}/workspaces/ws/conversations`, { method: "POST", headers, body: "x".repeat(1_048_577) })).status).toBe(413);
+    expect((await fetch(`${url}/workspaces/ws/conversations`, { method: "POST", headers, body: "x".repeat(8_388_609) })).status).toBe(413);
     expect((await fetch(`${url}/workspaces/ws/conversations`, { method: "POST", headers, body: "{" })).status).toBe(400);
     expect(await fetch(`${url}/workspaces/ws/conversations`, { headers }).then((r) => r.json())).toEqual([]);
   });

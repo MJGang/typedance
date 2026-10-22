@@ -165,7 +165,7 @@ export function createAgentHostPromptDebugSnapshot(prompt: HarnessPromptBundle):
     contextual: prompt.contextual.map(toDebugSection),
     conversation: prompt.conversation.map((message) => ({
       role: message.role,
-      contentChars: message.content.length,
+      contentChars: typeof message.content === "string" ? message.content.length : message.content.reduce((sum, part) => sum + (part.type === "text" ? part.text.length : 0), 0),
     })),
   };
 }

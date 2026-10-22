@@ -20,7 +20,8 @@ import {
   type EditorReference,
   type EditorSnapshot,
 } from "@typedance/contracts";
-import { formatReferencedMessage, TEXT_EDIT_TOOL_NAME, type TextEditPreviewer } from "./text-edit";
+import { formatReferencedMessage } from "./text-edit";
+import { registerResumeTools, type ResumeToolServices } from "./resume-tools";
 import {
   createMemoryAgentHostStore,
   type AgentHostStore,
@@ -93,7 +94,7 @@ export type AgentHostOptions = {
   store?: AgentHostStore;
   defaultModel?: string;
   contextProvider?: AgentHostContextProvider;
-  textEditPreviewer?: TextEditPreviewer;
+  resumeTools?: ResumeToolServices;
   now?: () => Date;
 };
 
@@ -108,7 +109,7 @@ export class AgentHost {
   #defaultModel?: string;
   #contextProvider?: AgentHostContextProvider;
   #now: () => Date;
-  #editorTurns = new WeakMap<AbortSignal, { snapshot: EditorSnapshot; references: EditorReference[] }>();
+  #resumeTools?: ReturnType<typeof registerResumeTools>;
 
   constructor(options: AgentHostOptions) {
     this.runtime = options.runtime;
@@ -116,34 +117,7 @@ export class AgentHost {
     this.#defaultModel = options.defaultModel;
     this.#contextProvider = options.contextProvider;
     this.#now = options.now ?? (() => new Date());
-    if (options.textEditPreviewer) {
-      const previewer = options.textEditPreviewer;
-      this.runtime.registerTool({
-        name: TEXT_EDIT_TOOL_NAME,
-        origin: "plugin",
-        description: "Prepare a reviewable plain-text replacement for one explicitly quoted canvas reference. This only creates a preview; it does not modify or save the document. Preserve all user facts.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            reference_id: { type: "string", description: "The exact reference ID supplied in the user's message." },
-            replacement: { type: "string", maxLength: 4000, description: "Complete replacement text for that quoted selection, without Markdown formatting." },
-            summary: { type: "string", maxLength: 500, description: "Short explanation of the proposed change." },
-          },
-          required: ["reference_id", "replacement", "summary"],
-          additionalProperties: false,
-        },
-        handler: async (input, _call, { signal }) => {
-          const editing = this.#editorTurns.get(signal);
-          if (!editing) throw new Error("没有当前编辑器快照，请重新引用文字后发送。");
-          const reference = editing.references.find((item) => item.id === input.reference_id);
-          if (!reference || reference.source.kind !== "canvas") throw new Error("请选择当前简历中的引用，聊天文字不能直接应用到文档。");
-          if (typeof input.replacement !== "string" || input.replacement.length > 4000 || typeof input.summary !== "string" || input.summary.length > 500) {
-            throw new Error("修改内容格式无效。");
-          }
-          return previewer({ snapshot: editing.snapshot, reference, replacement: input.replacement, summary: input.summary, signal });
-        },
-      });
-    }
+    if (options.resumeTools) this.#resumeTools = registerResumeTools(this.runtime, options.resumeTools);
     for (const pack of options.packs) {
       if (this.#packs.has(pack.id)) {
         throw new Error(`Duplicate agent host pack: ${pack.id}`);
@@ -447,7 +421,7 @@ export class AgentHost {
     const signal = this.runtime.getRunSignal(run.id);
     try {
       const editorSnapshot = context.editor_snapshot as EditorSnapshot | undefined;
-      if (editorSnapshot) this.#editorTurns.set(signal, { snapshot: editorSnapshot, references: context.references as EditorReference[] });
+      if (editorSnapshot) this.#resumeTools?.enter(signal, { snapshot: editorSnapshot, references: context.references as EditorReference[], model });
       signal.throwIfAborted();
       const { messages, contextItems } = await withRunSignal(this.#buildModelMessages(conversationId, assistantMessageId, mentions, userMessage, context, signal), signal);
       signal.throwIfAborted();
@@ -479,7 +453,7 @@ export class AgentHost {
       }
       throw error;
     } finally {
-      this.#editorTurns.delete(signal);
+      this.#resumeTools?.leave(signal);
     }
   }
 
