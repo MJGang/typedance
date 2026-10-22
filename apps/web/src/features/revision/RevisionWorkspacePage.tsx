@@ -18,6 +18,7 @@ import {
 } from "@/api"
 import { updateWorkspaceConversation } from "@/agentHost"
 import { AgentChatPanel } from "./AgentChatPanel"
+import { EditorReferencesProvider } from "./references/EditorReferences"
 import { DraftCanvas, type CanvasPatchFlash } from "./DraftCanvas"
 import { PanelResizeHandle } from "./PanelResizeHandle"
 import { prepareCanvasPrintSnapshot } from "./canvasPrintSnapshot"
@@ -96,6 +97,13 @@ async function fetchWorkspaceData(documentId: string) {
 }
 
 export function RevisionWorkspacePage() {
+  const { documentId } = useParams<{ documentId: string }>()
+  const { setAssistantPanelVisible } = useOutletContext<RevisionWorkspaceChromeContext>()
+  const showAssistant = useCallback(() => setAssistantPanelVisible?.(true), [setAssistantPanelVisible])
+  return <EditorReferencesProvider key={documentId} documentId={documentId ?? ""} onReferenceAdded={showAssistant}><RevisionWorkspaceContent /></EditorReferencesProvider>
+}
+
+function RevisionWorkspaceContent() {
   const { documentId } = useParams<{ documentId: string }>()
   const chromeContext = useOutletContext<RevisionWorkspaceChromeContext>()
   const { assistantPanelVisible, setAssistantPanelVisible, workbenchSidebarVisible, panels } = chromeContext

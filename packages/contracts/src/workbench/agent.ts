@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isoDateTimeSchema } from "../shared";
+import { editorReferencesSchema } from "./editor-reference";
 
 export const canvasMutationModeSchema = z.enum(["suggest", "review", "solo"]);
 
@@ -59,6 +60,7 @@ export const agentMessageSchema = z.object({
   role: agentMessageRoleSchema,
   content: z.string().default(""),
   mentions: z.array(contextMentionSchema).default([]),
+  references: editorReferencesSchema.optional(),
   run_id: z.string().min(1).optional(),
   created_at: isoDateTimeSchema,
 });
@@ -86,6 +88,7 @@ export const agentRunEventTypeSchema = z.enum([
   "tool_call_failed",
   "canvas_patch_proposed",
   "canvas_patch_applied",
+  "text_edit_decision",
   "run_completed",
   "run_failed",
   "run_cancelled",

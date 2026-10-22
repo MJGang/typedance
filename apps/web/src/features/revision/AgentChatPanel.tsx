@@ -7,6 +7,10 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+import { useEditorReferences } from "./references/EditorReferences"
+import { ReferenceComposer, MessageReferences } from "./references/ReferenceComposer"
+import { MessageReferenceSelection } from "./references/MessageReferenceSelection"
+import { TextEditPreviewCard, textEditPreviews } from "./references/TextEditPreviewCard"
 import {
   cancelAgentRun,
   createWorkspaceConversation,
@@ -56,6 +60,7 @@ const streamedEventTypes: AgentRunEvent["type"][] = [
   "tool_call_failed",
   "canvas_patch_proposed",
   "canvas_patch_applied",
+  "text_edit_decision",
   "run_completed",
   "run_failed",
   "run_cancelled",
@@ -166,6 +171,8 @@ function AgentChatContent({
   onCanvasPatchApplied,
   onHide,
 }: AgentChatPanelProps) {
+  const editorReferences = useEditorReferences()
+  const registerComposer = editorReferences?.registerComposer
   const [messages, setMessages] = useState<AgentMessage[]>([])
   const [runEvents, setRunEvents] = useState<Record<string, AgentRunEvent[]>>({})
   const [runningRunId, setRunningRunId] = useState<string | null>(null)
@@ -178,6 +185,7 @@ function AgentChatContent({
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(() => new Set())
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const composerRef = useRef<HTMLDivElement>(null)
+  useEffect(() => registerComposer?.(() => composerRef.current?.focus()), [registerComposer])
   const messageListRef = useRef<HTMLDivElement>(null)
   const shouldFollowLatestRef = useRef(true)
   const knownRunEventIdsRef = useRef<Set<string>>(new Set())
@@ -372,11 +380,12 @@ function AgentChatContent({
   }, [workspaceId, activeConversationId, loadMessages, subscribeRun])
 
   const handleSend = useCallback(async () => {
-    const content = input.trim()
+    const content = input.trim() || (editorReferences?.pending.length ? "请按每处引用的修改要求处理。" : "")
     if (!content || runningRunId || pendingSendRef.current) return
     const pending = { workspaceId, expectedConversationId: activeConversationId, createdConversationId: undefined as string | undefined, invalidated: false }
     pendingSendRef.current = pending
     try {
+      const editorPayload = editorReferences?.getPayload()
       let conversationId = activeConversationId
       if (!conversationId) {
         const conversation = await createWorkspaceConversation(workspaceId)
@@ -390,11 +399,13 @@ function AgentChatContent({
         conversationId,
         content,
         mentions,
+        ...(editorPayload?.references.length ? { references: editorPayload.references } : {}),
         model,
         mutationMode,
-        context: { document_id: workspaceId },
+        context: { document_id: workspaceId, ...(editorPayload?.snapshot ? { editor_snapshot: editorPayload.snapshot } : {}) },
       })
       if (pending.invalidated) return
+      editorReferences?.consume(editorPayload?.references.map((reference) => reference.id) ?? [])
       setInput("")
       setMentions([])
       setMentionQuery(null)
@@ -403,12 +414,12 @@ function AgentChatContent({
       if (pending.invalidated) return
       onConversationUpdated?.()
       subscribeRun(run, conversationId)
-    } catch {
-      toast.error("发送失败")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "发送失败")
     } finally {
       if (pendingSendRef.current === pending) pendingSendRef.current = null
     }
-  }, [activeConversationId, input, loadMessages, mentions, model, mutationMode, onConversationCreated, onConversationUpdated, runningRunId, subscribeRun, workspaceId])
+  }, [activeConversationId, input, loadMessages, mentions, model, mutationMode, onConversationCreated, onConversationUpdated, runningRunId, subscribeRun, workspaceId, editorReferences])
 
   const handleCancelRun = useCallback(async () => {
     if (!runningRunId) return
@@ -507,6 +518,7 @@ function AgentChatContent({
 
       <div data-testid="agent-chat-composer-region" className="shrink-0 p-3">
         <div className="rounded-2xl border border-border bg-background shadow-sm">
+          <ReferenceComposer />
           <div className="relative min-h-24">
             <div
               ref={composerRef}
@@ -580,7 +592,7 @@ function AgentChatContent({
                   }
                   void handleSend()
                 }}
-                disabled={!runningRunId && !input.trim()}
+                disabled={!runningRunId && !input.trim() && !editorReferences?.pending.length}
               >
                 {runningRunId ? <Square className="size-3.5 fill-current" /> : <ArrowUp className="size-5" />}
               </Button>
@@ -647,9 +659,11 @@ function ChatMessage({
   const showTraceToggle = isAssistant && !!message.run_id && statusLabel !== null
   const traceOpen = showTraceToggle && expanded
   const hasConclusion = isAssistant && message.content.trim().length > 0
+  const previews = useMemo(() => textEditPreviews(orderedEvents), [orderedEvents])
 
   return (
-    <article className={cn("space-y-3", message.role === "user" && "rounded-lg bg-muted/60 p-3")}>
+    <article data-agent-message-id={message.id} className={cn("space-y-3", message.role === "user" && "rounded-lg bg-muted/60 p-3")}>
+      <MessageReferences references={message.references} />
       {showTraceToggle ? (
         <button
           type="button"
@@ -678,14 +692,15 @@ function ChatMessage({
             <HighlightedMessageText text={message.content} mentions={message.mentions} />
           </p>
         ) : (
-          <>
+          <MessageReferenceSelection messageId={message.id}>
             {hasConclusion ? <p className="mb-2 text-sm font-semibold text-foreground">结论</p> : null}
             <ReactMarkdown skipHtml remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
               {message.content}
             </ReactMarkdown>
-          </>
+          </MessageReferenceSelection>
         )}
       </div>
+      {message.run_id ? previews.map((preview) => <TextEditPreviewCard key={preview.id} preview={preview} runId={message.run_id!} events={orderedEvents} />) : null}
     </article>
   )
 }
