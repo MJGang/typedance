@@ -385,7 +385,8 @@ function AgentChatContent({
     const pending = { workspaceId, expectedConversationId: activeConversationId, createdConversationId: undefined as string | undefined, invalidated: false }
     pendingSendRef.current = pending
     try {
-      const editorPayload = editorReferences?.getPayload()
+      const editorPayload = await editorReferences?.getPayload()
+      if (pending.invalidated) return
       let conversationId = activeConversationId
       if (!conversationId) {
         const conversation = await createWorkspaceConversation(workspaceId)
@@ -810,7 +811,7 @@ function buildRunTraceItems(events: AgentRunEvent[], options: { includeRawThinki
       items.push({
         id: event.id,
         kind: "tool",
-        label: getRecordString(toolCall, "name") || "tool",
+        label: toolLabel(getRecordString(toolCall, "name")),
         detail: summarizeRecord(getRecord(toolCall, "input")),
         status: "running",
       })
@@ -826,7 +827,7 @@ function buildRunTraceItems(events: AgentRunEvent[], options: { includeRawThinki
       const completedItem: RunTraceItem = {
         id: start?.id ?? event.id,
         kind: "tool",
-        label: getRecordString(startedTool, "name") || toolCallId || "tool",
+        label: toolLabel(getRecordString(startedTool, "name") || toolCallId),
         detail: summarizeToolResult(result),
         durationMs: start ? Date.parse(event.created_at) - Date.parse(start.created_at) : undefined,
         status,
@@ -1167,7 +1168,17 @@ function summarizeToolResult(result: Record<string, unknown> | undefined): strin
   if (error) {
     return getRecordString(error, "message") ?? "工具调用失败"
   }
+  const output = getRecord(result.output)
+  if (output?.kind === "canvas_pages" && Array.isArray(output.pages)) {
+    return `已查看第 ${output.pages.map((page) => getRecord(page)?.page).join("、")} 页，共 ${output.page_count} 页`
+  }
+  if (output?.kind === "resume_text") return `已读取 ${typeof output.text === "string" ? output.text.length : 0} 字`
   return summarizeRecord(result.output)
+}
+
+function toolLabel(name: string | undefined): string {
+  const labels: Record<string, string> = { "resume.read": "读取简历内容", "resume.view_pages": "查看简历页面", "resume.propose_text_edit": "准备文字修改预览" }
+  return (name && labels[name]) || name || "工具"
 }
 
 function summarizeRecord(value: unknown): string | undefined {

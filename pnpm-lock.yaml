@@ -220,6 +220,9 @@ importers:
       '@typedance/harness-core':
         specifier: workspace:*
         version: link:../harness-core
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
     devDependencies:
       '@types/node':
         specifier: ^24.12.3

@@ -42,7 +42,8 @@ describe("editor references", () => {
       const contextFetch = vi.fn<typeof fetch>();
       const prepare = vi.fn(async () => preview);
       const host = createAgentHost({ runtime, packs: [{ id: "resume", capabilityPolicy: { scopeIds: ["pack:resume"] }, primaryAgentId: "resume.primary" }],
-        store: createJsonFileAgentHostStore(file), contextProvider: createSidecarContextProvider({ fetch: contextFetch }), textEditPreviewer: prepare });
+        store: createJsonFileAgentHostStore(file), contextProvider: createSidecarContextProvider({ fetch: contextFetch }),
+        resumeTools: { textEditPreviewer: prepare, pageReader: vi.fn(), supportsImages: () => true } });
       const conversation = host.createConversation("doc_1");
       const run = host.startConversationRun("doc_1", conversation.id, { message: { content: "请处理引用", references: [reference] }, context: { editor_snapshot: snapshot } });
       await host.waitForRun(run.id);

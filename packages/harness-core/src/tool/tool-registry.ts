@@ -4,8 +4,14 @@ import {
   type HarnessToolCall,
   type HarnessToolOrigin,
   type HarnessToolResult,
+  type HarnessContentPart,
 } from "@typedance/harness-contracts";
 import type { HarnessPermissionRequirement } from "../permission/permission-engine";
+
+/** 工具可单独返回可记录的元数据与仅供模型读取的多模态内容。 */
+export class HarnessToolOutput {
+  constructor(readonly output: unknown, readonly content: HarnessContentPart[]) {}
+}
 
 export type HarnessToolHandler = (
   input: Record<string, unknown>,
@@ -82,7 +88,8 @@ export class HarnessToolRegistry {
       const result = harnessToolResultSchema.parse({
         tool_call_id: parsedCall.id,
         status: "completed",
-        output,
+        output: output instanceof HarnessToolOutput ? output.output : output,
+        ...(output instanceof HarnessToolOutput ? { content: output.content } : {}),
       });
       return { status: "completed", result };
     } catch (error) {

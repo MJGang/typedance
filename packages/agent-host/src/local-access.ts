@@ -46,24 +46,21 @@ export function createLocalAccess(options: LocalAccessOptions) {
 }
 
 export function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
-  const limit = 1_048_576;
-  if (Number(request.headers["content-length"] ?? 0) > limit) {
-    request.resume();
-    return Promise.reject(new HttpError(413, "request_too_large"));
-  }
+  const limit = 8_388_608;
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let bytes = 0;
-    let exceeded = false;
+    let exceeded = Number(request.headers["content-length"] ?? 0) > limit;
     request.on("data", (chunk: Buffer) => {
       bytes += chunk.length;
       if (bytes > limit) {
-        if (!exceeded) { exceeded = true; chunks.length = 0; reject(new HttpError(413, "request_too_large")); }
+        if (!exceeded) { exceeded = true; chunks.length = 0; }
       } else if (!exceeded) chunks.push(chunk);
     });
     request.on("error", reject);
     request.on("end", () => {
-      if (exceeded) return;
+      // 排空请求再返回 413，避免客户端仍上传时连接被关闭而得到 ECONNRESET。
+      if (exceeded) { reject(new HttpError(413, "request_too_large")); return; }
       try {
         const text = Buffer.concat(chunks).toString("utf8").trim();
         const value: unknown = text ? JSON.parse(text) : {};

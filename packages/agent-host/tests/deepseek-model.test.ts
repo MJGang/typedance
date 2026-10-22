@@ -10,18 +10,30 @@ import {
 import { buildAgentHostPromptBundle } from "../src/prompt";
 
 describe("DeepSeek model adapter", () => {
+  it("sends tool images as real provider image parts with their call ID", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(sse("data: [DONE]\n\n")));
+    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-flash" }), fetch: fetchMock });
+    await drain(adapter.stream(makeRequest({ runId: "images", agentId: "agent", messages: [
+      { role: "assistant", content: "", toolCalls: [{ id: "call", name: "view", origin: "plugin", input: {} }] },
+      { role: "tool", toolCallId: "call", toolName: "view", content: [{ type: "text", text: "page 2" }, { type: "image", image_url: "data:image/png;base64,aGVsbG8=", detail: "high" }] },
+    ] })));
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.messages.at(-1)).toEqual({ role: "tool", tool_call_id: "call", content: [
+      { type: "text", text: "page 2" }, { type: "image_url", image_url: { url: "data:image/png;base64,aGVsbG8=", detail: "high" } },
+    ] });
+  });
   it("resolves credentials when each run starts", async () => {
-    let apiKey: string | undefined;
+    const credentials: { apiKey: string | undefined } = { apiKey: undefined };
     const fetchMock = vi.fn(async () => new Response(sse("data: [DONE]\n\n"), { status: 200 }));
     const adapter = createDeepSeekModelAdapter({
       resolveSettings: async () => ({
-        apiKey,
+        apiKey: credentials.apiKey,
         baseUrl: "https://api.deepseek.com",
         defaultModel: "deepseek-v4-flash",
       }),
       fetch: fetchMock as unknown as typeof fetch,
     });
-    apiKey = "sk-runtime";
+    credentials.apiKey = "sk-runtime";
 
     await drain(adapter.stream(makeRequest({
       runId: "run_1",
@@ -121,15 +133,13 @@ describe("DeepSeek model adapter", () => {
       toolNames: ["typedance.context.read"],
     });
 
-    for await (const _event of adapter.stream(makeRequest({
+    await drain(adapter.stream(makeRequest({
       runId: "run_1",
       agentId: "agent_1",
       messages,
       skillContext,
       availableToolNames: ["typedance.context.read"],
-    }))) {
-      // Drain the stream so the request is sent.
-    }
+    })));
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     const systemMessages = body.messages.filter((message: { role: string }) => message.role === "system");
@@ -286,7 +296,7 @@ function sse(text: string): ReadableStream<Uint8Array> {
 }
 
 async function drain(iterable: AsyncIterable<unknown>): Promise<void> {
-  for await (const _event of iterable) {
-    // Consume stream.
+  for await (const event of iterable) {
+    void event;
   }
 }

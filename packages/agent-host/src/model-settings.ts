@@ -6,7 +6,7 @@ import {
   type ModelSettingsUpdate,
 } from "@typedance/contracts";
 
-const DEFAULT_MODEL = "deepseek-v4-flash";
+const DEFAULT_MODEL = "deepseek-flash";
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
 
 type ModelConfigFile = {

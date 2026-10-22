@@ -1,11 +1,14 @@
 import type { HarnessToolCall, HarnessToolOrigin } from "@typedance/harness-contracts";
+import type { HarnessModelContent } from "@typedance/harness-contracts";
+export type { HarnessContentPart, HarnessModelContent } from "@typedance/harness-contracts";
 import type { HarnessResolvedCapabilityPolicy } from "../plugin/plugin-registry";
 
 export type HarnessModelMessage =
   | {
-      role: "system" | "user";
+      role: "system";
       content: string;
     }
+  | { role: "user"; content: HarnessModelContent }
   | {
       role: "assistant";
       content: string;
@@ -13,7 +16,7 @@ export type HarnessModelMessage =
     }
   | {
       role: "tool";
-      content: string;
+      content: HarnessModelContent;
       toolCallId: string;
       toolName: string;
     };

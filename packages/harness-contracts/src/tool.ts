@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { harnessContentPartSchema } from "./content";
 
 export const harnessToolOriginSchema = z.enum(["resource", "mcp", "plugin", "system"]);
 
@@ -22,6 +23,7 @@ export const harnessToolResultSchema = z.object({
   tool_call_id: z.string().min(1),
   status: z.enum(["completed", "failed", "canceled"]),
   output: z.unknown().optional(),
+  content: z.array(harnessContentPartSchema).optional(),
   error: z
     .object({
       code: z.string().min(1),

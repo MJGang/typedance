@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .canvas_export import CanvasExportService
+from .canvas_pages import CanvasPagesRequest, render_canvas_pages
 from .canvas_text_edit import prepare_canvas_text_edit
 from .context_sources import (
     build_webpage_source,
@@ -815,6 +816,21 @@ def create_revision_router(
             logging.getLogger(__name__).exception("Canvas %s export failed", export_format)
             raise HTTPException(status_code=500, detail=f"Canvas {export_format.upper()} export failed") from exc
         return export_artifact_response(document_id, export_format, artifact, bool(payload.output_path), repo)
+
+    @router.post("/documents/{document_id}/source-resume-canvas/pages")
+    def read_canvas_pages(
+        document_id: str,
+        payload: CanvasPagesRequest,
+        repo: RevisionRepository = Depends(repository),
+    ) -> dict:
+        document = require_document(repo, document_id)
+        try:
+            return render_canvas_pages(payload.print_snapshot, payload.pages, title=document.title)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            logging.getLogger(__name__).exception("Canvas page rendering failed")
+            raise HTTPException(status_code=500, detail="画布页面截图失败，请稍后重试") from exc
 
     @router.post("/documents/{document_id}/canvas-export/pdf")
     def export_canvas_pdf(

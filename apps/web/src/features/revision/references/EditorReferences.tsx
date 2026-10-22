@@ -7,7 +7,7 @@ export type TrackedCanvasReference = { id: string; source: CanvasReferenceSource
 export type PendingReference = { reference: EditorReference; changed: boolean }
 
 export type CanvasReferenceBridge = {
-  getSnapshot: () => EditorSnapshot
+  getSnapshot: () => Promise<EditorSnapshot>
   track: (reference: EditorReference) => void
   untrack: (id: string) => void
   setOrdinals: (ordinals: Pick<EditorReference, "id" | "ordinal">[]) => void
@@ -28,7 +28,7 @@ type EditorReferencesValue = {
   remove: (id: string) => void
   clear: () => void
   consume: (ids: string[]) => void
-  getPayload: () => { references: EditorReference[]; snapshot?: EditorSnapshot }
+  getPayload: () => Promise<{ references: EditorReference[]; snapshot?: EditorSnapshot }>
   locate: (reference: EditorReference) => void
   apply: (preview: TextEditPreview) => boolean
   undo: (previewId: string) => boolean
@@ -116,13 +116,13 @@ export function EditorReferencesProvider({ documentId, children, onReferenceAdde
     const sentIds = new Set(ids)
     commitPending(pendingRef.current.filter((item) => !sentIds.has(item.reference.id)))
   }, [commitPending])
-  const getPayload = useCallback(() => {
+  const getPayload = useCallback(async () => {
+    const snapshot = await canvas.current?.getSnapshot()
     const references = pendingRef.current.map((item) => {
       const latest = known.current.get(item.reference.id) ?? item
       if (latest.changed) throw new Error("引用的原文已修改，请删除该引用后重新选择。")
       return structuredClone(latest.reference)
     })
-    const snapshot = canvas.current?.getSnapshot()
     return { references, snapshot }
   }, [])
   const locate = useCallback((reference: EditorReference) => {

@@ -293,9 +293,11 @@ export class HarnessRuntime {
     const signal = this.getRunSignal(runId);
     const result = await withRunSignal(this.tools.invoke(call, { signal }), signal);
     this.#assertActive(runId);
+    const eventResult = { ...result.result };
+    delete eventResult.content;
     this.#appendEvent(runId, {
       type: "tool.call.completed",
-      result: result.result,
+      result: eventResult,
     });
     return result;
   }
@@ -613,7 +615,7 @@ export class HarnessRuntime {
   }
 }
 
-function serializeToolResultForModel(result: HarnessRuntimeToolResult): string {
+function serializeToolResultForModel(result: HarnessRuntimeToolResult): import("@typedance/harness-contracts").HarnessModelContent {
   if (result.status === "permission_required") {
     return JSON.stringify({
       status: "permission_required",
@@ -621,10 +623,11 @@ function serializeToolResultForModel(result: HarnessRuntimeToolResult): string {
     });
   }
   if (result.status === "completed") {
-    return JSON.stringify({
+    const text = JSON.stringify({
       status: result.result.status,
       output: result.result.output,
     });
+    return result.result.content?.length ? [{ type: "text", text }, ...result.result.content] : text;
   }
   return JSON.stringify({
     status: result.result.status,
