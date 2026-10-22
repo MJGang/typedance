@@ -11,7 +11,6 @@ class BlankSourceResumeCanvasBuilder:
         *,
         document_id: str,
         source_id: str,
-        title: str = "新简历",
     ) -> SourceResumeCanvas:
         now = utc_now()
         node_id = "node_blank_start"
@@ -19,13 +18,11 @@ class BlankSourceResumeCanvasBuilder:
             "type": "doc",
             "content": [
                 {
-                    "type": "heading",
+                    "type": "paragraph",
                     "attrs": {
-                        "level": 1,
                         "canvasNodeId": node_id,
                         "sourceBlockId": source_id,
                     },
-                    "content": [{"type": "text", "text": title}],
                 }
             ],
         }
@@ -40,8 +37,8 @@ class BlankSourceResumeCanvasBuilder:
                 SourceResumeCanvasNode(
                     canvas_node_id=node_id,
                     source_block_id=source_id,
-                    node_type="heading",
-                    text=title,
+                    node_type="paragraph",
+                    text="",
                     source_span={},
                 )
             ],

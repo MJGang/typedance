@@ -56,7 +56,7 @@ describe("App navigation", () => {
     expect(await screen.findByText("还没有简历。")).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "开始编辑简历" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "新建简历" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "导入" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "导入" })).not.toBeInTheDocument()
     expect(screen.getByRole("radio", { name: "简历" })).toBeChecked()
     expect(screen.queryByRole("heading", { name: "工作台" })).not.toBeInTheDocument()
     expect(router.state.location.pathname).toBe("/packs/resume/workspaces")
@@ -115,12 +115,13 @@ describe("App navigation", () => {
     let finishLoading!: (response: Response) => void
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { finishLoading = resolve })))
     const router = renderAppAt()
-    fireEvent.click(await screen.findByRole("button", { name: "导入" }))
-    await screen.findByRole("dialog", { name: "导入旧简历" })
+    fireEvent.click(await screen.findByRole("button", { name: "新建简历" }))
+    fireEvent.click(screen.getByRole("radio", { name: "导入已有简历" }))
+    await screen.findByRole("dialog", { name: "新建简历" })
     await act(async () => finishLoading(new Response(JSON.stringify([
       { ...documentDefaults, id: "doc-late", title: "延迟返回的简历", pack_id: "resume" },
     ]), { status: 200 })))
-    expect(screen.getByRole("dialog", { name: "导入旧简历" })).toBeInTheDocument()
+    expect(screen.getByRole("dialog", { name: "新建简历" })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe("/packs/resume/workspaces")
   })
 

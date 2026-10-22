@@ -64,7 +64,7 @@ export type CreateRevisionDocumentInput = {
   title: string
   pack_id?: string
   target_language?: "zh-CN" | "en-US"
-  initial_mode?: "import_old_resume" | "blank_guided" | "base_resume" | "opportunity_variant"
+  initial_mode?: "import_old_resume" | "blank" | "base_resume" | "opportunity_variant"
 }
 
 export async function createRevisionDocument(
@@ -337,43 +337,12 @@ export async function importOldResume(
   return getRevisionWorkspaceView(document.id)
 }
 
-export type StartBlankGuidedResumeInput = {
-  title: string
-  identity_status?: string
-  name?: string
-  phone?: string
-  email?: string
-  target_role?: string
-  skills?: string
-  work_experience?: string
-  project_experience?: string
-}
-
-export async function startBlankGuidedResume(input: StartBlankGuidedResumeInput): Promise<WorkspaceView> {
+export async function createBlankResume(input: { title: string }): Promise<WorkspaceView> {
   const document = await createRevisionDocument({
     title: input.title,
     pack_id: "resume",
     target_language: "zh-CN",
-    initial_mode: "blank_guided",
-  })
-  const rawText = [
-    ["身份状态", input.identity_status],
-    ["姓名", input.name],
-    ["电话", input.phone],
-    ["邮箱", input.email],
-    ["目标方向", input.target_role],
-    ["技能", input.skills],
-    ["工作经历", input.work_experience],
-    ["项目经历", input.project_experience],
-  ]
-    .filter(([, value]) => typeof value === "string" && value.trim())
-    .map(([label, value]) => `${label}: ${value}`)
-    .join("\n")
-  await createRevisionSource(document.id, {
-    source_type: "manual_user_input",
-    title: "空白引导信息",
-    raw_text: rawText,
-    mime_type: "text/plain",
+    initial_mode: "blank",
   })
   return getRevisionWorkspaceView(document.id)
 }

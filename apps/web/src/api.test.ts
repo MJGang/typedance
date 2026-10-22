@@ -567,7 +567,7 @@ describe("revision api", () => {
     ])
   })
 
-  it("starts a blank guided resume through manual source and workspace view", async () => {
+  it("creates a blank resume without posting guided personal information", async () => {
     const responses = [
       {
         id: "doc_guided",
@@ -580,16 +580,6 @@ describe("revision api", () => {
         accepted_draft_id: null,
         created_at: "2026-05-21T08:00:00.000Z",
         updated_at: "2026-05-21T08:00:00.000Z",
-      },
-      {
-        id: "src_guided",
-        document_id: "doc_guided",
-        source_type: "manual_user_input",
-        title: "空白引导信息",
-        mime_type: "text/plain",
-        raw_text: "姓名: 张三\n目标方向: 前端工程师",
-        parse_status: "recognized",
-        created_at: "2026-05-21T08:00:00.000Z",
       },
       {
         document: {
@@ -621,24 +611,18 @@ describe("revision api", () => {
       return JSON.parse(init.body)
     }
 
-    const { startBlankGuidedResume } = await import("./api")
-    const workspace = await startBlankGuidedResume({
+    const { createBlankResume } = await import("./api")
+    const workspace = await createBlankResume({
       title: "新简历",
-      name: "张三",
-      target_role: "前端工程师",
-      skills: "Vue3、TypeScript",
     })
 
     expect(requestBody(0)).toMatchObject({
       title: "新简历",
-      initial_mode: "blank_guided",
+      initial_mode: "blank",
     })
-    expect(requestBody(1)).toMatchObject({
-      source_type: "manual_user_input",
-      raw_text: "姓名: 张三\n目标方向: 前端工程师\n技能: Vue3、TypeScript",
-    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
+      2,
       "http://127.0.0.1:4317/documents/doc_guided/workspace-view",
     )
     expect(workspace.document.current_draft_id).toBeUndefined()

@@ -31,6 +31,27 @@ def repo_for(tmp_path) -> RevisionRepository:
     return RevisionRepository(connect(tmp_path / "typedance.sqlite"))
 
 
+def test_create_blank_resume_initializes_an_editable_empty_canvas(revision_client):
+    client, _ = revision_client
+    response = client.post("/documents", json={"title": "未命名简历", "initial_mode": "blank"})
+    assert response.status_code == 201
+    document_id = response.json()["id"]
+    workspace = client.get(f"/documents/{document_id}/workspace-view").json()
+    assert workspace["document"]["title"] == "未命名简历"
+    assert workspace.get("current_draft") is None
+    canvas = workspace["source_resume_canvas"]
+    assert canvas["doc_json"]["content"][0]["type"] == "paragraph"
+    assert "content" not in canvas["doc_json"]["content"][0]
+    assert canvas["node_map"][0]["text"] == ""
+    assert workspace["source_summaries"][0]["raw_text"] == ""
+    saved = client.put(f"/documents/{document_id}/source-resume-canvas", json={"doc_json": {
+        "type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "我的第一段经历"}]}],
+    }})
+    assert saved.status_code == 200
+    reloaded = client.get(f"/documents/{document_id}/workspace-view").json()
+    assert reloaded["source_resume_canvas"]["doc_json"] == saved.json()["doc_json"]
+
+
 def seed_workspace(tmp_path) -> RevisionRepository:
     now = utc_now()
     repo = repo_for(tmp_path)

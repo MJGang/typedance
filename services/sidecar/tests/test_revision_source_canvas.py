@@ -13,9 +13,11 @@ from typedance_sidecar.source_canvas_doc_json import annotate_source_doc_json
 
 def test_revision_source_canvas_only_exposes_blank_builder():
     builder = BlankSourceResumeCanvasBuilder()
-    canvas = builder.blank(document_id="doc_blank", source_id="src_blank", title="新简历")
+    canvas = builder.blank(document_id="doc_blank", source_id="src_blank")
 
-    assert canvas.doc_json["content"][0]["type"] == "heading"
+    assert canvas.doc_json["content"][0]["type"] == "paragraph"
+    assert "content" not in canvas.doc_json["content"][0]
+    assert canvas.node_map[0].text == ""
     assert canvas.version == 1
     assert canvas.source_snapshot_hash.startswith("sha256:")
 

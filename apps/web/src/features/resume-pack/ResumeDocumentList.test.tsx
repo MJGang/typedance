@@ -10,8 +10,7 @@ import { ResumeDocumentList } from "./ResumeDocumentList"
 
 vi.mock("@/api", () => ({ listRevisionDocuments: vi.fn(), duplicateRevisionDocument: vi.fn(), updateRevisionDocument: vi.fn(), deleteRevisionDocument: vi.fn() }))
 vi.mock("../revision/useSourceCanvasAutosave", () => ({ flushSourceCanvasSaves: vi.fn(async () => true) }))
-vi.mock("@/features/home/BlankGuidedResumeModal", () => ({ BlankGuidedResumeModal: () => null }))
-vi.mock("@/features/home/ImportOldResumeModal", () => ({ ImportOldResumeModal: () => null }))
+vi.mock("./CreateResumeDialog", () => ({ CreateResumeDialog: () => null }))
 
 const resume = { id: "doc-one", title: "原始简历", pack_id: "resume", template_id: "classic-a4" }
 function Probe() { return <p data-testid="location">{useLocation().pathname}</p> }
