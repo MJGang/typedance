@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
-import { Copy, FilePlus2, FileText, MoreHorizontal, Pencil, Trash2, Upload } from "lucide-react"
+import { Copy, FilePlus2, FileText, MoreHorizontal, Pencil, Trash2 } from "lucide-react"
 import type { Document as ResumeDocument, DocumentListItem } from "@typedance/contracts"
 import { deleteRevisionDocument, duplicateRevisionDocument, listRevisionDocuments, updateRevisionDocument } from "@/api"
 import { Button } from "@/components/ui/button"
@@ -9,8 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { BlankGuidedResumeModal } from "@/features/home/BlankGuidedResumeModal"
-import { ImportOldResumeModal } from "@/features/home/ImportOldResumeModal"
+import { CreateResumeDialog } from "./CreateResumeDialog"
 import { cn } from "@/lib/utils"
 import { resumePackPaths } from "./routes"
 import { useResumePackNavigation } from "./ResumePackNavigation"
@@ -31,7 +30,7 @@ export function ResumeDocumentList({ activeDocumentId, activeDocument, onDocumen
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [refresh, setRefresh] = useState(0)
-  const [dialog, setDialog] = useState<"new" | "import" | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
   const [action, setAction] = useState<{ kind: "rename" | "delete"; document: DocumentListItem } | null>(null)
   const [nameDraft, setNameDraft] = useState("")
   const [actionError, setActionError] = useState<string | null>(null)
@@ -111,11 +110,8 @@ export function ResumeDocumentList({ activeDocumentId, activeDocument, onDocumen
     <section aria-label="我的简历" className="flex min-h-0 flex-col gap-3 px-3 pb-4">
       <h2 className="px-1 text-sm font-semibold">我的简历</h2>
       <div className="flex gap-2">
-        <Button variant="outline" size="sm" className="min-w-0 flex-1" onClick={() => { initialSelectionPending.current = false; setDialog("new") }}>
+        <Button variant="outline" size="sm" className="min-w-0 flex-1" onClick={() => { initialSelectionPending.current = false; setCreateOpen(true) }}>
           <FilePlus2 data-icon="inline-start" />新建简历
-        </Button>
-        <Button variant="outline" size="sm" className="min-w-0 flex-1" onClick={() => { initialSelectionPending.current = false; setDialog("import") }}>
-          <Upload data-icon="inline-start" />导入
         </Button>
       </div>
       <div className="flex max-h-64 min-h-0 flex-col gap-1 overflow-y-auto">
@@ -161,8 +157,7 @@ export function ResumeDocumentList({ activeDocumentId, activeDocument, onDocumen
           </form>
         </DialogContent>
       </Dialog>
-      <BlankGuidedResumeModal open={dialog === "new"} onOpenChange={(open) => { if (!open) setDialog(null) }} />
-      <ImportOldResumeModal open={dialog === "import"} onOpenChange={(open) => { if (!open) setDialog(null) }} />
+      {createOpen ? <CreateResumeDialog onClose={() => setCreateOpen(false)} onCreated={() => documentsChanged()} /> : null}
     </section>
   )
 }

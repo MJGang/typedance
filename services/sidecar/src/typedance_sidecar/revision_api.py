@@ -57,6 +57,7 @@ from .revision_services import (
     WorkspaceService,
 )
 from .source_canvas_initializer import SourceCanvasInitializationError, SourceCanvasInitializer
+from .revision_source_canvas import BlankSourceResumeCanvasBuilder
 
 
 RepositoryDependency = Callable[[], RevisionRepository]
@@ -72,7 +73,7 @@ class CreateDocumentRequest(BaseModel):
     target_language: Language = "zh-CN"
     initial_mode: Literal[
         "import_old_resume",
-        "blank_guided",
+        "blank",
         "base_resume",
         "opportunity_variant",
     ] = "base_resume"
@@ -295,7 +296,23 @@ def create_revision_router(
             created_at=now,
             updated_at=now,
         )
-        return repo.save_document(document)
+        repo.save_document(document)
+        if payload.initial_mode == "blank":
+            source = SourceDocument(
+                id=f"src_{uuid4().hex}",
+                document_id=document.id,
+                source_type="manual_user_input",
+                title="空白简历",
+                raw_text="",
+                mime_type="text/plain",
+                parse_status="initialized",
+                created_at=now,
+            )
+            canvas = BlankSourceResumeCanvasBuilder().blank(
+                document_id=document.id, source_id=source.id,
+            )
+            repo.save_initialized_source_resume_canvas(source, canvas)
+        return document
 
     @router.post("/documents/{document_id}/duplicate", response_model=Document, status_code=201)
     def duplicate_document(

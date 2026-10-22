@@ -37,7 +37,7 @@ export function ResumeWorkspaceEntry() {
           <EmptyHeader>
             <EmptyMedia variant="icon"><FileText /></EmptyMedia>
             <EmptyTitle role="heading" aria-level={1}>开始编辑简历</EmptyTitle>
-            <EmptyDescription>在左侧选择简历，或新建、导入一份简历。</EmptyDescription>
+            <EmptyDescription>在左侧选择简历，或通过“新建简历”创建、导入。</EmptyDescription>
           </EmptyHeader>
         </Empty>
       </main>
