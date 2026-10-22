@@ -16,6 +16,7 @@ import {
   type AgentRunEvent,
   type CanvasMutationMode,
   type ContextMention,
+  type EditorReference,
   type ModelSettingsResponse,
   type ModelSettingsUpdate,
 } from "@typedance/contracts"
@@ -103,6 +104,7 @@ export async function startConversationRun(input: {
   conversationId: string
   content: string
   mentions?: ContextMention[]
+  references?: EditorReference[]
   model?: string
   mutationMode?: CanvasMutationMode
   context?: Record<string, unknown>
@@ -116,6 +118,7 @@ export async function startConversationRun(input: {
         message: {
           content: input.content,
           mentions: input.mentions ?? [],
+          ...(input.references?.length ? { references: input.references } : {}),
         },
         model: input.model,
         mutation_mode: canvasMutationModeSchema.parse(input.mutationMode ?? "review"),
@@ -128,6 +131,13 @@ export async function startConversationRun(input: {
     (value) => agentRunSchema.parse(value),
     "Failed to start conversation run",
   )
+}
+
+export async function recordTextEditDecision(runId: string, previewId: string, status: "applied" | "ignored" | "undone"): Promise<AgentRunEvent> {
+  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/text-edits/${encodeURIComponent(previewId)}/decision`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }),
+  })
+  return parseAgentHostResponse(response, (value) => agentRunEventSchema.parse(value), "修改记录保存失败")
 }
 
 export async function getAgentRun(runId: string): Promise<AgentRun> {

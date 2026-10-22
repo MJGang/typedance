@@ -1,6 +1,6 @@
 import { canvasPrintSnapshotSchema, type CanvasPrintSnapshot } from "@typedance/contracts"
 
-const OMIT = "button,script,style,iframe,svg,.td-columns-resize-overlay,.td-columns-controls-overlay,.td-column-resize-handle,.td-column-grip,.td-column-delete,.td-column-add-button,.td-module-interaction-only"
+const OMIT = "button,script,style,iframe,svg,[data-editor-reference-marker],.td-columns-resize-overlay,.td-columns-controls-overlay,.td-column-resize-handle,.td-column-grip,.td-column-delete,.td-column-add-button,.td-module-interaction-only"
 const ATTRIBUTES = new Set(["class", "style", "start", "reversed", "value", "dir", "lang"])
 const PROPERTIES = [
   "display", "box-sizing", "position", "top", "right", "bottom", "left", "float", "clear",
@@ -44,6 +44,10 @@ function clonePrintElement(source: HTMLElement): HTMLElement | null {
   }
   clone.style.boxShadow = "none"
   clone.style.outline = "none"
+  if (source.hasAttribute("data-editor-reference-highlight")) {
+    clone.style.backgroundColor = "transparent"
+    clone.classList.remove("td-editor-reference-highlight", "bg-primary/15", "rounded-sm")
+  }
   for (const child of source.childNodes) {
     const copy = child instanceof HTMLElement ? clonePrintElement(child) : child.nodeType === Node.TEXT_NODE ? child.cloneNode(true) : null
     if (copy) clone.appendChild(copy)

@@ -38,6 +38,8 @@ import { clearDuplicateCanvasNodeIds, looksLikeMarkdown } from "../editor"
 import type { ResumeDocJson, ResumeEditorChange } from "../editor"
 import { blockStyleToCss, createResumeHeading, syncHeading2DecorationDom } from "../editor/ResumeHeading"
 import { ColumnsNodeView } from "./ColumnsNodeView"
+import { ReferenceTracker } from "../../revision/references/referenceTracker"
+import { CanvasReferences } from "../../revision/references/CanvasReferences"
 
 export type MarginConfig = {
   top: number
@@ -49,6 +51,7 @@ export type MarginConfig = {
 type ResumeRichTextEditorProps = {
   ariaLabel: string
   docJson: ResumeDocJson
+  canvasVersion?: number
   templateStyle: TemplateStyleConfig
   onChange: (change: ResumeEditorChange) => void
   onSelectionUpdate?: (blockType: string, context?: ResumeSelectionContext) => void
@@ -721,6 +724,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
     {
       ariaLabel,
       docJson,
+      canvasVersion = 1,
       templateStyle,
       onChange,
       onSelectionUpdate,
@@ -843,6 +847,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         resumeHeadingRef.current,
         Markdown,
         PasteMarkdown,
+        ReferenceTracker,
         InlineStyle,
         BlockStyle,
         ResizableColumns,
@@ -1298,6 +1303,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         <div ref={printWrapperRef} className="td-editor-print-wrapper">
           <EditorContent editor={editor} className="td-rich-editor-content" />
         </div>
+        {editable ? <CanvasReferences editor={editor} canvasVersion={canvasVersion} /> : null}
       </div>
     )
   },

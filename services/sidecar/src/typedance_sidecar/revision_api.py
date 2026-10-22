@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .canvas_export import CanvasExportService
+from .canvas_text_edit import prepare_canvas_text_edit
 from .context_sources import (
     build_webpage_source,
     file_uri,
@@ -126,6 +127,14 @@ class SaveSourceResumeCanvasRequest(BaseModel):
         if not isinstance(doc_json.get("content"), list):
             raise ValueError("doc_json.content must be a list")
         return doc_json
+
+
+class PrepareCanvasTextEditRequest(BaseModel):
+    doc_json: dict[str, Any]
+    from_position: int = Field(ge=0)
+    to_position: int = Field(gt=0)
+    expected_text: str = Field(min_length=1, max_length=4_000)
+    replacement: str = Field(max_length=4_000)
 
 
 class PageMarginsRequest(BaseModel):
@@ -648,6 +657,22 @@ def create_revision_router(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.post("/documents/{document_id}/source-resume-canvas/text-edit-preview")
+    def preview_canvas_text_edit(
+        document_id: str,
+        payload: PrepareCanvasTextEditRequest,
+        repo: RevisionRepository = Depends(repository),
+    ) -> dict[str, Any]:
+        if repo.get_document(document_id) is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        try:
+            return prepare_canvas_text_edit(
+                payload.doc_json, payload.from_position, payload.to_position,
+                payload.expected_text, payload.replacement,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @router.put("/documents/{document_id}/source-resume-canvas", response_model=SourceResumeCanvas)
     def save_source_resume_canvas(

@@ -6,6 +6,9 @@ import { withRunSignal, type HarnessRuntime } from "@typedance/harness-core";
 import {
   canvasMutationModeSchema,
   contextMentionSchema,
+  editorReferencesSchema,
+  editorSnapshotSchema,
+  textEditPreviewSchema,
   modelSettingsUpdateSchema,
   type AgentConversation,
   type AgentMessage,
@@ -14,7 +17,10 @@ import {
   type AgentRunEvent,
   type CanvasMutationMode,
   type ContextMention,
+  type EditorReference,
+  type EditorSnapshot,
 } from "@typedance/contracts";
+import { formatReferencedMessage, TEXT_EDIT_TOOL_NAME, type TextEditPreviewer } from "./text-edit";
 import {
   createMemoryAgentHostStore,
   type AgentHostStore,
@@ -74,6 +80,7 @@ export type AgentHostStartConversationRunInput = {
   message: {
     content: string;
     mentions?: ContextMention[];
+    references?: EditorReference[];
   };
   model?: string;
   mutationMode?: CanvasMutationMode;
@@ -86,6 +93,7 @@ export type AgentHostOptions = {
   store?: AgentHostStore;
   defaultModel?: string;
   contextProvider?: AgentHostContextProvider;
+  textEditPreviewer?: TextEditPreviewer;
   now?: () => Date;
 };
 
@@ -100,6 +108,7 @@ export class AgentHost {
   #defaultModel?: string;
   #contextProvider?: AgentHostContextProvider;
   #now: () => Date;
+  #editorTurns = new WeakMap<AbortSignal, { snapshot: EditorSnapshot; references: EditorReference[] }>();
 
   constructor(options: AgentHostOptions) {
     this.runtime = options.runtime;
@@ -107,6 +116,34 @@ export class AgentHost {
     this.#defaultModel = options.defaultModel;
     this.#contextProvider = options.contextProvider;
     this.#now = options.now ?? (() => new Date());
+    if (options.textEditPreviewer) {
+      const previewer = options.textEditPreviewer;
+      this.runtime.registerTool({
+        name: TEXT_EDIT_TOOL_NAME,
+        origin: "plugin",
+        description: "Prepare a reviewable plain-text replacement for one explicitly quoted canvas reference. This only creates a preview; it does not modify or save the document. Preserve all user facts.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            reference_id: { type: "string", description: "The exact reference ID supplied in the user's message." },
+            replacement: { type: "string", maxLength: 4000, description: "Complete replacement text for that quoted selection, without Markdown formatting." },
+            summary: { type: "string", maxLength: 500, description: "Short explanation of the proposed change." },
+          },
+          required: ["reference_id", "replacement", "summary"],
+          additionalProperties: false,
+        },
+        handler: async (input, _call, { signal }) => {
+          const editing = this.#editorTurns.get(signal);
+          if (!editing) throw new Error("没有当前编辑器快照，请重新引用文字后发送。");
+          const reference = editing.references.find((item) => item.id === input.reference_id);
+          if (!reference || reference.source.kind !== "canvas") throw new Error("请选择当前简历中的引用，聊天文字不能直接应用到文档。");
+          if (typeof input.replacement !== "string" || input.replacement.length > 4000 || typeof input.summary !== "string" || input.summary.length > 500) {
+            throw new Error("修改内容格式无效。");
+          }
+          return previewer({ snapshot: editing.snapshot, reference, replacement: input.replacement, summary: input.summary, signal });
+        },
+      });
+    }
     for (const pack of options.packs) {
       if (this.#packs.has(pack.id)) {
         throw new Error(`Duplicate agent host pack: ${pack.id}`);
@@ -192,6 +229,25 @@ export class AgentHost {
     return this.store.listRunEvents(runId, afterSequence);
   }
 
+  recordTextEditDecision(runId: string, previewId: string, status: "applied" | "ignored" | "undone"): AgentRunEvent {
+    this.getAgentRun(runId);
+    const events = this.store.listRunEvents(runId);
+    const exists = events.some((event) => {
+      if (event.type !== "tool_call_completed") return false;
+      const result = event.payload.result as { output?: unknown } | undefined;
+      const preview = textEditPreviewSchema.safeParse(result?.output);
+      return preview.success && preview.data.id === previewId;
+    });
+    if (!exists) throw new HttpError(404, "text_edit_preview_not_found");
+    const previous = events.filter((event) => event.type === "text_edit_decision" && event.payload.preview_id === previewId).pop();
+    if (previous?.payload.status === status) return previous;
+    const current = previous?.payload.status ?? "proposed";
+    if (!(((current === "proposed" || current === "undone") && (status === "applied" || status === "ignored")) || (current === "applied" && status === "undone"))) {
+      throw new HttpError(409, "invalid_text_edit_decision");
+    }
+    return this.#appendAgentRunEvent(runId, "text_edit_decision", { preview_id: previewId, status }, this.#timestamp());
+  }
+
   startConversationRun(
     workspaceId: string,
     conversationId: string,
@@ -211,6 +267,17 @@ export class AgentHost {
 
     const timestamp = this.#timestamp();
     const mentions = (input.message.mentions ?? []).map((mention) => contextMentionSchema.parse(mention));
+    const references = parseEditorReferences(input.message.references);
+    const snapshotResult = input.context?.editor_snapshot === undefined ? undefined : editorSnapshotSchema.safeParse(input.context.editor_snapshot);
+    if (snapshotResult && !snapshotResult.success) throw new HttpError(400, "invalid_editor_snapshot");
+    const editorSnapshot = snapshotResult?.data;
+    if (references.some((reference) => reference.document_id !== workspaceId)
+      || (editorSnapshot && editorSnapshot.document_id !== workspaceId)
+      || new Set(references.map((reference) => reference.id)).size !== references.length
+      || references.some((reference) => reference.source.kind === "canvas" && (!editorSnapshot || reference.source.editor_session_id !== editorSnapshot.editor_session_id || reference.source.content_revision !== editorSnapshot.content_revision))) {
+      throw new HttpError(400, "invalid_editor_reference");
+    }
+    if (editorSnapshot && JSON.stringify(editorSnapshot.doc_json).length > 500_000) throw new HttpError(400, "editor_snapshot_too_large");
     const mutationMode = canvasMutationModeSchema.parse(input.mutationMode ?? "review");
     const userMessage = this.store.appendMessage({
       message: {
@@ -219,6 +286,7 @@ export class AgentHost {
         role: "user",
         content,
         mentions,
+        ...(references.length > 0 ? { references } : {}),
         created_at: timestamp,
       },
     });
@@ -254,6 +322,8 @@ export class AgentHost {
       assistant_message_id: assistantMessage.id,
       mutation_mode: mutationMode,
       mentions,
+      editor_snapshot: editorSnapshot,
+      references,
       ...(model ? { model } : {}),
     };
     const harnessRun = this.runtime.createRun({
@@ -374,8 +444,10 @@ export class AgentHost {
     model: string | undefined,
     context: Record<string, unknown>
   ): Promise<Record<string, unknown>> {
+    const signal = this.runtime.getRunSignal(run.id);
     try {
-      const signal = this.runtime.getRunSignal(run.id);
+      const editorSnapshot = context.editor_snapshot as EditorSnapshot | undefined;
+      if (editorSnapshot) this.#editorTurns.set(signal, { snapshot: editorSnapshot, references: context.references as EditorReference[] });
       signal.throwIfAborted();
       const { messages, contextItems } = await withRunSignal(this.#buildModelMessages(conversationId, assistantMessageId, mentions, userMessage, context, signal), signal);
       signal.throwIfAborted();
@@ -406,6 +478,8 @@ export class AgentHost {
         });
       }
       throw error;
+    } finally {
+      this.#editorTurns.delete(signal);
     }
   }
 
@@ -422,13 +496,14 @@ export class AgentHost {
       .filter((message) => message.id !== assistantMessageId)
       .map((message) => ({
         role: message.role,
-        content: message.content,
+        content: formatReferencedMessage(message.content, message.references),
       }));
     const fallback = [{ role: "user" as const, content: userMessage }];
     const contextInput = {
       workspaceId: String(context.workspace_id ?? ""),
       mentions,
       signal,
+      ...(context.editor_snapshot ? { editorSnapshot: context.editor_snapshot as EditorSnapshot } : {}),
     };
     const contextItems = await this.#contextProvider?.loadContext(contextInput) ?? [];
     return { messages: history.length > 0 ? history : fallback, contextItems };
@@ -767,6 +842,15 @@ async function route(context: RouteContext): Promise<boolean> {
     return true;
   }
 
+  const textEditDecisionMatch = /^\/agent-runs\/([^/]+)\/text-edits\/([^/]+)\/decision$/.exec(pathname);
+  if (request.method === "POST" && textEditDecisionMatch) {
+    const body = await readJson(request);
+    const status = body.status;
+    if (status !== "applied" && status !== "ignored" && status !== "undone") throw new HttpError(400, "invalid_text_edit_decision");
+    writeJson(response, 200, host.recordTextEditDecision(decodeURIComponent(textEditDecisionMatch[1] ?? ""), decodeURIComponent(textEditDecisionMatch[2] ?? ""), status));
+    return true;
+  }
+
   const agentRunEventsMatch = /^\/agent-runs\/([^/]+)\/events$/.exec(pathname);
   if (agentRunEventsMatch) {
     const runId = decodeURIComponent(agentRunEventsMatch[1] ?? "");
@@ -961,7 +1045,14 @@ function parseMessageBody(value: unknown): AgentHostStartConversationRunInput["m
   return {
     content: requiredString(body.content, "message.content"),
     mentions: zodMentionArray(body.mentions),
+    references: parseEditorReferences(body.references),
   };
+}
+
+function parseEditorReferences(value: unknown): EditorReference[] {
+  const parsed = editorReferencesSchema.safeParse(value ?? []);
+  if (!parsed.success) throw new HttpError(400, "invalid_editor_reference");
+  return parsed.data;
 }
 
 function zodMentionArray(value: unknown): ContextMention[] {

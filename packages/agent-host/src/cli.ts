@@ -19,6 +19,7 @@ import {
   RESUME_PRIMARY_AGENT_ID,
 } from "./resume-plugin";
 import { createSidecarContextProvider } from "./sidecar-context";
+import { createSidecarTextEditPreviewer } from "./text-edit";
 import { createLangfuseTelemetry } from "./observability/langfuse";
 
 async function main(): Promise<void> {
@@ -56,6 +57,7 @@ async function main(): Promise<void> {
     runtime,
     defaultModel: model,
     contextProvider: createSidecarContextProvider({ baseUrl: sidecarUrl }),
+    textEditPreviewer: createSidecarTextEditPreviewer(sidecarUrl),
     store: createJsonFileAgentHostStore(storeFile),
     packs: [
       {

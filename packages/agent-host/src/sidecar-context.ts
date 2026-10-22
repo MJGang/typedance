@@ -1,9 +1,10 @@
-import { workspaceViewSchema, type ContextMention, type WorkspaceView } from "@typedance/contracts";
+import { workspaceViewSchema, type ContextMention, type WorkspaceView, type EditorSnapshot } from "@typedance/contracts";
 
 export type AgentHostContextProviderInput = {
   workspaceId: string;
   mentions: ContextMention[];
   signal?: AbortSignal;
+  editorSnapshot?: EditorSnapshot;
 };
 
 export type AgentHostContextItem = {
@@ -54,6 +55,23 @@ export function createSidecarContextProvider(options: SidecarContextProviderOpti
     const selected = mentions.slice(0, maxSources);
     const workspaceTask = (async (): Promise<AgentHostContextItem[]> => {
       if (!input.workspaceId) return [];
+      if (input.editorSnapshot) {
+        const snapshot = input.editorSnapshot;
+        if (snapshot.document_id !== input.workspaceId) throw new Error("Editor snapshot does not belong to this workspace.");
+        return [{
+          id: "workspace.current", kind: "workspace", sourceId: input.workspaceId,
+          content: [
+            "Current active resume canvas from the live editor (includes unsaved edits):",
+            `  document_id: ${snapshot.document_id}`,
+            `  canvas_version: ${snapshot.canvas_version}`,
+            `  content_revision: ${snapshot.content_revision}`,
+            "  priority: This editor snapshot is the current source of truth. Quoted references in user messages identify exact selections.",
+            "  content:",
+            indent(snapshot.plain_text.slice(0, maxCharactersPerSource)),
+            ...(snapshot.plain_text.length > maxCharactersPerSource ? ["[truncated by Agent Host]"] : []),
+          ].join("\n"),
+        }];
+      }
       let content: string;
       try {
         const response = await fetchImpl(`${baseUrl}/documents/${encodeURIComponent(input.workspaceId)}/workspace-view`, { signal: input.signal });
