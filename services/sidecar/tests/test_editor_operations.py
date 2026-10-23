@@ -175,3 +175,81 @@ def test_heading_conversion_preserves_each_source_identity_and_inline_marks():
         assert after["content"] == before["content"]
     restored = prepare(headings, "block.type", paths=[[0], [1]], kind="paragraph")
     assert restored == source
+
+
+def columns_doc(widths, labels):
+    return doc({"type": "columns", "attrs": {"count": len(widths), "gap": "wide", "widths": widths},
+                "content": [{"type": "column", "content": [paragraph(label, canvasNodeId=f"node_{index}")]} for index, label in enumerate(labels)]})
+
+
+def test_manual_column_wrap_preserves_whole_blocks_and_shrinking_keeps_all_content():
+    source = doc(paragraph("甲", canvasNodeId="node_a"), paragraph("乙", canvasNodeId="node_b"), paragraph("不选中的正文"))
+    wrapped = prepare(source, "columns.wrap", paths=[[0], [1]], count=3)
+    assert wrapped["content"][0]["content"][0]["content"] == source["content"][:2]
+    assert node_text(wrapped) == node_text(source)
+    assert wrapped["content"][1] == source["content"][2]
+    source = columns_doc([30, 40, 30], ["甲", "乙", "丙"])
+    shrunk = prepare(source, "columns.count", path=[0], count=2)
+    assert [node_text(column) for column in shrunk["content"][0]["content"]] == ["甲", "乙丙"]
+    assert shrunk["content"][0]["attrs"] == {"count": 2, "gap": "wide", "widths": [50, 50]}
+    assert prepare(shrunk, "columns.count", path=[0], count=4)["content"][0]["content"][:2] == shrunk["content"][0]["content"]
+
+
+def test_column_add_preserves_existing_nodes_and_width_constraints_and_refuses_seventh():
+    source = columns_doc([60, 40], ["左", "右"])
+    added = prepare(source, "columns.add", path=[0], after_index=0)["content"][0]
+    assert [node_text(column) for column in added["content"]] == ["左", "", "右"]
+    assert added["content"][0] == source["content"][0]["content"][0]
+    assert added["content"][2] == source["content"][0]["content"][1]
+    assert added["attrs"]["widths"][0] > added["attrs"]["widths"][2]
+    sixth = prepare(columns_doc([20] * 5, list("一二三四五")), "columns.add", path=[0], after_index=4)
+    assert len(sixth["content"][0]["content"]) == 6
+    assert min(sixth["content"][0]["attrs"]["widths"]) >= 15
+    assert sum(sixth["content"][0]["attrs"]["widths"]) == pytest.approx(100)
+    before = deepcopy(sixth)
+    with pytest.raises(ValueError, match="最多六栏"):
+        prepare(sixth, "columns.add", path=[0], after_index=5)
+    assert sixth == before
+
+
+def test_column_remove_redistributes_width_and_unwraps_last_survivor():
+    source = columns_doc([30, 40, 30], ["甲", "乙", "丙"])
+    removed = prepare(source, "columns.remove", path=[0], index=1)
+    assert [node_text(column) for column in removed["content"][0]["content"]] == ["甲", "丙"]
+    assert removed["content"][0]["attrs"]["widths"] == [70, 30]
+    assert prepare(removed, "columns.remove", path=[0], index=0)["content"] == source["content"][0]["content"][2]["content"]
+
+
+def test_partial_column_updates_preserve_mixed_block_alignment_and_other_fields():
+    source = columns_doc([60, 40], ["左", "右"])
+    source["content"][0]["content"][0]["content"].append(paragraph("居中", textAlign="center"))
+    source["content"][0]["content"][1]["content"][0]["attrs"]["textAlign"] = "right"
+    for parameters in [{"gap": "compact"}, {"widths": [55, 45]}]:
+        updated = prepare(source, "columns.update", paths=[[0]], **parameters)["content"][0]
+        assert updated["content"] == source["content"][0]["content"]
+        assert updated["attrs"] == {**source["content"][0]["attrs"], **parameters}
+
+
+def test_column_reorder_moves_custom_widths_with_content():
+    source = columns_doc([30, 40, 30], ["甲", "乙", "丙"])
+    result = prepare(source, "columns.reorder", path=[0], order=[1, 2, 0])["content"][0]
+    assert [node_text(column) for column in result["content"]] == ["乙", "丙", "甲"]
+    assert result["attrs"]["widths"] == [40, 30, 30]
+
+
+@pytest.mark.parametrize("capability,parameters", [
+    ("columns.update", {"paths": [[0]]}),
+    ("columns.update", {"paths": [[0]], "widths": [10, 90]}),
+    ("columns.update", {"paths": [[0]], "widths": [40, 40]}),
+    ("columns.update", {"paths": [[0]], "alignments": ["left"] * 3}),
+    ("columns.count", {"path": [0], "count": 7}),
+    ("columns.add", {"path": [0], "after_index": 2}),
+    ("columns.remove", {"path": [0], "index": 2}),
+    ("blocks.delete", {"paths": [[0, 0]]}),
+])
+def test_invalid_column_mutations_are_atomic(capability, parameters):
+    source = columns_doc([60, 40], ["甲", "乙"])
+    before = deepcopy(source)
+    with pytest.raises(ValueError):
+        prepare(source, capability, **parameters)
+    assert source == before

@@ -41,7 +41,7 @@ import { ColumnsNodeView } from "./ColumnsNodeView"
 import { ReferenceTracker } from "../../revision/references/referenceTracker"
 import { CanvasReferences } from "../../revision/references/CanvasReferences"
 import { DocumentLayout } from "../../revision/documentLayout"
-import { executeEditorOperations, selectedNodePaths, selectedTextOperations } from "../../revision/editorCommands"
+import { executeEditorOperations, selectedColumnsPath, selectedNodePaths, selectedTextOperations } from "../../revision/editorCommands"
 
 export type MarginConfig = {
   top: number
@@ -906,13 +906,19 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
 
     useImperativeHandle(ref, () => ({
       setColumnsCount: (count) => {
-        editor?.chain().focus().setColumnsCount(count).run()
+        if (!editor) return
+        const path = selectedColumnsPath(editor)
+        if (path) void executeEditorOperations(editor, [{ capability: "columns.count", parameters: { path, count } }])
       },
       setColumnsGap: (gap) => {
-        editor?.chain().focus().setColumnsGap(gap).run()
+        if (!editor) return
+        const path = selectedColumnsPath(editor)
+        if (path) void executeEditorOperations(editor, [{ capability: "columns.update", parameters: { paths: [path], gap } }])
       },
       unsetColumns: () => {
-        editor?.chain().focus().unsetColumns().run()
+        if (!editor) return
+        const path = selectedColumnsPath(editor)
+        if (path) void executeEditorOperations(editor, [{ capability: "columns.unwrap", parameters: { paths: [path] } }])
       },
       setTextSelection: (selection) => {
         if (!editor || editor.isDestroyed) return
@@ -1202,7 +1208,13 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                         variant="ghost"
                         size="sm"
                         className="justify-start"
-                        onClick={() => editor?.chain().focus().insertColumns({ count }).run()}
+                        onClick={() => {
+                          if (!editor) return
+                          const path = selectedColumnsPath(editor)
+                          void executeEditorOperations(editor, [path
+                            ? { capability: "columns.count", parameters: { path, count } }
+                            : { capability: "columns.wrap", parameters: { paths: selectedNodePaths(editor, ["paragraph", "heading", "bulletList", "orderedList", "horizontalRule", "codeBlock"]), count } }])
+                        }}
                       >
                         {count} 栏
                       </Button>

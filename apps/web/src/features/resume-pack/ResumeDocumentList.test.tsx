@@ -5,11 +5,13 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { deleteRevisionDocument, duplicateRevisionDocument, listRevisionDocuments, updateRevisionDocument } from "@/api"
 import { flushSourceCanvasSaves } from "../revision/useSourceCanvasAutosave"
 import { pageMarginStorageKey } from "../revision/pageMargins"
+import { migrateDocumentPageMargins } from "../revision/migratePageMargins"
 import { ResumePackNavigationProvider } from "./ResumePackNavigation"
 import { ResumeDocumentList } from "./ResumeDocumentList"
 
 vi.mock("@/api", () => ({ listRevisionDocuments: vi.fn(), duplicateRevisionDocument: vi.fn(), updateRevisionDocument: vi.fn(), deleteRevisionDocument: vi.fn() }))
 vi.mock("../revision/useSourceCanvasAutosave", () => ({ flushSourceCanvasSaves: vi.fn(async () => true) }))
+vi.mock("../revision/migratePageMargins", () => ({ migrateDocumentPageMargins: vi.fn(async () => {}) }))
 vi.mock("./CreateResumeDialog", () => ({ CreateResumeDialog: () => null }))
 
 const resume = { id: "doc-one", title: "原始简历", pack_id: "resume", template_id: "classic-a4" }
@@ -43,6 +45,8 @@ describe("ResumeDocumentList actions", () => {
     await act(async () => { finishFlush(true) })
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/workspaces/doc-copy"))
     expect(duplicateRevisionDocument).toHaveBeenCalledWith("doc-one")
+    expect(migrateDocumentPageMargins).toHaveBeenCalledWith("doc-one")
+    expect(vi.mocked(migrateDocumentPageMargins).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(duplicateRevisionDocument).mock.invocationCallOrder[0])
     expect(localStorage.getItem(pageMarginStorageKey(copy.id))).toBeNull()
     expect(localStorage.getItem(pageMarginStorageKey(resume.id))).toBe(margins)
   })
@@ -52,6 +56,15 @@ describe("ResumeDocumentList actions", () => {
     vi.mocked(flushSourceCanvasSaves).mockResolvedValueOnce(false)
     fireEvent.click(within(await openMenu()).getByRole("menuitem", { name: "复制" }))
     expect(await screen.findByRole("alert")).toHaveTextContent("尚未保存")
+    expect(duplicateRevisionDocument).not.toHaveBeenCalled()
+    expect(screen.getByTestId("location")).toHaveTextContent("/workspaces/doc-one")
+  })
+
+  it("keeps the original if migration cannot be safely saved", async () => {
+    setup()
+    vi.mocked(migrateDocumentPageMargins).mockRejectedValueOnce(new Error("迁移失败"))
+    fireEvent.click(within(await openMenu()).getByRole("menuitem", { name: "复制" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("简历复制失败")
     expect(duplicateRevisionDocument).not.toHaveBeenCalled()
     expect(screen.getByTestId("location")).toHaveTextContent("/workspaces/doc-one")
   })

@@ -22,6 +22,21 @@ export function selectedNodePaths(editor: Editor, kinds: string[]): number[][] {
   return paths
 }
 
+export function nodePathAtPosition(editor: Editor, position: number): number[] | undefined {
+  if (position < 0 || position >= editor.state.doc.content.size || !editor.state.doc.nodeAt(position)) return undefined
+  const resolved = editor.state.doc.resolve(position)
+  return Array.from({ length: resolved.depth + 1 }, (_, depth) => resolved.index(depth))
+}
+
+export function selectedColumnsPath(editor: Editor): number[] | undefined {
+  const { $from, from } = editor.state.selection
+  if (editor.state.doc.nodeAt(from)?.type.name === "columns") return nodePathAtPosition(editor, from)
+  for (let depth = $from.depth; depth > 0; depth--) {
+    if ($from.node(depth).type.name === "columns") return nodePathAtPosition(editor, $from.before(depth))
+  }
+  return undefined
+}
+
 export function selectedTextOperations(editor: Editor, mark: string, enabled: boolean, attributes?: Record<string, unknown>): EditorOperation[] {
   const { from, to } = editor.state.selection
   const operations: EditorOperation[] = []
@@ -48,12 +63,13 @@ export function selectedTextOperations(editor: Editor, mark: string, enabled: bo
   return operations
 }
 
-export async function executeEditorOperations(editor: Editor, operations: EditorOperation[], templateStyle?: TemplateStyleConfig): Promise<boolean> {
+export async function executeEditorOperations(editor: Editor, operations: EditorOperation[], templateStyle?: TemplateStyleConfig, options: { focus?: boolean } = {}): Promise<boolean> {
   if (!operations.length || editor.isDestroyed || !editor.isEditable) return false
   const before = editor.getJSON()
   try {
     const result = await prepareEditorOperations(before, operations, templateStyle)
     applyDocumentChange(editor, before, result.doc_json, crypto.randomUUID())
+    if (options.focus !== false) editor.commands.focus()
     return true
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "编辑操作失败")

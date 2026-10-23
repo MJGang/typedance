@@ -12,6 +12,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .models import TemplateStyleConfig
 
+MIN_COLUMN_WIDTH = 15
+ColumnWidth = Annotated[float, Field(ge=MIN_COLUMN_WIDTH, le=100, allow_inf_nan=False)]
+
+
+def validate_widths(widths):
+    if abs(sum(widths) - 100) > 0.01:
+        raise ValueError("栏宽合计必须为 100%")
+
 
 class Parameters(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -71,13 +79,14 @@ class ColumnRow(Parameters):
 
 
 class ColumnsParameters(Parameters):
-    widths: list[Annotated[float, Field(ge=15, le=100, allow_inf_nan=False)]] = Field(min_length=2, max_length=6, description="每栏百分比，合计 100，每栏至少 15。多行共用同一组宽度与栏间距以保持对齐。")
+    widths: list[ColumnWidth] = Field(min_length=2, max_length=6, description="每栏百分比，合计 100，每栏至少 15。多行共用同一组宽度与栏间距以保持对齐。")
     alignments: list[Literal["left", "center", "right"]] = Field(min_length=2, max_length=6)
     gap: Literal["compact", "default", "wide"] = "default"
 
     @model_validator(mode="after")
     def valid_columns(self):
-        if len(self.widths) != len(self.alignments) or any(width < 15 for width in self.widths) or abs(sum(self.widths) - 100) > 0.01:
+        validate_widths(self.widths)
+        if len(self.widths) != len(self.alignments):
             raise ValueError("栏宽数量须与对齐数量一致、每栏至少 15%、总计 100%")
         return self
 
@@ -86,8 +95,37 @@ class LayoutColumns(ColumnsParameters):
     rows: list[ColumnRow] = Field(min_length=1, max_length=60)
 
 
-class UpdateColumns(ColumnsParameters):
+class UpdateColumns(Parameters):
     paths: list[list[int]] = Field(min_length=1, max_length=60)
+    widths: list[ColumnWidth] | None = Field(default=None, min_length=2, max_length=6)
+    alignments: list[Literal["left", "center", "right"]] | None = Field(default=None, min_length=2, max_length=6)
+    gap: Literal["compact", "default", "wide"] | None = None
+
+    @model_validator(mode="after")
+    def actual_change(self):
+        if self.widths is None and self.alignments is None and self.gap is None:
+            raise ValueError("至少提供栏宽、对齐或栏间距中的一项")
+        if self.widths is not None:
+            validate_widths(self.widths)
+        return self
+
+
+class ColumnCount(Target):
+    count: int = Field(ge=2, le=6)
+
+
+class WrapColumns(Parameters):
+    paths: list[list[int]] = Field(min_length=1, max_length=200)
+    count: int = Field(ge=2, le=6)
+    gap: Literal["compact", "default", "wide"] = "default"
+
+
+class AddColumn(Target):
+    after_index: int = Field(ge=0, le=5)
+
+
+class RemoveColumn(Target):
+    index: int = Field(ge=0, le=5)
 
 
 class Paths(Parameters):
@@ -351,13 +389,85 @@ def layout_columns(doc, params: LayoutColumns):
 def update_columns(doc, params: UpdateColumns):
     for path in params.paths:
         node = node_at(doc, path)
-        if node["type"] != "columns" or len(node.get("content", [])) != len(params.widths):
-            raise ValueError("目标必须是栏数一致的分栏节点；改变栏数请重新布局")
-        node.setdefault("attrs", {}).update(count=len(params.widths), widths=params.widths, gap=params.gap)
-        for column, alignment in zip(node["content"], params.alignments):
+        count = len(node.get("content", []))
+        if node["type"] != "columns" or (params.widths is not None and len(params.widths) != count) or (params.alignments is not None and len(params.alignments) != count):
+            raise ValueError("目标必须是栏数一致的分栏节点；改变栏数使用 columns.count")
+        node.setdefault("attrs", {}).update(count=count, **params.model_dump(exclude={"paths", "alignments"}, exclude_none=True))
+        for column, alignment in zip(node["content"], params.alignments or []):
             for block in column.get("content", []):
                 if block["type"] in {"paragraph", "heading", "listItem"}:
                     block.setdefault("attrs", {})["textAlign"] = alignment
+
+
+def equal_widths(count):
+    width = int(100 / count * 10000) / 10000
+    return [width] * (count - 1) + [round(100 - width * (count - 1), 4)]
+
+
+def column_widths(node):
+    return node.get("attrs", {}).get("widths") or equal_widths(len(node["content"]))
+
+
+def require_columns(doc, path):
+    node = node_at(doc, path)
+    if node["type"] != "columns":
+        raise ValueError("目标不是分栏")
+    return node
+
+
+def wrap_columns(doc, params: WrapColumns):
+    paths = sorted(params.paths)
+    if any(path[:-1] != paths[0][:-1] for path in paths) or [path[-1] for path in paths] != list(range(paths[0][-1], paths[-1][-1] + 1)):
+        raise ValueError("分栏来源必须为连续的同级内容块")
+    content = [node_at(doc, path) for path in paths]
+    if any(node["type"] in {"text", "hardBreak", "column", "listItem"} for node in content):
+        raise ValueError("只能对完整内容块分栏")
+    columns = [{"type": "column", "content": content}] + [{"type": "column", "content": [{"type": "paragraph"}]} for _ in range(params.count - 1)]
+    node_at(doc, paths[0][:-1])["content"][paths[0][-1]:paths[-1][-1] + 1] = [{"type": "columns", "attrs": {"count": params.count, "gap": params.gap, "widths": equal_widths(params.count)}, "content": columns}]
+
+
+def set_column_count(doc, params: ColumnCount):
+    node = require_columns(doc, params.path)
+    count = len(node["content"])
+    if params.count == count:
+        return
+    if params.count < count:
+        survivor = node["content"][params.count - 1]
+        survivor["content"].extend(block for column in node["content"][params.count:] for block in column["content"])
+        del node["content"][params.count:]
+    else:
+        node["content"].extend({"type": "column", "content": [{"type": "paragraph"}]} for _ in range(params.count - count))
+    node.setdefault("attrs", {}).update(count=params.count, widths=equal_widths(params.count))
+
+
+def add_column(doc, params: AddColumn):
+    node = require_columns(doc, params.path)
+    count = len(node["content"])
+    if count >= 6 or params.after_index >= count:
+        raise ValueError("最多六栏，且插入位置须为现有栏")
+    widths = column_widths(node)
+    target = 100 / (count + 1)
+    available = sum(width - MIN_COLUMN_WIDTH for width in widths)
+    next_widths = [round(width - target * (width - MIN_COLUMN_WIDTH) / available, 4) for width in widths]
+    next_widths.insert(params.after_index + 1, round(100 - sum(next_widths), 4))
+    node["content"].insert(params.after_index + 1, {"type": "column", "content": [{"type": "paragraph"}]})
+    node.setdefault("attrs", {}).update(count=count + 1, widths=next_widths)
+
+
+def remove_column(doc, params: RemoveColumn):
+    node = require_columns(doc, params.path)
+    count = len(node["content"])
+    if params.index >= count:
+        raise ValueError("删除位置必须为现有栏")
+    widths = list(column_widths(node))
+    node["content"].pop(params.index)
+    if count == 2:
+        node_at(doc, params.path[:-1])["content"][params.path[-1]:params.path[-1] + 1] = node["content"][0]["content"]
+    else:
+        removed = widths.pop(params.index)
+        recipient = max(0, params.index - 1)
+        widths[recipient] = round(widths[recipient] + removed, 4)
+        node.setdefault("attrs", {}).update(count=count - 1, widths=widths)
 
 
 def unwrap_columns(doc, params: Paths):
@@ -467,7 +577,11 @@ CAPABILITIES = {
     "block.style": Capability("段落样式", "设置段落、标题或列表项的对齐、行高和缩进。", StyleBlocks, style_blocks, "format"),
     "list.convert": Capability("列表转换", "将段落或现有列表转换为有序/无序列表，保留列表项和嵌套内容。", ConvertList, convert_list, "layout"),
     "columns.layout": Capability("分栏排版", "把连续段落中的准确原文分配到 2–6 栏。多行共用宽度和间距；右对齐只影响指定栏。不能遗漏文字。", LayoutColumns, layout_columns, "layout"),
-    "columns.update": Capability("调整现有分栏", "批量修改同栏数分栏的统一宽度、栏间距和对齐。", UpdateColumns, update_columns, "layout"),
+    "columns.wrap": Capability("创建分栏", "将连续完整内容块保留在第一栏，其余栏为空；智能分配原文使用 columns.layout。", WrapColumns, wrap_columns, "layout"),
+    "columns.count": Capability("调整栏数", "调整到 2–6 栏；减少时把被移除栏的内容合并到最后保留栏，不删除内容。", ColumnCount, set_column_count, "layout"),
+    "columns.add": Capability("插入空栏", "在指定栏后插入空栏，保留内容并重新分配栏宽，最多六栏。", AddColumn, add_column, "layout"),
+    "columns.remove": Capability("删除栏及内容", "删除明确指定的栏和其中内容；仅两栏时展开保留栏。纯排版任务不得用来删减事实。", RemoveColumn, remove_column, "content"),
+    "columns.update": Capability("调整现有分栏", "独立或批量修改同栏数分栏的宽度、栏间距、对齐；未指定项保持原值。", UpdateColumns, update_columns, "layout"),
     "columns.unwrap": Capability("取消分栏", "按栏顺序恢复普通内容，保留文字。", Paths, unwrap_columns, "layout"),
     "blocks.move": Capability("移动内容块", "将同级内容块移动到指定同级节点之前，保留结构与内容。", MoveBlocks, move_blocks, "layout"),
     "block.type": Capability("正文与标题", "将正文或标题转换为正文/H1–H3，保留原文、标记和来源关联。", ChangeBlockType, change_block_type, "format"),
@@ -505,6 +619,14 @@ def validate_document(doc: dict) -> None:
             raise ValueError("内容容器不能为空")
         if kind == "columns" and (not 2 <= len(content) <= 6 or any(child.get("type") != "column" for child in content)):
             raise ValueError("分栏必须包含 2–6 个栏节点")
+        if kind == "columns":
+            attrs = node.get("attrs", {})
+            if attrs.get("count", len(content)) != len(content):
+                raise ValueError("分栏数量属性须与实际栏数一致")
+            if attrs.get("widths") is not None:
+                ColumnsParameters(widths=attrs["widths"], alignments=["left"] * len(content))
+                if len(attrs["widths"]) != len(content):
+                    raise ValueError("分栏宽度数量与实际栏数不一致")
         if kind in {"bulletList", "orderedList"} and any(child.get("type") != "listItem" for child in content):
             raise ValueError("列表只能包含列表项")
         if kind == "listItem" and content[0].get("type") != "paragraph":

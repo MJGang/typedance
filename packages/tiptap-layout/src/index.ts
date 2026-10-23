@@ -8,4 +8,4 @@ export {
   resizeColumnWidths,
   serializeColumnWidths,
 } from "./columns"
-export type { ColumnsCount, ColumnsGap, ColumnWidths, InsertColumnsOptions } from "./columns"
+export type { ColumnsCount, ColumnsGap, ColumnWidths } from "./columns"

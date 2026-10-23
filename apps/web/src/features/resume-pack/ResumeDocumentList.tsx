@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils"
 import { resumePackPaths } from "./routes"
 import { useResumePackNavigation } from "./ResumePackNavigation"
 import { flushSourceCanvasSaves } from "../revision/useSourceCanvasAutosave"
+import { migrateDocumentPageMargins } from "../revision/migratePageMargins"
 
 export function ResumeDocumentList({ activeDocumentId, activeDocument, onDocumentRenamed, openFirstDocument = false }: {
   activeDocumentId?: string
@@ -69,6 +70,7 @@ export function ResumeDocumentList({ activeDocumentId, activeDocument, onDocumen
     const requestedAtLocation = locationKey
     try {
       if (!await flushSourceCanvasSaves(item.id)) throw new Error("unsaved")
+      await migrateDocumentPageMargins(item.id)
       const copy = await duplicateRevisionDocument(item.id)
       documentsChanged()
       if (currentLocationKey.current === requestedAtLocation) navigate(resumePackPaths.workspace(copy.id))

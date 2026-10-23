@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { SourceResumeCanvas } from "@typedance/contracts"
-import { migrateEditorPageMargins } from "@/api"
-import { migratePageMargins } from "./migratePageMargins"
+import { getRevisionWorkspaceView, migrateEditorPageMargins } from "@/api"
+import { migrateDocumentPageMargins, migratePageMargins } from "./migratePageMargins"
 
-vi.mock("@/api", () => ({ migrateEditorPageMargins: vi.fn() }))
+vi.mock("@/api", () => ({ migrateEditorPageMargins: vi.fn(), getRevisionWorkspaceView: vi.fn() }))
 const source = { document_id: "doc", doc_json: { type: "doc", content: [{ type: "paragraph" }] } } as unknown as SourceResumeCanvas
 const key = "typedance:revision-workspace:page-margins:doc"
 const margins = { top: 40, bottom: 40, left: 32, right: 32 }
@@ -36,5 +36,18 @@ describe("one-time page layout migration", () => {
     expect(await migratePageMargins(source)).toEqual(source)
     expect(migrateEditorPageMargins).toHaveBeenCalledWith("doc", null, "malformed")
     expect(localStorage.getItem(key)).toBeNull()
+  })
+
+  it("migrates an unopened source document before backend duplication", async () => {
+    const raw = JSON.stringify(margins)
+    localStorage.setItem(key, raw)
+    vi.mocked(getRevisionWorkspaceView).mockResolvedValue({ source_resume_canvas: source } as never)
+    vi.mocked(migrateEditorPageMargins).mockResolvedValue({ ...source, doc_json: { ...source.doc_json, attrs: { pageMargins: margins } } })
+    await migrateDocumentPageMargins("doc")
+    expect(getRevisionWorkspaceView).toHaveBeenCalledWith("doc")
+    expect(migrateEditorPageMargins).toHaveBeenCalledWith("doc", margins, raw)
+    expect(localStorage.getItem(key)).toBeNull()
+    await migrateDocumentPageMargins("doc")
+    expect(getRevisionWorkspaceView).toHaveBeenCalledOnce()
   })
 })
