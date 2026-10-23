@@ -28,6 +28,14 @@ export function nodePathAtPosition(editor: Editor, position: number): number[] |
   return Array.from({ length: resolved.depth + 1 }, (_, depth) => resolved.index(depth))
 }
 
+/** 块插入锚点来自选区末尾；内容变换与位置合法性由后端决定。 */
+export function selectedBlockInsertion(editor: Editor): { parent: number[]; index: number } {
+  const { $to } = editor.state.selection
+  const depth = $to.parent.isTextblock ? $to.depth - 1 : $to.depth
+  return { parent: Array.from({ length: depth }, (_, level) => $to.index(level)),
+    index: $to.index(depth) + ($to.parent.isTextblock ? 1 : 0) }
+}
+
 export function selectedColumnsPath(editor: Editor): number[] | undefined {
   const { $from, from } = editor.state.selection
   if (editor.state.doc.nodeAt(from)?.type.name === "columns") return nodePathAtPosition(editor, from)

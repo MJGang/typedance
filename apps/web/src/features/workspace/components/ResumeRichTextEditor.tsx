@@ -41,7 +41,7 @@ import { ColumnsNodeView } from "./ColumnsNodeView"
 import { ReferenceTracker } from "../../revision/references/referenceTracker"
 import { CanvasReferences } from "../../revision/references/CanvasReferences"
 import { DocumentLayout } from "../../revision/documentLayout"
-import { executeEditorOperations, selectedColumnsPath, selectedNodePaths, selectedTextOperations } from "../../revision/editorCommands"
+import { executeEditorOperations, selectedBlockInsertion, selectedColumnsPath, selectedNodePaths, selectedTextOperations } from "../../revision/editorCommands"
 
 export type MarginConfig = {
   top: number
@@ -1186,7 +1186,11 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
             </ToolbarGroup>
             <ToolbarVerticalSeparator />
             <ToolbarGroup>
-              <DividerToolbarButton disabled={!editor} onClick={() => editor?.chain().focus().setHorizontalRule().run()} />
+              <DividerToolbarButton disabled={!editor} onClick={() => {
+                if (editor) void executeEditorOperations(editor, [{ capability: "blocks.insert", parameters: {
+                  ...selectedBlockInsertion(editor), kind: "horizontalRule",
+                } }], templateStyle)
+              }} />
               <Popover>
                 <Tooltip>
                   <TooltipTrigger asChild>
