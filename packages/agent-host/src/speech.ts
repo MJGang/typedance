@@ -64,8 +64,9 @@ export class LocalSpeechService {
     await this.#initial;
     if (this.#disposed || this.#state.phase !== "ready") throw new HttpError(409, "请先在设置 → 语音输入中下载本地模型");
     const body = value as { audio?: unknown };
-    if (typeof body?.audio !== "string" || body.audio.length > 5_120_000 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(body.audio)) throw new HttpError(400, "无效的录音数据");
+    if (typeof body?.audio !== "string" || body.audio.length > 5_120_000 || body.audio.length % 4 !== 0) throw new HttpError(400, "无效的录音数据");
     const bytes = Buffer.from(body.audio, "base64");
+    if (bytes.toString("base64") !== body.audio) throw new HttpError(400, "无效的录音数据");
     if (bytes.length === 0 || bytes.length % 2 !== 0 || bytes.length > 16000 * 120 * 2) throw new HttpError(400, "录音须为 120 秒以内的 16 kHz 单声道 PCM16");
     const samples = Float32Array.from({ length: bytes.length / 2 }, (_, i) => bytes.readInt16LE(i * 2) / 32768);
     if (!this.#provider) {

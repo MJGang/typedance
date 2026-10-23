@@ -23,6 +23,15 @@ async function start() {
   return { url: server.url, headers: { authorization: `Bearer ${"a".repeat(32)}`, "content-type": "application/json" } };
 }
 describe("speech HTTP ownership", () => {
+  it("accepts the entire 120 second recording without exhausting the validation stack", async () => {
+    const { url, headers } = await start();
+    native.transcribe.mockResolvedValue({ text: "完整录音", audioSeconds: 120 });
+    const audio = Buffer.alloc(16000 * 120 * 2).toString("base64");
+    const response = await fetch(`${url}/speech/transcribe`, { method: "POST", headers, body: JSON.stringify({ audio }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ text: "完整录音" });
+    expect(native.transcribe.mock.calls[0][0].samples.length).toBe(16000 * 120);
+  });
   it("protects speech endpoints and persists explicit language preferences", async () => {
     const { url, headers } = await start();
     expect((await fetch(`${url}/speech/settings`)).status).toBe(401);
@@ -39,7 +48,7 @@ describe("speech HTTP ownership", () => {
     const response = await fetch(`${url}/speech/transcribe`, { method: "POST", headers, body: JSON.stringify({ audio: Buffer.from([0, 128, 255, 127]).toString("base64") }) });
     expect(await response.json()).toMatchObject({ text: "你好" });
     expect(Array.from(native.transcribe.mock.calls[0][0].samples)).toEqual([-1, 32767 / 32768]);
-    for (const audio of ["!!", "AA==", ""]) expect((await fetch(`${url}/speech/transcribe`, { method: "POST", headers, body: JSON.stringify({ audio }) })).status).toBe(400);
+    for (const audio of ["!!", "AA==", "", "AA=A", "AAAA====", "AB==", " AAAA"]) expect((await fetch(`${url}/speech/transcribe`, { method: "POST", headers, body: JSON.stringify({ audio }) })).status).toBe(400);
     expect(native.transcribe).toHaveBeenCalledOnce();
   });
   it("aborts local transcription when the caller disconnects", async () => {

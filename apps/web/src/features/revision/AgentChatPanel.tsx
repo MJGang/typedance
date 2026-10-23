@@ -219,7 +219,8 @@ function AgentChatContent({
   const draftSnapshot = useRef({ input, attachments, mentions })
   useLayoutEffect(() => {
     if (previousScope.current !== scope) {
-      const ownCreation = pendingSendRef.current?.createdConversationId === activeConversationId
+      const createdConversationId = pendingSendRef.current?.createdConversationId
+      const ownCreation = createdConversationId !== undefined && createdConversationId === activeConversationId
       if (!ownCreation) {
         drafts.current.set(previousScope.current, draftSnapshot.current)
         const next = drafts.current.get(scope)

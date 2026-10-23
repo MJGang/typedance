@@ -153,6 +153,24 @@ describe("AgentChatPanel", () => {
     expect(screen.getByRole("img", { name: "a.png" })).toBeInTheDocument()
   })
 
+  it("opens an empty new-conversation draft without carrying the previous draft attachments", async () => {
+    agentHostMocks.listConversationMessages.mockResolvedValue([])
+    const props = { workspaceId: "doc_1", contextSources: [], onConversationCreated: () => {} }
+    const view = render(<AgentChatPanel {...props} activeConversationId="a" />)
+    typeComposerText(screen.getByRole("textbox"), "原对话尚未发送")
+    fireEvent.paste(screen.getByRole("textbox"), { clipboardData: { files: [new File(["image"], "draft.png", { type: "image/png" })], getData: () => "" } })
+    await screen.findByRole("img", { name: "draft.png" })
+    await act(async () => view.rerender(<AgentChatPanel {...props} activeConversationId={undefined} />))
+    expect(screen.getByRole("textbox")).toBeEmptyDOMElement()
+    expect(screen.queryByRole("img", { name: "draft.png" })).not.toBeInTheDocument()
+    typeComposerText(screen.getByRole("textbox"), "新对话草稿")
+    await act(async () => view.rerender(<AgentChatPanel {...props} activeConversationId="a" />))
+    expect(screen.getByRole("textbox")).toHaveTextContent("原对话尚未发送")
+    expect(screen.getByRole("img", { name: "draft.png" })).toBeInTheDocument()
+    await act(async () => view.rerender(<AgentChatPanel {...props} activeConversationId={undefined} />))
+    expect(screen.getByRole("textbox")).toHaveTextContent("新对话草稿")
+  })
+
   it("pastes plain text without retaining clipboard HTML and does not send while an IME is composing", async () => {
     agentHostMocks.listConversationMessages.mockResolvedValue([])
     render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
