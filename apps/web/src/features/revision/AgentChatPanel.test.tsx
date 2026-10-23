@@ -171,6 +171,34 @@ describe("AgentChatPanel", () => {
     expect(screen.getByRole("textbox")).toHaveTextContent("新对话草稿")
   })
 
+  it.each([false, true])("transfers a cached new draft to its created conversation and preserves failed sends: failure=%s", async (failure) => {
+    agentHostMocks.listConversationMessages.mockResolvedValue([])
+    agentHostMocks.createWorkspaceConversation.mockResolvedValue({ id: "created" })
+    if (failure) agentHostMocks.startConversationRun.mockRejectedValue(new Error("发送失败"))
+    else agentHostMocks.startConversationRun.mockResolvedValue({ id: "sent", conversation_id: "created", status: "running" })
+    let view: ReturnType<typeof render>
+    const props = { workspaceId: "doc_1", contextSources: [], onConversationCreated: (id: string) => view.rerender(<AgentChatPanel {...props} activeConversationId={id} />) }
+    view = render(<AgentChatPanel {...props} />)
+    typeComposerText(screen.getByRole("textbox"), "待发送的草稿")
+    fireEvent.paste(screen.getByRole("textbox"), { clipboardData: { files: [new File(["image"], "cached.png", { type: "image/png" })], getData: () => "" } })
+    await screen.findByRole("img", { name: "cached.png" })
+    await act(async () => view.rerender(<AgentChatPanel {...props} activeConversationId="existing" />))
+    await act(async () => view.rerender(<AgentChatPanel {...props} />))
+    expect(screen.getByRole("textbox")).toHaveTextContent("待发送的草稿")
+    fireEvent.click(screen.getByRole("button", { name: /^发送$/ }))
+    await waitFor(() => expect(agentHostMocks.startConversationRun).toHaveBeenCalledOnce())
+    if (failure) await waitFor(() => expect(screen.getByRole("button", { name: "移除附件 cached.png" })).toBeEnabled())
+    else await waitFor(() => expect(screen.getByRole("textbox")).toBeEmptyDOMElement())
+    await act(async () => view.rerender(<AgentChatPanel {...props} />))
+    expect(screen.getByRole("textbox")).toBeEmptyDOMElement()
+    expect(screen.queryByRole("img", { name: "cached.png" })).not.toBeInTheDocument()
+    if (failure) {
+      await act(async () => view.rerender(<AgentChatPanel {...props} activeConversationId="created" />))
+      expect(screen.getByRole("textbox")).toHaveTextContent("待发送的草稿")
+      expect(screen.getByRole("img", { name: "cached.png" })).toBeInTheDocument()
+    }
+  })
+
   it("pastes plain text without retaining clipboard HTML and does not send while an IME is composing", async () => {
     agentHostMocks.listConversationMessages.mockResolvedValue([])
     render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)

@@ -221,7 +221,10 @@ function AgentChatContent({
     if (previousScope.current !== scope) {
       const createdConversationId = pendingSendRef.current?.createdConversationId
       const ownCreation = createdConversationId !== undefined && createdConversationId === activeConversationId
-      if (!ownCreation) {
+      if (ownCreation) {
+        // The new conversation now owns this draft, including a later failed send.
+        drafts.current.delete(previousScope.current)
+      } else {
         drafts.current.set(previousScope.current, draftSnapshot.current)
         const next = drafts.current.get(scope)
         setInput(next?.input ?? ""); setAttachments(next?.attachments ?? []); setMentions(next?.mentions ?? []); setMentionQuery(null)
@@ -461,6 +464,7 @@ function AgentChatContent({
         context: { document_id: workspaceId, ...(editorPayload?.snapshot ? { editor_snapshot: editorPayload.snapshot } : {}) },
       })
       if (pending.invalidated) return
+      drafts.current.delete(`${workspaceId}:${activeConversationId ?? "new"}`)
       editorReferences?.consume(editorPayload?.references.map((reference) => reference.id) ?? [])
       setInput("")
       setAttachments([])
