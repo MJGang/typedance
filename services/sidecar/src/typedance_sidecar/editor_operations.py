@@ -265,16 +265,35 @@ def convert_list(doc, params: ConvertList):
     allowed = {"bulletList": {"disc", "circle", "dash"}, "orderedList": {"decimal", "lower-alpha", "decimal-nested"}}
     if params.style and params.style not in allowed[params.kind]:
         raise ValueError("列表样式与列表类型不匹配")
-    for path in sorted(params.paths, reverse=True):
+    groups = []
+    for path in sorted(params.paths):
         node = node_at(doc, path)
         if node["type"] not in {"paragraph", "bulletList", "orderedList"}:
             raise ValueError("列表转换只适用于段落或列表")
-        attrs = {"listStyleType": params.style} if params.style else {}
+        previous = groups[-1][-1] if groups else None
+        if previous and path[:-1] == previous[:-1] and path[-1] == previous[-1] + 1:
+            groups[-1].append(path)
+        else:
+            groups.append([path])
+    # 每组连续同级节点生成一个列表；倒序替换，保持其余目标路径有效。
+    for paths in reversed(groups):
+        sources = [node_at(doc, path) for path in paths]
+        first = sources[0]
+        attrs = deepcopy(first.get("attrs", {})) if first["type"] != "paragraph" else {}
+        attrs.pop("listStyleType", None)
+        attrs.pop("start", None)
+        if params.style:
+            attrs["listStyleType"] = params.style
         if params.kind == "orderedList":
-            attrs["start"] = node.get("attrs", {}).get("start", 1)
-        content = node["content"] if node["type"] in {"bulletList", "orderedList"} else [{"type": "listItem", "content": [deepcopy(node)]}]
-        node.clear()
-        node.update(type=params.kind, attrs=attrs, content=content)
+            attrs["start"] = first.get("attrs", {}).get("start", 1) if first["type"] == "orderedList" else 1
+        content = []
+        for node in sources:
+            if node["type"] == "paragraph":
+                content.append({"type": "listItem", "content": [node]})
+            else:
+                content.extend(node["content"])
+        parent = node_at(doc, paths[0][:-1])
+        parent["content"][paths[0][-1]:paths[-1][-1] + 1] = [{"type": params.kind, "attrs": attrs, "content": content}]
 
 
 def layout_columns(doc, params: LayoutColumns):

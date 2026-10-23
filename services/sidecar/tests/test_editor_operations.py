@@ -83,6 +83,29 @@ def test_nested_ordered_list_converts_without_losing_items_or_marks():
     assert result["content"][0]["content"] == source["content"][0]["content"]
 
 
+def test_contiguous_paragraphs_become_one_numbered_list_with_source_attributes_preserved():
+    source = doc(*(paragraph(text, canvasNodeId=f"node_{index}", sourceBlockId=f"source_{index}") for index, text in enumerate(["第一项", "第二项", "第三项"])))
+    source["content"][1]["content"][0]["marks"] = [{"type": "bold"}]
+    result = prepare(source, "list.convert", paths=[[2], [0], [1]], kind="orderedList", style="decimal")
+    assert len(result["content"]) == 1
+    numbered = result["content"][0]
+    assert numbered["attrs"]["start"] == 1
+    assert [item["content"][0] for item in numbered["content"]] == source["content"]
+
+
+def test_list_conversion_groups_only_contiguous_siblings_and_preserves_nested_lists():
+    nested = {"type": "bulletList", "content": [{"type": "listItem", "content": [paragraph("嵌套项")]}]}
+    existing = {"type": "orderedList", "attrs": {"start": 3}, "content": [{"type": "listItem", "content": [paragraph("原列表项"), nested]}]}
+    source = doc(existing, paragraph("连续正文"), paragraph("未选中的正文"), paragraph("另一组一"), paragraph("另一组二"))
+    result = prepare(source, "list.convert", paths=[[0], [1], [3], [4]], kind="orderedList", style="decimal")
+    assert [node["type"] for node in result["content"]] == ["orderedList", "paragraph", "orderedList"]
+    assert result["content"][0]["attrs"]["start"] == 3
+    assert result["content"][0]["content"][0] == existing["content"][0]
+    assert len(result["content"][0]["content"]) == 2
+    assert len(result["content"][2]["content"]) == 2
+    assert node_text(result) == node_text(source)
+
+
 def test_margins_are_document_state_and_have_minimum_content_area():
     result = prepare(doc(paragraph("正文")), "page.margins", top=40, bottom=40, left=36, right=36)
     assert result["attrs"]["pageMargins"]["left"] == 36
