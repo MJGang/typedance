@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { delimiter, resolve } from "node:path"
-import type { EditorOperation } from "@typedance/contracts"
+import type { EditorOperation, EditorNodeOrigin, EditorTextOrigin } from "@typedance/contracts"
 
 // pnpm/vitest 的项目工作目录是 apps/web；import.meta.url 会被 jsdom 转换成 HTTP URL。
 const source = resolve(process.cwd(), "../../services/sidecar/src")
@@ -16,5 +16,5 @@ export function prepareWithSidecar(doc: Record<string, unknown>, operations: Edi
     encoding: "utf8", input: JSON.stringify({ doc, operations }),
     env: { ...process.env, PYTHONPATH: [source, process.env.PYTHONPATH].filter(Boolean).join(delimiter) },
   })
-  return JSON.parse(output) as { doc_json: Record<string, unknown>; catalog_revision: string; effects: Array<{ capability: string; title: string; effect: string }> }
+  return JSON.parse(output) as { doc_json: Record<string, unknown>; catalog_revision: string; node_origins: EditorNodeOrigin[]; text_origins: EditorTextOrigin[]; effects: Array<{ capability: string; title: string; effect: string }> }
 }

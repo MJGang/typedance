@@ -68,7 +68,7 @@ export async function executeEditorOperations(editor: Editor, operations: Editor
   const before = editor.getJSON()
   try {
     const result = await prepareEditorOperations(before, operations, templateStyle)
-    applyDocumentChange(editor, before, result.doc_json, crypto.randomUUID())
+    applyDocumentChange(editor, before, result.doc_json, crypto.randomUUID(), result.node_origins, result.text_origins)
     if (options.focus !== false) editor.commands.focus()
     return true
   } catch (error) {

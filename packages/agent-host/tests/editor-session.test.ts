@@ -29,7 +29,7 @@ async function setup(mode: CanvasMutationMode) {
   } } });
   await registerResumeWorkbenchPlugin(runtime, loader);
   const prepare = vi.fn(async () => ({ id: "transaction", document_id: "doc_1", editor_session_id: "editor_1", content_revision: 2,
-    before_doc_json: snapshot.doc_json, doc_json: updated.doc_json, summary: "改写原文", effects: [{ capability: "text.replace", title: "改写文字", effect: "content" }], catalog_revision: "current" }));
+    before_doc_json: snapshot.doc_json, doc_json: updated.doc_json, summary: "改写原文", effects: [{ capability: "text.replace", title: "改写文字", effect: "content" }], catalog_revision: "current", node_origins: [], text_origins: [] }));
   const pageReader = vi.fn(async () => ({ page_count: 1, pages: [{ page: 1, width: 794, height: 1123, image_url: "data:image/png;base64,aGVsbG8=" }] }));
   const host = createAgentHost({ runtime, packs: [{ id: "resume", capabilityPolicy: { scopeIds: ["pack:resume"] }, primaryAgentId: "resume.primary" }], resumeTools: {
     pageReader, supportsImages: () => true, editor: {

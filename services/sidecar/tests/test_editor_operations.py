@@ -255,6 +255,47 @@ def test_column_alignment_applies_to_nested_list_text_without_overwriting_nested
     assert preserved_inner == inner
 
 
+@pytest.mark.parametrize("capability,parameters,targets", [
+    ("columns.wrap", {"count": 2}, [[0, 0, 0], [0, 0, 1]]),
+    ("list.convert", {"kind": "bulletList"}, [[0, 0, 0], [0, 1, 0]]),
+])
+def test_node_origins_report_exact_sources_without_ids_even_for_identical_paragraphs(capability, parameters, targets):
+    source = doc(paragraph("相同内容"), paragraph("相同内容"))
+    result = prepare_operations(source, [{"capability": capability, "parameters": {"paths": [[0], [1]], **parameters}}], capability_catalog()["revision"])
+    assert [item for item in result["node_origins"] if len(item["before_path"]) == 1] == [{"before_path": [index], "after_path": target} for index, target in enumerate(targets)]
+    assert source == doc(paragraph("相同内容"), paragraph("相同内容"))
+
+
+def test_deleted_then_recreated_identical_content_reports_the_old_node_as_removed():
+    result = prepare_operations(doc(paragraph("原文")), [
+        {"capability": "blocks.delete", "parameters": {"paths": [[0]]}},
+        {"capability": "blocks.insert", "parameters": {"index": 0, "text": "原文", "kind": "paragraph"}},
+    ], capability_catalog()["revision"])
+    assert {"before_path": [0], "after_path": None} in result["node_origins"]
+
+
+def test_text_origins_follow_utf16_fragments_across_batched_formatting_and_column_layout():
+    source = doc(paragraph("甲公司 | Agent😀负责人"))
+    result = prepare_operations(source, [
+        {"capability": "text.format", "parameters": {"path": [0], "text": "甲", "mark": "bold", "enabled": False}},
+        {"capability": "columns.layout", "parameters": {"widths": [50, 50], "alignments": ["left", "right"],
+            "rows": [{"paths": [[0]], "cells": [["甲公司"], ["Agent😀负责人"]]}]}},
+    ], capability_catalog()["revision"])
+    assert result["text_origins"] == [{"before_path": [0], "spans": [
+        {"before_from": 0, "before_to": 3, "after_path": [0, 0, 0], "after_from": 0},
+        {"before_from": 6, "before_to": 16, "after_path": [0, 1, 0], "after_from": 0},
+    ]}]
+
+
+def test_text_origins_distinguish_deleted_and_surviving_identical_text():
+    result = prepare_operations(doc(paragraph("引用😀与引用😀")), [
+        {"capability": "text.replace", "parameters": {"path": [0], "text": "引用😀", "occurrence": 0, "replacement": ""}},
+    ], capability_catalog()["revision"])
+    assert result["text_origins"] == [{"before_path": [0], "spans": [
+        {"before_from": 4, "before_to": 9, "after_path": [0], "after_from": 0},
+    ]}]
+
+
 @pytest.mark.parametrize("capability,parameters", [
     ("columns.update", {"paths": [[0]]}),
     ("columns.update", {"paths": [[0]], "widths": [10, 90]}),

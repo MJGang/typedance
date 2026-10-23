@@ -8,6 +8,7 @@ import { DocumentLayout, sameTemplateStyle } from "./documentLayout"
 import { defaultClassicA4Style } from "../templates/data"
 import { ReferenceTracker, referenceMatches, referenceTrackerKey } from "./references/referenceTracker"
 import { BlockStyle } from "../workspace/components/ResumeRichTextEditor"
+import { prepareWithSidecar } from "@/test/sidecarEditor"
 
 const editors: Editor[] = []
 function setup(content: JSONContent = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "保留的经历" }] }] }) {
@@ -16,9 +17,13 @@ function setup(content: JSONContent = { type: "doc", content: [{ type: "paragrap
   return editor
 }
 
-function track(editor: Editor, text: string) {
-  let from = -1
-  editor.state.doc.descendants((node, pos) => { if (node.isTextblock && node.textContent.includes(text)) from = pos + 1 + node.textContent.indexOf(text) })
+function track(editor: Editor, text: string, occurrence?: number) {
+  const matches: number[] = []
+  editor.state.doc.descendants((node, pos) => {
+    if (!node.isTextblock) return
+    for (let offset = node.textContent.indexOf(text); offset >= 0; offset = node.textContent.indexOf(text, offset + text.length)) matches.push(pos + 1 + offset)
+  })
+  const from = matches[occurrence ?? matches.length - 1] ?? -1
   expect(from).toBeGreaterThanOrEqual(0)
   const to = from + text.length
   const reference: EditorReference = { id: "ref", ordinal: 1, document_id: "doc", text, label: "引用", comment: "", source: {
@@ -44,11 +49,99 @@ function transaction(editor: Editor, mutate: (doc: TestDocument) => void): Edito
   const after = structuredClone(before)
   mutate(after as TestDocument)
   return { id: "transaction", document_id: "doc", editor_session_id: "session", content_revision: referenceTrackerKey.getState(editor.state)?.revision ?? 0,
-    before_doc_json: before, doc_json: after, catalog_revision: "current", summary: "修改", effects: [] }
+    before_doc_json: before, doc_json: after, catalog_revision: "current", summary: "修改", effects: [], node_origins: [], text_origins: [] }
 }
 afterEach(() => { editors.splice(0).forEach((editor) => editor.destroy()) })
 
 describe("document editing transaction", () => {
+  it.each([0, 1])("tracks exact original text when deleting one of two identical inline occurrences; quote=%s", (occurrence) => {
+    const editor = setup(paragraphs("引用😀与引用😀"))
+    const reference = track(editor, "引用😀", occurrence)
+    const prepared = prepareWithSidecar(editor.getJSON(), [{ capability: "text.replace", parameters: { path: [0], text: "引用😀", occurrence: 0, replacement: "" } }])
+    applyEditorTransaction(editor, "doc", "session", { ...transaction(editor, () => {}), ...prepared })
+    if (occurrence === 0) expect(referenceTrackerKey.getState(editor.state)!.references[0].changed).toBe(true)
+    else expect(expectTracked(editor, reference.text).source.from).toBe(2)
+    editor.commands.undo()
+    expectTracked(editor, reference.text)
+    editor.commands.redo()
+    expect(referenceTrackerKey.getState(editor.state)!.references[0].changed).toBe(occurrence === 0)
+  })
+
+  it("follows original Unicode fragments through formatting, normalized text nodes and column layout", () => {
+    const editor = setup(paragraphs("甲公司 | Agent😀负责人"))
+    const reference = track(editor, "Agent😀负责人")
+    const prepared = prepareWithSidecar(editor.getJSON(), [
+      { capability: "text.format", parameters: { path: [0], text: "甲", mark: "bold", enabled: false } },
+      { capability: "columns.layout", parameters: { widths: [50, 50], alignments: ["left", "right"], rows: [{ paths: [[0]], cells: [["甲公司"], ["Agent😀负责人"]] }] } },
+    ])
+    applyEditorTransaction(editor, "doc", "session", { ...transaction(editor, () => {}), ...prepared })
+    const current = expectTracked(editor, reference.text)
+    expect(editor.state.doc.resolve(current.source.from).parent.attrs.textAlign).toBe("right")
+    expect(current.source.kind === "canvas" && current.source.canvas_node_id).toBeTruthy()
+    editor.commands.undo()
+    expectTracked(editor, reference.text)
+    editor.commands.redo()
+    expectTracked(editor, reference.text)
+  })
+
+  it("invalidates a quote whose marks changed even when its original characters survive", () => {
+    const editor = setup(paragraphs("引用😀"))
+    track(editor, "引用😀")
+    const prepared = prepareWithSidecar(editor.getJSON(), [{ capability: "text.format", parameters: { path: [0], text: "引用😀", mark: "bold" } }])
+    applyEditorTransaction(editor, "doc", "session", { ...transaction(editor, () => {}), ...prepared })
+    expect(referenceTrackerKey.getState(editor.state)!.references[0].changed).toBe(true)
+    editor.commands.undo()
+    expectTracked(editor, "引用😀")
+  })
+
+  it("rejects inaccurate original-text provenance without applying any change", () => {
+    const editor = setup(paragraphs("原段落"))
+    const before = editor.getJSON()
+    const change = transaction(editor, (doc) => { doc.content[0].content[0].text = "新段落" })
+    change.text_origins = [{ before_path: [0], spans: [{ before_from: 0, before_to: 1, after_path: [0], after_from: 0 }] }]
+    expect(() => applyEditorTransaction(editor, "doc", "session", change)).toThrow("原文来源")
+    expect(editor.getJSON()).toEqual(before)
+  })
+
+  it.each([0, 1])("uses backend provenance when deleting the first of two identical paragraphs; quote=%s", (occurrence) => {
+    const editor = setup(paragraphs("相同引用", "相同引用"))
+    const reference = track(editor, "相同引用", occurrence)
+    const prepared = prepareWithSidecar(editor.getJSON(), [{ capability: "blocks.delete", parameters: { paths: [[0]] } }])
+    applyEditorTransaction(editor, "doc", "session", { ...transaction(editor, () => {}), doc_json: prepared.doc_json, node_origins: prepared.node_origins, text_origins: prepared.text_origins })
+    if (occurrence === 0) expect(referenceTrackerKey.getState(editor.state)!.references[0].changed).toBe(true)
+    else expect(expectTracked(editor, reference.text).source.from).toBe(1)
+    editor.commands.undo()
+    expectTracked(editor, reference.text)
+  })
+
+  it.each([
+    ["columns.wrap", false], ["columns.wrap", true], ["list.convert", false], ["list.convert", true],
+  ] as const)("preserves a null-ID paragraph reference through backend %s, repeated text=%s", (capability, repeated) => {
+    const text = repeated ? "重复引用" : "第二段引用"
+    const editor = setup(paragraphs(repeated ? text : "第一段", text))
+    const reference = track(editor, text)
+    const prepared = prepareWithSidecar(editor.getJSON(), [{ capability, parameters: {
+      paths: [[0], [1]], ...(capability === "columns.wrap" ? { count: 2 } : { kind: "bulletList", style: "disc" }),
+    } }])
+    const change = { ...transaction(editor, () => {}), doc_json: prepared.doc_json, node_origins: prepared.node_origins, text_origins: prepared.text_origins }
+    applyEditorTransaction(editor, "doc", "session", change)
+    const current = expectTracked(editor, reference.text)
+    expect(current.source.from).toBeGreaterThan(3)
+    editor.commands.undo()
+    expectTracked(editor, reference.text)
+    editor.commands.redo()
+    expectTracked(editor, reference.text)
+  })
+
+  it("rejects an invalid origin path before changing the document", () => {
+    const editor = setup(paragraphs("原段落", "其他段落"))
+    const before = editor.getJSON()
+    const change = transaction(editor, (doc) => { doc.content[1].content[0].text = "新的其他段落" })
+    change.node_origins = [{ before_path: [0], after_path: [20] }]
+    expect(() => applyEditorTransaction(editor, "doc", "session", change)).toThrow("节点路径")
+    expect(editor.getJSON()).toEqual(before)
+  })
+
   it("does not dispatch or create undo history for an unchanged document", () => {
     const editor = setup()
     editor.commands.insertContentAt(1, "用户输入")

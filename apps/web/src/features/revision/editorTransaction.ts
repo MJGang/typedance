@@ -4,8 +4,9 @@ import { Fragment, Slice, type Node as ProseMirrorNode } from "@tiptap/pm/model"
 import type { Transaction } from "@tiptap/pm/state"
 import { ReplaceAroundStep } from "@tiptap/pm/transform"
 import { diffArrays, diffChars } from "diff"
-import type { EditorTransaction } from "@typedance/contracts"
+import type { EditorNodeOrigin, EditorTextOrigin, EditorTransaction } from "@typedance/contracts"
 import { preserveReferenceHistory, referenceTrackerKey } from "./references/referenceTracker"
+import { setReferenceOrigins } from "./references/referenceOrigins"
 
 const diffLimits = { timeout: 250 }
 const diffError = "改动范围较大，无法安全保留编辑位置，请分批修改"
@@ -131,10 +132,10 @@ export function applyEditorTransaction(editor: Editor, documentId: string, sessi
     || transaction.content_revision !== (referenceTrackerKey.getState(editor.state)?.revision ?? 0)) throw new Error("画布或编辑会话已变化，请重新读取后操作")
   const before = editor.schema.nodeFromJSON(transaction.before_doc_json)
   if (!before.eq(editor.state.doc)) throw new Error("原文已变化，已阻止覆盖你的编辑")
-  return applyDocumentChange(editor, transaction.before_doc_json, transaction.doc_json, transaction.id)
+  return applyDocumentChange(editor, transaction.before_doc_json, transaction.doc_json, transaction.id, transaction.node_origins, transaction.text_origins)
 }
 
-export function applyDocumentChange(editor: Editor, beforeJson: Record<string, unknown>, afterJson: Record<string, unknown>, transactionId: string): boolean {
+export function applyDocumentChange(editor: Editor, beforeJson: Record<string, unknown>, afterJson: Record<string, unknown>, transactionId: string, nodeOrigins: EditorNodeOrigin[], textOrigins: EditorTextOrigin[]): boolean {
   if (editor.isDestroyed || !editor.isEditable) throw new Error("编辑器不可用")
   const before = editor.state.doc
   if (!editor.schema.nodeFromJSON(beforeJson).eq(before)) throw new Error("原文已变化，已阻止覆盖你的编辑")
@@ -147,6 +148,7 @@ export function applyDocumentChange(editor: Editor, beforeJson: Record<string, u
     if (JSON.stringify(before.attrs[key]) !== JSON.stringify(after.attrs[key])) tr.setDocAttribute(key, after.attrs[key])
   }
   if (!tr.doc.eq(after)) throw new Error("编辑结果与准备事务不一致，未应用修改")
+  setReferenceOrigins(tr, nodeOrigins, textOrigins)
   preserveReferenceHistory(tr, referenceTrackerKey.getState(editor.state))
   editor.view.dispatch(tr.setMeta("typedance-editor-transaction", transactionId).scrollIntoView())
   editor.view.dispatch(closeHistory(editor.state.tr))

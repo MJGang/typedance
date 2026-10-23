@@ -1,6 +1,8 @@
 import { z } from "zod";
 import {
   editorCapabilityCatalogSchema,
+  editorNodeOriginSchema,
+  editorTextOriginSchema,
   type EditorOperation,
   documentListItemSchema,
   documentSchema,
@@ -53,7 +55,7 @@ export async function prepareEditorOperations(docJson: Record<string, unknown>, 
   const catalog = await getEditorCapabilities()
   const response = await fetch(`${baseUrl}/editor/prepare`, { method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ doc_json: docJson, operations, catalog_revision: catalog.revision, template_style: templateStyle }) })
-  return parseTemplateResponse(response, (value) => z.object({ doc_json: z.record(z.unknown()), catalog_revision: z.string(),
+  return parseTemplateResponse(response, (value) => z.object({ doc_json: z.record(z.unknown()), catalog_revision: z.string(), node_origins: z.array(editorNodeOriginSchema).max(10000), text_origins: z.array(editorTextOriginSchema).max(10000),
     effects: z.array(z.object({ capability: z.string(), title: z.string(), effect: z.string() })) }).parse(value), "无法准备编辑操作")
 }
 

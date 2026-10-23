@@ -5,6 +5,7 @@ import { Step, StepResult, type Mappable } from "@tiptap/pm/transform"
 import { Decoration, DecorationSet } from "@tiptap/pm/view"
 import type { EditorReference } from "@typedance/contracts"
 import type { CanvasReferenceSource, TrackedCanvasReference } from "./EditorReferences"
+import { mapReferenceOrigin } from "./referenceOrigins"
 
 export type TrackedReference = TrackedCanvasReference & { text: string; ordinal: number }
 type ReferenceState = { revision: number; references: TrackedReference[] }
@@ -81,9 +82,13 @@ export function updateReferenceState(transaction: Transaction, previous: Referen
     const from = transaction.mapping.mapResult(reference.source.from, 1)
     const to = transaction.mapping.mapResult(reference.source.to, -1)
     let source = { ...reference.source, from: from.pos, to: to.pos, content_revision: revision }
-    if (!reference.changed && (from.deleted || to.deleted || !referenceMatches(transaction.doc, source, reference.text))) {
-      const relocated = relocatedReference(transaction, reference)
-      if (relocated) source = { ...relocated, content_revision: revision }
+    if (!reference.changed) {
+      const origin = mapReferenceOrigin(transaction, reference.source, source, from.deleted, to.deleted)
+      if (origin) return { ...reference, source: origin.source, changed: origin.changed || !referenceMatches(transaction.doc, origin.source, reference.text) }
+      if (from.deleted || to.deleted || !referenceMatches(transaction.doc, source, reference.text)) {
+        const relocated = relocatedReference(transaction, reference)
+        if (relocated) source = { ...relocated, content_revision: revision }
+      }
     }
     return { ...reference, source, changed: reference.changed || !referenceMatches(transaction.doc, source, reference.text) }
   }) : previous.references
@@ -111,6 +116,14 @@ export function updateReferenceState(transaction: Transaction, previous: Referen
     const ordinals = new Map(action.ordinals.map(({ id, ordinal }) => [id, ordinal]))
     references = references.map((reference) => ({ ...reference, ordinal: ordinals.get(reference.id) ?? reference.ordinal }))
   }
+  references = references.map((reference) => {
+    if (reference.changed) return reference
+    const resolved = transaction.doc.resolve(reference.source.from)
+    let id: unknown = transaction.doc.nodeAt(reference.source.from)?.attrs.canvasNodeId
+    for (let depth = resolved.depth; !id && depth > 0; depth--) id = resolved.node(depth).attrs.canvasNodeId
+    const canvasNodeId = typeof id === "string" && id ? id : undefined
+    return canvasNodeId === reference.source.canvas_node_id ? reference : { ...reference, source: { ...reference.source, canvas_node_id: canvasNodeId } }
+  })
   return { revision, references }
 }
 

@@ -32,7 +32,7 @@ describe("manual editor commands", () => {
     toolbar.focus()
     const after = editor.getJSON()
     after.content![0].content![0].marks = [{ type: "bold" }]
-    vi.mocked(prepareEditorOperations).mockResolvedValue({ doc_json: after, effects: [], catalog_revision: "current" })
+    vi.mocked(prepareEditorOperations).mockResolvedValue({ doc_json: after, effects: [], catalog_revision: "current", node_origins: [], text_origins: [] })
     expect(await executeEditorOperations(editor, [{ capability: "text.format", parameters: { path: [0], text: "继续", mark: "bold" } }])).toBe(true)
     await waitFor(() => expect(document.activeElement).toBe(editor.view.dom))
     expect(editor.state.selection.eq(selected)).toBe(true)

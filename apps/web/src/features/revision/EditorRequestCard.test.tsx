@@ -16,7 +16,7 @@ const snapshot: EditorSnapshot = { document_id: "doc", editor_session_id: "sessi
   doc_json: { type: "doc", content: [{ type: "paragraph" }] }, plain_text: "" }
 const request: EditorRequest = { id: "request", document_id: "doc", editor_session_id: "session", kind: "transaction", mode: "review", transaction: {
   id: "transaction", document_id: "doc", editor_session_id: "session", content_revision: 2, before_doc_json: snapshot.doc_json, doc_json: snapshot.doc_json,
-  catalog_revision: "current", summary: "教育经历改为四栏，最后一栏右对齐", effects: [{ capability: "columns.layout", title: "分栏排版", effect: "layout" }],
+  catalog_revision: "current", summary: "教育经历改为四栏，最后一栏右对齐", effects: [{ capability: "columns.layout", title: "分栏排版", effect: "layout" }], node_origins: [], text_origins: [],
 } }
 function Bridge({ bridge }: { bridge: CanvasReferenceBridge }) {
   const register = useEditorReferences()!.registerCanvas

@@ -60,11 +60,11 @@ describe("editor references", () => {
   });
 
   it("forwards current document operations to Sidecar without implementing the transformation in Host", async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ doc_json: snapshot.doc_json, effects: [], catalog_revision: "catalog" })));
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ doc_json: snapshot.doc_json, effects: [], catalog_revision: "catalog", node_origins: [{ before_path: [0], after_path: [0] }], text_origins: [] })));
     const service = createSidecarEditorService("http://127.0.0.1:5517", fetchMock);
     const operations = [{ capability: "text.format", parameters: { path: [0], text: reference.text, mark: "bold" } }];
     const result = await service.prepare({ snapshot, operations, catalogRevision: "catalog", summary: "强调重点", signal: new AbortController().signal });
-    expect(result).toMatchObject({ before_doc_json: snapshot.doc_json, document_id: snapshot.document_id, content_revision: snapshot.content_revision });
+    expect(result).toMatchObject({ before_doc_json: snapshot.doc_json, document_id: snapshot.document_id, content_revision: snapshot.content_revision, node_origins: [{ before_path: [0], after_path: [0] }] });
     expect(fetchMock.mock.calls[0]?.[0]).toBe("http://127.0.0.1:5517/editor/prepare");
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({ doc_json: snapshot.doc_json, operations, catalog_revision: "catalog" });
   });

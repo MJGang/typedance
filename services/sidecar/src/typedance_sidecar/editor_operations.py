@@ -1,6 +1,7 @@
 """编辑能力的唯一目录、参数校验和确定性变换。此模块不涉及 AI 或会话。"""
 
 from copy import deepcopy
+from collections import Counter
 from dataclasses import dataclass
 from hashlib import sha256
 import json
@@ -232,7 +233,76 @@ def inspect_document(doc: dict, options: InspectOptions | None = None, template_
             "template_style": template_style or doc.get("attrs", {}).get("templateStyle")}
 
 
-def inline_slice(node: dict, start: int, end: int) -> list[dict]:
+def utf16_length(text):
+    return len(text.encode("utf-16-le", errors="surrogatepass")) // 2
+
+
+@dataclass(frozen=True)
+class TextOrigin:
+    block: tuple[int, ...]
+    start: int
+    end: int
+    value: str
+
+
+class TextProvenance:
+    """记录被保留原文的来源；仅存于准备事务期间，不向文档添加隐藏字段。"""
+    def __init__(self, initial_nodes, initial_counts):
+        self.blocks = {}
+        self.parts = {}
+        self.copies = []
+        for path, node in initial_nodes:
+            if not self.supports(node):
+                continue
+            block = tuple(path)
+            self.blocks[block] = True
+            offset = 0
+            for child in node.get("content", []):
+                value = node_text(child)
+                end = offset + utf16_length(value)
+                if initial_counts[id(child)] == 1:
+                    self.parts[id(child)] = TextOrigin(block, offset, end, value)
+                offset = end
+
+    @staticmethod
+    def supports(node):
+        return node["type"] in {"paragraph", "heading", "codeBlock"} and all(child["type"] in {"text", "hardBreak"} for child in node.get("content", []))
+
+    def copy_slice(self, source, copied, left, right):
+        origin = self.parts.get(id(source))
+        value = node_text(source)
+        if origin and origin.value == value:
+            self.parts[id(copied)] = TextOrigin(origin.block, origin.start + utf16_length(value[:left]),
+                                                origin.start + utf16_length(value[:right]), value[left:right])
+            self.copies.append(copied)  # 持有对象，防止临时切片释放后复用 ID。
+
+    def export(self, final_nodes):
+        blocks = {path: {"before_path": list(path), "spans": []} for path in self.blocks}
+        for path, node in final_nodes:
+            if not self.supports(node):
+                continue
+            offset = 0
+            for child in node.get("content", []):
+                value = node_text(child)
+                origin = self.parts.get(id(child))
+                if origin and origin.value == value and utf16_length(value) == origin.end - origin.start:
+                    blocks[origin.block]["spans"].append({"before_from": origin.start, "before_to": origin.end,
+                                                          "after_path": path, "after_from": offset})
+                offset += utf16_length(value)
+        for block in blocks.values():
+            merged = []
+            for span in sorted(block["spans"], key=lambda item: (item["before_from"], item["after_path"], item["after_from"])):
+                previous = merged[-1] if merged else None
+                if (previous and previous["before_to"] == span["before_from"] and previous["after_path"] == span["after_path"]
+                        and previous["after_from"] + previous["before_to"] - previous["before_from"] == span["after_from"]):
+                    previous["before_to"] = span["before_to"]
+                else:
+                    merged.append(span)
+            block["spans"] = merged
+        return list(blocks.values())
+
+
+def inline_slice(node: dict, start: int, end: int, provenance: TextProvenance) -> list[dict]:
     if node.get("type") not in {"paragraph", "heading", "codeBlock"} or any(child.get("type") not in {"text", "hardBreak"} for child in node.get("content", [])):
         raise ValueError("目标需要是仅含普通文字的段落或标题")
     result, offset = [], 0
@@ -243,6 +313,7 @@ def inline_slice(node: dict, start: int, end: int) -> list[dict]:
             copied = deepcopy(child)
             if child["type"] == "text":
                 copied["text"] = text[left:right]
+            provenance.copy_slice(child, copied, left, right)
             result.append(copied)
         offset += len(text)
     return result
@@ -257,10 +328,12 @@ def text_range(node, expected, occurrence=None):
     return start, start + len(expected)
 
 
-def replace_text(doc, params: ReplaceText):
+def replace_text(doc, params: ReplaceText, provenance: TextProvenance):
     node = node_at(doc, params.path)
     start, end = text_range(node, params.text, params.occurrence)
-    selected = inline_slice(node, start, end)
+    if params.text == params.replacement:
+        return
+    selected = inline_slice(node, start, end, provenance)
     marks = selected[0].get("marks", []) if selected else []
     replacement = []
     for index, line in enumerate([params.replacement] if node["type"] == "codeBlock" else params.replacement.split("\n")):
@@ -268,13 +341,13 @@ def replace_text(doc, params: ReplaceText):
             replacement.append({"type": "hardBreak"})
         if line:
             replacement.append({"type": "text", "text": line, **({"marks": deepcopy(marks)} if marks else {})})
-    node["content"] = inline_slice(node, 0, start) + replacement + inline_slice(node, end, len(node_text(node)))
+    node["content"] = inline_slice(node, 0, start, provenance) + replacement + inline_slice(node, end, len(node_text(node)), provenance)
 
 
-def format_text(doc, params: FormatText):
+def format_text(doc, params: FormatText, provenance: TextProvenance):
     node = node_at(doc, params.path)
     start, end = text_range(node, params.text, params.occurrence)
-    middle = inline_slice(node, start, end)
+    middle = inline_slice(node, start, end, provenance)
     for child in middle:
         if child["type"] != "text":
             continue
@@ -288,10 +361,10 @@ def format_text(doc, params: FormatText):
                 mark["attrs"] = {key: value for key, value in attributes.items() if value is not None}
             marks.append(mark)
         child["marks"] = marks
-    node["content"] = inline_slice(node, 0, start) + middle + inline_slice(node, end, len(node_text(node)))
+    node["content"] = inline_slice(node, 0, start, provenance) + middle + inline_slice(node, end, len(node_text(node)), provenance)
 
 
-def style_blocks(doc, params: StyleBlocks):
+def style_blocks(doc, params: StyleBlocks, _provenance: TextProvenance):
     for path in params.paths:
         node = node_at(doc, path)
         if node["type"] not in {"paragraph", "heading", "listItem"}:
@@ -299,7 +372,7 @@ def style_blocks(doc, params: StyleBlocks):
         node.setdefault("attrs", {}).update(params.attributes.model_dump(exclude_unset=True))
 
 
-def convert_list(doc, params: ConvertList):
+def convert_list(doc, params: ConvertList, _provenance: TextProvenance):
     allowed = {"bulletList": {"disc", "circle", "dash"}, "orderedList": {"decimal", "lower-alpha", "decimal-nested"}}
     if params.style and params.style not in allowed[params.kind]:
         raise ValueError("列表样式与列表类型不匹配")
@@ -334,7 +407,7 @@ def convert_list(doc, params: ConvertList):
         parent["content"][paths[0][-1]:paths[-1][-1] + 1] = [{"type": params.kind, "attrs": attrs, "content": content}]
 
 
-def layout_columns(doc, params: LayoutColumns):
+def layout_columns(doc, params: LayoutColumns, provenance: TextProvenance):
     used = []
     for row in params.rows:
         if len(row.cells) != len(params.widths):
@@ -377,7 +450,11 @@ def layout_columns(doc, params: LayoutColumns):
                     attrs["canvasNodeId"] = f"canvas_{uuid4().hex}"
                 reused_ids.add(attrs["canvasNodeId"])
                 attrs["textAlign"] = alignment
-                paragraphs.append({"type": original["type"], "attrs": attrs, "content": inline_slice(original, start, start + len(fragment))})
+                paragraph = {"type": original["type"], "attrs": attrs, "content": inline_slice(original, start, start + len(fragment), provenance)}
+                if start == 0 and len(fragment) == len(node_text(original)):
+                    original.update(paragraph)
+                    paragraph = original
+                paragraphs.append(paragraph)
             columns.append({"type": "column", "content": paragraphs or [{"type": "paragraph"}]})
         for index, node in enumerate(sources):
             if any(char not in " \t\r\n|｜·" for pos, char in enumerate(node_text(node)) if pos not in consumed[index]):
@@ -386,7 +463,7 @@ def layout_columns(doc, params: LayoutColumns):
         parent["content"][paths[0][-1]:paths[-1][-1] + 1] = [{"type": "columns", "attrs": {"count": len(columns), "widths": params.widths, "gap": params.gap}, "content": columns}]
 
 
-def update_columns(doc, params: UpdateColumns):
+def update_columns(doc, params: UpdateColumns, _provenance: TextProvenance):
     def align_blocks(node, alignment):
         if node["type"] in {"paragraph", "heading", "listItem"}:
             node.setdefault("attrs", {})["textAlign"] = alignment
@@ -421,7 +498,7 @@ def require_columns(doc, path):
     return node
 
 
-def wrap_columns(doc, params: WrapColumns):
+def wrap_columns(doc, params: WrapColumns, _provenance: TextProvenance):
     paths = sorted(params.paths)
     if any(path[:-1] != paths[0][:-1] for path in paths) or [path[-1] for path in paths] != list(range(paths[0][-1], paths[-1][-1] + 1)):
         raise ValueError("分栏来源必须为连续的同级内容块")
@@ -432,7 +509,7 @@ def wrap_columns(doc, params: WrapColumns):
     node_at(doc, paths[0][:-1])["content"][paths[0][-1]:paths[-1][-1] + 1] = [{"type": "columns", "attrs": {"count": params.count, "gap": params.gap, "widths": equal_widths(params.count)}, "content": columns}]
 
 
-def set_column_count(doc, params: ColumnCount):
+def set_column_count(doc, params: ColumnCount, _provenance: TextProvenance):
     node = require_columns(doc, params.path)
     count = len(node["content"])
     if params.count == count:
@@ -446,7 +523,7 @@ def set_column_count(doc, params: ColumnCount):
     node.setdefault("attrs", {}).update(count=params.count, widths=equal_widths(params.count))
 
 
-def add_column(doc, params: AddColumn):
+def add_column(doc, params: AddColumn, _provenance: TextProvenance):
     node = require_columns(doc, params.path)
     count = len(node["content"])
     if count >= 6 or params.after_index >= count:
@@ -460,7 +537,7 @@ def add_column(doc, params: AddColumn):
     node.setdefault("attrs", {}).update(count=count + 1, widths=next_widths)
 
 
-def remove_column(doc, params: RemoveColumn):
+def remove_column(doc, params: RemoveColumn, _provenance: TextProvenance):
     node = require_columns(doc, params.path)
     count = len(node["content"])
     if params.index >= count:
@@ -476,7 +553,7 @@ def remove_column(doc, params: RemoveColumn):
         node.setdefault("attrs", {}).update(count=count - 1, widths=widths)
 
 
-def unwrap_columns(doc, params: Paths):
+def unwrap_columns(doc, params: Paths, _provenance: TextProvenance):
     for path in sorted(params.paths, reverse=True):
         node = node_at(doc, path)
         if node["type"] != "columns":
@@ -485,7 +562,7 @@ def unwrap_columns(doc, params: Paths):
         node_at(doc, path[:-1])["content"][path[-1]:path[-1] + 1] = content
 
 
-def delete_blocks(doc, params: Paths):
+def delete_blocks(doc, params: Paths, _provenance: TextProvenance):
     for path in sorted(params.paths, reverse=True):
         if not path:
             raise ValueError("不能删除文档根节点")
@@ -495,7 +572,7 @@ def delete_blocks(doc, params: Paths):
         doc["content"] = [{"type": "paragraph"}]
 
 
-def move_blocks(doc, params: MoveBlocks):
+def move_blocks(doc, params: MoveBlocks, _provenance: TextProvenance):
     paths = sorted(params.paths)
     if not paths or any(path[:-1] != params.before[:-1] for path in paths) or params.before in paths:
         raise ValueError("移动目标必须是未选中的同级节点")
@@ -508,7 +585,7 @@ def move_blocks(doc, params: MoveBlocks):
     parent["content"][before:before] = nodes
 
 
-def change_block_type(doc, params: ChangeBlockType):
+def change_block_type(doc, params: ChangeBlockType, _provenance: TextProvenance):
     for path in params.paths:
         node = node_at(doc, path)
         if node["type"] not in {"paragraph", "heading"}:
@@ -520,7 +597,7 @@ def change_block_type(doc, params: ChangeBlockType):
             attrs["level"] = params.level
 
 
-def insert_block(doc, params: InsertBlock):
+def insert_block(doc, params: InsertBlock, _provenance: TextProvenance):
     parent = node_at(doc, params.parent)
     if parent["type"] not in {"doc", "column", "listItem"} or params.index > len(parent.get("content", [])):
         raise ValueError("此位置不能插入内容块")
@@ -535,7 +612,7 @@ def insert_block(doc, params: InsertBlock):
     parent.setdefault("content", []).insert(params.index, node)
 
 
-def reorder_columns(doc, params: ReorderColumns):
+def reorder_columns(doc, params: ReorderColumns, _provenance: TextProvenance):
     node = node_at(doc, params.path)
     if node["type"] != "columns" or sorted(params.order) != list(range(len(node["content"]))):
         raise ValueError("栏顺序必须是当前所有栏索引的唯一排列")
@@ -545,11 +622,11 @@ def reorder_columns(doc, params: ReorderColumns):
         node["attrs"]["widths"] = [widths[index] for index in params.order]
 
 
-def page_margins(doc, params: Margins):
+def page_margins(doc, params: Margins, _provenance: TextProvenance):
     doc.setdefault("attrs", {})["pageMargins"] = params.model_dump()
 
 
-def patch_template(doc, params: PatchTemplate):
+def patch_template(doc, params: PatchTemplate, _provenance: TextProvenance):
     style = deepcopy(doc.get("attrs", {}).get("templateStyle"))
     if not style:
         raise ValueError("当前快照未提供模板样式，请重新读取编辑器")
@@ -573,7 +650,7 @@ class Capability:
     title: str
     description: str
     parameters: type[Parameters]
-    execute: Callable[[dict, Any], None]
+    execute: Callable[[dict, Any, TextProvenance], None]
     effect: Literal["content", "format", "layout"]
 
 
@@ -657,6 +734,12 @@ def validate_document(doc: dict) -> None:
         raise ValueError("画布文档超过处理大小限制")
 
 
+def walk_nodes(node, path=()):
+    yield list(path), node
+    for index, child in enumerate(node.get("content", [])):
+        yield from walk_nodes(child, (*path, index))
+
+
 def prepare_operations(doc_json: dict, operations: list[dict], catalog_revision: str, template_style: dict | None = None) -> dict:
     catalog = capability_catalog()
     if catalog_revision != catalog["revision"]:
@@ -667,6 +750,11 @@ def prepare_operations(doc_json: dict, operations: list[dict], catalog_revision:
     if not 1 <= len(operations) <= 100:
         raise ValueError("每个事务需要 1–100 项操作")
     result = deepcopy(doc_json)
+    initial_nodes = list(walk_nodes(result))
+    initial_counts = Counter(id(node) for _, node in initial_nodes)
+    provenance = TextProvenance(initial_nodes, initial_counts)
+    # 保留副本对象引用，避免删除后 Python 复用对象 ID；来源指向不被变换修改的输入文档。
+    origins = [(path, node_at(doc_json, path), node) for path, node in initial_nodes]
     if template_style and any(operation.get("capability") == "template.style" for operation in operations):
         result.setdefault("attrs", {})["templateStyle"] = TemplateStyleConfig.model_validate(template_style).model_dump(by_alias=True, exclude_none=True)
     effects = []
@@ -679,7 +767,26 @@ def prepare_operations(doc_json: dict, operations: list[dict], catalog_revision:
         params = capability.parameters.model_validate(operation["parameters"])
         if hasattr(params, "paths"):
             Paths(paths=params.paths)
-        capability.execute(result, params)
+        capability.execute(result, params, provenance)
         effects.append({"capability": operation["capability"], "title": capability.title, "effect": capability.effect})
     validate_document(result)
-    return {"doc_json": result, "effects": effects, "catalog_revision": catalog["revision"]}
+    final_nodes = list(walk_nodes(result))
+    final_counts = Counter(id(node) for _, node in final_nodes)
+    final_objects = {id(node): (path, node) for path, node in final_nodes if final_counts[id(node)] == 1}
+    def canvas_id(node):
+        value = node.get("attrs", {}).get("canvasNodeId")
+        return value if isinstance(value, str) and value else None
+    initial_ids = Counter(canvas_id(original) for _, original, _ in origins)
+    final_ids = Counter(canvas_id(node) for _, node in final_nodes)
+    final_canvas = {canvas_id(node): (path, node) for path, node in final_nodes if canvas_id(node) and final_ids[canvas_id(node)] == 1}
+    node_origins = []
+    for path, original, copied in origins:
+        if original["type"] in {"text", "hardBreak"}:
+            continue
+        identity = canvas_id(original)
+        target = final_objects.get(id(copied)) if initial_counts[id(copied)] == 1 else None
+        if identity and initial_ids[identity] == 1:
+            target = final_canvas.get(identity)
+        node_origins.append({"before_path": path, "after_path": target[0] if target else None})
+    return {"doc_json": result, "effects": effects, "catalog_revision": catalog["revision"], "node_origins": node_origins,
+            "text_origins": provenance.export(final_nodes)}
