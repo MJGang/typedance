@@ -1,6 +1,7 @@
 import { Extension } from "@tiptap/core"
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
+import type { Node as ProseMirrorNode, Schema } from "@tiptap/pm/model"
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state"
+import { Step, StepResult, type Mappable } from "@tiptap/pm/transform"
 import { Decoration, DecorationSet } from "@tiptap/pm/view"
 import type { EditorReference } from "@typedance/contracts"
 import type { CanvasReferenceSource, TrackedCanvasReference } from "./EditorReferences"
@@ -9,6 +10,33 @@ export type TrackedReference = TrackedCanvasReference & { text: string; ordinal:
 type ReferenceState = { revision: number; references: TrackedReference[] }
 type ReferenceAction = { type: "add"; reference: EditorReference } | { type: "remove"; id: string } | { type: "renumber"; ordinals: Pick<EditorReference, "id" | "ordinal">[] }
 export const referenceTrackerKey = new PluginKey<ReferenceState>("typedance-editor-references")
+
+type ReferenceHistory = Pick<TrackedReference, "id" | "source" | "changed">
+
+/** 引用是会话 UI 状态，通过可反转的原生 step 跟随文档撤销/重做，不维护另一套撤销栈。 */
+class ReferenceHistoryStep extends Step {
+  constructor(readonly before: ReferenceHistory[], readonly after: ReferenceHistory[]) { super() }
+  apply(doc: ProseMirrorNode) { return StepResult.ok(doc) }
+  invert() { return new ReferenceHistoryStep(this.after, this.before) }
+  map(mapping: Mappable) {
+    const mapped = (references: ReferenceHistory[]) => references.map((reference) => ({ ...reference, source: {
+      ...reference.source, from: mapping.map(reference.source.from, 1), to: mapping.map(reference.source.to, -1),
+    } }))
+    return new ReferenceHistoryStep(mapped(this.before), mapped(this.after))
+  }
+  toJSON() { return { stepType: "typedanceReferenceHistory", before: this.before, after: this.after } }
+  static fromJSON(_schema: Schema, json: { before: ReferenceHistory[]; after: ReferenceHistory[] }) {
+    if (!Array.isArray(json.before) || !Array.isArray(json.after)) throw new RangeError("Invalid reference history")
+    return new ReferenceHistoryStep(json.before, json.after)
+  }
+}
+Step.jsonID("typedanceReferenceHistory", ReferenceHistoryStep)
+
+export function preserveReferenceHistory(transaction: Transaction, state: ReferenceState | undefined): void {
+  if (!state?.references.length) return
+  const snapshot = (references: TrackedReference[]) => references.map(({ id, source, changed }) => ({ id, source: structuredClone(source), changed }))
+  transaction.step(new ReferenceHistoryStep(snapshot(state.references), snapshot(updateReferenceState(transaction, state).references)))
+}
 
 export function referenceMatches(doc: ProseMirrorNode, source: CanvasReferenceSource, text: string): boolean {
   if (source.from < 0 || source.to > doc.content.size || source.to <= source.from) return false
@@ -24,6 +52,16 @@ export function updateReferenceState(transaction: Transaction, previous: Referen
     const source = { ...reference.source, from, to, content_revision: revision }
     return { ...reference, source, changed: reference.changed || !referenceMatches(transaction.doc, source, reference.text) }
   }) : previous.references
+  for (const step of transaction.steps) {
+    if (!(step instanceof ReferenceHistoryStep)) continue
+    const snapshots = new Map(step.after.map((reference) => [reference.id, reference]))
+    references = references.map((reference) => {
+      const saved = snapshots.get(reference.id)
+      if (!saved) return reference
+      const source = { ...saved.source, content_revision: revision }
+      return { ...reference, source, changed: saved.changed || !referenceMatches(transaction.doc, source, reference.text) }
+    })
+  }
   const action = transaction.getMeta(referenceTrackerKey) as ReferenceAction | undefined
   if (action?.type === "add" && action.reference.source.kind === "canvas") {
     references = [...references.filter((reference) => reference.id !== action.reference.id), {

@@ -387,6 +387,14 @@ def layout_columns(doc, params: LayoutColumns):
 
 
 def update_columns(doc, params: UpdateColumns):
+    def align_blocks(node, alignment):
+        if node["type"] in {"paragraph", "heading", "listItem"}:
+            node.setdefault("attrs", {})["textAlign"] = alignment
+        # 列表属于当前栏的流式内容；嵌套分栏具有独立几何与对齐，保留其设置。
+        if node["type"] in {"column", "bulletList", "orderedList", "listItem"}:
+            for child in node.get("content", []):
+                align_blocks(child, alignment)
+
     for path in params.paths:
         node = node_at(doc, path)
         count = len(node.get("content", []))
@@ -394,9 +402,7 @@ def update_columns(doc, params: UpdateColumns):
             raise ValueError("目标必须是栏数一致的分栏节点；改变栏数使用 columns.count")
         node.setdefault("attrs", {}).update(count=count, **params.model_dump(exclude={"paths", "alignments"}, exclude_none=True))
         for column, alignment in zip(node["content"], params.alignments or []):
-            for block in column.get("content", []):
-                if block["type"] in {"paragraph", "heading", "listItem"}:
-                    block.setdefault("attrs", {})["textAlign"] = alignment
+            align_blocks(column, alignment)
 
 
 def equal_widths(count):

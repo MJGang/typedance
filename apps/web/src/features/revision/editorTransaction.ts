@@ -5,7 +5,7 @@ import type { Transaction } from "@tiptap/pm/state"
 import { ReplaceAroundStep } from "@tiptap/pm/transform"
 import { diffArrays, diffChars } from "diff"
 import type { EditorTransaction } from "@typedance/contracts"
-import { referenceTrackerKey } from "./references/referenceTracker"
+import { preserveReferenceHistory, referenceTrackerKey } from "./references/referenceTracker"
 
 const diffLimits = { timeout: 250 }
 const diffError = "改动范围较大，无法安全保留编辑位置，请分批修改"
@@ -147,6 +147,7 @@ export function applyDocumentChange(editor: Editor, beforeJson: Record<string, u
     if (JSON.stringify(before.attrs[key]) !== JSON.stringify(after.attrs[key])) tr.setDocAttribute(key, after.attrs[key])
   }
   if (!tr.doc.eq(after)) throw new Error("编辑结果与准备事务不一致，未应用修改")
+  preserveReferenceHistory(tr, referenceTrackerKey.getState(editor.state))
   editor.view.dispatch(tr.setMeta("typedance-editor-transaction", transactionId).scrollIntoView())
   editor.view.dispatch(closeHistory(editor.state.tr))
   return true

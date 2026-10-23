@@ -237,6 +237,24 @@ def test_column_reorder_moves_custom_widths_with_content():
     assert result["attrs"]["widths"] == [40, 30, 30]
 
 
+def test_column_alignment_applies_to_nested_list_text_without_overwriting_nested_columns():
+    inner = columns_doc([60, 40], ["独立左栏", "独立右栏"])["content"][0]
+    nested = {"type": "orderedList", "attrs": {"start": 3}, "content": [{"type": "listItem", "content": [paragraph("子项", textAlign="left")]}]}
+    source = doc({"type": "bulletList", "content": [{"type": "listItem", "content": [paragraph("主项", textAlign="left"), nested]}]}, inner)
+    wrapped = prepare(source, "columns.wrap", paths=[[0], [1]], count=2)
+    result = prepare(wrapped, "columns.update", paths=[[0]], alignments=["right", "left"])
+    first_column = result["content"][0]["content"][0]
+    listing, preserved_inner = first_column["content"]
+    item = listing["content"][0]
+    assert item["attrs"]["textAlign"] == "right"
+    assert item["content"][0]["attrs"]["textAlign"] == "right"
+    child = item["content"][1]["content"][0]
+    assert child["attrs"]["textAlign"] == child["content"][0]["attrs"]["textAlign"] == "right"
+    assert item["content"][1]["attrs"]["start"] == 3
+    assert node_text(result) == node_text(source)
+    assert preserved_inner == inner
+
+
 @pytest.mark.parametrize("capability,parameters", [
     ("columns.update", {"paths": [[0]]}),
     ("columns.update", {"paths": [[0]], "widths": [10, 90]}),

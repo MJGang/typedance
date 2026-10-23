@@ -21,7 +21,7 @@ const request: EditorRequest = { id: "request", document_id: "doc", editor_sessi
 function Bridge({ bridge }: { bridge: CanvasReferenceBridge }) {
   const register = useEditorReferences()!.registerCanvas
   useEffect(() => register(bridge), [register, bridge])
-  return null
+  return <button onClick={() => register({ ...bridge, undo: () => true })}>切换编辑会话</button>
 }
 function setup(value = request, active = true, changed = true) {
   vi.mocked(flushSourceCanvasSaves).mockResolvedValue(true)
@@ -35,6 +35,16 @@ function setup(value = request, active = true, changed = true) {
 afterEach(() => { cleanup(); vi.resetAllMocks() })
 
 describe("editor request decisions", () => {
+  it("does not undo another editor session even if its content revision has the same value", async () => {
+    setup()
+    fireEvent.click(screen.getByRole("button", { name: "应用修改" }))
+    await screen.findByText("已应用")
+    fireEvent.click(screen.getByRole("button", { name: "切换编辑会话" }))
+    fireEvent.click(screen.getByRole("button", { name: "撤销修改" }))
+    expect(screen.getByText("已应用")).toBeInTheDocument()
+    expect(screen.queryByText("已撤销")).not.toBeInTheDocument()
+  })
+
   it("reports unchanged operations without registering or exposing undo for earlier user edits", async () => {
     const bridge = setup(request, true, false)
     fireEvent.click(screen.getByRole("button", { name: "应用修改" }))

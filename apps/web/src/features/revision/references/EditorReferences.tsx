@@ -48,7 +48,7 @@ export function EditorReferencesProvider({ documentId, children, onReferenceAdde
   const known = useRef(new Map<string, PendingReference>())
   const canvas = useRef<CanvasReferenceBridge | null>(null)
   const composerFocus = useRef<(() => void) | null>(null)
-  const applications = useRef(new Map<string, number>())
+  const applications = useRef(new Map<string, { bridge: CanvasReferenceBridge; revision: number }>())
   const completedRequests = useRef(new Map<string, Promise<EditorResponse>>())
   const onAdded = useRef(onReferenceAdded)
   onAdded.current = onReferenceAdded
@@ -157,7 +157,7 @@ export function EditorReferencesProvider({ documentId, children, onReferenceAdde
           applied = bridge.apply(request.transaction)
           unchanged = !applied
           if (applied) {
-            applications.current.set(request.transaction.id, bridge.getRevision())
+            applications.current.set(request.transaction.id, { bridge, revision: bridge.getRevision() })
             toast.success("修改已应用，可撤销")
             appliedSnapshot = await bridge.getSnapshot(false)
             if (!await flushSourceCanvasSaves(documentId)) throw new Error("后端保存失败，请使用画布上的重试保存，勿重复应用修改")
@@ -181,7 +181,8 @@ export function EditorReferencesProvider({ documentId, children, onReferenceAdde
   }, [documentId])
   const completeRequest = useCallback((requestId: string) => { completedRequests.current.delete(requestId) }, [])
   const undo = useCallback((previewId: string) => {
-    if (!canvas.current || applications.current.get(previewId) !== canvas.current.getRevision()) {
+    const application = applications.current.get(previewId)
+    if (!canvas.current || application?.bridge !== canvas.current || application.revision !== canvas.current.getRevision()) {
       toast.message("已有后续编辑，请使用编辑器的撤销操作。")
       return false
     }
