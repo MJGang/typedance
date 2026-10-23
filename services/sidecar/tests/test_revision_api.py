@@ -1,4 +1,5 @@
 import pytest
+import json
 from pathlib import Path
 from fastapi.testclient import TestClient
 
@@ -29,6 +30,81 @@ def revision_client(tmp_path, monkeypatch):
 
 def repo_for(tmp_path) -> RevisionRepository:
     return RevisionRepository(connect(tmp_path / "typedance.sqlite"))
+
+
+def test_editor_prepare_is_stateless_and_layout_styles_survive_save_reload_and_copy(revision_client):
+    client, _ = revision_client
+    document_id = client.post("/documents", json={"title": "排版验证", "initial_mode": "blank"}).json()["id"]
+    original = client.get(f"/documents/{document_id}/workspace-view").json()["source_resume_canvas"]
+    catalog = client.get("/editor/capabilities").json()
+    prepared = client.post("/editor/prepare", json={"doc_json": original["doc_json"], "catalog_revision": catalog["revision"],
+        "template_style": template_style_payload(), "operations": [
+            {"capability": "page.margins", "parameters": {"top": 40, "bottom": 42, "left": 30, "right": 35}},
+            {"capability": "template.style", "parameters": {"changes": {"blocks.paragraph.fontSize": "14px", "theme.accentColor": "#123456"}}},
+        ]})
+    assert prepared.status_code == 200
+    assert client.get(f"/documents/{document_id}/workspace-view").json()["source_resume_canvas"] == original
+    saved = client.put(f"/documents/{document_id}/source-resume-canvas", json={"doc_json": prepared.json()["doc_json"]})
+    assert saved.status_code == 200
+    attrs = saved.json()["doc_json"]["attrs"]
+    assert attrs["pageMargins"] == {"top": 40, "bottom": 42, "left": 30, "right": 35}
+    assert attrs["templateStyle"]["blocks"]["paragraph"]["fontSize"] == "14px"
+    copied = client.post(f"/documents/{document_id}/duplicate").json()
+    assert client.get(f'/documents/{copied["id"]}/workspace-view').json()["source_resume_canvas"]["doc_json"]["attrs"] == attrs
+
+
+def test_margin_migration_backs_up_original_data_on_backend_and_never_overwrites_current_style(revision_client):
+    client, directory = revision_client
+    document_id = client.post("/documents", json={"title": "迁移验证", "initial_mode": "blank"}).json()["id"]
+    before = client.get(f"/documents/{document_id}/workspace-view").json()["source_resume_canvas"]
+    margins = {"top": 40, "bottom": 42, "left": 30, "right": 35}
+    payload = {"margins": margins, "original_value": json.dumps(margins)}
+    migrated = client.post(f"/documents/{document_id}/editor/migrate-page-margins", json=payload)
+    assert migrated.status_code == 200
+    assert migrated.json()["doc_json"]["attrs"]["pageMargins"] == margins
+    backups = list((directory / "files" / "migrations" / "page-margins").glob("*.json"))
+    assert len(backups) == 1
+    backup = json.loads(backups[0].read_text(encoding="utf-8"))
+    assert backup["document_id"] == document_id
+    assert backup["original_value"] == payload["original_value"]
+    assert SourceResumeCanvas.model_validate(backup["canvas"]) == SourceResumeCanvas.model_validate(before)
+    repeated = client.post(f"/documents/{document_id}/editor/migrate-page-margins", json={**payload, "margins": {**margins, "left": 50}})
+    assert repeated.json()["doc_json"]["attrs"]["pageMargins"] == margins
+    assert json.loads(backups[0].read_text(encoding="utf-8")) == backup
+
+
+def test_editor_inspect_and_template_patch_reject_invalid_input(revision_client):
+    client, _ = revision_client
+    assert client.post("/editor/inspect", json={"doc_json": {"type": "doc", "content": []}}).status_code == 400
+    source = {"type": "doc", "content": [{"type": "paragraph"}]}
+    catalog = client.get("/editor/capabilities").json()
+    for changes in [{"blocks.paragraph.unknown": 5}, {"blocks.paragraph.fontSize": "12px;position:fixed"}, {"template_id": "another"}]:
+        response = client.post("/editor/prepare", json={"doc_json": source, "catalog_revision": catalog["revision"],
+            "template_style": template_style_payload(), "operations": [{"capability": "template.style", "parameters": {"changes": changes}}]})
+        assert response.status_code == 400
+
+
+def test_invalid_old_margin_value_is_backed_up_without_replacing_document_settings(revision_client):
+    client, directory = revision_client
+    document_id = client.post("/documents", json={"title": "无效旧设置", "initial_mode": "blank"}).json()["id"]
+    before = client.get(f"/documents/{document_id}/workspace-view").json()["source_resume_canvas"]
+    response = client.post(f"/documents/{document_id}/editor/migrate-page-margins", json={"margins": None, "original_value": "malformed"})
+    assert response.status_code == 200
+    assert SourceResumeCanvas.model_validate(response.json()) == SourceResumeCanvas.model_validate(before)
+    backup = next((directory / "files" / "migrations" / "page-margins").glob("*.json"))
+    assert json.loads(backup.read_text(encoding="utf-8"))["original_value"] == "malformed"
+
+
+def test_incomplete_migration_backup_cannot_authorize_removing_the_original_value(revision_client):
+    client, directory = revision_client
+    document_id = client.post("/documents", json={"title": "备份中断", "initial_mode": "blank"}).json()["id"]
+    payload = {"margins": {"top": 40, "bottom": 40, "left": 32, "right": 32}, "original_value": "original"}
+    assert client.post(f"/documents/{document_id}/editor/migrate-page-margins", json=payload).status_code == 200
+    backup = next((directory / "files" / "migrations" / "page-margins").glob("*.json"))
+    backup.write_text("{", encoding="utf-8")
+    response = client.post(f"/documents/{document_id}/editor/migrate-page-margins", json=payload)
+    assert response.status_code == 500
+    assert "原始数据已保留" in response.json()["detail"]
 
 
 def test_create_blank_resume_initializes_an_editable_empty_canvas(revision_client):

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent, type RefOb
 import { Ellipsis, Plus, Trash2 } from "lucide-react"
 import type { ReactNodeViewProps } from "@tiptap/react"
 import type { ColumnsCount } from "@typedance/tiptap-layout"
+import { executeEditorOperations, nodePathAtPosition } from "../../revision/editorCommands"
 
 const DRAG_START_DISTANCE = 5
 
@@ -42,6 +43,7 @@ export function ColumnControls({ editor, getPos, containerRef, count, gridTempla
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
   const dragRef = useRef<DragSession | null>(null)
   const suppressClickRef = useRef(false)
+  const committing = useRef(false)
 
   useEffect(() => {
     setHoveredIndex(null)
@@ -74,11 +76,21 @@ export function ColumnControls({ editor, getPos, containerRef, count, gridTempla
     return targetIndex < 0 ? count - 1 : targetIndex
   }, [count, getColumnElements])
 
-  const runColumnCommand = useCallback((command: (position: number) => boolean) => {
-    if (!editor.isEditable) return false
+  const runColumnCommand = useCallback((capability: string, parameters: Record<string, unknown>) => {
+    if (!editor.isEditable || committing.current) return
     const position = getPos()
-    return typeof position === "number" && command(position)
+    const path = typeof position === "number" ? nodePathAtPosition(editor, position) : undefined
+    if (!path) return
+    committing.current = true
+    void executeEditorOperations(editor, [{ capability, parameters: { path, ...parameters } }], undefined, { focus: false })
+      .finally(() => { committing.current = false })
   }, [editor, getPos])
+
+  const reorder = (from: number, to: number) => {
+    const order = Array.from({ length: count }, (_, index) => index)
+    order.splice(to, 0, order.splice(from, 1)[0])
+    runColumnCommand("columns.reorder", { order })
+  }
 
   useEffect(() => {
     const root = containerRef.current
@@ -189,7 +201,7 @@ export function ColumnControls({ editor, getPos, containerRef, count, gridTempla
     suppressClickRef.current = true
     window.setTimeout(() => { suppressClickRef.current = false }, 0)
     if (commit && finished.toIndex !== finished.fromIndex) {
-      runColumnCommand((position) => editor.commands.moveColumnAt(position, finished.fromIndex, finished.toIndex))
+      reorder(finished.fromIndex, finished.toIndex)
     }
   }
 
@@ -273,7 +285,7 @@ export function ColumnControls({ editor, getPos, containerRef, count, gridTempla
                 event.stopPropagation()
                 const target = index + (event.key === "ArrowRight" ? 1 : -1)
                 if (target >= 0 && target < count) {
-                  runColumnCommand((position) => editor.commands.moveColumnAt(position, index, target))
+                  reorder(index, target)
                 }
               }}
             >
@@ -290,7 +302,7 @@ export function ColumnControls({ editor, getPos, containerRef, count, gridTempla
                 onClick={(event) => {
                   event.stopPropagation()
                   setMenuOpenIndex(null)
-                  runColumnCommand((position) => editor.commands.removeColumnAt(position, index))
+                  runColumnCommand("columns.remove", { index })
                 }}
               >
                 <Trash2 className="pointer-events-none size-3.5" aria-hidden="true" />
@@ -317,7 +329,7 @@ export function ColumnControls({ editor, getPos, containerRef, count, gridTempla
             event.stopPropagation()
             setAddHoverIndex(null)
             setMenuOpenIndex(null)
-            runColumnCommand((position) => editor.commands.insertColumnAt(position, index))
+            runColumnCommand("columns.add", { after_index: index })
           }}
         >
           <span className="pointer-events-none size-1 rounded-full bg-muted-foreground/40 group-hover:hidden group-focus-visible:hidden" aria-hidden="true" />

@@ -30,13 +30,11 @@ import {
 } from "./moduleInteractions"
 import { PageMarginGuides, type PageBounds } from "./PageMarginGuides"
 import {
-  DEFAULT_SOURCE_CANVAS_PAGE_MARGINS,
   SOURCE_CANVAS_PAGE_SIZE,
   clampPageMargins,
-  loadPageMarginPreferences,
-  savePageMarginPreferences,
   type PageMargins,
 } from "./pageMargins"
+import { documentMargins, documentTemplateStyle } from "./documentLayout"
 
 export type { DraftCanvasSaveStatus } from "./DraggableModuleOutline"
 
@@ -386,16 +384,19 @@ function DraftCanvasWorkspace({
   const [currentDocJson, setCurrentDocJson] = useState<ResumeDocJson>(
     () => canvas.doc_json as ResumeDocJson,
   )
+  const effectiveTemplateStyle = useMemo(() => documentTemplateStyle(currentDocJson, templateStyle), [currentDocJson, templateStyle])
+  const [marginPreview, setMarginPreview] = useState<PageMargins | null>(null)
+  const pageMargins = useMemo(() => marginPreview ?? documentMargins(currentDocJson), [currentDocJson, marginPreview])
   const anchors = useMemo<OutlineAnchorWithLevel[]>(
     () => collectHeadingAnchors(currentDocJson),
     [currentDocJson],
   )
   const sourceCanvasCss = useMemo(
     () => generateWorkspaceTemplateCSS(
-      templateStyle,
+      effectiveTemplateStyle,
       ".td-source-resume-canvas .rm-with-pagination",
     ),
-    [templateStyle],
+    [effectiveTemplateStyle],
   )
   const [activeModuleId, setActiveModuleId] = useState<string | null>(null)
   const [outlineVisible, setOutlineVisible] = useState(false)
@@ -410,10 +411,6 @@ function DraftCanvasWorkspace({
   const [outlineMaxHeight, setOutlineMaxHeight] = useState(640)
   const [outlineTop, setOutlineTop] = useState(0)
   const [pageMarginGuidesVisible, setPageMarginGuidesVisible] = useState(false)
-  const [pageMargins, setPageMargins] = useState<PageMargins>(() => (
-    loadPageMarginPreferences(canvas.document_id, SOURCE_CANVAS_PAGE_SIZE)
-    ?? DEFAULT_SOURCE_CANVAS_PAGE_MARGINS
-  ))
   const outlineLayout = useMemo(
     () => getModuleOutlineLayout(
       viewportSize,
@@ -523,7 +520,6 @@ function DraftCanvasWorkspace({
   }, [currentDocJson, outlineExpanded, outlineVisible, scheduleMeasure])
 
   useEffect(() => {
-    savePageMarginPreferences(canvas.document_id, pageMargins, SOURCE_CANVAS_PAGE_SIZE)
     onPageMarginsChange?.(pageMargins)
   }, [
     canvas.document_id,
@@ -542,8 +538,14 @@ function DraftCanvasWorkspace({
 
   const handlePageMarginsChange = useCallback((margins: PageMargins) => {
     const nextMargins = clampPageMargins(margins, SOURCE_CANVAS_PAGE_SIZE)
-    setPageMargins(nextMargins)
-    editorRef.current?.updatePageMargins(nextMargins)
+    setMarginPreview(nextMargins)
+    editorRef.current?.previewPageMargins(nextMargins)
+    scheduleMeasure()
+  }, [scheduleMeasure])
+
+  const commitPageMargins = useCallback(async (margins: PageMargins) => {
+    await editorRef.current?.updatePageMargins(clampPageMargins(margins, SOURCE_CANVAS_PAGE_SIZE))
+    setMarginPreview(null)
     scheduleMeasure()
   }, [scheduleMeasure])
 
@@ -638,7 +640,7 @@ function DraftCanvasWorkspace({
         cssText={sourceCanvasCss}
         docJson={currentDocJson}
         canvasVersion={canvas.version}
-        templateStyle={templateStyle}
+        templateStyle={effectiveTemplateStyle}
         marginConfig={pageMargins}
         pageMarginGuidesVisible={pageMarginGuidesVisible}
         moduleOutlineVisible={outlineVisible}
@@ -657,6 +659,7 @@ function DraftCanvasWorkspace({
           pageBounds={pageBounds}
           pageSize={SOURCE_CANVAS_PAGE_SIZE}
           onMarginsChange={handlePageMarginsChange}
+          onMarginsCommit={(margins) => { void commitPageMargins(margins) }}
         />
       ) : null}
       {!outlineVisible && saveStatus === "error" ? (

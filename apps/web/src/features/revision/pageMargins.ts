@@ -32,7 +32,7 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value)
 }
 
-function isPageMargins(value: unknown): value is PageMargins {
+export function isPageMargins(value: unknown): value is PageMargins {
   if (typeof value !== "object" || value === null) return false
 
   const margins = value as Record<string, unknown>
@@ -69,40 +69,4 @@ export function clampPageMargins(margins: PageMargins, pageSize: PageSize): Page
   )
 
   return { top, bottom, left, right }
-}
-
-export function loadPageMarginPreferences(
-  documentId: string,
-  pageSize: PageSize,
-): PageMargins | null {
-  try {
-    const storedValue = localStorage.getItem(pageMarginStorageKey(documentId))
-    if (storedValue === null) return null
-
-    const margins: unknown = JSON.parse(storedValue)
-    if (!isPageMargins(margins)) return null
-
-    return clampPageMargins(margins, pageSize)
-  } catch {
-    return null
-  }
-}
-
-export function savePageMarginPreferences(
-  documentId: string,
-  margins: PageMargins,
-  pageSize: PageSize,
-): void {
-  const persistedMargins = clampPageMargins(margins, pageSize)
-
-  try {
-    localStorage.setItem(pageMarginStorageKey(documentId), JSON.stringify(persistedMargins))
-  } catch {
-    // Page margin preferences are local UI state and remain best-effort.
-  }
-}
-
-export function copyPageMarginPreferences(sourceDocumentId: string, targetDocumentId: string): void {
-  const margins = loadPageMarginPreferences(sourceDocumentId, SOURCE_CANVAS_PAGE_SIZE)
-  if (margins) savePageMarginPreferences(targetDocumentId, margins, SOURCE_CANVAS_PAGE_SIZE)
 }

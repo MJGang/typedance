@@ -9,6 +9,7 @@ import { DraftCanvas } from "./DraftCanvas"
 
 type MockDocJson = {
   type?: "doc"
+  attrs?: Record<string, unknown>
   content?: Array<{
     type?: string
     attrs?: {
@@ -47,6 +48,7 @@ const editorMocks = vi.hoisted(() => ({
   scrollToCanvasNode: vi.fn(),
   scrollToHeadingIndex: vi.fn(),
   updatePageMargins: vi.fn(),
+  previewPageMargins: vi.fn(),
 }))
 
 const OriginalPointerEvent = globalThis.PointerEvent
@@ -74,6 +76,7 @@ vi.mock("../workspace/components/ResumeRichTextEditor", () => ({
       scrollToCanvasNode: editorMocks.scrollToCanvasNode,
       scrollToHeadingIndex: editorMocks.scrollToHeadingIndex,
       updatePageMargins: editorMocks.updatePageMargins,
+      previewPageMargins: editorMocks.previewPageMargins,
     }))
 
     return (
@@ -199,6 +202,12 @@ beforeEach(() => {
   editorMocks.scrollToCanvasNode.mockReset()
   editorMocks.scrollToHeadingIndex.mockReset()
   editorMocks.updatePageMargins.mockReset()
+  editorMocks.previewPageMargins.mockReset()
+  editorMocks.updatePageMargins.mockImplementation(async (margins) => {
+    const props = editorMocks.props!
+    props.onChange({ plainText: "", docJson: { ...props.docJson, attrs: { ...props.docJson.attrs, pageMargins: margins } } })
+    return true
+  })
   rootSize = { width: 600, height: 500 }
   sourceViewportSize = null
   paginationPageSize = { width: 794, height: 1123 }
@@ -487,7 +496,7 @@ describe("DraftCanvas", () => {
     expect(screen.getByTestId("source-page-navigator-page-1")).toHaveAttribute("aria-current", "page")
   })
 
-  it("updates page margins while dragging a guide without submitting editor content", async () => {
+  it("previews margins while dragging and commits one document edit on release", async () => {
     const onChange = vi.fn()
     render(<DraftCanvas canvas={canvas} onChange={onChange} saveStatus="idle" />)
     showPageMarginGuides()
@@ -506,6 +515,8 @@ describe("DraftCanvas", () => {
     expect(leftGuide.className).not.toContain("border")
 
     fireEvent.pointerMove(leftGuide, { pointerId: 11, clientX: 120, clientY: 220 })
+    expect(editorMocks.previewPageMargins).toHaveBeenCalled()
+    expect(editorMocks.updatePageMargins).not.toHaveBeenCalled()
     fireEvent.pointerUp(leftGuide, { pointerId: 11, clientX: 120, clientY: 220 })
 
     expect(screen.getByRole("button", { name: "拖拽左边距，当前 70px" })).toBeInTheDocument()
@@ -517,14 +528,15 @@ describe("DraftCanvas", () => {
       left: 70,
       right: 50,
     })
-    expect(onChange).not.toHaveBeenCalled()
+    expect(onChange).toHaveBeenCalledTimes(1)
     await waitFor(() => {
-      expect(localStorage.getItem("typedance:revision-workspace:page-margins:doc_1")).toBe(JSON.stringify({
+      expect(editorMocks.props?.docJson.attrs?.pageMargins).toEqual({
         top: 76,
         bottom: 76,
         left: 70,
         right: 50,
-      }))
+      })
+      expect(localStorage.getItem("typedance:revision-workspace:page-margins:doc_1")).toBeNull()
     })
   })
 
@@ -550,18 +562,19 @@ describe("DraftCanvas", () => {
       left: 50,
       right: 50,
     })
-    expect(onChange).not.toHaveBeenCalled()
+    expect(onChange).toHaveBeenCalledTimes(1)
     await waitFor(() => {
-      expect(localStorage.getItem("typedance:revision-workspace:page-margins:doc_1")).toBe(JSON.stringify({
+      expect(editorMocks.props?.docJson.attrs?.pageMargins).toEqual({
         top: 128,
         bottom: 76,
         left: 50,
         right: 50,
-      }))
+      })
+      expect(localStorage.getItem("typedance:revision-workspace:page-margins:doc_1")).toBeNull()
     })
   })
 
-  it("raises the active margin guide above crossing guides while dragging", () => {
+  it("raises the active margin guide above crossing guides while dragging", async () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
     showPageMarginGuides()
     const topGuide = screen.getByTestId("page-margin-guide-top")
@@ -578,7 +591,7 @@ describe("DraftCanvas", () => {
     expect(screen.getByTestId("page-margin-guide-left")).toHaveClass("z-10")
     expect(screen.getByTestId("page-margin-guide-right")).toHaveClass("z-10")
 
-    fireEvent.pointerUp(topGuide, { pointerId: 12, clientX: 260, clientY: 180 })
+    await act(async () => { fireEvent.pointerUp(topGuide, { pointerId: 12, clientX: 260, clientY: 180 }) })
 
     expect(topGuide).not.toHaveAttribute("data-dragging")
     expect(topGuide).toHaveClass("z-10")

@@ -89,6 +89,8 @@ export const agentRunEventTypeSchema = z.enum([
   "canvas_patch_proposed",
   "canvas_patch_applied",
   "text_edit_decision",
+  "editor_request",
+  "editor_response",
   "run_completed",
   "run_failed",
   "run_cancelled",

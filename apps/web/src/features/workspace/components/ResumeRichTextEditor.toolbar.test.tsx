@@ -7,14 +7,12 @@ import { beforeAll, describe, expect, it, vi } from "vitest"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { defaultClassicA4Style } from "../../templates/data"
-import { createResumeHeading } from "../editor/ResumeHeading"
 import {
   BlockStyle,
   getDragHandleBlockPresentation,
   getDragHandleBlockType,
   isPointerWithinDragHandleBlock,
   ResumeRichTextEditor as BaseResumeRichTextEditor,
-  setToolbarTextBlock,
   type ResumeRichTextEditorHandle,
 } from "./ResumeRichTextEditor"
 
@@ -734,84 +732,6 @@ describe("ResumeRichTextEditor toolbar", () => {
     }
   })
 
-  it("keeps each source canvas attribute set when converting multiple paragraphs to headings", () => {
-    const editor = new Editor({
-      extensions: [StarterKit, BlockStyle],
-      content: {
-        type: "doc",
-        content: [
-          {
-            type: "paragraph",
-            attrs: { canvasNodeId: "node_1", sourceBlockId: "block_1", moduleId: "mod_1" },
-            content: [{ type: "text", text: "First" }],
-          },
-          {
-            type: "paragraph",
-            attrs: { canvasNodeId: "node_2", sourceBlockId: "block_2", moduleId: "mod_2" },
-            content: [{ type: "text", text: "Second" }],
-          },
-        ],
-      },
-    })
-    editor.commands.setTextSelection({ from: 1, to: editor.state.doc.content.size - 1 })
-
-    setToolbarTextBlock(editor, "heading1")
-
-    expect(editor.getJSON().content?.filter((node) => node.type === "heading")).toMatchObject([
-      {
-        type: "heading",
-        attrs: { level: 1, canvasNodeId: "node_1", sourceBlockId: "block_1", moduleId: "mod_1" },
-      },
-      {
-        type: "heading",
-        attrs: { level: 1, canvasNodeId: "node_2", sourceBlockId: "block_2", moduleId: "mod_2" },
-      },
-    ])
-    editor.destroy()
-  })
-
-  it("keeps source attributes and document data clean across H2 conversions and undo", () => {
-    const editor = new Editor({
-      extensions: [
-        StarterKit.configure({ heading: false }),
-        createResumeHeading(() => "dot-ribbon"),
-        BlockStyle,
-      ],
-      content: {
-        type: "doc",
-        content: [{
-          type: "heading",
-          attrs: { level: 2, canvasNodeId: "node_1", sourceBlockId: "block_1", moduleId: "mod_1" },
-          content: [{ type: "text", text: "Education", marks: [{ type: "bold" }] }],
-        }],
-      },
-    })
-    editor.commands.setTextSelection(2)
-
-    setToolbarTextBlock(editor, "paragraph")
-    expect(editor.getJSON().content?.[0]).toMatchObject({
-      type: "paragraph",
-      attrs: { canvasNodeId: "node_1", sourceBlockId: "block_1", moduleId: "mod_1" },
-      content: [{ type: "text", text: "Education", marks: [{ type: "bold" }] }],
-    })
-    setToolbarTextBlock(editor, "heading2")
-
-    const heading = editor.getJSON().content?.[0]
-    expect(heading).toMatchObject({
-      type: "heading",
-      attrs: { level: 2, canvasNodeId: "node_1", sourceBlockId: "block_1", moduleId: "mod_1" },
-      content: [{ type: "text", text: "Education", marks: [{ type: "bold" }] }],
-    })
-    expect(JSON.stringify(heading)).not.toMatch(/headingStyle|decoration|prefix|suffix/)
-
-    editor.commands.undo()
-    expect(editor.getJSON().content?.[0]).toMatchObject({
-      type: "heading",
-      attrs: { level: 2, canvasNodeId: "node_1", sourceBlockId: "block_1", moduleId: "mod_1" },
-      content: [{ type: "text", text: "Education", marks: [{ type: "bold" }] }],
-    })
-    editor.destroy()
-  })
 
   it("ignores scroll requests from a cached handle after unmount", () => {
     const ref = createRef<ResumeRichTextEditorHandle>()

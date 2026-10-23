@@ -66,7 +66,7 @@ export function createSidecarContextProvider(options: SidecarContextProviderOpti
             `  canvas_version: ${snapshot.canvas_version}`,
             `  content_revision: ${snapshot.content_revision}`,
             `  page_count: ${snapshot.print_snapshot?.page_tops.length ?? "unavailable"}`,
-            "  tools: resume.read can read text omitted below; resume.view_pages can inspect layout when visual evidence is needed. Never claim to have seen the pages unless the tool returned images. Page images reflect this turn's snapshot, not subsequent edits.",
+            "  tools: resume.capabilities discovers current editing features; resume.inspect refreshes the live structure; resume.edit executes authorized transactions; resume.read reads omitted text; resume.view_pages returns actual images of the latest acknowledged snapshot. Applied edits return a fresh revision. Never claim to have seen pages without returned images.",
             "  priority: This editor snapshot is the current source of truth. Quoted references in user messages identify exact selections.",
             "  content:",
             indent(snapshot.plain_text.slice(0, maxCharactersPerSource)),

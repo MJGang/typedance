@@ -1,11 +1,16 @@
 import "@testing-library/jest-dom/vitest"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { beforeAll, describe, expect, it, vi } from "vitest"
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { prepareEditorOperations } from "@/api"
+import { prepareWithSidecar } from "@/test/sidecarEditor"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { defaultClassicA4Style } from "../../templates/data"
 import type { ResumeDocJson } from "../editor"
 import { ResumeRichTextEditor } from "./ResumeRichTextEditor"
+
+vi.mock("@/api", () => ({ prepareEditorOperations: vi.fn() }))
+beforeEach(() => { vi.mocked(prepareEditorOperations).mockImplementation(async (doc, operations) => prepareWithSidecar(doc, operations)) })
 
 type TestJsonNode = {
   type?: string

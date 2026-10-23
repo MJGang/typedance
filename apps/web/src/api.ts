@@ -1,5 +1,9 @@
 import { z } from "zod";
 import {
+  editorCapabilityCatalogSchema,
+  editorNodeOriginSchema,
+  editorTextOriginSchema,
+  type EditorOperation,
   documentListItemSchema,
   documentSchema,
   contextSourceChildSchema,
@@ -34,6 +38,26 @@ import {
 } from "@typedance/contracts";
 import { chooseHtmlSavePathInTauri, choosePdfSavePathInTauri, isTauri } from "./tauri";
 const baseUrl = import.meta.env.VITE_SIDECAR_URL ?? "http://127.0.0.1:4317";
+
+export async function getEditorCapabilities() {
+  const response = await fetch(`${baseUrl}/editor/capabilities`)
+  return parseTemplateResponse(response, (value) => editorCapabilityCatalogSchema.parse(value), "无法读取编辑能力")
+}
+
+export async function migrateEditorPageMargins(documentId: string, margins: { top: number; bottom: number; left: number; right: number } | null, originalValue: string) {
+  const response = await fetch(`${baseUrl}/documents/${encodeURIComponent(documentId)}/editor/migrate-page-margins`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ margins, original_value: originalValue }),
+  })
+  return parseTemplateResponse(response, (value) => sourceResumeCanvasSchema.parse(value), "页面边距迁移失败，原始值已保留")
+}
+
+export async function prepareEditorOperations(docJson: Record<string, unknown>, operations: EditorOperation[], templateStyle?: TemplateStyleConfig) {
+  const catalog = await getEditorCapabilities()
+  const response = await fetch(`${baseUrl}/editor/prepare`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ doc_json: docJson, operations, catalog_revision: catalog.revision, template_style: templateStyle }) })
+  return parseTemplateResponse(response, (value) => z.object({ doc_json: z.record(z.unknown()), catalog_revision: z.string(), node_origins: z.array(editorNodeOriginSchema).max(10000), text_origins: z.array(editorTextOriginSchema).max(10000),
+    effects: z.array(z.object({ capability: z.string(), title: z.string(), effect: z.string() })) }).parse(value), "无法准备编辑操作")
+}
 
 type SaveFilePickerOptions = {
   suggestedName?: string

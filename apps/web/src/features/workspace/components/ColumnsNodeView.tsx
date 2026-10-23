@@ -11,6 +11,7 @@ import {
   type ColumnWidths,
 } from "@typedance/tiptap-layout"
 import { ColumnControls } from "./ColumnControls"
+import { executeEditorOperations, nodePathAtPosition } from "../../revision/editorCommands"
 
 const KEYBOARD_RESIZE_STEP = 5
 
@@ -50,7 +51,7 @@ type PointerResizeSession = {
   previousUserSelect: string
 }
 
-export function ColumnsNodeView({ editor, getPos, node, updateAttributes }: ReactNodeViewProps) {
+export function ColumnsNodeView({ editor, getPos, node }: ReactNodeViewProps) {
   const count = getColumnsCount(node.attrs.count)
   const gap = getColumnsGap(node.attrs.gap)
   const gapPixels = getGapPixels(gap)
@@ -65,11 +66,24 @@ export function ColumnsNodeView({ editor, getPos, node, updateAttributes }: Reac
   const containerRef = useRef<HTMLDivElement>(null)
   const draftWidthsRef = useRef<ColumnWidths>(persistedWidths)
   const pointerResizeRef = useRef<PointerResizeSession | null>(null)
+  const committing = useRef(false)
+  const latestPersisted = useRef(persistedWidths)
+  latestPersisted.current = persistedWidths
 
   const updateDraftWidths = useCallback((widths: ColumnWidths) => {
     draftWidthsRef.current = widths
     setDraftWidths(widths)
   }, [])
+
+  const commitWidths = useCallback((widths: ColumnWidths) => {
+    const position = getPos()
+    const path = typeof position === "number" ? nodePathAtPosition(editor, position) : undefined
+    if (!path || committing.current) return
+    committing.current = true
+    void executeEditorOperations(editor, [{ capability: "columns.update", parameters: { paths: [path], widths } }], undefined, { focus: false })
+      .then((success) => { if (!success && containerRef.current) updateDraftWidths(latestPersisted.current) })
+      .finally(() => { committing.current = false })
+  }, [editor, getPos, updateDraftWidths])
 
   const restoreDocumentInteraction = useCallback((session: PointerResizeSession) => {
     document.body.style.cursor = session.previousCursor
@@ -107,7 +121,7 @@ export function ColumnsNodeView({ editor, getPos, node, updateAttributes }: Reac
   }, [editor, getPos, node.nodeSize])
 
   const startPointerResize = useCallback((dividerIndex: number, event: PointerEvent<HTMLDivElement>) => {
-    if (!editor.isEditable || event.button !== 0 || pointerResizeRef.current || document.body.classList.contains("td-column-resizing")) return
+    if (!editor.isEditable || committing.current || event.button !== 0 || pointerResizeRef.current || document.body.classList.contains("td-column-resizing")) return
 
     const containerWidth = containerRef.current?.getBoundingClientRect().width ?? 0
     const availableWidth = containerWidth - gapPixels * (count - 1)
@@ -157,11 +171,11 @@ export function ColumnsNodeView({ editor, getPos, node, updateAttributes }: Reac
 
     if (commit && editor.isEditable) {
       updateDraftWidths(finalWidths)
-      updateAttributes({ widths: finalWidths })
+      commitWidths(finalWidths)
     } else {
       updateDraftWidths(persistedWidths)
     }
-  }, [editor, persistedWidths, restoreDocumentInteraction, updateAttributes, updateDraftWidths])
+  }, [editor, persistedWidths, restoreDocumentInteraction, commitWidths, updateDraftWidths])
 
   const finishPointerEvent = useCallback((event: PointerEvent<HTMLDivElement>, commit: boolean) => {
     const session = pointerResizeRef.current
@@ -193,6 +207,7 @@ export function ColumnsNodeView({ editor, getPos, node, updateAttributes }: Reac
 
     event.preventDefault()
     event.stopPropagation()
+    if (committing.current) return
     const direction = event.key === "ArrowRight" ? 1 : -1
     const nextWidths = resizeColumnWidths(
       draftWidthsRef.current,
@@ -200,8 +215,8 @@ export function ColumnsNodeView({ editor, getPos, node, updateAttributes }: Reac
       direction * KEYBOARD_RESIZE_STEP,
     )
     updateDraftWidths(nextWidths)
-    updateAttributes({ widths: nextWidths })
-  }, [editor, updateAttributes, updateDraftWidths])
+    commitWidths(nextWidths)
+  }, [editor, commitWidths, updateDraftWidths])
 
   return (
     <NodeViewWrapper

@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { AgentRunEventSource } from "./agentRunStream"
 import {
+  editorRequestSchema,
   agentConversationSchema,
   agentMessageSchema,
   agentPluginSummarySchema,
@@ -17,11 +18,24 @@ import {
   type CanvasMutationMode,
   type ContextMention,
   type EditorReference,
+  type EditorResponse,
   type ModelSettingsResponse,
   type ModelSettingsUpdate,
 } from "@typedance/contracts"
 
 const agentHostBaseUrl = import.meta.env.VITE_AGENT_HOST_URL ?? "http://127.0.0.1:4327"
+
+export async function getEditorRequest(runId: string, requestId: string) {
+  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/editor-requests/${encodeURIComponent(requestId)}`)
+  return parseAgentHostResponse(response, (value) => editorRequestSchema.parse(value), "编辑请求已结束")
+}
+
+export async function respondToEditorRequest(runId: string, requestId: string, result: EditorResponse): Promise<void> {
+  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/editor-requests/${encodeURIComponent(requestId)}`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(result),
+  })
+  await parseAgentHostResponse(response, (value) => value, "编辑结果未回传")
+}
 let sessionToken: Promise<string> | undefined
 
 async function getSessionToken(): Promise<string> {
@@ -131,13 +145,6 @@ export async function startConversationRun(input: {
     (value) => agentRunSchema.parse(value),
     "Failed to start conversation run",
   )
-}
-
-export async function recordTextEditDecision(runId: string, previewId: string, status: "applied" | "ignored" | "undone"): Promise<AgentRunEvent> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/text-edits/${encodeURIComponent(previewId)}/decision`, {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }),
-  })
-  return parseAgentHostResponse(response, (value) => agentRunEventSchema.parse(value), "修改记录保存失败")
 }
 
 export async function getAgentRun(runId: string): Promise<AgentRun> {

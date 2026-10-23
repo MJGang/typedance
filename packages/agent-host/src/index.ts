@@ -8,7 +8,7 @@ import {
   contextMentionSchema,
   editorReferencesSchema,
   editorSnapshotSchema,
-  textEditPreviewSchema,
+  editorResponseSchema,
   modelSettingsUpdateSchema,
   type AgentConversation,
   type AgentMessage,
@@ -20,8 +20,9 @@ import {
   type EditorReference,
   type EditorSnapshot,
 } from "@typedance/contracts";
-import { formatReferencedMessage } from "./text-edit";
+import { formatReferencedMessage } from "./editor-references";
 import { registerResumeTools, type ResumeToolServices } from "./resume-tools";
+import { EditorSession } from "./editor-session";
 import {
   createMemoryAgentHostStore,
   type AgentHostStore,
@@ -110,6 +111,7 @@ export class AgentHost {
   #contextProvider?: AgentHostContextProvider;
   #now: () => Date;
   #resumeTools?: ReturnType<typeof registerResumeTools>;
+  #editorSessions = new Map<string, EditorSession>();
 
   constructor(options: AgentHostOptions) {
     this.runtime = options.runtime;
@@ -203,23 +205,25 @@ export class AgentHost {
     return this.store.listRunEvents(runId, afterSequence);
   }
 
-  recordTextEditDecision(runId: string, previewId: string, status: "applied" | "ignored" | "undone"): AgentRunEvent {
-    this.getAgentRun(runId);
-    const events = this.store.listRunEvents(runId);
-    const exists = events.some((event) => {
-      if (event.type !== "tool_call_completed") return false;
-      const result = event.payload.result as { output?: unknown } | undefined;
-      const preview = textEditPreviewSchema.safeParse(result?.output);
-      return preview.success && preview.data.id === previewId;
-    });
-    if (!exists) throw new HttpError(404, "text_edit_preview_not_found");
-    const previous = events.filter((event) => event.type === "text_edit_decision" && event.payload.preview_id === previewId).pop();
-    if (previous?.payload.status === status) return previous;
-    const current = previous?.payload.status ?? "proposed";
-    if (!(((current === "proposed" || current === "undone") && (status === "applied" || status === "ignored")) || (current === "applied" && status === "undone"))) {
-      throw new HttpError(409, "invalid_text_edit_decision");
+  getEditorRequest(runId: string, requestId: string) {
+    const session = this.#editorSessions.get(runId);
+    if (!session) throw new HttpError(409, "editor_session_ended");
+    try { return session.pending(requestId); }
+    catch (error) { throw new HttpError(409, error instanceof Error ? error.message : "editor_request_ended"); }
+  }
+
+  respondToEditorRequest(runId: string, requestId: string, response: unknown): void {
+    // 确认包可能在服务端成功后丢失；同一个请求只确认一次，重试不能再次触发编辑。
+    const previous = this.store.listRunEvents(runId).find((event) => event.type === "editor_response" && event.payload.request_id === requestId);
+    if (previous) {
+      const parsed = editorResponseSchema.parse(response);
+      if (parsed.status !== previous.payload.status || parsed.snapshot?.content_revision !== previous.payload.content_revision) throw new HttpError(409, "editor_response_conflict");
+      return;
     }
-    return this.#appendAgentRunEvent(runId, "text_edit_decision", { preview_id: previewId, status }, this.#timestamp());
+    const session = this.#editorSessions.get(runId);
+    if (!session) throw new HttpError(409, "editor_session_ended");
+    try { session.respond(requestId, response); }
+    catch (error) { throw new HttpError(409, error instanceof Error ? error.message : "invalid_editor_response"); }
   }
 
   startConversationRun(
@@ -421,7 +425,13 @@ export class AgentHost {
     const signal = this.runtime.getRunSignal(run.id);
     try {
       const editorSnapshot = context.editor_snapshot as EditorSnapshot | undefined;
-      if (editorSnapshot) this.#resumeTools?.enter(signal, { snapshot: editorSnapshot, references: context.references as EditorReference[], model });
+      if (editorSnapshot) {
+        const runId = String(context.agent_run_id);
+        const session = new EditorSession({ snapshot: editorSnapshot, mode: canvasMutationModeSchema.parse(context.mutation_mode), signal,
+          emit: (type, payload) => { this.#appendAgentRunEvent(runId, type, payload, this.#timestamp()); } });
+        this.#editorSessions.set(runId, session);
+        this.#resumeTools?.enter(signal, { session, model });
+      }
       signal.throwIfAborted();
       const { messages, contextItems } = await withRunSignal(this.#buildModelMessages(conversationId, assistantMessageId, mentions, userMessage, context, signal), signal);
       signal.throwIfAborted();
@@ -454,6 +464,7 @@ export class AgentHost {
       throw error;
     } finally {
       this.#resumeTools?.leave(signal);
+      this.#editorSessions.delete(String(context.agent_run_id));
     }
   }
 
@@ -816,13 +827,19 @@ async function route(context: RouteContext): Promise<boolean> {
     return true;
   }
 
-  const textEditDecisionMatch = /^\/agent-runs\/([^/]+)\/text-edits\/([^/]+)\/decision$/.exec(pathname);
-  if (request.method === "POST" && textEditDecisionMatch) {
-    const body = await readJson(request);
-    const status = body.status;
-    if (status !== "applied" && status !== "ignored" && status !== "undone") throw new HttpError(400, "invalid_text_edit_decision");
-    writeJson(response, 200, host.recordTextEditDecision(decodeURIComponent(textEditDecisionMatch[1] ?? ""), decodeURIComponent(textEditDecisionMatch[2] ?? ""), status));
-    return true;
+  const editorRequestMatch = /^\/agent-runs\/([^/]+)\/editor-requests\/([^/]+)$/.exec(pathname);
+  if (editorRequestMatch) {
+    const runId = decodeURIComponent(editorRequestMatch[1]!);
+    const requestId = decodeURIComponent(editorRequestMatch[2]!);
+    if (request.method === "GET") {
+      writeJson(response, 200, host.getEditorRequest(runId, requestId));
+      return true;
+    }
+    if (request.method === "POST") {
+      host.respondToEditorRequest(runId, requestId, await readJson(request));
+      writeJson(response, 200, { status: "accepted" });
+      return true;
+    }
   }
 
   const agentRunEventsMatch = /^\/agent-runs\/([^/]+)\/events$/.exec(pathname);

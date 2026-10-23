@@ -25,6 +25,7 @@ type PageMarginGuidesProps = {
   pageBounds: PageBounds
   pageSize: PageSize
   onMarginsChange: (margins: PageMargins) => void
+  onMarginsCommit?: (margins: PageMargins) => void
 }
 
 type DragState = {
@@ -167,6 +168,7 @@ export function PageMarginGuides({
   pageBounds,
   pageSize,
   onMarginsChange,
+  onMarginsCommit,
 }: PageMarginGuidesProps) {
   const dragStateRef = useRef<DragState | null>(null)
   const [draggingSide, setDraggingSide] = useState<MarginSide | null>(null)
@@ -228,6 +230,7 @@ export function PageMarginGuides({
     setDraggingSide(null)
     setTemporaryMargins(finalMargins)
     onMarginsChange(finalMargins)
+    onMarginsCommit?.(finalMargins)
     event.preventDefault()
     event.stopPropagation()
   }
@@ -248,6 +251,7 @@ export function PageMarginGuides({
     }, pageSize)
     setTemporaryMargins(nextMargins)
     onMarginsChange(nextMargins)
+    onMarginsCommit?.(nextMargins)
   }
 
   const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {

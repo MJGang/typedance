@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useOutletContext, useParams } from "react-router-dom"
+import { migratePageMargins } from "./migratePageMargins"
 import { AlertCircle, Copy, Download, FileText, Loader2, PanelRight, RefreshCcw, SlidersHorizontal, SquarePen } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -90,6 +91,7 @@ async function fetchWorkspaceData(documentId: string) {
     getRevisionWorkspaceView(documentId),
     listTemplateStyles(),
   ])
+  if (workspace.source_resume_canvas) workspace.source_resume_canvas = await migratePageMargins(workspace.source_resume_canvas)
   return {
     workspace,
     themes: buildTemplateThemes(savedStyles, "zh-CN"),

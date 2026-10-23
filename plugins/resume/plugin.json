@@ -18,7 +18,10 @@
       "instruction_files": [
         "skills/workspace.md"
       ],
-      "tool_names": ["resume.read"]
+      "tool_names": [
+        "resume.read",
+        "resume.inspect"
+      ]
     },
     {
       "id": "resume.review",
@@ -27,7 +30,9 @@
       "instruction_files": [
         "skills/review.md"
       ],
-      "tool_names": ["resume.view_pages"]
+      "tool_names": [
+        "resume.view_pages"
+      ]
     },
     {
       "id": "resume.revision",
@@ -37,7 +42,8 @@
         "skills/revision.md"
       ],
       "tool_names": [
-        "resume.propose_text_edit"
+        "resume.capabilities",
+        "resume.edit"
       ]
     }
   ],
@@ -54,8 +60,10 @@
       ],
       "allowed_tool_names": [
         "resume.read",
+        "resume.inspect",
         "resume.view_pages",
-        "resume.propose_text_edit"
+        "resume.capabilities",
+        "resume.edit"
       ]
     },
     {

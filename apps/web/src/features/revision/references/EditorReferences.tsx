@@ -1,19 +1,20 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react"
-import type { EditorReference, EditorSnapshot, TextEditPreview } from "@typedance/contracts"
+import type { EditorReference, EditorSnapshot, EditorTransaction, EditorRequest, EditorResponse } from "@typedance/contracts"
 import { toast } from "sonner"
+import { flushSourceCanvasSaves } from "../useSourceCanvasAutosave"
 
 export type CanvasReferenceSource = Extract<EditorReference["source"], { kind: "canvas" }>
 export type TrackedCanvasReference = { id: string; source: CanvasReferenceSource; changed: boolean }
 export type PendingReference = { reference: EditorReference; changed: boolean }
 
 export type CanvasReferenceBridge = {
-  getSnapshot: () => Promise<EditorSnapshot>
+  getSnapshot: (includePrint?: boolean) => Promise<EditorSnapshot>
   track: (reference: EditorReference) => void
   untrack: (id: string) => void
   setOrdinals: (ordinals: Pick<EditorReference, "id" | "ordinal">[]) => void
   locate: (reference: EditorReference) => boolean
-  apply: (reference: EditorReference, preview: TextEditPreview) => boolean
-  undo: (previewId: string) => boolean
+  apply: (transaction: EditorTransaction) => boolean
+  undo: () => boolean
   getRevision: () => number
 }
 
@@ -30,7 +31,8 @@ type EditorReferencesValue = {
   consume: (ids: string[]) => void
   getPayload: () => Promise<{ references: EditorReference[]; snapshot?: EditorSnapshot }>
   locate: (reference: EditorReference) => void
-  apply: (preview: TextEditPreview) => boolean
+  handleRequest: (request: EditorRequest, approved: boolean) => Promise<EditorResponse>
+  completeRequest: (requestId: string) => void
   undo: (previewId: string) => boolean
 }
 
@@ -46,7 +48,8 @@ export function EditorReferencesProvider({ documentId, children, onReferenceAdde
   const known = useRef(new Map<string, PendingReference>())
   const canvas = useRef<CanvasReferenceBridge | null>(null)
   const composerFocus = useRef<(() => void) | null>(null)
-  const applications = useRef(new Map<string, number>())
+  const applications = useRef(new Map<string, { bridge: CanvasReferenceBridge; revision: number }>())
+  const completedRequests = useRef(new Map<string, Promise<EditorResponse>>())
   const onAdded = useRef(onReferenceAdded)
   onAdded.current = onReferenceAdded
 
@@ -137,24 +140,55 @@ export function EditorReferencesProvider({ documentId, children, onReferenceAdde
     if (target) target.scrollIntoView({ block: "center", behavior: "smooth" })
     else toast.message("这条引用来自其他对话，原文仍保留在引用卡片中。")
   }, [])
-  const apply = useCallback((preview: TextEditPreview) => {
-    const reference = known.current.get(preview.reference_id)
-    if (!canvas.current || !reference || reference.changed || !canvas.current.apply(reference.reference, preview)) {
-      toast.error("原文已修改或编辑器已重新打开，请重新引用后生成建议。")
-      return false
-    }
-    applications.current.set(preview.id, canvas.current.getRevision())
-    toast.success("修改已应用，可撤销")
-    return true
-  }, [])
+  const handleRequest = useCallback((request: EditorRequest, approved: boolean): Promise<EditorResponse> => {
+    const previous = completedRequests.current.get(request.id)
+    if (previous) return previous
+    const task = (async (): Promise<EditorResponse> => {
+      const bridge = canvas.current
+      if (!bridge || request.document_id !== documentId) return { status: "failed", error: "当前画布不可用或已切换" }
+      let applied = false
+      let persisted = false
+      let unchanged = false
+      let appliedSnapshot: EditorSnapshot | undefined
+      try {
+        if (request.kind === "transaction" && !approved) return { status: "rejected" }
+        if (request.kind === "transaction") {
+          if (!request.transaction) throw new Error("缺少编辑事务")
+          applied = bridge.apply(request.transaction)
+          unchanged = !applied
+          if (applied) {
+            applications.current.set(request.transaction.id, { bridge, revision: bridge.getRevision() })
+            toast.success("修改已应用，可撤销")
+            appliedSnapshot = await bridge.getSnapshot(false)
+            if (!await flushSourceCanvasSaves(documentId)) throw new Error("后端保存失败，请使用画布上的重试保存，勿重复应用修改")
+            persisted = true
+          }
+        }
+        const snapshot = await bridge.getSnapshot()
+        if (snapshot.editor_session_id !== request.editor_session_id || canvas.current !== bridge) throw new Error("编辑会话已切换")
+        return { status: request.kind === "snapshot" ? "snapshot" : unchanged ? "unchanged" : "applied", snapshot, ...(applied ? { persisted } : {}) }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "编辑器操作失败"
+        if (applied && appliedSnapshot) {
+          // 写入成功与截图成功分别报告，不能因观察失败而重复应用同一事务。
+          return { status: "applied", persisted, snapshot: appliedSnapshot, error: `已修改，保存或排版复查未完成：${message}` }
+        }
+        return { status: "failed", error: message }
+      }
+    })()
+    completedRequests.current.set(request.id, task)
+    return task
+  }, [documentId])
+  const completeRequest = useCallback((requestId: string) => { completedRequests.current.delete(requestId) }, [])
   const undo = useCallback((previewId: string) => {
-    if (!canvas.current || applications.current.get(previewId) !== canvas.current.getRevision()) {
+    const application = applications.current.get(previewId)
+    if (!canvas.current || application?.bridge !== canvas.current || application.revision !== canvas.current.getRevision()) {
       toast.message("已有后续编辑，请使用编辑器的撤销操作。")
       return false
     }
-    return canvas.current.undo(previewId)
+    return canvas.current.undo()
   }, [])
-  const value = useMemo(() => ({ documentId, pending, registerCanvas, registerComposer, updateTracked, add, editComment, remove, clear, consume, getPayload, locate, apply, undo }),
-    [documentId, pending, registerCanvas, registerComposer, updateTracked, add, editComment, remove, clear, consume, getPayload, locate, apply, undo])
+  const value = useMemo(() => ({ documentId, pending, registerCanvas, registerComposer, updateTracked, add, editComment, remove, clear, consume, getPayload, locate, handleRequest, completeRequest, undo }),
+    [documentId, pending, registerCanvas, registerComposer, updateTracked, add, editComment, remove, clear, consume, getPayload, locate, handleRequest, completeRequest, undo])
   return <EditorReferencesContext.Provider value={value}>{children}</EditorReferencesContext.Provider>
 }

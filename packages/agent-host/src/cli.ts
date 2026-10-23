@@ -19,7 +19,7 @@ import {
   RESUME_PRIMARY_AGENT_ID,
 } from "./resume-plugin";
 import { createSidecarContextProvider } from "./sidecar-context";
-import { createSidecarTextEditPreviewer } from "./text-edit";
+import { createSidecarEditorService } from "./editor-service";
 import { createSidecarPageReader } from "./resume-tools";
 import { createLangfuseTelemetry } from "./observability/langfuse";
 
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
     defaultModel: model,
     contextProvider: createSidecarContextProvider({ baseUrl: sidecarUrl }),
     resumeTools: {
-      textEditPreviewer: createSidecarTextEditPreviewer(sidecarUrl),
+      editor: createSidecarEditorService(sidecarUrl),
       pageReader: createSidecarPageReader(sidecarUrl),
       supportsImages: async (requestedModel) => (requestedModel || model || (await modelSettings.resolve()).model) === "deepseek-flash",
     },
