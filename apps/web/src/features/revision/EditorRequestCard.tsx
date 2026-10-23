@@ -63,7 +63,7 @@ export function EditorRequestCard({ runId, request, events, active }: { runId: s
   const transaction = request.transaction
   if (!transaction) return null
   const state = undone ? "undone" : String(resolved?.payload.status ?? status ?? (active ? "pending" : "ended"))
-  const label = { pending: request.mode === "solo" ? "正在应用" : "等待确认", applied: "已应用", rejected: "保留原文", failed: "未能应用", undone: "已撤销", ended: "请求已结束" }[state] ?? state
+  const label = { pending: request.mode === "solo" ? "正在应用" : "等待确认", applied: "已应用", unchanged: "已符合要求", rejected: "保留原文", failed: "未能应用", undone: "已撤销", ended: "请求已结束" }[state] ?? state
   return <Card className="my-3 gap-3" data-testid="editor-transaction">
     <CardHeader className="gap-2">
       <div className="flex items-center justify-between gap-2"><CardTitle>编辑简历</CardTitle><Badge variant="secondary">{label}</Badge></div>

@@ -1064,9 +1064,16 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
     }
     const convertList = (kind: "bulletList" | "orderedList", style: string) => {
       if (!editor) return
-      void executeEditorOperations(editor, [{ capability: "list.convert", parameters: {
-        paths: selectedNodePaths(editor, ["bulletList", "orderedList", "paragraph"]), kind, style,
-      } }], templateStyle)
+      const paths = selectedNodePaths(editor, ["bulletList", "orderedList", "paragraph", "heading"])
+      const headings = paths.filter((path) => {
+        let node = editor.state.doc
+        for (const index of path) node = node.child(index)
+        return node.type.name === "heading"
+      })
+      void executeEditorOperations(editor, [
+        ...(headings.length ? [{ capability: "block.type", parameters: { paths: headings, kind: "paragraph" } }] : []),
+        { capability: "list.convert", parameters: { paths, kind, style } },
+      ], templateStyle)
     }
     const increaseIndent = () => updateCurrentBlockStyle({ indent: Math.min(MAX_INDENT, toolbarState.indent + 1) })
     const decreaseIndent = () => updateCurrentBlockStyle({ indent: Math.max(0, toolbarState.indent - 1) })

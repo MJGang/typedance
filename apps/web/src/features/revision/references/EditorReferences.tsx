@@ -13,7 +13,7 @@ export type CanvasReferenceBridge = {
   untrack: (id: string) => void
   setOrdinals: (ordinals: Pick<EditorReference, "id" | "ordinal">[]) => void
   locate: (reference: EditorReference) => boolean
-  apply: (transaction: EditorTransaction) => void
+  apply: (transaction: EditorTransaction) => boolean
   undo: () => boolean
   getRevision: () => number
 }
@@ -148,22 +148,25 @@ export function EditorReferencesProvider({ documentId, children, onReferenceAdde
       if (!bridge || request.document_id !== documentId) return { status: "failed", error: "当前画布不可用或已切换" }
       let applied = false
       let persisted = false
+      let unchanged = false
       let appliedSnapshot: EditorSnapshot | undefined
       try {
         if (request.kind === "transaction" && !approved) return { status: "rejected" }
         if (request.kind === "transaction") {
           if (!request.transaction) throw new Error("缺少编辑事务")
-          bridge.apply(request.transaction)
-          applied = true
-          applications.current.set(request.transaction.id, bridge.getRevision())
-          toast.success("修改已应用，可撤销")
-          appliedSnapshot = await bridge.getSnapshot(false)
-          if (!await flushSourceCanvasSaves(documentId)) throw new Error("后端保存失败，请使用画布上的重试保存，勿重复应用修改")
-          persisted = true
+          applied = bridge.apply(request.transaction)
+          unchanged = !applied
+          if (applied) {
+            applications.current.set(request.transaction.id, bridge.getRevision())
+            toast.success("修改已应用，可撤销")
+            appliedSnapshot = await bridge.getSnapshot(false)
+            if (!await flushSourceCanvasSaves(documentId)) throw new Error("后端保存失败，请使用画布上的重试保存，勿重复应用修改")
+            persisted = true
+          }
         }
         const snapshot = await bridge.getSnapshot()
         if (snapshot.editor_session_id !== request.editor_session_id || canvas.current !== bridge) throw new Error("编辑会话已切换")
-        return { status: request.kind === "snapshot" ? "snapshot" : "applied", snapshot, ...(applied ? { persisted } : {}) }
+        return { status: request.kind === "snapshot" ? "snapshot" : unchanged ? "unchanged" : "applied", snapshot, ...(applied ? { persisted } : {}) }
       } catch (error) {
         const message = error instanceof Error ? error.message : "编辑器操作失败"
         if (applied && appliedSnapshot) {

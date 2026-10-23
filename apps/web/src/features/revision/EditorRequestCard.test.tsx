@@ -23,10 +23,10 @@ function Bridge({ bridge }: { bridge: CanvasReferenceBridge }) {
   useEffect(() => register(bridge), [register, bridge])
   return null
 }
-function setup(value = request, active = true) {
+function setup(value = request, active = true, changed = true) {
   vi.mocked(flushSourceCanvasSaves).mockResolvedValue(true)
   const bridge: CanvasReferenceBridge = { getSnapshot: vi.fn(async () => snapshot), getRevision: () => 3,
-    apply: vi.fn(), undo: vi.fn(() => true), track: vi.fn(), untrack: vi.fn(), setOrdinals: vi.fn(), locate: () => false }
+    apply: vi.fn(() => changed), undo: vi.fn(() => true), track: vi.fn(), untrack: vi.fn(), setOrdinals: vi.fn(), locate: () => false }
   vi.mocked(getEditorRequest).mockResolvedValue(value)
   vi.mocked(respondToEditorRequest).mockResolvedValue(undefined)
   render(<EditorReferencesProvider documentId="doc"><Bridge bridge={bridge} /><EditorRequestCard runId="run" request={value} events={[]} active={active} /></EditorReferencesProvider>)
@@ -35,6 +35,16 @@ function setup(value = request, active = true) {
 afterEach(() => { cleanup(); vi.resetAllMocks() })
 
 describe("editor request decisions", () => {
+  it("reports unchanged operations without registering or exposing undo for earlier user edits", async () => {
+    const bridge = setup(request, true, false)
+    fireEvent.click(screen.getByRole("button", { name: "应用修改" }))
+    await screen.findByText("已符合要求")
+    expect(respondToEditorRequest).toHaveBeenCalledWith("run", "request", { status: "unchanged", snapshot })
+    expect(screen.queryByRole("button", { name: "撤销修改" })).not.toBeInTheDocument()
+    expect(flushSourceCanvasSaves).not.toHaveBeenCalled()
+    expect(bridge.undo).not.toHaveBeenCalled()
+  })
+
   it("review waits for approval and applies one undoable transaction", async () => {
     const bridge = setup()
     expect(bridge.apply).not.toHaveBeenCalled()

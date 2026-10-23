@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { Editor, type JSONContent } from "@tiptap/core"
 import StarterKit from "@tiptap/starter-kit"
 import { Column, Columns } from "@typedance/tiptap-layout"
@@ -49,6 +49,20 @@ function transaction(editor: Editor, mutate: (doc: TestDocument) => void): Edito
 afterEach(() => { editors.splice(0).forEach((editor) => editor.destroy()) })
 
 describe("document editing transaction", () => {
+  it("does not dispatch or create undo history for an unchanged document", () => {
+    const editor = setup()
+    editor.commands.insertContentAt(1, "用户输入")
+    const before = editor.getJSON()
+    const dispatch = vi.spyOn(editor.view, "dispatch")
+    const revision = referenceTrackerKey.getState(editor.state)!.revision
+    expect(applyEditorTransaction(editor, "doc", "session", transaction(editor, () => {}))).toBe(false)
+    expect(editor.getJSON()).toEqual(before)
+    expect(dispatch).not.toHaveBeenCalled()
+    expect(referenceTrackerKey.getState(editor.state)!.revision).toBe(revision)
+    expect(editor.commands.undo()).toBe(true)
+    expect(editor.getText()).toBe("保留的经历")
+  })
+
   it("compares actual template values across differently ordered JSON objects", () => {
     // 逐层重排，保留所有嵌套样式字段。
     const reverse = (value: unknown): unknown => value && typeof value === "object" && !Array.isArray(value)

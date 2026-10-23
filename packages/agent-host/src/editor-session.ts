@@ -32,8 +32,8 @@ export class EditorSession {
     const snapshot = response.snapshot;
     if (snapshot && (snapshot.document_id !== this.snapshot.document_id || snapshot.editor_session_id !== this.snapshot.editor_session_id
       || JSON.stringify(snapshot.doc_json).length > 500_000)) throw new Error("编辑器快照不属于本次授权文档或编辑会话");
-    if ((response.status === "snapshot" || response.status === "applied") && !snapshot) throw new Error("编辑器必须返回实际快照");
-    if (item.request.kind === "snapshot" && response.status === "applied") throw new Error("只读请求不能报告写入");
+    if ((response.status === "snapshot" || response.status === "applied" || response.status === "unchanged") && !snapshot) throw new Error("编辑器必须返回实际快照");
+    if (item.request.kind === "snapshot" && (response.status === "applied" || response.status === "unchanged")) throw new Error("只读请求不能报告写入");
     if (item.request.kind === "transaction" && response.status === "snapshot") throw new Error("写请求必须返回实际执行决定");
     if (snapshot && snapshot.content_revision < this.snapshot.content_revision) throw new Error("编辑器返回了过期快照");
     item.cleanup();

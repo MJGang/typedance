@@ -136,7 +136,7 @@ export function registerResumeTools(runtime: HarnessRuntime, services: ResumeToo
         ...(response.status === "applied" ? { persisted: response.persisted === true } : {}),
         ...(response.error ? { observation_error: response.error } : {}),
         content_revision: turn.session.snapshot.content_revision, page_count: turn.session.snapshot.print_snapshot?.page_tops.length,
-        ...(response.status === "applied" ? { current: await services.editor.inspect(turn.session.snapshot, signal) } : {}) };
+        ...(response.status === "applied" || response.status === "unchanged" ? { current: await services.editor.inspect(turn.session.snapshot, signal) } : {}) };
     },
   });
   return {

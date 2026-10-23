@@ -60,6 +60,21 @@ async function setup(mode: CanvasMutationMode) {
 }
 
 describe("live editor execution lifecycle", () => {
+  it("returns unchanged decisions and the current snapshot to the model without claiming a write", async () => {
+    const test = await setup("review");
+    try {
+      await test.answerSnapshot();
+      await test.answerSnapshot();
+      const request = await test.nextRequest();
+      test.host.respondToEditorRequest(test.run.id, request.id, { status: "unchanged", snapshot });
+      await test.answerSnapshot();
+      await test.host.waitForRun(test.run.id);
+      const result = JSON.parse(String(test.requests[3]?.prompt.conversation.find((message) => message.role === "tool" && message.toolName === "resume.edit")?.content)).output;
+      expect(result).toMatchObject({ status: "unchanged", content_revision: 2, current: { text: "当前原文" } });
+      expect(result).not.toHaveProperty("persisted");
+    } finally { if (test.host.getAgentRun(test.run.id).status === "running") test.host.cancelAgentRun(test.run.id); }
+  });
+
   it.each(["review", "solo"] as const)("%s waits for actual execution then views the updated page snapshot", async (mode) => {
     const test = await setup(mode);
     try {

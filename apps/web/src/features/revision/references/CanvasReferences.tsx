@@ -65,7 +65,7 @@ export function CanvasReferences({ editor, canvasVersion, templateStyle }: { edi
       },
       apply: (transaction) => {
         if (transaction.before_template_style && !sameTemplateStyle(transaction.before_template_style, templateRef.current)) throw new Error("模板已切换，请重新读取后操作")
-        applyEditorTransaction(editor, documentId, sessionId.current, transaction)
+        return applyEditorTransaction(editor, documentId, sessionId.current, transaction)
       },
       undo: () => editor.commands.undo(),
     }

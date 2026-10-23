@@ -36,7 +36,7 @@ export const editorRequestSchema = z.object({
 });
 
 export const editorResponseSchema = z.object({
-  status: z.enum(["snapshot", "applied", "rejected", "failed"]),
+  status: z.enum(["snapshot", "applied", "unchanged", "rejected", "failed"]),
   snapshot: editorSnapshotSchema.optional(),
   persisted: z.boolean().optional(),
   error: z.string().max(2000).optional(),
