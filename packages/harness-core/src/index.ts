@@ -10,6 +10,7 @@ export * from "./plugin/plugin-registry";
 export * from "./run/run-store";
 export * from "./run/cancellation";
 export * from "./runtime";
+export * from "./speech/speech-provider";
 export * from "./skill/skill-registry";
 export * from "./tool/tool-registry";
 export * from "./verification/verification-registry";

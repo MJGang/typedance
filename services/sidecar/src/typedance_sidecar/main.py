@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -33,6 +33,8 @@ from .revision_models import DEFAULT_TEMPLATE_ID
 from .pdf import render_and_export_pdf, render_resume_html, cleanup_browser
 from .revision_api import create_revision_router
 from .revision_repository import RevisionRepository
+from .attachment_text import extract_attachment_text
+from .import_resume_file_text import ImportResumeFileError
 
 
 @asynccontextmanager
@@ -53,6 +55,17 @@ def with_cors(application: ASGIApp) -> CORSMiddleware:
 
 
 app = FastAPI(title="TypeDance Sidecar", version="0.1.0", lifespan=lifespan)
+
+
+@app.post("/files/extract-text")
+def extract_uploaded_text(file: UploadFile = File(...)) -> dict[str, str]:
+    data = file.file.read(10 * 1024 * 1024 + 1)
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="附件不得超过 10 MB")
+    try:
+        return {"text": extract_attachment_text(data, file.filename or "")}
+    except ImportResumeFileError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def app_data_dir() -> Path:

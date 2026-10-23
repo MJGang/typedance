@@ -22,8 +22,19 @@ import { createSidecarContextProvider } from "./sidecar-context";
 import { createSidecarEditorService } from "./editor-service";
 import { createSidecarPageReader } from "./resume-tools";
 import { createLangfuseTelemetry } from "./observability/langfuse";
+import { LocalSpeechService } from "./speech";
+import { checkSpeechNativeRuntime, resolveSpeechRuntime, runSpeechWorker } from "@typedance/harness-speech";
+import { isSea } from "node:sea";
+import { dirname } from "node:path";
 
 async function main(): Promise<void> {
+  if (process.argv.includes("--speech-worker")) { runSpeechWorker(); return; }
+  if (process.argv.includes("--check-speech-runtime")) {
+    const runtimePackage = process.argv[process.argv.indexOf("--check-speech-runtime") + 1];
+    await checkSpeechNativeRuntime(resolveSpeechRuntime(runtimePackage || (isSea() ? join(dirname(process.execPath), "speech-runtime", "package.json") : undefined)));
+    console.log("Speech native runtime ready");
+    return;
+  }
   const env = loadExplicitEnvironment(process.env, (path) => readFileSync(path, "utf8"));
   const port = numberEnv(env.AGENT_HOST_PORT, 4327);
   const hostname = env.AGENT_HOST_HOST ?? "127.0.0.1";
@@ -73,7 +84,9 @@ async function main(): Promise<void> {
     ],
   });
 
-  const server = createAgentHostServer({ host, modelSettings });
+  const speech = new LocalSpeechService(dataDir);
+  const server = createAgentHostServer({ host, modelSettings, speech,
+    ...(env.TYPEDANCE_WEB_ORIGIN?.trim() ? { allowedOrigins: [env.TYPEDANCE_WEB_ORIGIN.trim()] } : {}) });
   server.listen(port, hostname);
   server.nodeServer.on("listening", () => {
     console.log(`TypeDance Agent Host listening on http://${hostname}:${port}`);
@@ -88,6 +101,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     const closed = server.close();
     server.nodeServer.closeAllConnections();
+    await speech.dispose();
     try {
       await telemetry?.shutdown();
     } catch {

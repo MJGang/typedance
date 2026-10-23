@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { AssistantRuntimeProvider, useLocalRuntime, type ChatModelAdapter } from "@assistant-ui/react"
-import { ArrowUp, ChevronDown, ChevronRight, Mic, MoreHorizontal, PanelRight, Pin, Plus, ShieldCheck, Square, SquarePen, WandSparkles } from "lucide-react"
+import { ArrowUp, ChevronDown, ChevronRight, Loader2, Mic, MoreHorizontal, PanelRight, Pin, Plus, ShieldCheck, Square, SquarePen, WandSparkles, X } from "lucide-react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { toast } from "sonner"
@@ -11,6 +11,10 @@ import { useEditorReferences } from "./references/EditorReferences"
 import { ReferenceComposer, MessageReferences } from "./references/ReferenceComposer"
 import { MessageReferenceSelection } from "./references/MessageReferenceSelection"
 import { EditorRequestCard, editorRequests } from "./EditorRequestCard"
+import { ChatAttachments } from "./ChatAttachments"
+import { attachmentAccept, readChatAttachment } from "./readChatAttachment"
+import { useVoiceInput } from "./useVoiceInput"
+import { harnessAttachmentsSchema, type HarnessAttachment } from "@typedance/contracts"
 import {
   cancelAgentRun,
   createWorkspaceConversation,
@@ -180,6 +184,16 @@ function AgentChatContent({
   const [runningRunId, setRunningRunId] = useState<string | null>(null)
   const [reconnecting, setReconnecting] = useState(false)
   const [input, setInput] = useState("")
+  const [attachments, setAttachments] = useState<HarnessAttachment[]>([])
+  const [attachmentLoading, setAttachmentLoading] = useState(false)
+  const [sending, setSending] = useState(false)
+  const attachmentOperation = useRef<AbortController | null>(null)
+  const attachmentPicker = useRef<HTMLInputElement>(null)
+  const scope = `${workspaceId}:${activeConversationId ?? "new"}`
+  const voice = useVoiceInput(scope, (text) => {
+    setInput((current) => `${current}${current && !/\s$/.test(current) ? " " : ""}${text}`)
+    requestAnimationFrame(() => composerRef.current?.focus())
+  })
   const [mentions, setMentions] = useState<ContextMention[]>([])
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mutationMode, setMutationMode] = useState<CanvasMutationMode>("review")
@@ -200,6 +214,42 @@ function AgentChatContent({
     invalidated: boolean
   } | null>(null)
   const callbacksRef = useRef({ onCanvasPatchApplied, onConversationUpdated })
+  const drafts = useRef(new Map<string, { input: string; attachments: HarnessAttachment[]; mentions: ContextMention[] }>())
+  const previousScope = useRef(scope)
+  const draftSnapshot = useRef({ input, attachments, mentions })
+  useLayoutEffect(() => {
+    if (previousScope.current !== scope) {
+      const ownCreation = pendingSendRef.current?.createdConversationId === activeConversationId
+      if (!ownCreation) {
+        drafts.current.set(previousScope.current, draftSnapshot.current)
+        const next = drafts.current.get(scope)
+        setInput(next?.input ?? ""); setAttachments(next?.attachments ?? []); setMentions(next?.mentions ?? []); setMentionQuery(null)
+        attachmentOperation.current?.abort(); attachmentOperation.current = null; setAttachmentLoading(false)
+      }
+      previousScope.current = scope
+    }
+    draftSnapshot.current = { input, attachments, mentions }
+  }, [scope, activeConversationId, input, attachments, mentions])
+  useEffect(() => () => { attachmentOperation.current?.abort() }, [])
+
+  const addAttachments = async (files: File[]) => {
+    if (!files.length || sending) return
+    if (attachmentOperation.current) { toast.info("请等待当前附件读取完成"); return }
+    if (files.length + attachments.length > 6) { toast.error("每条消息最多添加 6 个附件"); return }
+    const abort = new AbortController()
+    attachmentOperation.current = abort; setAttachmentLoading(true)
+    const results = await Promise.allSettled(files.map((file) => readChatAttachment(file, abort.signal)))
+    if (attachmentOperation.current !== abort || abort.signal.aborted) return
+    const ready: HarnessAttachment[] = []
+    for (const result of results) {
+      if (result.status === "fulfilled") ready.push(result.value)
+      else toast.error(result.reason instanceof Error ? result.reason.message : "附件读取失败")
+    }
+    const next = [...draftSnapshot.current.attachments, ...ready]
+    if (harnessAttachmentsSchema.safeParse(next).success) setAttachments(next)
+    else toast.error("附件总传输大小超过 7 MB，请减少图片数量或缩小图片")
+    attachmentOperation.current = null; setAttachmentLoading(false)
+  }
 
   useEffect(() => { callbacksRef.current = { onCanvasPatchApplied, onConversationUpdated } }, [onCanvasPatchApplied, onConversationUpdated])
   useEffect(() => () => { if (pendingSendRef.current) pendingSendRef.current.invalidated = true }, [])
@@ -382,10 +432,11 @@ function AgentChatContent({
   }, [workspaceId, activeConversationId, loadMessages, subscribeRun])
 
   const handleSend = useCallback(async () => {
-    const content = input.trim() || (editorReferences?.pending.length ? "请按每处引用的修改要求处理。" : "")
-    if (!content || runningRunId || pendingSendRef.current) return
+    const content = input.trim() || (editorReferences?.pending.length ? "请按每处引用的修改要求处理。" : attachments.length ? "请阅读这些附件。" : "")
+    if (!content || runningRunId || pendingSendRef.current || attachmentLoading || voice.phase !== "idle") return
     const pending = { workspaceId, expectedConversationId: activeConversationId, createdConversationId: undefined as string | undefined, invalidated: false }
     pendingSendRef.current = pending
+    setSending(true)
     try {
       const editorPayload = await editorReferences?.getPayload()
       if (pending.invalidated) return
@@ -402,6 +453,7 @@ function AgentChatContent({
         conversationId,
         content,
         mentions,
+        ...(attachments.length ? { attachments } : {}),
         ...(editorPayload?.references.length ? { references: editorPayload.references } : {}),
         model,
         mutationMode,
@@ -410,6 +462,7 @@ function AgentChatContent({
       if (pending.invalidated) return
       editorReferences?.consume(editorPayload?.references.map((reference) => reference.id) ?? [])
       setInput("")
+      setAttachments([])
       setMentions([])
       setMentionQuery(null)
       setRunningRunId(run.id)
@@ -420,9 +473,10 @@ function AgentChatContent({
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "发送失败")
     } finally {
+      setSending(false)
       if (pendingSendRef.current === pending) pendingSendRef.current = null
     }
-  }, [activeConversationId, input, loadMessages, mentions, model, mutationMode, onConversationCreated, onConversationUpdated, runningRunId, subscribeRun, workspaceId, editorReferences])
+  }, [activeConversationId, input, attachments, attachmentLoading, voice.phase, loadMessages, mentions, model, mutationMode, onConversationCreated, onConversationUpdated, runningRunId, subscribeRun, workspaceId, editorReferences])
 
   const handleCancelRun = useCallback(async () => {
     if (!runningRunId) return
@@ -520,18 +574,22 @@ function AgentChatContent({
       </div>
 
       <div data-testid="agent-chat-composer-region" className="shrink-0 p-3">
-        <div className="rounded-2xl border border-border bg-background shadow-sm">
+        <div className="rounded-2xl border border-border bg-background shadow-sm"
+          onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault() }}
+          onDrop={(event) => { if (event.dataTransfer.files.length) { event.preventDefault(); void addAttachments(Array.from(event.dataTransfer.files)) } }}>
           <ReferenceComposer />
+          {attachments.length ? <div className="max-h-56 overflow-y-auto px-3 pt-3"><ChatAttachments attachments={attachments} disabled={sending} onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div> : null}
+          {attachmentLoading ? <div role="status" className="flex items-center gap-2 px-3 pt-3 text-xs text-muted-foreground"><Loader2 className="size-3 animate-spin" />正在读取附件<Button variant="ghost" size="icon-xs" aria-label="取消读取附件" onClick={() => { attachmentOperation.current?.abort(); attachmentOperation.current = null; setAttachmentLoading(false) }}><X /></Button></div> : null}
           <div className="relative min-h-24">
             <div
               ref={composerRef}
               role="textbox"
               aria-label="AI 输入"
               aria-multiline="true"
-              contentEditable
+              contentEditable={!sending}
               suppressContentEditableWarning
               data-placeholder="随心输入"
-              className="block min-h-24 w-full whitespace-pre-wrap break-words bg-transparent px-3 pt-3 text-sm leading-6 text-foreground caret-foreground outline-none empty:before:pointer-events-none empty:before:text-muted-foreground/50 empty:before:content-[attr(data-placeholder)]"
+              className="block max-h-60 min-h-24 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-3 pt-3 text-sm leading-6 text-foreground caret-foreground outline-none empty:before:pointer-events-none empty:before:text-muted-foreground/50 empty:before:content-[attr(data-placeholder)]"
               onInput={(event) => {
                 const composer = event.currentTarget
                 handleInputChange(getComposerPlainText(composer), getComposerCaretOffset(composer))
@@ -539,10 +597,24 @@ function AgentChatContent({
               onClick={(event) => handleInputChange(input, getComposerCaretOffset(event.currentTarget))}
               onKeyUp={(event) => handleInputChange(input, getComposerCaretOffset(event.currentTarget))}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
+                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault()
                   void handleSend()
                 }
+              }}
+              onPaste={(event) => {
+                const files = Array.from(event.clipboardData.files)
+                event.preventDefault()
+                if (files.length) { void addAttachments(files); return }
+                const text = event.clipboardData.getData("text/plain")
+                const selection = window.getSelection()
+                if (!selection?.rangeCount || !event.currentTarget.contains(selection.anchorNode)) return
+                const range = selection.getRangeAt(0)
+                range.deleteContents()
+                const node = document.createTextNode(text)
+                range.insertNode(node); range.setStartAfter(node); range.collapse(true)
+                selection.removeAllRanges(); selection.addRange(range)
+                handleInputChange(getComposerPlainText(event.currentTarget), getComposerCaretOffset(event.currentTarget))
               }}
             />
             {mentionQuery !== null && filteredMentionSources.length > 0 ? (
@@ -566,9 +638,21 @@ function AgentChatContent({
             ) : null}
           </div>
 
-          <div className="flex h-11 min-w-0 items-center gap-2 px-3">
+          {voice.error ? <p role="alert" className="max-h-24 overflow-y-auto break-words px-3 pt-2 text-xs leading-5 text-destructive">{voice.error}；录音保留在内存中，可重试转写或取消。</p> : null}
+          {voice.phase !== "idle" ? <div className="flex h-11 items-center gap-2 px-3">
+            <Button variant="ghost" size="icon-sm" aria-label="取消录音或转写" onClick={voice.cancel}><X /></Button>
+            {voice.phase === "recording" ? <div role="status" aria-label="正在录音" className="flex h-7 min-w-0 flex-1 items-center justify-end gap-1 overflow-hidden">
+              {Array.from({ length: 60 }, (_, index) => <span key={index} className="w-0.5 shrink-0 rounded-full bg-muted-foreground/60" style={{ height: `${3 + (voice.levels[index - (60 - voice.levels.length)] ?? 0) * 23}px` }} />)}
+            </div> : <span role="status" className="flex-1 text-center text-xs text-muted-foreground">{voice.phase === "starting" ? "正在打开麦克风" : voice.phase === "failed" ? "转写失败" : "正在转写"}</span>}
+            {voice.phase === "recording" ? <Button variant="secondary" size="icon-sm" aria-label="停止录音并转写" onClick={() => void voice.stop()}><Square className="fill-current" /></Button>
+              : voice.phase === "failed" ? <Button variant="secondary" size="sm" onClick={() => void voice.retry()}>重试转写</Button>
+                : <Loader2 className="mx-2 size-4 animate-spin text-muted-foreground" />}
+            <Button size="icon-sm" className="rounded-full" disabled aria-label="转写完成后发送"><ArrowUp /></Button>
+          </div> : null}
+          <div className={cn("flex h-11 min-w-0 items-center gap-2 px-3", voice.phase !== "idle" && "hidden")}>
             <div className="flex min-w-0 flex-1 items-center gap-2">
-              <Button variant="ghost" size="icon-sm" aria-label="添加" title="添加">
+              <input ref={attachmentPicker} type="file" multiple accept={attachmentAccept} className="hidden" aria-label="选择聊天附件" onChange={(event) => { void addAttachments(Array.from(event.target.files ?? [])); event.target.value = "" }} />
+              <Button variant="ghost" size="icon-sm" aria-label="添加" title="添加图片或文件" disabled={sending || attachmentLoading} onClick={() => attachmentPicker.current?.click()}>
                 <Plus className="size-4" />
               </Button>
               <MutationModeMenu value={mutationMode} onChange={setMutationMode} />
@@ -577,7 +661,7 @@ function AgentChatContent({
               <Button variant="ghost" size="sm" className="h-8 max-w-32 px-2 text-xs">
                 <span className="truncate">模型 {model ?? "默认"}</span>
               </Button>
-              <Button variant="ghost" size="icon-sm" aria-label="语音输入暂未支持" title="语音输入暂未支持" disabled>
+              <Button variant="ghost" size="icon-sm" aria-label="语音输入" title="语音输入" disabled={sending} onClick={() => void voice.start()}>
                 <Mic className="size-4" />
               </Button>
               <Button
@@ -595,7 +679,7 @@ function AgentChatContent({
                   }
                   void handleSend()
                 }}
-                disabled={!runningRunId && !input.trim() && !editorReferences?.pending.length}
+                disabled={!runningRunId && (sending || attachmentLoading || voice.phase !== "idle" || (!input.trim() && !editorReferences?.pending.length && !attachments.length))}
               >
                 {runningRunId ? <Square className="size-3.5 fill-current" /> : <ArrowUp className="size-5" />}
               </Button>
@@ -662,11 +746,14 @@ function ChatMessage({
   const showTraceToggle = isAssistant && !!message.run_id && statusLabel !== null
   const traceOpen = showTraceToggle && expanded
   const hasConclusion = isAssistant && message.content.trim().length > 0
+  const failure = terminal?.type === "run_failed" ? getRecordString(terminal.payload.error, "message") : undefined
   const requests = useMemo(() => editorRequests(orderedEvents), [orderedEvents])
 
   return (
     <article data-agent-message-id={message.id} className={cn("space-y-3", message.role === "user" && "rounded-lg bg-muted/60 p-3")}>
       <MessageReferences references={message.references} />
+      <ChatAttachments attachments={message.attachments ?? []} />
+      {failure ? <p role="alert" className="break-words text-sm leading-6 text-destructive">{failure}</p> : null}
       {showTraceToggle ? (
         <button
           type="button"

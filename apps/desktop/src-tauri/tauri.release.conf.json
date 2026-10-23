@@ -24,6 +24,7 @@
     "icon": ["icons/icon.ico"],
     "resources": {
       "resources/ms-playwright/": "ms-playwright/",
+      "resources/speech-runtime/": "speech-runtime/",
       "../../../plugins/": "plugins/"
     },
     "windows": {

@@ -9,7 +9,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises"
-import { dirname, join, resolve } from "node:path"
+import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { createRequire } from "node:module"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -96,12 +96,37 @@ export async function buildAgentHost() {
   await mkdir(dirname(pluginTarget), { recursive: true })
 
   await cp(pluginSource, pluginTarget, { recursive: true })
+  const speechRuntime = await stageSpeechRuntime(join(repositoryRoot, "apps", "desktop", "src-tauri", "resources", "speech-runtime"))
+  run(binaryPath, ["--check-speech-runtime", join(speechRuntime, "package.json")])
   const pluginFiles = await listRelativeFiles(pluginTarget)
   const forbidden = findForbiddenReleasePaths(pluginFiles)
   if (forbidden.length > 0) {
     throw new Error(`Forbidden Agent Host resources: ${forbidden.join(", ")}`)
   }
   return { binaryPath, pluginTarget, binarySize }
+}
+
+/** Ship the native addon and its dependent DLLs beside the SEA host, without development dependencies. */
+export async function stageSpeechRuntime(target) {
+  target = resolve(target)
+  const permittedRoots = [join(repositoryRoot, "artifacts"), join(repositoryRoot, "apps", "desktop", "src-tauri", "resources")]
+  if (!permittedRoots.some((root) => { const path = relative(root, target); return path && !path.startsWith("..") && !isAbsolute(path) })) {
+    throw new Error("Speech staging target must remain inside the workspace artifact or resource directory")
+  }
+  const speechRequire = createRequire(join(repositoryRoot, "packages", "harness-speech", "package.json"))
+  const wrapperRoot = dirname(speechRequire.resolve("sherpa-onnx-node/package.json"))
+  const nativeRequire = createRequire(join(wrapperRoot, "package.json"))
+  const nativeRoot = dirname(nativeRequire.resolve("sherpa-onnx-win-x64/package.json"))
+  await rm(target, { recursive: true, force: true })
+  await mkdir(join(target, "node_modules"), { recursive: true })
+  await cp(wrapperRoot, join(target, "node_modules", "sherpa-onnx-node"), { recursive: true, dereference: true })
+  await cp(nativeRoot, join(target, "node_modules", "sherpa-onnx-win-x64"), { recursive: true, dereference: true })
+  await writeFile(join(target, "package.json"), JSON.stringify({ private: true, name: "typedance-speech-runtime" }))
+  const files = await listRelativeFiles(target)
+  const forbidden = findForbiddenReleasePaths(files)
+  if (forbidden.length) throw new Error(`Forbidden speech resources: ${forbidden.join(", ")}`)
+  if (!files.some((file) => file.endsWith("sherpa-onnx.node")) || !files.some((file) => file.endsWith("onnxruntime.dll"))) throw new Error("Speech native runtime is incomplete")
+  return target
 }
 
 function assertBuildPlatform() {

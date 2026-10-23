@@ -1,4 +1,15 @@
 import { z } from "zod";
+
+export async function extractAttachmentText(file: File, signal: AbortSignal): Promise<string> {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await fetch(`${baseUrl}/files/extract-text`, { method: "POST", body: form, signal });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(typeof error.detail === "string" ? error.detail : "文件读取失败");
+  }
+  return z.object({ text: z.string().min(1).max(120_000) }).parse(await response.json()).text;
+}
 import {
   editorCapabilityCatalogSchema,
   editorNodeOriginSchema,

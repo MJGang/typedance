@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createLocalAccess, HttpError, readJson, type LocalAccessOptions } from "./local-access";
 import type { AddressInfo } from "node:net";
 import type { HarnessRun, HarnessRunEvent } from "@typedance/harness-contracts";
-import { withRunSignal, type HarnessRuntime } from "@typedance/harness-core";
+import { withRunSignal, type HarnessRuntime, type HarnessModelMessage } from "@typedance/harness-core";
 import {
   canvasMutationModeSchema,
   contextMentionSchema,
@@ -10,6 +10,9 @@ import {
   editorSnapshotSchema,
   editorResponseSchema,
   modelSettingsUpdateSchema,
+  harnessAttachmentsSchema,
+  speechPreferencesSchema,
+  type HarnessAttachment,
   type AgentConversation,
   type AgentMessage,
   type AgentPluginSummary,
@@ -30,6 +33,7 @@ import {
 import { buildAgentHostPromptBundle } from "./prompt";
 import type { AgentHostContextProvider } from "./sidecar-context";
 import type { ModelSettingsService } from "./model-settings";
+import type { LocalSpeechService } from "./speech";
 export {
   JsonFileAgentHostStore,
   MemoryAgentHostStore,
@@ -83,6 +87,7 @@ export type AgentHostStartConversationRunInput = {
     content: string;
     mentions?: ContextMention[];
     references?: EditorReference[];
+    attachments?: HarnessAttachment[];
   };
   model?: string;
   mutationMode?: CanvasMutationMode;
@@ -246,6 +251,7 @@ export class AgentHost {
     const timestamp = this.#timestamp();
     const mentions = (input.message.mentions ?? []).map((mention) => contextMentionSchema.parse(mention));
     const references = parseEditorReferences(input.message.references);
+    const attachments = parseAttachments(input.message.attachments);
     const snapshotResult = input.context?.editor_snapshot === undefined ? undefined : editorSnapshotSchema.safeParse(input.context.editor_snapshot);
     if (snapshotResult && !snapshotResult.success) throw new HttpError(400, "invalid_editor_snapshot");
     const editorSnapshot = snapshotResult?.data;
@@ -265,6 +271,7 @@ export class AgentHost {
         content,
         mentions,
         ...(references.length > 0 ? { references } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
         created_at: timestamp,
       },
     });
@@ -479,10 +486,13 @@ export class AgentHost {
     const history = this.store
       .listMessages(conversationId)
       .filter((message) => message.id !== assistantMessageId)
-      .map((message) => ({
-        role: message.role,
-        content: formatReferencedMessage(message.content, message.references),
-      }));
+      .map((message): HarnessModelMessage => {
+        const text = formatReferencedMessage(message.content, message.references);
+        return message.role === "user" && message.attachments?.length
+          ? { role: "user", content: [{ type: "text", text }, ...message.attachments.map((attachment) => attachment.content.type === "image"
+            ? attachment.content : { type: "text" as const, text: `附件：${attachment.name}\n${attachment.content.text}` })] }
+          : { role: message.role, content: text };
+      });
     const fallback = [{ role: "user" as const, content: userMessage }];
     const contextInput = {
       workspaceId: String(context.workspace_id ?? ""),
@@ -651,6 +661,7 @@ export function createAgentHost(options: AgentHostOptions): AgentHost {
 export type AgentHostServerOptions = LocalAccessOptions & {
   host: AgentHost;
   modelSettings?: ModelSettingsService;
+  speech?: LocalSpeechService;
 };
 
 export type AgentHostHttpServer = {
@@ -663,6 +674,7 @@ export type AgentHostHttpServer = {
 type RouteContext = {
   host: AgentHost;
   modelSettings?: ModelSettingsService;
+  speech?: LocalSpeechService;
   request: IncomingMessage;
   response: ServerResponse;
   pathname: string;
@@ -676,6 +688,7 @@ export function createAgentHostServer(options: AgentHostServerOptions): AgentHos
       authorize,
       host: options.host,
       modelSettings: options.modelSettings,
+      speech: options.speech,
       request,
       response,
       pathname: new URL(request.url ?? "/", "http://localhost").pathname,
@@ -716,6 +729,7 @@ async function handleRequest(context: RouteContext): Promise<void> {
       writeJson(context.response, 404, { error: "not_found" });
     }
   } catch (error) {
+    if (context.response.destroyed) return;
     if (error instanceof HttpError) {
       if (error.status === 413) context.response.setHeader("connection", "close");
       writeJson(context.response, error.status, { error: error.code });
@@ -730,6 +744,27 @@ async function handleRequest(context: RouteContext): Promise<void> {
 
 async function route(context: RouteContext): Promise<boolean> {
   const { host, modelSettings, request, response, pathname } = context;
+
+  if (context.speech && pathname.startsWith("/speech/")) {
+    const speech = context.speech;
+    if (pathname === "/speech/settings" && request.method === "GET") { writeJson(response, 200, await speech.status()); return true; }
+    if (pathname === "/speech/settings" && request.method === "PUT") {
+      const parsed = speechPreferencesSchema.safeParse(await readJson(request));
+      if (!parsed.success) throw new HttpError(400, "invalid_speech_settings");
+      writeJson(response, 200, await speech.configure(parsed.data)); return true;
+    }
+    if (pathname === "/speech/prepare" && request.method === "POST") { writeJson(response, 202, await speech.prepare()); return true; }
+    if (pathname === "/speech/prepare" && request.method === "DELETE") { writeJson(response, 200, await speech.cancelPreparation()); return true; }
+    if (pathname === "/speech/transcribe" && request.method === "POST") {
+      const body = await readJson(request);
+      const abort = new AbortController();
+      const cancel = () => { if (!response.writableEnded) abort.abort(); };
+      response.once("close", cancel);
+      try { writeJson(response, 200, await speech.transcribe(body, abort.signal)); }
+      finally { response.off("close", cancel); }
+      return true;
+    }
+  }
 
   if (request.method === "GET" && pathname === "/health") {
     writeJson(response, 200, { status: "ok", service: "agent-host" });
@@ -1037,12 +1072,30 @@ function parseMessageBody(value: unknown): AgentHostStartConversationRunInput["m
     content: requiredString(body.content, "message.content"),
     mentions: zodMentionArray(body.mentions),
     references: parseEditorReferences(body.references),
+    attachments: parseAttachments(body.attachments),
   };
 }
 
 function parseEditorReferences(value: unknown): EditorReference[] {
   const parsed = editorReferencesSchema.safeParse(value ?? []);
   if (!parsed.success) throw new HttpError(400, "invalid_editor_reference");
+  return parsed.data;
+}
+
+function parseAttachments(value: unknown): HarnessAttachment[] {
+  const parsed = harnessAttachmentsSchema.safeParse(value ?? []);
+  if (!parsed.success) throw new HttpError(400, "附件格式无效，最多 6 个，总传输大小不超过 7 MB");
+  for (const attachment of parsed.data) {
+    if (attachment.content.type !== "image") continue;
+    const url = attachment.content.image_url;
+    const bytes = Buffer.from(url.slice(url.indexOf(",") + 1), "base64");
+    const mime = url.slice(5, url.indexOf(";"));
+    const valid = mime === "image/png" ? bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
+      : mime === "image/jpeg" ? bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+      : mime === "image/gif" ? /^GIF8[79]a$/.test(bytes.subarray(0, 6).toString())
+      : bytes.subarray(0, 4).toString() === "RIFF" && bytes.subarray(8, 12).toString() === "WEBP";
+    if (!valid || bytes.length !== attachment.size || attachment.mime_type !== mime) throw new HttpError(400, "图片格式或文件大小不正确");
+  }
   return parsed.data;
 }
 
