@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { canvasPrintSnapshotSchema } from "../revision/canvas-print";
+import { templateStyleConfigSchema } from "../legacy/template-style";
 
 export const editorReferenceSourceSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -34,20 +35,8 @@ export const editorSnapshotSchema = z.object({
   doc_json: z.record(z.unknown()),
   plain_text: z.string().max(120_000),
   print_snapshot: canvasPrintSnapshotSchema.optional(),
-});
-
-export const textEditPreviewSchema = z.object({
-  kind: z.literal("text_edit_preview"),
-  id: z.string().min(1),
-  document_id: z.string().min(1),
-  reference_id: z.string().min(1),
-  original_text: z.string().min(1),
-  replacement: z.string().max(4_000),
-  replacement_content: z.array(z.record(z.unknown())),
-  summary: z.string().max(500),
-  editor_session_id: z.string().min(1),
+  template_style: templateStyleConfigSchema.optional(),
 });
 
 export type EditorReference = z.infer<typeof editorReferenceSchema>;
 export type EditorSnapshot = z.infer<typeof editorSnapshotSchema>;
-export type TextEditPreview = z.infer<typeof textEditPreviewSchema>;

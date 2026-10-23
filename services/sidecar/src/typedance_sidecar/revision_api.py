@@ -1,4 +1,6 @@
 import logging
+import hashlib
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
@@ -11,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .canvas_export import CanvasExportService
 from .canvas_pages import CanvasPagesRequest, render_canvas_pages
-from .canvas_text_edit import prepare_canvas_text_edit
+from .editor_operations import InspectOptions, Margins, capability_catalog, inspect_document, prepare_operations
 from .context_sources import (
     build_webpage_source,
     file_uri,
@@ -127,15 +129,34 @@ class SaveSourceResumeCanvasRequest(BaseModel):
             raise ValueError("doc_json.type must be 'doc'")
         if not isinstance(doc_json.get("content"), list):
             raise ValueError("doc_json.content must be a list")
+        attrs = doc_json.get("attrs") or {}
+        if attrs.get("pageMargins") is not None:
+            Margins.model_validate(attrs["pageMargins"])
+        if attrs.get("templateStyle") is not None:
+            TemplateStyleConfig.model_validate(attrs["templateStyle"])
         return doc_json
 
 
-class PrepareCanvasTextEditRequest(BaseModel):
+class EditorDocumentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     doc_json: dict[str, Any]
-    from_position: int = Field(ge=0)
-    to_position: int = Field(gt=0)
-    expected_text: str = Field(min_length=1, max_length=4_000)
-    replacement: str = Field(max_length=4_000)
+
+
+class PrepareEditorOperationsRequest(EditorDocumentRequest):
+    catalog_revision: str
+    operations: list[dict[str, Any]] = Field(min_length=1, max_length=100)
+    template_style: TemplateStyleConfig | None = None
+
+
+class InspectEditorRequest(EditorDocumentRequest):
+    options: InspectOptions = Field(default_factory=InspectOptions)
+    template_style: TemplateStyleConfig | None = None
+
+
+class MigratePageMarginsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    margins: Margins | None
+    original_value: str = Field(max_length=10000)
 
 
 class PageMarginsRequest(BaseModel):
@@ -241,6 +262,53 @@ def create_revision_router(
         if document is None:
             raise HTTPException(status_code=404, detail="Document not found")
         return document
+
+    @router.get("/editor/capabilities")
+    def get_editor_capabilities() -> dict:
+        return capability_catalog()
+
+    @router.post("/editor/inspect")
+    def inspect_editor_document(payload: InspectEditorRequest) -> dict:
+        try:
+            return inspect_document(payload.doc_json, payload.options,
+                                    payload.template_style.model_dump(by_alias=True, exclude_none=True) if payload.template_style else None)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.post("/editor/prepare")
+    def prepare_editor_transaction(payload: PrepareEditorOperationsRequest) -> dict:
+        try:
+            return prepare_operations(payload.doc_json, payload.operations, payload.catalog_revision,
+                                      payload.template_style.model_dump(by_alias=True, exclude_none=True) if payload.template_style else None)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.post("/documents/{document_id}/editor/migrate-page-margins", response_model=SourceResumeCanvas)
+    def migrate_page_margins(document_id: str, payload: MigratePageMarginsRequest, repo: RevisionRepository = Depends(repository)) -> SourceResumeCanvas:
+        require_document(repo, document_id)
+        canvas = repo.get_source_resume_canvas(document_id)
+        if canvas is None:
+            raise HTTPException(status_code=404, detail="画布不存在")
+        backup_dir = source_dir().parent / "migrations" / "page-margins"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        backup = backup_dir / f"{hashlib.sha256(document_id.encode()).hexdigest()}.json"
+        try:
+            # 先备份后写入；备份失败时保留浏览器中的原始值，不能静默丢弃。
+            with backup.open("x", encoding="utf-8") as handle:
+                json.dump({"document_id": document_id, "original_value": payload.original_value, "canvas": canvas.model_dump()}, handle, ensure_ascii=False)
+        except FileExistsError:
+            # 不接受上次中断留下的半写文件；有效原始备份绝不覆盖。
+            try:
+                previous = json.loads(backup.read_text(encoding="utf-8"))
+                SourceResumeCanvas.model_validate(previous["canvas"])
+                if previous["document_id"] != document_id or not isinstance(previous["original_value"], str):
+                    raise ValueError("invalid migration backup")
+            except (ValueError, KeyError, TypeError) as exc:
+                raise HTTPException(status_code=500, detail="迁移备份未完成，浏览器原始数据已保留") from exc
+        if payload.margins is None or canvas.doc_json.get("attrs", {}).get("pageMargins") is not None:
+            return canvas
+        document = {**canvas.doc_json, "attrs": {**canvas.doc_json.get("attrs", {}), "pageMargins": payload.margins.model_dump()}}
+        return WorkspaceService(repo).save_source_resume_canvas_document(document_id, document)
 
     def require_draft(repo: RevisionRepository, draft_id: str) -> DraftVersion:
         draft = repo.get_draft_version(draft_id)
@@ -658,22 +726,6 @@ def create_revision_router(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    @router.post("/documents/{document_id}/source-resume-canvas/text-edit-preview")
-    def preview_canvas_text_edit(
-        document_id: str,
-        payload: PrepareCanvasTextEditRequest,
-        repo: RevisionRepository = Depends(repository),
-    ) -> dict[str, Any]:
-        if repo.get_document(document_id) is None:
-            raise HTTPException(status_code=404, detail="Document not found")
-        try:
-            return prepare_canvas_text_edit(
-                payload.doc_json, payload.from_position, payload.to_position,
-                payload.expected_text, payload.replacement,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @router.put("/documents/{document_id}/source-resume-canvas", response_model=SourceResumeCanvas)
     def save_source_resume_canvas(

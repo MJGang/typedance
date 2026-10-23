@@ -18,4 +18,5 @@ export * from "./packs/resume-pack";
 export * from "./harness";
 export * from "./workbench/agent";
 export * from "./workbench/editor-reference";
+export * from "./workbench/editor-operations";
 export * from "./workbench/model-settings";

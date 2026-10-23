@@ -43,7 +43,7 @@ describe("ResumeDocumentList actions", () => {
     await act(async () => { finishFlush(true) })
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/workspaces/doc-copy"))
     expect(duplicateRevisionDocument).toHaveBeenCalledWith("doc-one")
-    expect(JSON.parse(localStorage.getItem(pageMarginStorageKey(copy.id))!)).toEqual(JSON.parse(margins))
+    expect(localStorage.getItem(pageMarginStorageKey(copy.id))).toBeNull()
     expect(localStorage.getItem(pageMarginStorageKey(resume.id))).toBe(margins)
   })
 

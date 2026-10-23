@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils"
 import { useEditorReferences } from "./references/EditorReferences"
 import { ReferenceComposer, MessageReferences } from "./references/ReferenceComposer"
 import { MessageReferenceSelection } from "./references/MessageReferenceSelection"
-import { TextEditPreviewCard, textEditPreviews } from "./references/TextEditPreviewCard"
+import { EditorRequestCard, editorRequests } from "./EditorRequestCard"
 import {
   cancelAgentRun,
   createWorkspaceConversation,
@@ -61,6 +61,8 @@ const streamedEventTypes: AgentRunEvent["type"][] = [
   "canvas_patch_proposed",
   "canvas_patch_applied",
   "text_edit_decision",
+  "editor_request",
+  "editor_response",
   "run_completed",
   "run_failed",
   "run_cancelled",
@@ -660,7 +662,7 @@ function ChatMessage({
   const showTraceToggle = isAssistant && !!message.run_id && statusLabel !== null
   const traceOpen = showTraceToggle && expanded
   const hasConclusion = isAssistant && message.content.trim().length > 0
-  const previews = useMemo(() => textEditPreviews(orderedEvents), [orderedEvents])
+  const requests = useMemo(() => editorRequests(orderedEvents), [orderedEvents])
 
   return (
     <article data-agent-message-id={message.id} className={cn("space-y-3", message.role === "user" && "rounded-lg bg-muted/60 p-3")}>
@@ -701,7 +703,7 @@ function ChatMessage({
           </MessageReferenceSelection>
         )}
       </div>
-      {message.run_id ? previews.map((preview) => <TextEditPreviewCard key={preview.id} preview={preview} runId={message.run_id!} events={orderedEvents} />) : null}
+      {message.run_id ? requests.map((request) => <EditorRequestCard key={request.id} request={request} runId={message.run_id!} events={orderedEvents} active={!terminal} />) : null}
     </article>
   )
 }
@@ -1177,7 +1179,7 @@ function summarizeToolResult(result: Record<string, unknown> | undefined): strin
 }
 
 function toolLabel(name: string | undefined): string {
-  const labels: Record<string, string> = { "resume.read": "读取简历内容", "resume.view_pages": "查看简历页面", "resume.propose_text_edit": "准备文字修改预览" }
+  const labels: Record<string, string> = { "resume.read": "读取简历内容", "resume.view_pages": "查看简历页面", "resume.capabilities": "查询编辑能力", "resume.inspect": "读取当前画布结构", "resume.edit": "编辑简历" }
   return (name && labels[name]) || name || "工具"
 }
 

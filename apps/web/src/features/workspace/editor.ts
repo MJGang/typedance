@@ -1,5 +1,6 @@
 export type ResumeDocJson = {
   type: "doc"
+  attrs?: Record<string, unknown>
   content?: ResumeNodeJson[]
 }
 

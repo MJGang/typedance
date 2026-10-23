@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react"
 import type { Editor } from "@tiptap/core"
-import { Fragment } from "@tiptap/pm/model"
-import { closeHistory } from "@tiptap/pm/history"
-import { TextSelection, type Transaction } from "@tiptap/pm/state"
-import type { EditorReference } from "@typedance/contracts"
+import type { Transaction } from "@tiptap/pm/state"
+import type { EditorReference, TemplateStyleConfig } from "@typedance/contracts"
 import { toast } from "sonner"
 import { useEditorReferences, type CanvasReferenceBridge } from "./EditorReferences"
 import { referenceMatches, referenceTrackerKey } from "./referenceTracker"
 import { ReferenceSelectionPopover } from "./ReferenceSelectionPopover"
 import { prepareCanvasPrintSnapshot } from "../canvasPrintSnapshot"
+import { applyEditorTransaction } from "../editorTransaction"
+import { sameTemplateStyle } from "../documentLayout"
 
 type CanvasSelection = Pick<EditorReference, "text" | "label" | "source"> & { rect: DOMRect; key: string }
 
@@ -23,12 +23,14 @@ function selectionLabel(editor: Editor, position: number) {
   return `${title.slice(0, 130)} · 第 ${Math.max(1, paragraph)} 段`
 }
 
-export function CanvasReferences({ editor, canvasVersion }: { editor: Editor | null; canvasVersion: number }) {
+export function CanvasReferences({ editor, canvasVersion, templateStyle }: { editor: Editor | null; canvasVersion: number; templateStyle: TemplateStyleConfig }) {
   const context = useEditorReferences()
   const [selection, setSelection] = useState<CanvasSelection | null>(null)
   const sessionId = useRef(crypto.randomUUID())
   const version = useRef(canvasVersion)
   version.current = canvasVersion
+  const templateRef = useRef(templateStyle)
+  templateRef.current = templateStyle
   const contextRef = useRef(context)
   contextRef.current = context
   const registerCanvas = context?.registerCanvas
@@ -37,13 +39,15 @@ export function CanvasReferences({ editor, canvasVersion }: { editor: Editor | n
   useEffect(() => {
     if (!editor || !registerCanvas || !documentId) return
     const getState = () => referenceTrackerKey.getState(editor.state)
-    const appliedReferences = new Map<string, EditorReference>()
     const bridge: CanvasReferenceBridge = {
-      getSnapshot: async () => {
-        const printSnapshot = await prepareCanvasPrintSnapshot(editor.view.dom)
+      getSnapshot: async (includePrint = true) => {
+        const checkedDoc = editor.state.doc
+        const checkedStyle = templateRef.current
+        const printSnapshot = includePrint ? await prepareCanvasPrintSnapshot(editor.view.dom) : undefined
         if (editor.isDestroyed) throw new Error("编辑器已切换，请重新发送")
+        if (!checkedDoc.eq(editor.state.doc) || !sameTemplateStyle(checkedStyle, templateRef.current)) throw new Error("画布正在变化，请停止编辑后重新读取")
         return { document_id: documentId, editor_session_id: sessionId.current, content_revision: getState()?.revision ?? 0,
-          canvas_version: version.current, doc_json: editor.getJSON(), plain_text: editor.getText({ blockSeparator: "\n" }), print_snapshot: printSnapshot }
+          canvas_version: version.current, doc_json: checkedDoc.toJSON(), plain_text: editor.getText({ blockSeparator: "\n" }), print_snapshot: printSnapshot, template_style: templateRef.current }
       },
       getRevision: () => getState()?.revision ?? 0,
       track: (reference) => editor.view.dispatch(editor.state.tr.setMeta(referenceTrackerKey, { type: "add", reference })),
@@ -59,27 +63,11 @@ export function CanvasReferences({ editor, canvasVersion }: { editor: Editor | n
         }
         return editor.chain().focus().setTextSelection({ from: source.from, to: source.to }).scrollIntoView().run()
       },
-      apply: (reference, preview) => {
-        if (preview.document_id !== documentId || preview.reference_id !== reference.id || preview.editor_session_id !== sessionId.current || reference.source.kind !== "canvas") return false
-        const tracked = getState()?.references.find((item) => item.id === reference.id)
-        if (!tracked || tracked.changed || !referenceMatches(editor.state.doc, tracked.source, preview.original_text)) return false
-        appliedReferences.set(preview.id, { ...reference, source: structuredClone(tracked.source) })
-        const nodes = preview.replacement_content.map((node) => editor.schema.nodeFromJSON(node))
-        const transaction = closeHistory(editor.state.tr).replaceWith(tracked.source.from, tracked.source.to, Fragment.fromArray(nodes))
-        transaction.setSelection(TextSelection.near(transaction.doc.resolve(Math.min(transaction.doc.content.size, tracked.source.from + preview.replacement.length))))
-        editor.view.dispatch(transaction.scrollIntoView())
-        editor.view.dispatch(closeHistory(editor.state.tr))
-        return true
+      apply: (transaction) => {
+        if (transaction.before_template_style && !sameTemplateStyle(transaction.before_template_style, templateRef.current)) throw new Error("模板已切换，请重新读取后操作")
+        applyEditorTransaction(editor, documentId, sessionId.current, transaction)
       },
-      undo: (previewId) => {
-        const reference = appliedReferences.get(previewId)
-        if (!reference || reference.source.kind !== "canvas" || !editor.commands.undo()) return false
-        const restored = { ...reference, source: { ...reference.source, content_revision: getState()?.revision ?? 0 } }
-        if (!referenceMatches(editor.state.doc, restored.source, restored.text)) return false
-        editor.view.dispatch(editor.state.tr.setMeta(referenceTrackerKey, { type: "add", reference: restored }))
-        appliedReferences.delete(previewId)
-        return true
-      },
+      undo: () => editor.commands.undo(),
     }
     return registerCanvas(bridge)
   }, [editor, registerCanvas, documentId])

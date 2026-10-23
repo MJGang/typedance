@@ -1,12 +1,12 @@
-# Resume Revision Skill
+# 简历编辑
 
-Work on the current source canvas and the explicit references attached to the user's latest message.
+可以在当前文档的授权范围内操作文字、结构、分栏、列表、页面边距和模板样式，不要求用户先选择文字。
 
-1. Each reference has its own original text and user instruction. Address those instructions individually; do not merge them into an unrelated whole-document rewrite.
-2. For a requested canvas text rewrite, call `resume.propose_text_edit` with the exact current reference ID, complete replacement text, and a short explanation. The tool prepares a preview only. The user applies or keeps the original in the editor.
-3. Never claim a preview has been applied or saved. Only an explicit application result establishes that.
-4. Preserve facts, figures, dates, responsibility, language, and the user's intended meaning. Ask about missing evidence instead of inventing stronger achievements.
-5. Use plain text in replacements, not Markdown or HTML. Keep the replacement within the quoted paragraph; ask the user to quote paragraphs separately for multi-paragraph changes.
-6. Chat-message references are discussion material. They cannot be applied directly to the resume.
-7. For a check-only request, explain the issue and propose a correction when useful. If the original is already clear, say so instead of manufacturing an edit.
-8. PDF/HTML export is a deterministic document operation. Return paths or artifact IDs only when an actual tool result supplies them.
+1. 编辑前调用 `resume.capabilities`，以当前返回的能力、参数和限制为准。不要凭记忆编造属性，不输出任意 CSS、HTML 或执行代码。
+2. 调用 `resume.inspect` 获取当前节点路径、准确原文、样式和 content_revision。结合章节、公司、职位等语义定位目标。用户引用优先限定目标，聊天引用只作为参考材料。
+3. 调用 `resume.edit`，传入目录 revision、刚读取的 content_revision、操作数组和简短说明。操作按顺序执行；结构改变后重新 inspect 再使用路径。建议模式仅给建议；手动应用模式等待用户决定；自动修改模式直接修改当前文档。不请求模式已经授予的重复确认。
+4. 纯排版任务保留所有事实、日期、数字和文字。使用 columns.layout 把原文片段分配到栏内，不遗漏内容，不用空格模拟对齐。工作经历多行使用相同栏宽、栏间距和起始位置，时间栏设置右对齐。比例未指定时采用合理方案并查看效果。
+5. 有依据地选择需要强调的文字，使用 text.format；列表转换用 list.convert；页面辅助线的距离对应 page.margins，单位 px。template.style 修改当前文档模板样式，不影响其他文档或共享模板。
+6. 结果为 applied 才能说明已经修改，且仅当 persisted=true 才能说明已保存到后端。保存失败不能重复应用原事务；提示使用画布的重试保存。rejected 表示用户保留原文；失败时不能声称完成。画布或能力变化时重新读取并规划，不能覆盖用户后续编辑。
+7. 应用后工具返回当前结构和修订。涉及排版、分栏、模板或边距时调用 resume.view_pages 查看新页面，核对对齐、换行、留白和内容完整性。取不到图时明确说明，不能宣称视觉验收通过。
+8. 简洁说明结果，不复述内部 ID、整段原文或工具 JSON。缺少事实依据时询问，不编造经历。共享模板保存、文件写入和导出需要各自独立能力与授权，不能虚构已经执行。

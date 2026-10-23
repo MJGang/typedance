@@ -40,6 +40,8 @@ import { blockStyleToCss, createResumeHeading, syncHeading2DecorationDom } from 
 import { ColumnsNodeView } from "./ColumnsNodeView"
 import { ReferenceTracker } from "../../revision/references/referenceTracker"
 import { CanvasReferences } from "../../revision/references/CanvasReferences"
+import { DocumentLayout } from "../../revision/documentLayout"
+import { executeEditorOperations, selectedNodePaths, selectedTextOperations } from "../../revision/editorCommands"
 
 export type MarginConfig = {
   top: number
@@ -84,7 +86,8 @@ export type ResumeRichTextEditorHandle = {
   setTextSelection: (selection: { anchor: number; head: number }) => void
   scrollToCanvasNode: (canvasNodeId: string, options?: { topOffset?: number }) => void
   scrollToHeadingIndex: (index: number, options?: { topOffset?: number }) => void
-  updatePageMargins: (margins: MarginConfig) => void
+  updatePageMargins: (margins: MarginConfig) => Promise<boolean>
+  previewPageMargins: (margins: MarginConfig) => void
 }
 
 type ToolbarState = {
@@ -500,63 +503,6 @@ function clearDuplicateSourceCanvasIds(tr: Transaction, originalPositions = new 
   }
 }
 
-type SourceCanvasAttrs = {
-  canvasNodeId: unknown
-  sourceBlockId: unknown
-  moduleId: unknown
-}
-
-function getSourceCanvasAttrs(attrs: Record<string, unknown>): SourceCanvasAttrs {
-  return {
-    canvasNodeId: attrs.canvasNodeId,
-    sourceBlockId: attrs.sourceBlockId,
-    moduleId: attrs.moduleId,
-  }
-}
-
-function getSelectedSourceCanvasAttrs(editor: Editor): Array<{ pos: number; attrs: SourceCanvasAttrs }> {
-  const attrsByPosition: Array<{ pos: number; attrs: SourceCanvasAttrs }> = []
-  const { doc, selection } = editor.state
-  const recordTextBlock = (node: ProseMirrorNode, pos: number) => {
-    if (!node.isTextblock || !BLOCK_STYLE_NODE_TYPES.includes(node.type.name as (typeof BLOCK_STYLE_NODE_TYPES)[number])) return
-    attrsByPosition.push({ pos, attrs: getSourceCanvasAttrs(node.attrs) })
-  }
-
-  if (selection.empty) {
-    for (let depth = selection.$from.depth; depth > 0; depth -= 1) {
-      const node = selection.$from.node(depth)
-      if (node.isTextblock) {
-        recordTextBlock(node, selection.$from.before(depth))
-        break
-      }
-    }
-    return attrsByPosition
-  }
-
-  doc.nodesBetween(selection.from, selection.to, recordTextBlock)
-  return attrsByPosition
-}
-
-export function setToolbarTextBlock(editor: Editor, block: "paragraph" | "heading1" | "heading2" | "heading3") {
-  const sourceAttrsByPosition = getSelectedSourceCanvasAttrs(editor)
-  const chain = editor.chain().focus()
-
-  if (block === "paragraph") chain.setParagraph()
-  if (block === "heading1") chain.toggleHeading({ level: 1 })
-  if (block === "heading2") chain.toggleHeading({ level: 2 })
-  if (block === "heading3") chain.toggleHeading({ level: 3 })
-
-  chain.command(({ tr }) => {
-    for (const { pos, attrs } of sourceAttrsByPosition) {
-      const mappedPos = tr.mapping.map(pos)
-      const node = tr.doc.nodeAt(mappedPos)
-      if (!node?.isTextblock || !BLOCK_STYLE_NODE_TYPES.includes(node.type.name as (typeof BLOCK_STYLE_NODE_TYPES)[number])) continue
-      tr.setNodeMarkup(mappedPos, undefined, { ...node.attrs, ...attrs })
-    }
-    return true
-  }).run()
-}
-
 const PasteMarkdown = Extension.create({
   name: "pasteMarkdown",
 
@@ -848,6 +794,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         Markdown,
         PasteMarkdown,
         ReferenceTracker,
+        DocumentLayout,
         InlineStyle,
         BlockStyle,
         ResizableColumns,
@@ -1036,9 +983,10 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         }
       },
       updatePageMargins: (margins) => {
-        if (!editor || editor.isDestroyed) return
-        updateEditorPageMargins(editor, margins)
+        if (!editor || editor.isDestroyed) return Promise.resolve(false)
+        return executeEditorOperations(editor, [{ capability: "page.margins", parameters: margins }])
       },
+      previewPageMargins: (margins) => { if (editor && !editor.isDestroyed) updateEditorPageMargins(editor, margins) },
     }), [editor])
 
     useEffect(() => {
@@ -1046,9 +994,8 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       if (editor.isEditable !== editable) {
         editor.setEditable(editable)
       }
-      const current = JSON.stringify(editor.getJSON())
-      const next = JSON.stringify(normalizedDocJson)
-      if (current !== next) {
+      const next = editor.schema.nodeFromJSON(normalizedDocJson)
+      if (!editor.state.doc.eq(next)) {
         const currentSelection = editor.state.selection
         if (currentSelection instanceof TextSelection) {
           const { anchor, head } = currentSelection
@@ -1095,7 +1042,25 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
     const canEditBlockStyle = Boolean(editor) && toolbarState.activeBlock !== "columns"
     const updateCurrentBlockStyle = (attrs: Record<string, unknown>) => {
       if (!editor) return
-      editor.chain().focus().updateAttributes(getEditableBlockType(editor), attrs).run()
+      void executeEditorOperations(editor, [{ capability: "block.style", parameters: {
+        paths: selectedNodePaths(editor, [getEditableBlockType(editor)]), attributes: attrs,
+      } }], templateStyle)
+    }
+    const formatSelection = (mark: string, enabled: boolean, attributes?: Record<string, unknown>) => {
+      if (!editor) return
+      if (editor.state.selection.empty) {
+        // 光标处的 stored mark 属于尚未输入的 UI 状态，不是文档变换。
+        if (enabled) editor.chain().focus().setMark(mark, attributes).run()
+        else editor.chain().focus().unsetMark(mark).run()
+        return
+      }
+      void executeEditorOperations(editor, selectedTextOperations(editor, mark, enabled, attributes), templateStyle)
+    }
+    const convertList = (kind: "bulletList" | "orderedList", style: string) => {
+      if (!editor) return
+      void executeEditorOperations(editor, [{ capability: "list.convert", parameters: {
+        paths: selectedNodePaths(editor, ["bulletList", "orderedList", "paragraph"]), kind, style,
+      } }], templateStyle)
     }
     const increaseIndent = () => updateCurrentBlockStyle({ indent: Math.min(MAX_INDENT, toolbarState.indent + 1) })
     const decreaseIndent = () => updateCurrentBlockStyle({ indent: Math.max(0, toolbarState.indent - 1) })
@@ -1118,7 +1083,9 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                 className="td-toolbar-block-trigger"
                 onChange={(block) => {
                   if (editor && (block === "paragraph" || block === "heading1" || block === "heading2" || block === "heading3")) {
-                    setToolbarTextBlock(editor, block)
+                    void executeEditorOperations(editor, [{ capability: "block.type", parameters: {
+                      paths: selectedNodePaths(editor, ["paragraph", "heading"]), kind: block === "paragraph" ? "paragraph" : "heading", level: block === "paragraph" ? 2 : Number(block.slice(-1)),
+                    } }], templateStyle)
                   }
                 }}
               />
@@ -1127,14 +1094,14 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                 icon={Bold}
                 isActive={toolbarState.isBold}
                 disabled={!editor || !canEditParagraphStyle}
-                onClick={() => editor?.chain().focus().toggleBold().run()}
+                onClick={() => formatSelection("bold", !toolbarState.isBold)}
               />
               <ToolbarIconButton
                 label="斜体"
                 icon={Italic}
                 isActive={toolbarState.isItalic}
                 disabled={!editor}
-                onClick={() => editor?.chain().focus().toggleItalic().run()}
+                onClick={() => formatSelection("italic", !toolbarState.isItalic)}
               />
             </ToolbarGroup>
             <ToolbarVerticalSeparator />
@@ -1145,7 +1112,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                 disabled={!editor}
                 onChange={(color) => {
                   if (color) {
-                    editor?.chain().focus().setMark("inlineStyle", { color }).run()
+                    formatSelection("inlineStyle", true, { color })
                   }
                 }}
               />
@@ -1154,7 +1121,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                 value={toolbarState.inlineBackgroundColor}
                 disabled={!editor}
                 onChange={(backgroundColor) => {
-                  editor?.chain().focus().setMark("inlineStyle", { backgroundColor }).run()
+                  formatSelection("inlineStyle", true, { backgroundColor })
                 }}
               />
             </ToolbarGroup>
@@ -1164,7 +1131,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                 label="清除局部样式"
                 icon={Eraser}
                 disabled={!editor}
-                onClick={() => editor?.chain().focus().unsetMark("inlineStyle").run()}
+                onClick={() => formatSelection("inlineStyle", false)}
               />
               <AlignmentToolbarButton
                 value={toolbarState.textAlign}
@@ -1176,8 +1143,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                 isActive={toolbarState.isBulletList}
                 disabled={!editor}
                 onChange={(listStyleType) => {
-                  if (!toolbarState.isBulletList) editor?.chain().focus().toggleBulletList().run()
-                  editor?.chain().focus().updateAttributes("bulletList", { listStyleType }).run()
+                  convertList("bulletList", listStyleType)
                 }}
               />
               <OrderedListToolbarButton
@@ -1185,8 +1151,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                 isActive={toolbarState.isOrderedList}
                 disabled={!editor}
                 onChange={(listStyleType) => {
-                  if (!toolbarState.isOrderedList) editor?.chain().focus().toggleOrderedList().run()
-                  editor?.chain().focus().updateAttributes("orderedList", { listStyleType }).run()
+                  convertList("orderedList", listStyleType)
                 }}
               />
               <IndentToolbarButton disabled={!canEditBlockStyle} onIncrease={increaseIndent} onDecrease={decreaseIndent} />
@@ -1203,7 +1168,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                 icon={Underline}
                 isActive={toolbarState.isUnderline}
                 disabled={!editor}
-                onClick={() => editor?.chain().focus().toggleMark("underline").run()}
+                onClick={() => formatSelection("underline", !toolbarState.isUnderline)}
               />
             </ToolbarGroup>
             <ToolbarVerticalSeparator />
@@ -1303,7 +1268,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         <div ref={printWrapperRef} className="td-editor-print-wrapper">
           <EditorContent editor={editor} className="td-rich-editor-content" />
         </div>
-        {editable ? <CanvasReferences editor={editor} canvasVersion={canvasVersion} /> : null}
+        {editable ? <CanvasReferences editor={editor} canvasVersion={canvasVersion} templateStyle={templateStyle} /> : null}
       </div>
     )
   },

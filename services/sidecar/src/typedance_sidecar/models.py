@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 Language = Literal["zh-CN", "en-US"]
 NonEmptyString = Annotated[str, StringConstraints(min_length=1)]
+CssValue = Annotated[str, StringConstraints(min_length=1, max_length=300, pattern=r"^[^;{}<>\r\n]+$")]
 
 
 def utc_now() -> str:
@@ -78,32 +79,32 @@ Heading2DecorationStyle = Literal["minimal-line", "accent-wash", "dot-ribbon"]
 class TextBlockStyle(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    font_family: str | None = Field(default=None, alias="fontFamily")
-    font_size: str | None = Field(default=None, alias="fontSize")
+    font_family: CssValue | None = Field(default=None, alias="fontFamily")
+    font_size: CssValue | None = Field(default=None, alias="fontSize")
     font_weight: Literal[400, 500, 600, 700] | None = Field(default=None, alias="fontWeight")
     line_height: float | None = Field(default=None, alias="lineHeight", gt=0)
-    letter_spacing: str | None = Field(default=None, alias="letterSpacing")
+    letter_spacing: CssValue | None = Field(default=None, alias="letterSpacing")
     text_transform: Literal["none", "uppercase", "capitalize"] | None = Field(default=None, alias="textTransform")
-    color: str | None = None
+    color: CssValue | None = None
     text_align: Literal["left", "center", "right"] | None = Field(default=None, alias="textAlign")
-    margin_top: str | None = Field(default=None, alias="marginTop")
-    margin_bottom: str | None = Field(default=None, alias="marginBottom")
+    margin_top: CssValue | None = Field(default=None, alias="marginTop")
+    margin_bottom: CssValue | None = Field(default=None, alias="marginBottom")
     list_style_type: Literal["disc", "circle", "square", "decimal", "none"] | None = Field(default=None, alias="listStyleType")
-    padding_left: str | None = Field(default=None, alias="paddingLeft")
+    padding_left: CssValue | None = Field(default=None, alias="paddingLeft")
 
 
 class BorderBottomStyle(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     style: Literal["none", "solid", "double"] = "none"
-    width: str | None = None
-    color: str | None = None
+    width: CssValue | None = None
+    color: CssValue | None = None
 
 
 class BlockStyle(TextBlockStyle):
     """普通块样式；H2 使用不含背景和边框字段的专用模型。"""
 
-    background_color: str | None = Field(default=None, alias="backgroundColor")
+    background_color: CssValue | None = Field(default=None, alias="backgroundColor")
     border_bottom: BorderBottomStyle | None = Field(default=None, alias="borderBottom")
 
 

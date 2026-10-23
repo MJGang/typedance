@@ -4,7 +4,7 @@ import { generateTemplateCSS, generateWorkspaceTemplateCSS } from "@typedance/re
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { DEFAULT_SOURCE_CANVAS_PAGE_MARGINS, loadPageMarginPreferences, SOURCE_CANVAS_PAGE_SIZE } from "../../revision/pageMargins"
+import { documentMargins } from "../../revision/documentLayout"
 import type { UiLanguage } from "../../workspace/types"
 import type { ResumeDocJson } from "../../workspace/editor"
 import type { BlockType, TemplateStyleConfig } from "../types"
@@ -100,8 +100,7 @@ export function TemplateDetail({
   onRetryPreview,
 }: TemplateDetailProps) {
   const [activeBlock, setActiveBlock] = useState<BlockType>("paragraph")
-  const previewMargins = useMemo(() => loadPageMarginPreferences(previewId, SOURCE_CANVAS_PAGE_SIZE)
-    ?? DEFAULT_SOURCE_CANVAS_PAGE_MARGINS, [previewId])
+  const previewMargins = useMemo(() => documentMargins(previewDocJson ?? {}), [previewDocJson])
 
   const cssText = useMemo(
     () => generateTemplateCSS(theme.styleConfig),
