@@ -256,4 +256,44 @@ describe("document editing transaction", () => {
     expect(editor.state.doc.child(0).child(0).textContent).toBe("第0栏原文")
     expectTracked(editor, reference.text)
   })
+
+  it.each([2, 4, 6])("keeps a reference in the moved last column valid through %s-column reorder, undo and redo", (count) => {
+    const columns = Array.from({ length: count }, (_, index) => ({ type: "column", content: [{ type: "paragraph", content: [{ type: "text", text: `第${index}栏引用😀` }] }] }))
+    const editor = setup({ type: "doc", content: [{ type: "columns", attrs: { count }, content: columns }] })
+    const reference = track(editor, `第${count - 1}栏引用😀`)
+    const change = transaction(editor, (doc) => { const row = doc.content[0].content; row.unshift(row.pop()!) })
+    applyEditorTransaction(editor, "doc", "session", change)
+    const moved = expectTracked(editor, reference.text)
+    expect(moved.source.from).toBe(3)
+    editor.commands.undo()
+    expectTracked(editor, reference.text)
+    editor.commands.redo()
+    expect(expectTracked(editor, reference.text).source.from).toBe(3)
+  })
+
+  it("follows the moved node identity when another column contains identical quote text", () => {
+    const columns = ["first", "second"].map((id) => ({ type: "column", content: [{ type: "paragraph", attrs: { canvasNodeId: id }, content: [{ type: "text", text: "相同引用" }] }] }))
+    const editor = setup({ type: "doc", content: [{ type: "columns", attrs: { count: 2 }, content: columns }] })
+    const reference = track(editor, "相同引用")
+    applyEditorTransaction(editor, "doc", "session", transaction(editor, (doc) => { doc.content[0].content.reverse() }))
+    const moved = expectTracked(editor, reference.text)
+    expect(editor.state.doc.resolve(moved.source.from).parent.attrs.canvasNodeId).toBe("second")
+    expect(moved.source.from).toBe(3)
+  })
+
+  it("does not rebind a deleted quote to another paragraph with identical text", () => {
+    const editor = setup({ type: "doc", content: ["first", "second"].map((id) => ({ type: "paragraph", attrs: { canvasNodeId: id }, content: [{ type: "text", text: "相同引用" }] })) })
+    track(editor, "相同引用")
+    applyEditorTransaction(editor, "doc", "session", transaction(editor, (doc) => { doc.content.pop() }))
+    expect(referenceTrackerKey.getState(editor.state)!.references[0].changed).toBe(true)
+  })
+
+  it("does not treat a node object reused at two positions as a unique identity", () => {
+    const editor = setup(paragraphs("相同引用"))
+    editor.view.dispatch(editor.state.tr.insert(editor.state.doc.content.size, editor.state.doc.firstChild!))
+    expect(editor.state.doc.firstChild).toBe(editor.state.doc.lastChild)
+    track(editor, "相同引用")
+    applyEditorTransaction(editor, "doc", "session", transaction(editor, (doc) => { doc.content.pop() }))
+    expect(referenceTrackerKey.getState(editor.state)!.references[0].changed).toBe(true)
+  })
 })

@@ -136,8 +136,8 @@ export function applyEditorTransaction(editor: Editor, documentId: string, sessi
 
 export function applyDocumentChange(editor: Editor, beforeJson: Record<string, unknown>, afterJson: Record<string, unknown>, transactionId: string): boolean {
   if (editor.isDestroyed || !editor.isEditable) throw new Error("编辑器不可用")
-  const before = editor.schema.nodeFromJSON(beforeJson)
-  if (!before.eq(editor.state.doc)) throw new Error("原文已变化，已阻止覆盖你的编辑")
+  const before = editor.state.doc
+  if (!editor.schema.nodeFromJSON(beforeJson).eq(before)) throw new Error("原文已变化，已阻止覆盖你的编辑")
   const after = editor.schema.nodeFromJSON(afterJson)
   after.check()
   if (before.eq(after)) return false

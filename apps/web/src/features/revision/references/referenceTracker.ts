@@ -44,12 +44,47 @@ export function referenceMatches(doc: ProseMirrorNode, source: CanvasReferenceSo
     && JSON.stringify(doc.slice(source.from, source.to).content.toJSON() ?? []) === JSON.stringify(source.slice_content)
 }
 
+/** 删除后重新插入的未变节点可凭对象身份/稳定 ID 重新定位，禁止按相同文字猜测锚点。 */
+function relocatedReference(transaction: Transaction, reference: TrackedReference): CanvasReferenceSource | undefined {
+  if (!referenceMatches(transaction.before, reference.source, reference.text)) return
+  const { from, to } = reference.source
+  const resolved = transaction.before.resolve(from)
+  const anchors: Array<{ node: ProseMirrorNode; position: number }> = []
+  for (let depth = resolved.depth; depth > 0; depth--) {
+    if (to <= resolved.end(depth)) anchors.push({ node: resolved.node(depth), position: resolved.before(depth) })
+  }
+  const selected = transaction.before.nodeAt(from)
+  if (selected && !selected.isText && to <= from + selected.nodeSize) anchors.unshift({ node: selected, position: from })
+  for (const anchor of anchors) {
+    const id: unknown = anchor.node.attrs.canvasNodeId
+    const sameIdentity = (node: ProseMirrorNode) => node === anchor.node || (typeof id === "string" && Boolean(id) && node.attrs.canvasNodeId === id)
+    let originalCount = 0
+    transaction.before.descendants((node) => { if (sameIdentity(node)) { originalCount++; return false } })
+    if (originalCount !== 1) continue
+    const matches: Array<{ node: ProseMirrorNode; position: number }> = []
+    transaction.doc.descendants((node, position) => {
+      if (sameIdentity(node)) {
+        matches.push({ node, position })
+        return false
+      }
+    })
+    if (matches.length !== 1 || !matches[0].node.content.eq(anchor.node.content)) continue
+    const delta = matches[0].position - anchor.position
+    const source = { ...reference.source, from: from + delta, to: to + delta }
+    if (referenceMatches(transaction.doc, source, reference.text)) return source
+  }
+}
+
 export function updateReferenceState(transaction: Transaction, previous: ReferenceState): ReferenceState {
   const revision = previous.revision + (transaction.docChanged ? 1 : 0)
   let references = transaction.docChanged ? previous.references.map((reference) => {
-    const from = transaction.mapping.map(reference.source.from, 1)
-    const to = transaction.mapping.map(reference.source.to, -1)
-    const source = { ...reference.source, from, to, content_revision: revision }
+    const from = transaction.mapping.mapResult(reference.source.from, 1)
+    const to = transaction.mapping.mapResult(reference.source.to, -1)
+    let source = { ...reference.source, from: from.pos, to: to.pos, content_revision: revision }
+    if (!reference.changed && (from.deleted || to.deleted || !referenceMatches(transaction.doc, source, reference.text))) {
+      const relocated = relocatedReference(transaction, reference)
+      if (relocated) source = { ...relocated, content_revision: revision }
+    }
     return { ...reference, source, changed: reference.changed || !referenceMatches(transaction.doc, source, reference.text) }
   }) : previous.references
   for (const step of transaction.steps) {
