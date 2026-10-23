@@ -9,6 +9,19 @@ async function temporary() { const value = await mkdtemp(join(tmpdir(), "harness
 afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 
 describe("local speech lifecycle", () => {
+  it("restores only the first VAD onset without repeating speech across later segments", async () => {
+    const directory = await temporary();
+    const modulePath = join(directory, "segments.cjs");
+    await writeFile(modulePath, `
+      exports.OfflineRecognizer = class { setConfig() {} createStream() { return { acceptWaveform(input) { this.input = input } } } decode() {} getResult(stream) { return { text: stream.input.samples[0].toFixed(2) + ':' + stream.input.samples.length } } };
+      exports.Vad = class { constructor() { this.count = 0; this.empty = true } reset() { this.count = 0 } acceptWaveform() { if (this.count < 2) this.empty = false } isEmpty() { return this.empty } front() { return { start: this.count === 0 ? 3200 : 4000, samples: new Float32Array(512) } } pop() { this.empty = true; this.count++ } flush() {} };
+    `);
+    const provider = new SenseVoiceProvider({ directory, modulePath });
+    try {
+      const result = await provider.transcribe({ samples: Float32Array.from({ length: 10000 }, (_, i) => i / 10000), sampleRate: 16000, language: "auto" }, new AbortController().signal);
+      expect(result.text).toBe("0.00:3712 0.40:512");
+    } finally { await provider.dispose(); }
+  });
   it("rejects unsupported origins before making network requests", async () => {
     const fetchMock = vi.fn();
     await expect(prepareSpeechAssets(await temporary(), "https://invalid.example", new AbortController().signal, () => {}, fetchMock)).rejects.toThrow("Unsupported");

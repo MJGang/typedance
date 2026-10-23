@@ -190,10 +190,12 @@ process.once("message", (initial) => {
       config.modelConfig.senseVoice.language = input.language;
       recognizer.setConfig(config); detector.reset();
       const texts = [];
+      let firstSegment = true;
       const drain = () => {
         while (!detector.isEmpty()) {
           const segment = detector.front(false);
-          const from = Math.max(0, segment.start - 3200);
+          const from = firstSegment ? Math.max(0, segment.start - 3200) : segment.start;
+          firstSegment = false;
           const speech = input.samples.slice(from, Math.min(input.samples.length, segment.start + segment.samples.length));
           const stream = recognizer.createStream();
           stream.acceptWaveform({ samples: speech, sampleRate: 16000 });
