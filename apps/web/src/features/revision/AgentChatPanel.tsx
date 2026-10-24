@@ -196,8 +196,13 @@ function AgentChatContent({
   const attachmentPicker = useRef<HTMLInputElement>(null)
   const scope = `${workspaceId}:${activeConversationId ?? "new"}`
   const voice = useVoiceInput(scope, (text) => {
-    setInput((current) => `${current}${current && !/\s$/.test(current) ? " " : ""}${text}`)
-    requestAnimationFrame(() => composerRef.current?.focus())
+    setInput((current) => current.trim() ? `${current}${!/\s$/.test(current) ? " " : ""}${text}` : text)
+    requestAnimationFrame(() => {
+      const composer = composerRef.current
+      if (!composer) return
+      composer.focus()
+      setComposerCaretOffset(composer, getComposerPlainText(composer).length)
+    })
   })
   const [mentions, setMentions] = useState<ContextMention[]>([])
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
@@ -681,8 +686,7 @@ function AgentChatContent({
               <Button variant="ghost" size="icon-sm" aria-label="语音输入" title="语音输入" disabled={sending} onClick={() => void voice.start()}>
                 <Mic className="size-4" />
               </Button>
-              {runningRunId ? <Button size="icon-sm" variant={hasDraft ? "ghost" : "default"} className="rounded-full" aria-label="停止" title="停止" onClick={() => void handleCancelRun()}><Square className="fill-current" /></Button> : null}
-              {!runningRunId || hasDraft ? <Button
+              {runningRunId && !hasDraft ? <Button size="icon-sm" className="rounded-full" aria-label="停止" title="停止" onClick={() => void handleCancelRun()}><Square className="fill-current" /></Button> : <Button
                 size="icon-sm"
                 aria-label="发送"
                 title={runningRunId ? "发送补充要求" : "发送"}
@@ -691,7 +695,7 @@ function AgentChatContent({
                 disabled={sending || attachmentLoading || voice.phase !== "idle" || !hasDraft}
               >
                 <ArrowUp />
-              </Button> : null}
+              </Button>}
             </div>
           </div>
         </div>
@@ -1031,7 +1035,7 @@ function MutationModeMenu({
 }) {
   const handleChange = (nextValue: CanvasMutationMode) => {
     if (nextValue === "solo" && value !== "solo") {
-      const confirmed = window.confirm("允许 AI 自动修改当前画布？上下文文件、文件夹和网页链接始终只读。")
+      const confirmed = window.confirm("允许 AI 自动修改当前画布？资料中的文件、文件夹和网页链接始终只读。")
       if (!confirmed) return
     }
     onChange(nextValue)

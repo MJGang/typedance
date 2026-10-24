@@ -470,7 +470,7 @@ describe("RevisionWorkspacePage", () => {
     expect(await screen.findByRole("link", { name: "打开简历 旧简历重构1" })).toHaveAttribute("aria-current", "page")
     expect(screen.queryByText("工作区")).not.toBeInTheDocument()
     expect(screen.queryByTestId("revision-workspace-header")).not.toBeInTheDocument()
-    expect(screen.getByText("上下文")).toBeInTheDocument()
+    expect(screen.getByText("资料")).toBeInTheDocument()
     expect(screen.getByText("对话")).toBeInTheDocument()
     expect(screen.queryByText("未选择对话")).not.toBeInTheDocument()
     expect(screen.queryByText("AI 助手")).not.toBeInTheDocument()
@@ -705,7 +705,7 @@ describe("RevisionWorkspacePage", () => {
     renderPage(true, false)
 
     expect(await screen.findByTestId("revision-draft-panel")).toBeInTheDocument()
-    expect(screen.queryByText("上下文")).not.toBeInTheDocument()
+    expect(screen.queryByText("资料")).not.toBeInTheDocument()
     expect(screen.queryByRole("separator", { name: "调整左侧面板宽度" })).not.toBeInTheDocument()
   })
 
