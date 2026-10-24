@@ -934,7 +934,10 @@ function buildRunTraceItems(events: AgentRunEvent[], options: { includeRawThinki
 
     if (event.type === "assistant_delta") {
       const text = String(event.payload.delta ?? "")
-      const last = items[items.length - 1]
+      // Steering is visible immediately after the open response, without splitting its Markdown parser.
+      let responseIndex = items.length - 1
+      while (responseIndex >= 0 && items[responseIndex].kind === "user") responseIndex -= 1
+      const last = items[responseIndex]
       if (text && last?.kind === "assistant" && last.messageId === event.payload.message_id) last.text += text
       else if (text) items.push({ id: event.id, kind: "assistant", messageId: event.payload.message_id, text })
       continue

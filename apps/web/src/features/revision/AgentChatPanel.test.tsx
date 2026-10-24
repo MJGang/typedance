@@ -1050,4 +1050,41 @@ describe("AgentChatPanel", () => {
     const list = screen.getByTestId("agent-chat-messages")
     expect(list.textContent!.indexOf("已查看")).toBeLessThan(list.textContent!.indexOf("图片里的边距"))
   })
+
+  it.each([
+    { prefix: "```ts\nconst margin = ", suffix: "64\n```", selector: "pre code", text: "const margin = 64" },
+    { prefix: "| 项目 | 说明 |\n| --- | --- |\n| 边距 | ", suffix: "64px |\n", selector: "table", text: "64px" },
+    { prefix: "[页面", suffix: "说明](https://example.com/layout)", selector: "a", text: "页面说明" },
+  ])("preserves streamed Markdown around steering and after replay: $selector", async ({ prefix, suffix, selector, text }) => {
+    const source = controllableEventSource()
+    agentHostMocks.createAgentRunEventSource.mockReturnValue(source.source)
+    agentHostMocks.getConversationActiveRun.mockResolvedValue({ id: "markdown", conversation_id: "conv_1", status: "running" })
+    const steering = { ...userMessage("补充要求"), id: "steer_markdown", conversation_id: "conv_1", run_id: "markdown" }
+    const events = [
+      { id: "md-start", sequence: 0, type: "assistant_delta", payload: { message_id: "0:markdown", delta: prefix } },
+      { id: "md-user", sequence: 1, type: "user_input_received", payload: { message_id: steering.id } },
+      { id: "md-end", sequence: 2, type: "assistant_delta", payload: { message_id: "0:markdown", delta: suffix } },
+    ].map((event) => ({ ...event, run_id: "markdown", created_at: "2026-06-16T08:00:00.000Z" }))
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage(prefix, "markdown"), steering])
+    agentHostMocks.listAgentRunEvents.mockResolvedValue(events.slice(0, 2))
+    const props = { workspaceId: "doc_1", activeConversationId: "conv_1", contextSources: [], onConversationCreated: () => {} }
+    const view = render(<AgentChatPanel {...props} />)
+    await screen.findByText("补充要求")
+    act(() => source.dispatch("assistant_delta", events[2]))
+    const list = screen.getByTestId("agent-chat-messages")
+    expect(list.querySelectorAll("[data-agent-segment-id]")).toHaveLength(1)
+    expect(list.querySelector(selector)).toHaveTextContent(text)
+    expect(list.textContent!.indexOf(text)).toBeLessThan(list.textContent!.indexOf("补充要求"))
+    if (selector === "a") expect(list.querySelector("a")).toHaveAttribute("href", "https://example.com/layout")
+    view.unmount()
+    agentHostMocks.getConversationActiveRun.mockResolvedValue(null)
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage(prefix + suffix, "markdown"), steering])
+    agentHostMocks.listAgentRunEvents.mockResolvedValue([...events, { id: "md-done", sequence: 3, type: "run_completed", payload: {}, run_id: "markdown", created_at: "2026-06-16T08:00:01.000Z" }])
+    render(<AgentChatPanel {...props} />)
+    await screen.findByText("补充要求")
+    const replay = screen.getByTestId("agent-chat-messages")
+    expect(replay.querySelectorAll("[data-agent-segment-id]")).toHaveLength(1)
+    expect(replay.querySelector(selector)).toHaveTextContent(text)
+    expect(screen.getAllByText("补充要求")).toHaveLength(1)
+  })
 })
