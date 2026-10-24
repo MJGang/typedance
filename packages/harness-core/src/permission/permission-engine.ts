@@ -20,6 +20,7 @@ export class HarnessPermissionEngine {
   #nextDecisionId = 1;
   #now: () => Date;
   #requests = new Map<string, HarnessPermissionRequest>();
+  #requestDecisions = new Map<string, HarnessPermissionDecision>();
 
   constructor(now: () => Date) {
     this.#now = now;
@@ -47,6 +48,16 @@ export class HarnessPermissionEngine {
     return this.#rememberKeys(input.runId, input.requirement).some((key) => this.#approved.has(key));
   }
 
+  getRequest(requestId: string): HarnessPermissionRequest {
+    const request = this.#requests.get(requestId);
+    if (!request) throw new Error(`Unknown permission request: ${requestId}`);
+    return request;
+  }
+
+  getDecision(requestId: string): HarnessPermissionDecision | undefined {
+    return this.#requestDecisions.get(requestId);
+  }
+
   resolve(input: {
     requestId: string;
     status: "approved" | "denied";
@@ -56,6 +67,7 @@ export class HarnessPermissionEngine {
     if (!request) {
       throw new Error(`Unknown permission request: ${input.requestId}`);
     }
+    if (this.#requestDecisions.has(request.id)) throw new Error(`Permission request already resolved: ${request.id}`);
 
     const decision = harnessPermissionDecisionSchema.parse({
       id: `decision_${this.#nextDecisionId++}`,
@@ -66,6 +78,7 @@ export class HarnessPermissionEngine {
     });
 
     this.#decisions.set(decision.id, decision);
+    this.#requestDecisions.set(request.id, decision);
     if (decision.status === "approved" && decision.remember !== "never") {
       this.#approved.add(this.#decisionKey(decision.remember, request.run_id, request));
     }

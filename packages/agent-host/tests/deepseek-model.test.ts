@@ -111,6 +111,29 @@ describe("DeepSeek model adapter", () => {
     ]);
   });
 
+  it("rejects a disconnected stream instead of emitting a successful final event", async () => {
+    const fetchMock = vi.fn(async () => new Response(sse('data: {"choices":[{"delta":{"content":"unfinished"}}]}\n\n'), { status: 200 }));
+    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test-key", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-flash" }), fetch: fetchMock as unknown as typeof fetch });
+    const events = [];
+    const collect = async () => { for await (const event of adapter.stream(makeRequest({ runId: "broken", agentId: "agent", messages: [] }))) events.push(event); };
+    await expect(collect()).rejects.toThrow("completion marker");
+    expect(events.some((event) => event.type === "final")).toBe(false);
+  });
+
+  it("sets the summary output budget and identifies a truncated provider response", async () => {
+    const fetchMock = vi.fn(async () => new Response(sse([
+      'data: {"choices":[{"delta":{"content":"partial handoff"},"finish_reason":"length"}]}',
+      "", "data: [DONE]", "",
+    ].join("\n")), { status: 200 }));
+    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test-key", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-flash" }), fetch: fetchMock as unknown as typeof fetch });
+    const request = makeRequest({ runId: "summary", agentId: "agent", messages: [{ role: "user", content: "Summarize" }] });
+    request.maxOutputTokens = 256; request.purpose = "compaction";
+    const events = [];
+    for await (const event of adapter.stream(request)) events.push(event);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).max_tokens).toBe(256);
+    expect(events[events.length - 1]).toMatchObject({ type: "final", incomplete: true });
+  });
+
   it("maps supplied workspace evidence into the first system message without advertising unavailable tools", async () => {
     const fetchMock = vi.fn(async () => new Response(sse([
       'data: {"choices":[{"delta":{"content":"checked"}}]}',

@@ -9,6 +9,8 @@ export * from "./plugin/plugin-installer";
 export * from "./plugin/plugin-registry";
 export * from "./run/run-store";
 export * from "./run/cancellation";
+export * from "./run/checkpoint-store";
+export * from "./model/context-window";
 export * from "./runtime";
 export * from "./speech/speech-provider";
 export * from "./skill/skill-registry";

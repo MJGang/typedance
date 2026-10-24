@@ -5,3 +5,4 @@ export * from "./run";
 export * from "./tool";
 export * from "./content";
 export * from "./attachment";
+export * from "./checkpoint";

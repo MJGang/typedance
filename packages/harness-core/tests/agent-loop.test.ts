@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createHarnessRuntime, type HarnessModelAdapter, type HarnessModelRequest } from "../src";
 
 describe("harness agent loop", () => {
@@ -91,12 +91,13 @@ describe("harness agent loop", () => {
     expect(seenRequests[0]?.capabilityPolicy).toEqual({ scopeIds: ["context:alpha"], pluginIds: [] });
     expect("skillContext" in (seenRequests[0] ?? {})).toBe(false);
     expect("messages" in (seenRequests[0] ?? {})).toBe(false);
-    expect(seenRequests[0]?.availableToolNames).toEqual(["alpha.readContext"]);
+    expect(seenRequests[0]?.availableToolNames).toEqual(["alpha.readContext", "update_plan"]);
     expect(seenRequests[0]?.availableTools).toEqual([
       expect.objectContaining({
         name: "alpha.readContext",
         origin: "mcp",
       }),
+      expect.objectContaining({ name: "update_plan", origin: "system" }),
     ]);
     expect(seenRequests).toHaveLength(2);
     expect(seenRequests[1]?.prompt.conversation.find((message) => (
@@ -204,7 +205,7 @@ describe("harness agent loop", () => {
       messages: [{ role: "user", content: "Inspect this context" }],
     });
 
-    expect(seenRequests[0]?.availableToolNames).toEqual(["alpha.readContext", "alpha.createProposal"]);
+    expect(seenRequests[0]?.availableToolNames).toEqual(["alpha.readContext", "alpha.createProposal", "update_plan"]);
   });
 
   it("groups multiple tool calls from one model pass before returning tool results", async () => {
@@ -311,9 +312,11 @@ describe("harness agent loop", () => {
     ]));
   });
 
-  it("fails the turn instead of continuing when an agent tool needs permission", async () => {
+  it("suspends the turn for permission and executes the approved call only once", async () => {
+    let passes = 0;
     const model: HarnessModelAdapter = {
       stream: async function* () {
+        if (passes++ > 0) { yield { type: "final", output: { done: true } }; return; }
         yield {
           type: "tool_call",
           call: {
@@ -369,19 +372,24 @@ describe("harness agent loop", () => {
       user_message: "Inspect this context",
     });
 
-    await expect(
-      runtime.runAgentTurn({
+    const work = runtime.runAgentTurn({
         runId: run.id,
         agentId: "alpha.primary",
         messages: [{ role: "user", content: "Inspect this context" }],
-      })
-    ).rejects.toThrow("requires permission");
-
-    expect(runtime.getRun(run.id).status).toBe("failed");
+      });
+    await vi.waitFor(() => expect(runtime.getRun(run.id).status).toBe("awaiting_permission"));
+    const request = runtime.getEvents(run.id).find((event) => event.type === "permission.requested");
+    if (request?.type !== "permission.requested") throw new Error("missing approval request");
+    runtime.resolvePermission({ requestId: request.request.id, status: "approved", remember: "never" });
+    await expect(work).resolves.toEqual({ done: true });
+    expect(runtime.getRun(run.id).status).toBe("completed");
     expect(runtime.getEvents(run.id).map((event) => event.type)).toEqual([
       "run.started",
       "permission.requested",
-      "run.failed",
+      "permission.resolved",
+      "tool.call.started",
+      "tool.call.completed",
+      "run.completed",
     ]);
   });
 });

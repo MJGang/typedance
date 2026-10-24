@@ -26,6 +26,7 @@ import { LocalSpeechService } from "./speech";
 import { checkSpeechNativeRuntime, resolveSpeechRuntime, runSpeechWorker } from "@typedance/harness-speech";
 import { isSea } from "node:sea";
 import { dirname } from "node:path";
+import { JsonFileHarnessCheckpointStore } from "./checkpoint-store";
 
 async function main(): Promise<void> {
   if (process.argv.includes("--speech-worker")) { runSpeechWorker(); return; }
@@ -49,6 +50,7 @@ async function main(): Promise<void> {
 
   const telemetry = createLangfuseTelemetry(env);
   const runtime = createHarnessRuntime({
+    checkpointStore: new JsonFileHarnessCheckpointStore(join(dataDir, "agent-host", "checkpoints")),
     observer: telemetry?.observer,
     skillContentLoader: pluginLoader.createSkillContentLoader(),
     model: createDeepSeekModelAdapter({

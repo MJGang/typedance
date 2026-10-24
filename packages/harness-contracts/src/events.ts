@@ -3,18 +3,13 @@ import { isoDateTimeSchema } from "./shared";
 import { harnessPermissionDecisionSchema, harnessPermissionRequestSchema } from "./permission";
 import { harnessCapabilityPolicySchema } from "./run";
 import { harnessToolCallSchema, harnessToolResultSchema } from "./tool";
+import { harnessPlanItemSchema } from "./checkpoint";
 
 const harnessRunEventBaseSchema = z.object({
   id: z.string().min(1),
   run_id: z.string().min(1),
   sequence: z.number().int().nonnegative(),
   created_at: isoDateTimeSchema,
-});
-
-const harnessPlanItemSchema = z.object({
-  id: z.string().min(1),
-  title: z.string().min(1),
-  status: z.enum(["pending", "in_progress", "completed", "failed", "skipped"]),
 });
 
 const harnessRunStartedEventSchema = harnessRunEventBaseSchema.extend({
@@ -155,6 +150,9 @@ const harnessModelInputConsumedEventSchema = harnessRunEventBaseSchema.extend({
 });
 
 export const harnessRunEventSchema = z.discriminatedUnion("type", [
+  harnessRunEventBaseSchema.extend({ type: z.literal("context.compacted"), before_tokens: z.number(), after_tokens: z.number(), compaction: z.number().int() }),
+  harnessRunEventBaseSchema.extend({ type: z.literal("run.resumed"), source_run_id: z.string() }),
+  harnessRunEventBaseSchema.extend({ type: z.literal("completion.blocked"), message: z.string() }),
   harnessRunStartedEventSchema,
   harnessAssistantDeltaEventSchema,
   harnessReasoningSummaryDeltaEventSchema,

@@ -20,24 +20,24 @@ const transitions: Record<HarnessRunStatus, readonly HarnessRunStatus[]> = {
 
 export class HarnessRunStore {
   #runs = new Map<string, HarnessRun>();
-  #nextId = 1;
   #now: () => Date;
 
   constructor(now: () => Date) {
     this.#now = now;
   }
 
-  create(input: HarnessRunRequest): HarnessRun {
+  create(input: HarnessRunRequest, options: { id?: string } = {}): HarnessRun {
     const request = harnessRunRequestSchema.parse(input);
     const timestamp = this.#now().toISOString();
     const run = harnessRunSchema.parse({
-      id: `run_${this.#nextId++}`,
+      id: options.id ?? `run_${crypto.randomUUID()}`,
       capability_policy: request.capability_policy,
       status: "running",
       created_at: timestamp,
       updated_at: timestamp,
     });
 
+    if (this.#runs.has(run.id)) throw new Error(`Duplicate harness run: ${run.id}`);
     this.#runs.set(run.id, run);
     return run;
   }

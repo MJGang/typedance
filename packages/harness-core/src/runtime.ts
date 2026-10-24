@@ -7,6 +7,9 @@ import type {
   HarnessToolCall,
   HarnessToolResult,
 } from "@typedance/harness-contracts";
+import { harnessCheckpointSchema, harnessPlanItemSchema, type HarnessCheckpoint, type HarnessPendingInput } from "@typedance/harness-contracts";
+import { MemoryHarnessCheckpointStore, HarnessExecutionError, type HarnessCheckpointStore, type HarnessCompletionCheck, type HarnessExecutionLimits } from "./run/checkpoint-store";
+import { DEFAULT_CONTEXT_WINDOW, TASK_INSTRUCTIONS, COMPACTION_PROMPT, estimatePromptTokens, estimateTextTokens, retainUserMessages, boundToolContent, type HarnessContextWindowOptions } from "./model/context-window";
 import { HarnessEventLog } from "./event/event-log";
 import { HarnessMemoryStore, type HarnessMemoryRecord, type HarnessMemoryScope } from "./memory/memory-store";
 import { HarnessMcpManager, type HarnessMcpServerRegistration } from "./mcp/mcp-manager";
@@ -40,6 +43,10 @@ export type HarnessRuntimeOptions = {
   model?: HarnessModelAdapter;
   skillContentLoader?: HarnessSkillContentLoader;
   observer?: HarnessRuntimeObserver;
+  checkpointStore?: HarnessCheckpointStore;
+  contextWindow?: HarnessContextWindowOptions;
+  limits?: HarnessExecutionLimits;
+  completionCheck?: HarnessCompletionCheck;
 };
 
 export type HarnessRuntimeToolResult =
@@ -66,12 +73,27 @@ export class HarnessRuntime {
   #observer?: HarnessRuntimeObserver;
   #controllers = new Map<string, AbortController>();
   #executing = new Set<string>();
-  #pendingInputs = new Map<string, Array<{ id: string; messages: HarnessModelMessage[]; contextual: HarnessPromptBundle["contextual"] }>>();
+  #pendingInputs = new Map<string, HarnessPendingInput[]>();
+  #states = new Map<string, HarnessCheckpoint>();
+  #objectives = new Map<string, string>();
+  #checkpoints: HarnessCheckpointStore;
+  #contextWindow: typeof DEFAULT_CONTEXT_WINDOW;
+  #limits: HarnessExecutionLimits;
+  #completionCheck?: HarnessCompletionCheck;
+  #permissionWaiters = new Map<string, (decision: HarnessPermissionDecision) => void>();
 
   constructor(options: HarnessRuntimeOptions = {}) {
     this.#now = options.now ?? (() => new Date());
     this.#model = options.model;
     this.#observer = options.observer;
+    this.#checkpoints = options.checkpointStore ?? new MemoryHarnessCheckpointStore();
+    this.#contextWindow = { ...DEFAULT_CONTEXT_WINDOW, ...options.contextWindow };
+    this.#limits = options.limits ?? {};
+    this.#completionCheck = options.completionCheck;
+    for (const [name, value] of Object.entries({ ...this.#contextWindow, ...this.#limits })) {
+      if (!Number.isFinite(value) || value <= 0 || (name !== "compactAtRatio" && !Number.isInteger(value))) throw new Error(`Invalid execution budget: ${name}`);
+    }
+    if (this.#contextWindow.compactAtRatio >= 1) throw new Error("compactAtRatio must be less than 1");
     this.events = new HarnessEventLog();
     this.memory = new HarnessMemoryStore(this.#now);
     this.permissions = new HarnessPermissionEngine(this.#now);
@@ -79,8 +101,9 @@ export class HarnessRuntime {
     this.skills = new HarnessSkillRegistry(options.skillContentLoader);
   }
 
-  createRun(request: HarnessRunRequest): HarnessRun {
-    const run = this.runs.create(request);
+  createRun(request: HarnessRunRequest, options: { id?: string } = {}): HarnessRun {
+    const run = this.runs.create(request, options);
+    this.#objectives.set(run.id, request.user_message);
     this.#controllers.set(run.id, new AbortController());
     this.#appendEvent(run.id, {
       type: "run.started",
@@ -91,6 +114,16 @@ export class HarnessRuntime {
       },
     });
     return run;
+  }
+
+  getCheckpoint(runId: string): HarnessCheckpoint | undefined {
+    const checkpoint = this.#checkpoints.load(runId);
+    return checkpoint && harnessCheckpointSchema.parse(checkpoint);
+  }
+
+  deleteCheckpoint(runId: string): void {
+    if (this.#executing.has(runId)) throw new Error("Cannot delete the checkpoint of an executing run");
+    this.#checkpoints.delete(runId);
   }
 
   getEvents(runId: string): HarnessRunEvent[] {
@@ -134,9 +167,16 @@ export class HarnessRuntime {
       status: "pending" | "in_progress" | "completed" | "failed" | "skipped";
     }>
   ): HarnessRunEvent {
+    this.#assertActive(runId);
+    const plan = harnessPlanItemSchema.array().parse(items);
+    if (new Set(plan.map((item) => item.id)).size !== plan.length || plan.filter((item) => item.status === "in_progress").length > 1) {
+      throw new Error("Plan ids must be unique and at most one step can be in progress");
+    }
+    const state = this.#states.get(runId);
+    if (state) { state.plan = plan; this.#saveCheckpoint(state); }
     return this.#appendEvent(runId, {
       type: "plan.updated",
-      items,
+      items: plan,
     });
   }
 
@@ -233,6 +273,8 @@ export class HarnessRuntime {
     const pending = this.#pendingInputs.get(runId) ?? [];
     pending.push(structuredClone({ ...input, contextual: input.contextual ?? [] }));
     this.#pendingInputs.set(runId, pending);
+    const state = this.#states.get(runId);
+    if (state) this.#saveCheckpoint(state);
     this.#appendEvent(runId, { type: "user.input.received", input: { id: input.id } });
   }
 
@@ -258,6 +300,7 @@ export class HarnessRuntime {
   }
 
   registerTool(registration: HarnessToolRegistration): HarnessToolRegistration {
+    if (registration.name === "update_plan") throw new Error("update_plan is a reserved runtime tool");
     return this.tools.register(registration);
   }
 
@@ -296,6 +339,11 @@ export class HarnessRuntime {
       return { status: "permission_required", request };
     }
 
+    return this.#executeTool(runId, call);
+  }
+
+  async #executeTool(runId: string, call: HarnessToolCall): Promise<HarnessRuntimeToolResult> {
+    this.#assertActive(runId);
     this.#appendEvent(runId, {
       type: "tool.call.started",
       tool_call: call,
@@ -318,12 +366,14 @@ export class HarnessRuntime {
     status: HarnessPermissionDecision["status"];
     remember?: HarnessPermissionDecision["remember"];
   }): HarnessPermissionDecision {
+    this.#assertActive(this.permissions.getRequest(input.requestId).run_id);
     const { request, decision } = this.permissions.resolve(input);
-    this.runs.updateStatus(request.run_id, decision.status === "approved" ? "running" : "failed");
+    this.runs.updateStatus(request.run_id, "running");
     this.#appendEvent(request.run_id, {
       type: "permission.resolved",
       decision,
     });
+    this.#permissionWaiters.get(request.id)?.(decision);
     return decision;
   }
 
@@ -356,6 +406,20 @@ export class HarnessRuntime {
     agentId: string;
     call: HarnessToolCall;
   }): Promise<HarnessRuntimeToolResult> {
+    if (input.call.name === "update_plan") {
+      this.#assertActive(input.runId);
+      if (input.call.origin !== "system") throw new Error("Tool origin mismatch for update_plan");
+      this.#appendEvent(input.runId, { type: "tool.call.started", tool_call: input.call });
+      let result: HarnessToolResult;
+      try {
+        this.updatePlan(input.runId, harnessPlanItemSchema.array().parse(input.call.input.items));
+        result = { tool_call_id: input.call.id, status: "completed", output: { message: "Plan updated" } };
+      } catch (error) {
+        result = { tool_call_id: input.call.id, status: "failed", error: { code: "invalid_plan", message: error instanceof Error ? error.message : "Invalid plan" } };
+      }
+      this.#appendEvent(input.runId, { type: "tool.call.completed", result });
+      return { status: result.status === "completed" ? "completed" : "failed", result };
+    }
     const context = await this.buildAgentSkillContext({
       policy: this.#resolveRunPolicy(input.runId),
       agentId: input.agentId,
@@ -376,6 +440,7 @@ export class HarnessRuntime {
     messages: HarnessModelMessage[];
     prompt?: HarnessPromptBundle;
     inputIds?: string[];
+    resumeFromRunId?: string;
   }): Promise<Record<string, unknown>> {
     this.#assertActive(input.runId);
     if (this.#executing.has(input.runId)) throw new Error(`Run is already executing: ${input.runId}`);
@@ -384,16 +449,18 @@ export class HarnessRuntime {
       return await this.#executeAgentTurn(input);
     } catch (error) {
       if (!isTerminalRunStatus(this.getRun(input.runId).status)) {
-        this.failRun(input.runId, { code: "agent_turn_failed", message: error instanceof Error ? error.message : "Agent turn failed" });
+        this.failRun(input.runId, { code: error instanceof HarnessExecutionError ? error.code : "agent_turn_failed", message: error instanceof Error ? error.message : "Agent turn failed" });
       }
       throw error;
     } finally {
       this.#executing.delete(input.runId);
+      this.#states.delete(input.runId);
+      this.#objectives.delete(input.runId);
     }
   }
 
   async #executeAgentTurn(input: {
-    runId: string; agentId: string; model?: string; messages: HarnessModelMessage[]; prompt?: HarnessPromptBundle; inputIds?: string[];
+    runId: string; agentId: string; model?: string; messages: HarnessModelMessage[]; prompt?: HarnessPromptBundle; inputIds?: string[]; resumeFromRunId?: string;
   }): Promise<Record<string, unknown>> {
     const signal = this.getRunSignal(input.runId);
     if (!this.#model) {
@@ -407,41 +474,76 @@ export class HarnessRuntime {
     }), signal);
     const availableTools = this.#modelVisibleTools(skillContext);
     const availableToolNames = availableTools.map((tool) => tool.name);
-    const basePrompt = input.prompt ?? {
-      developer: [],
-      contextual: [],
-      conversation: input.messages,
+    const basePrompt = structuredClone(input.prompt ?? { developer: [], contextual: [], conversation: input.messages });
+    for (const [index, message] of basePrompt.conversation.entries()) {
+      if (message.role === "system") basePrompt.developer.push({ slot: "developer", source: `harness.input.system.${index}`, content: message.content });
+    }
+    basePrompt.conversation = basePrompt.conversation.filter((message) => message.role !== "system");
+    const recovered = input.resumeFromRunId ? this.getCheckpoint(input.resumeFromRunId) : undefined;
+    if (input.resumeFromRunId && !recovered) throw new Error(`Unknown checkpoint: ${input.resumeFromRunId}`);
+    if (recovered && (recovered.run.id === input.runId || recovered.agent_id !== input.agentId
+      || JSON.stringify([...recovered.run.capability_policy.scope_ids].sort()) !== JSON.stringify([...this.getRun(input.runId).capability_policy.scope_ids].sort())
+      || JSON.stringify([...recovered.run.capability_policy.plugin_ids].sort()) !== JSON.stringify([...this.getRun(input.runId).capability_policy.plugin_ids].sort()))) {
+      throw new Error("Checkpoint must resume into a new run with the same agent and capability policy");
+    }
+    const state: HarnessCheckpoint = {
+      run: this.getRun(input.runId), agent_id: input.agentId, model: input.model,
+      objective: recovered?.objective ?? this.#objectives.get(input.runId)!,
+      prompt: basePrompt, plan: recovered?.plan ?? [], step: recovered?.step ?? 0,
+      tokens_used: recovered?.tokens_used ?? 0, compactions: recovered?.compactions ?? 0,
+      phase: "ready", pending_tool_calls: [], pending_inputs: [],
+      input_ids: [...(recovered?.input_ids ?? []), ...(input.inputIds ?? [])],
+      unconfirmed_input_ids: [...(recovered?.unconfirmed_input_ids ?? []), ...(input.inputIds ?? [])],
     };
-    const conversation = [...basePrompt.conversation];
-    const contextual = [...basePrompt.contextual];
-    const maxModelPasses = 8;
-    let passesWithoutInput = 0;
-    let unconfirmedInputIds = [...(input.inputIds ?? [])];
+    if (recovered) {
+      const history = structuredClone(recovered.prompt.conversation);
+      // A recorded invocation can have effects even when its result was not flushed.
+      for (const call of recovered.pending_tool_calls) {
+        history.push({ role: "tool", toolCallId: call.id, toolName: call.name, content: call.id === recovered.in_flight_tool_call_id
+          ? "Execution was interrupted; this tool may have taken effect. Inspect authoritative state before deciding what to do. Do not blindly repeat it."
+          : "This tool was not started before interruption. Reconsider it using current instructions and state." });
+      }
+      for (const pending of recovered.pending_inputs) history.push(...pending.messages);
+      state.prompt.conversation = [...history, ...basePrompt.conversation];
+      state.input_ids.push(...recovered.pending_inputs.map((pending) => pending.id));
+      state.unconfirmed_input_ids.push(...recovered.pending_inputs.map((pending) => pending.id));
+      this.#appendEvent(input.runId, { type: "run.resumed", source_run_id: recovered.run.id });
+    }
+    state.input_ids = [...new Set(state.input_ids)];
+    state.unconfirmed_input_ids = [...new Set(state.unconfirmed_input_ids)];
+    this.#states.set(input.runId, state);
+    this.#saveCheckpoint(state);
 
-    for (let pass = 0; passesWithoutInput < maxModelPasses || this.#pendingInputs.get(input.runId)?.length; pass += 1) {
+    for (;;) {
       this.#assertActive(input.runId);
       const pendingInputs = this.#pendingInputs.get(input.runId) ?? [];
-      if (pendingInputs.length) passesWithoutInput = 0;
-      passesWithoutInput += 1;
       this.#pendingInputs.delete(input.runId);
       for (const pending of pendingInputs) {
-        unconfirmedInputIds.push(pending.id);
-        conversation.push(...pending.messages);
+        state.unconfirmed_input_ids.push(pending.id);
+        state.input_ids.push(pending.id);
+        state.prompt.conversation.push(...pending.messages);
         for (const section of pending.contextual) {
-          const index = contextual.findIndex((existing) => existing.source === section.source && existing.slot === section.slot);
-          if (index < 0) contextual.push(section);
-          else contextual[index] = section;
+          const index = state.prompt.contextual.findIndex((existing) => existing.source === section.source && existing.slot === section.slot);
+          if (index < 0) state.prompt.contextual.push(section);
+          else state.prompt.contextual[index] = section;
         }
         this.#appendEvent(input.runId, { type: "user.input.applied", input_id: pending.id });
       }
+      this.#saveCheckpoint(state);
+      await this.#compactIfNeeded(state, availableTools, skillContext.policy, signal);
+      // Steering received during compaction belongs after the compacted prefix.
+      if (this.#pendingInputs.get(input.runId)?.length) continue;
+      this.#checkBudget(state);
+      const pass = state.step++;
       let assistantContent = "";
       const toolCalls: HarnessToolCall[] = [];
       let finalOutput: Record<string, unknown> | undefined;
-      const prompt: HarnessPromptBundle = pass === 0 && pendingInputs.length === 0 ? basePrompt : {
-        developer: basePrompt.developer,
-        contextual: [...contextual],
-        conversation: [...conversation],
-      };
+      let incomplete = false;
+      const prompt = this.#buildTaskPrompt(state);
+      state.phase = "model";
+      this.#saveCheckpoint(state);
+      const estimatedInput = estimatePromptTokens(prompt, availableTools);
+      let measuredUsage: number | undefined;
       const stream = this.#streamModel({
         signal,
         runId: input.runId,
@@ -451,13 +553,14 @@ export class HarnessRuntime {
         prompt,
         availableToolNames,
         availableTools,
+        purpose: "response",
       });
 
       for await (const event of stream) {
         this.#assertActive(input.runId);
-        if (unconfirmedInputIds.length) {
-          this.#appendEvent(input.runId, { type: "model.input.consumed", input_ids: unconfirmedInputIds });
-          unconfirmedInputIds = [];
+        if (state.unconfirmed_input_ids.length) {
+          this.#appendEvent(input.runId, { type: "model.input.consumed", input_ids: [...state.unconfirmed_input_ids] });
+          state.unconfirmed_input_ids = [];
         }
         if (event.type === "reasoning_summary_delta") {
           this.appendReasoningSummaryDelta(input.runId, `${pass}:${event.summaryId}`, event.delta);
@@ -476,66 +579,160 @@ export class HarnessRuntime {
         }
 
         finalOutput = event.output;
+        incomplete = event.incomplete ?? false;
+        measuredUsage = event.usage?.totalTokens ?? (event.usage
+          ? (event.usage.inputTokens ?? estimatedInput) + (event.usage.outputTokens ?? estimateTextTokens(assistantContent + JSON.stringify(toolCalls)))
+          : undefined);
+        state.last_input_tokens = event.usage?.inputTokens;
+        state.last_input_estimate = estimatedInput;
       }
-
+      state.tokens_used += measuredUsage ?? estimatedInput + estimateTextTokens(assistantContent + JSON.stringify(toolCalls));
+      state.phase = "ready";
+      if (assistantContent || toolCalls.length) state.prompt.conversation.push({ role: "assistant", content: assistantContent, ...(toolCalls.length ? { toolCalls } : {}) });
+      if (incomplete) {
+        state.pending_tool_calls = [...toolCalls];
+        this.#saveCheckpoint(state);
+        throw new HarnessExecutionError("model_response_incomplete", "The model response was cut short; progress was saved and no incomplete tool calls were executed.");
+      }
       if (toolCalls.length > 0) {
-        conversation.push({
-          role: "assistant",
-          content: assistantContent,
-          toolCalls,
-        });
+        state.pending_tool_calls = [...toolCalls];
+        state.phase = "tools";
+        this.#saveCheckpoint(state);
         for (const call of toolCalls) {
           this.#assertActive(input.runId);
           if (this.#pendingInputs.get(input.runId)?.length) {
-            conversation.push({ role: "tool", toolCallId: call.id, toolName: call.name,
+            state.prompt.conversation.push({ role: "tool", toolCallId: call.id, toolName: call.name,
               content: "Tool was not executed because new user instructions arrived. Reconsider this action using the new instructions." });
+            state.pending_tool_calls.shift();
+            this.#saveCheckpoint(state);
             continue;
           }
-          const result = await this.invokeAgentTool({
+          state.in_flight_tool_call_id = call.id;
+          this.#saveCheckpoint(state);
+          let result = await this.invokeAgentTool({
             runId: input.runId,
             agentId: input.agentId,
             call,
           });
           this.#assertActive(input.runId);
           if (result.status === "permission_required") {
-            const error = {
-              code: "agent_tool_permission_required",
-              message: `Tool ${call.name} requires permission before the agent can continue.`,
-              details: {
-                tool_call_id: call.id,
-                permission_request_id: result.request.id,
-              },
-            };
-            this.failRun(input.runId, error);
-            throw new Error(error.message);
+            const requestId = result.request.id;
+            const known = this.permissions.getDecision(requestId);
+            let decision: HarnessPermissionDecision;
+            try {
+              decision = known ?? await withRunSignal(new Promise<HarnessPermissionDecision>((resolve) => this.#permissionWaiters.set(requestId, resolve)), signal);
+            } finally { this.#permissionWaiters.delete(requestId); }
+            this.#assertActive(input.runId);
+            if (decision.status === "approved" && !this.#pendingInputs.get(input.runId)?.length) {
+              result = await this.#executeTool(input.runId, call);
+            } else {
+              result = { status: "failed", result: { tool_call_id: call.id, status: "failed", error: {
+                code: "tool_not_authorized", message: "Tool was not executed: permission was denied or new user instructions superseded it.",
+              } } };
+            }
           }
-          conversation.push({
+          state.prompt.conversation.push({
             role: "tool",
             toolCallId: call.id,
             toolName: call.name,
-            content: serializeToolResultForModel(result),
+            content: boundToolContent(serializeToolResultForModel(result), this.#contextWindow.toolOutputTokens),
           });
+          state.in_flight_tool_call_id = undefined;
+          state.pending_tool_calls.shift();
+          this.#saveCheckpoint(state);
         }
+        state.phase = "ready";
+        this.#saveCheckpoint(state);
         continue;
       }
-
+      this.#saveCheckpoint(state);
       if (this.#pendingInputs.get(input.runId)?.length) {
-        if (assistantContent) conversation.push({ role: "assistant", content: assistantContent });
         continue;
       }
-
       const output = finalOutput ?? {};
+      if (this.#completionCheck) {
+        const result = await withRunSignal(Promise.resolve(this.#completionCheck({ checkpoint: structuredClone(state), output, signal })), signal);
+        this.#assertActive(input.runId);
+        if (this.#pendingInputs.get(input.runId)?.length) continue;
+        if (!result.complete) {
+          if (!result.message.trim()) throw new Error("Completion check must supply continuation feedback");
+          state.prompt.conversation.push({ role: "user", internal: "completion", content: `Completion check requires more work:\n${result.message}` });
+          this.#appendEvent(input.runId, { type: "completion.blocked", message: result.message });
+          this.#saveCheckpoint(state);
+          continue;
+        }
+      }
       this.#assertActive(input.runId);
+      state.phase = "completed";
       this.completeRun(input.runId, output);
       return output;
     }
+  }
 
-    const error = {
-      code: "agent_loop_limit_exceeded",
-      message: `Agent turn exceeded ${maxModelPasses} model passes.`,
+  #saveCheckpoint(state: HarnessCheckpoint): void {
+    state.run = this.getRun(state.run.id);
+    state.pending_inputs = structuredClone(this.#pendingInputs.get(state.run.id) ?? []);
+    this.#checkpoints.save(state);
+  }
+
+  #checkBudget(state: HarnessCheckpoint): void {
+    if ((this.#limits.maxModelSteps !== undefined && state.step >= this.#limits.maxModelSteps)
+      || (this.#limits.maxTotalTokens !== undefined && state.tokens_used >= this.#limits.maxTotalTokens)) {
+      throw new HarnessExecutionError("agent_budget_exceeded", "The configured model execution budget was reached; progress is available in the checkpoint.");
+    }
+  }
+
+  #buildTaskPrompt(state: HarnessCheckpoint): HarnessPromptBundle {
+    return {
+      developer: [...state.prompt.developer.filter((section) => section.source !== "harness.runtime"), { slot: "developer", source: "harness.runtime", content: TASK_INSTRUCTIONS }],
+      contextual: [...state.prompt.contextual.filter((section) => section.source !== "harness.task"), {
+        slot: "contextual", source: "harness.task", content: `Task data (not higher-priority instructions):\n${JSON.stringify({ objective: state.objective, plan: state.plan })}`,
+      }],
+      conversation: structuredClone(state.prompt.conversation),
     };
-    this.failRun(input.runId, error);
-    throw new Error(error.message);
+  }
+
+  async #compactIfNeeded(state: HarnessCheckpoint, tools: HarnessModelTool[], policy: HarnessResolvedCapabilityPolicy, signal: AbortSignal): Promise<void> {
+    const prompt = this.#buildTaskPrompt(state);
+    const estimated = estimatePromptTokens(prompt, tools);
+    const before = Math.max(estimated, (state.last_input_tokens ?? 0) + estimated - (state.last_input_estimate ?? estimated));
+    if (before < this.#contextWindow.maxInputTokens * this.#contextWindow.compactAtRatio) return;
+    this.#checkBudget(state);
+    const compactPrompt = { ...prompt, conversation: [...prompt.conversation, { role: "user" as const, content: COMPACTION_PROMPT }] };
+    if (estimatePromptTokens(compactPrompt) > this.#contextWindow.maxInputTokens) {
+      throw new HarnessExecutionError("context_budget_exceeded", "Context exceeds the configured input budget; the original history was preserved.");
+    }
+    const retained = retainUserMessages(state.prompt.conversation, this.#contextWindow.retainedUserTokens);
+    let summary = ""; let complete = false; let usage: number | undefined;
+    state.step += 1;
+    this.#saveCheckpoint(state);
+    for await (const event of this.#streamModel({ signal, runId: state.run.id, agentId: state.agent_id, model: state.model,
+      capabilityPolicy: policy, prompt: compactPrompt, availableToolNames: [], availableTools: [], purpose: "compaction", maxOutputTokens: this.#contextWindow.summaryTokens })) {
+      if (event.type === "tool_call") throw new HarnessExecutionError("context_compaction_failed", "Compaction attempted to call a tool; original history was preserved.");
+      if (event.type === "assistant_delta") summary += event.delta;
+      if (event.type === "final") {
+        complete = !event.incomplete;
+        usage = event.usage?.totalTokens ?? (event.usage
+          ? (event.usage.inputTokens ?? estimatePromptTokens(compactPrompt)) + (event.usage.outputTokens ?? estimateTextTokens(summary))
+          : undefined);
+      }
+    }
+    this.#assertActive(state.run.id);
+    state.tokens_used += usage ?? estimatePromptTokens(compactPrompt) + estimateTextTokens(summary);
+    if (!complete || !summary.trim()) throw new HarnessExecutionError("context_compaction_failed", "Compaction returned no complete handoff summary; original history was preserved.");
+    const conversation: HarnessModelMessage[] = [...retained, { role: "user", internal: "compaction", content: `Context checkpoint from prior work. Continue from this evidence and avoid duplicate actions:\n${summary}` }];
+    const candidate = { ...state, prompt: { ...state.prompt, conversation } };
+    const after = estimatePromptTokens(this.#buildTaskPrompt(candidate), tools);
+    if (after >= estimated || after >= this.#contextWindow.maxInputTokens * this.#contextWindow.compactAtRatio) {
+      throw new HarnessExecutionError("context_compaction_failed", "Compaction did not free enough context; original history was preserved.");
+    }
+    // Persist the replacement before publishing it; failed I/O leaves the live prefix intact.
+    candidate.compactions += 1;
+    candidate.last_input_tokens = undefined;
+    candidate.last_input_estimate = undefined;
+    this.#saveCheckpoint(candidate);
+    Object.assign(state, candidate);
+    this.#appendEvent(state.run.id, { type: "context.compacted", before_tokens: before, after_tokens: after, compaction: state.compactions });
   }
 
   async *#streamModel(request: HarnessModelRequest): AsyncIterable<HarnessModelStreamEvent> {
@@ -613,12 +810,19 @@ export class HarnessRuntime {
   }
 
   #finishRun(runId: string, status: "completed" | "failed" | "canceled", event: Record<string, unknown>): HarnessRunEvent {
-    this.#pendingInputs.delete(runId);
     if (isTerminalRunStatus(this.getRun(runId).status)) {
       const terminal = this.events.get(runId).find((item) => item.type === "run.completed" || item.type === "run.failed" || item.type === "run.canceled");
       if (!terminal) throw new Error(`Terminal event missing for run: ${runId}`);
       return terminal;
     }
+    const state = this.#states.get(runId);
+    if (state) {
+      const checkpoint = { ...state, run: { ...this.getRun(runId), status, updated_at: this.#now().toISOString() },
+        pending_inputs: structuredClone(this.#pendingInputs.get(runId) ?? []) };
+      try { this.#checkpoints.save(checkpoint); }
+      catch (error) { if (status === "completed") throw error; }
+    }
+    this.#pendingInputs.delete(runId);
     this.runs.updateStatus(runId, status);
     const terminal = this.#appendEvent(runId, event);
     this.#controllers.get(runId)?.abort(new DOMException(typeof event.reason === "string" ? event.reason : `Run ${status}`, "AbortError"));
@@ -631,7 +835,7 @@ export class HarnessRuntime {
   }
 
   #modelVisibleTools(context: HarnessAgentSkillContext): HarnessModelTool[] {
-    return this.#modelVisibleToolNames(context).map((name) => {
+    return [...this.#modelVisibleToolNames(context).map((name) => {
       const descriptor = this.tools.describe(name);
       return {
         name: descriptor.name,
@@ -639,7 +843,12 @@ export class HarnessRuntime {
         description: descriptor.description,
         inputSchema: descriptor.inputSchema,
       };
-    });
+    }), {
+      name: "update_plan", origin: "system", description: "Track a multi-step task with a current plan. A plan records progress, not proof of completion. Keep ids unique and at most one step in progress.",
+      inputSchema: { type: "object", properties: { items: { type: "array", items: { type: "object", properties: {
+        id: { type: "string" }, title: { type: "string" }, status: { type: "string", enum: ["pending", "in_progress", "completed", "failed", "skipped"] },
+      }, required: ["id", "title", "status"], additionalProperties: false } } }, required: ["items"], additionalProperties: false },
+    }];
   }
 
   #appendEvent(runId: string, event: Record<string, unknown>): HarnessRunEvent {

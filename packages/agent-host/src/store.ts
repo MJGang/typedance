@@ -319,7 +319,7 @@ function normalizeConversationName(name: string | null | undefined): string | nu
   return trimmed ? trimmed : null;
 }
 
-function renameWithWindowsRetry(from: string, to: string): void {
+export function renameWithWindowsRetry(from: string, to: string): void {
   const retryDelaysMs = [5, 10, 20, 40, 80, 120, 160, 240, 320, 500];
   for (let attempt = 0; ; attempt += 1) {
     try {

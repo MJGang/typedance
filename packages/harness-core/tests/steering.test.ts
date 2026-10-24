@@ -62,7 +62,7 @@ describe("active run steering", () => {
     await runtime.runAgentTurn({ runId: run.id, agentId: "test.agent", messages: [], prompt: {
       developer: [], contextual: [{ slot: "contextual", source: "document", content: "old snapshot" }], conversation: [{ role: "user", content: "start" }],
     } });
-    expect(seen!.prompt.contextual).toEqual([{ slot: "contextual", source: "document", content: "new snapshot" }]);
+    expect(seen!.prompt.contextual.filter((section) => section.source !== "harness.task")).toEqual([{ slot: "contextual", source: "document", content: "new snapshot" }]);
     expect(seen!.prompt.conversation).toHaveLength(2);
   });
 
@@ -77,7 +77,7 @@ describe("active run steering", () => {
     expect(runtime.getEvents(run.id).some((event) => event.type === "user.input.applied")).toBe(false);
   });
 
-  it("gives input accepted on the last allowed step a fresh model budget without reusing response ids", async () => {
+  it("accepts steering after eight steps without reusing response ids", async () => {
     let passes = 0;
     const { runtime, run, start } = setup({ async *stream() {
       passes += 1;
