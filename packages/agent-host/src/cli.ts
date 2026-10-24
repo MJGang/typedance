@@ -27,6 +27,7 @@ import { checkSpeechNativeRuntime, resolveSpeechRuntime, runSpeechWorker } from 
 import { isSea } from "node:sea";
 import { dirname } from "node:path";
 import { JsonFileHarnessCheckpointStore } from "./checkpoint-store";
+import { migrateRetiredModelId } from "./migrations/model-id";
 
 async function main(): Promise<void> {
   if (process.argv.includes("--speech-worker")) { runSpeechWorker(); return; }
@@ -41,8 +42,8 @@ async function main(): Promise<void> {
   const hostname = env.AGENT_HOST_HOST ?? "127.0.0.1";
   const dataDir = env.TYPEDANCE_DATA_DIR || join(homedir(), ".typedance");
   const storeFile = env.AGENT_HOST_STORE_FILE || join(dataDir, "agent-host", "store.json");
-  const model = env.AGENT_MODEL?.trim() || env.DEEPSEEK_MODEL?.trim() || env.VITE_DEFAULT_AGENT_MODEL?.trim() || undefined;
   const sidecarUrl = env.TYPEDANCE_SIDECAR_URL || "http://127.0.0.1:4317";
+  await migrateRetiredModelId(dataDir, env);
   const modelSettings = createFileModelSettings(dataDir, env);
   const pluginLoader = env.TYPEDANCE_PLUGIN_ROOT
     ? createResumePluginLoader(env.TYPEDANCE_PLUGIN_ROOT)
@@ -58,23 +59,22 @@ async function main(): Promise<void> {
         const settings = await modelSettings.resolve();
         return {
           apiKey: settings.apiKey,
-          baseUrl: env.DEEPSEEK_BASE_URL?.trim() || settings.baseUrl,
-          defaultModel: model || settings.model,
+          baseUrl: settings.baseUrl,
+          defaultModel: settings.model,
+          reasoningEffort: settings.reasoningEffort,
         };
       },
-      reasoningEffort: parseReasoningEffort(env.DEEPSEEK_REASONING_EFFORT),
     }),
   });
 
   await registerResumeWorkbenchPlugin(runtime, pluginLoader);
   const host = createAgentHost({
     runtime,
-    defaultModel: model,
     contextProvider: createSidecarContextProvider({ baseUrl: sidecarUrl }),
     resumeTools: {
       editor: createSidecarEditorService(sidecarUrl),
       pageReader: createSidecarPageReader(sidecarUrl),
-      supportsImages: async (requestedModel) => (requestedModel || model || (await modelSettings.resolve()).model) === "deepseek-flash",
+      supportsImages: async (requestedModel) => (requestedModel || (await modelSettings.resolve()).model) === "deepseek-flash",
     },
     store: createJsonFileAgentHostStore(storeFile),
     packs: [
@@ -92,7 +92,6 @@ async function main(): Promise<void> {
   server.listen(port, hostname);
   server.nodeServer.on("listening", () => {
     console.log(`TypeDance Agent Host listening on http://${hostname}:${port}`);
-    console.log(`Model: ${model}`);
     console.log(`Sidecar: ${sidecarUrl}`);
     console.log(`Langfuse: ${telemetry ? "enabled" : "disabled"}`);
   });
@@ -124,9 +123,4 @@ void main().catch((error) => {
 function numberEnv(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function parseReasoningEffort(value: string | undefined): "low" | "medium" | "high" | "max" | undefined {
-  if (value === "low" || value === "medium" || value === "high" || value === "max") return value;
-  return undefined;
 }

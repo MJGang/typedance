@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   HarnessPermissionDecision,
   HarnessPluginManifest,
@@ -13,7 +14,7 @@ import { DEFAULT_CONTEXT_WINDOW, TASK_INSTRUCTIONS, COMPACTION_PROMPT, estimateP
 import { HarnessEventLog } from "./event/event-log";
 import { HarnessMemoryStore, type HarnessMemoryRecord, type HarnessMemoryScope } from "./memory/memory-store";
 import { HarnessMcpManager, type HarnessMcpServerRegistration } from "./mcp/mcp-manager";
-import type { HarnessModelAdapter, HarnessModelMessage, HarnessModelTool, HarnessPromptBundle, HarnessModelRequest, HarnessModelStreamEvent } from "./model/model-adapter";
+import type { HarnessModelAdapter, HarnessModelMessage, HarnessModelTool, HarnessPromptBundle, HarnessModelRequest, HarnessModelStreamEvent, HarnessModelUsage } from "./model/model-adapter";
 import { observeSafely, type HarnessRuntimeObserver } from "./observability";
 import { HarnessPermissionEngine, type HarnessPermissionRequirement } from "./permission/permission-engine";
 import {
@@ -437,6 +438,7 @@ export class HarnessRuntime {
     runId: string;
     agentId: string;
     model?: string;
+    modelOptions?: Record<string, unknown>;
     messages: HarnessModelMessage[];
     prompt?: HarnessPromptBundle;
     inputIds?: string[];
@@ -460,7 +462,7 @@ export class HarnessRuntime {
   }
 
   async #executeAgentTurn(input: {
-    runId: string; agentId: string; model?: string; messages: HarnessModelMessage[]; prompt?: HarnessPromptBundle; inputIds?: string[]; resumeFromRunId?: string;
+    runId: string; agentId: string; model?: string; modelOptions?: Record<string, unknown>; messages: HarnessModelMessage[]; prompt?: HarnessPromptBundle; inputIds?: string[]; resumeFromRunId?: string;
   }): Promise<Record<string, unknown>> {
     const signal = this.getRunSignal(input.runId);
     if (!this.#model) {
@@ -488,6 +490,7 @@ export class HarnessRuntime {
     }
     const state: HarnessCheckpoint = {
       run: this.getRun(input.runId), agent_id: input.agentId, model: input.model,
+      model_options: input.modelOptions ?? recovered?.model_options,
       objective: recovered?.objective ?? this.#objectives.get(input.runId)!,
       prompt: basePrompt, plan: recovered?.plan ?? [], step: recovered?.step ?? 0,
       tokens_used: recovered?.tokens_used ?? 0, compactions: recovered?.compactions ?? 0,
@@ -550,6 +553,7 @@ export class HarnessRuntime {
         capabilityPolicy: skillContext.policy,
         agentId: input.agentId,
         model: input.model,
+        modelOptions: state.model_options,
         prompt,
         availableToolNames,
         availableTools,
@@ -562,6 +566,7 @@ export class HarnessRuntime {
           this.#appendEvent(input.runId, { type: "model.input.consumed", input_ids: [...state.unconfirmed_input_ids] });
           state.unconfirmed_input_ids = [];
         }
+        if (event.type === "first_token") continue;
         if (event.type === "reasoning_summary_delta") {
           this.appendReasoningSummaryDelta(input.runId, `${pass}:${event.summaryId}`, event.delta);
           continue;
@@ -706,7 +711,7 @@ export class HarnessRuntime {
     let summary = ""; let complete = false; let usage: number | undefined;
     state.step += 1;
     this.#saveCheckpoint(state);
-    for await (const event of this.#streamModel({ signal, runId: state.run.id, agentId: state.agent_id, model: state.model,
+    for await (const event of this.#streamModel({ signal, runId: state.run.id, agentId: state.agent_id, model: state.model, modelOptions: state.model_options,
       capabilityPolicy: policy, prompt: compactPrompt, availableToolNames: [], availableTools: [], purpose: "compaction", maxOutputTokens: this.#contextWindow.summaryTokens })) {
       if (event.type === "tool_call") throw new HarnessExecutionError("context_compaction_failed", "Compaction attempted to call a tool; original history was preserved.");
       if (event.type === "assistant_delta") summary += event.delta;
@@ -736,10 +741,30 @@ export class HarnessRuntime {
   }
 
   async *#streamModel(request: HarnessModelRequest): AsyncIterable<HarnessModelStreamEvent> {
+    const callId = randomUUID();
+    const started = performance.now();
+    const inputTokens = estimatePromptTokens(request.prompt, request.availableTools);
+    const systemTokens = 32 + [...request.prompt.developer, ...request.prompt.contextual]
+      .reduce((sum, section) => sum + estimateTextTokens(section.source + section.content) + 16, 0);
+    const toolTokens = estimateTextTokens(JSON.stringify(request.availableTools));
+    this.#appendEvent(request.runId, {
+      type: "model.call.started", call_id: callId, model: request.model, purpose: request.purpose ?? "response",
+      input_tokens: inputTokens, budget_tokens: this.#contextWindow.maxInputTokens,
+      system_tokens: systemTokens, tool_tokens: toolTokens, conversation_tokens: Math.max(0, inputTokens - systemTokens - toolTokens),
+    });
     const observation = observeSafely(() => this.#observer?.onModelStart?.(request));
     let error: unknown;
+    let ttftMs: number | undefined;
+    let usage: HarnessModelUsage | undefined;
+    let model = request.model;
+    let completed = false;
     try {
       for await (const event of cancellableStream(this.#model!.stream(request), request.signal)) {
+        if (event.type !== "final" && ttftMs === undefined) ttftMs = performance.now() - started;
+        if (event.type === "final") {
+          completed = true; usage = event.usage;
+          if (typeof event.output.model === "string") model = event.output.model;
+        }
         observeSafely(() => observation?.onEvent?.(event));
         yield event;
       }
@@ -747,6 +772,12 @@ export class HarnessRuntime {
       error = caught;
       throw caught;
     } finally {
+      // 取消可能已关闭事件流，终态后不得追加事件。
+      if (!isTerminalRunStatus(this.getRun(request.runId).status)) this.#appendEvent(request.runId, {
+        type: "model.call.completed", call_id: callId, model,
+        duration_ms: Math.max(0, performance.now() - started), ttft_ms: ttftMs,
+        status: request.signal.aborted ? "canceled" : error || !completed ? "failed" : "completed", usage,
+      });
       observeSafely(() => observation?.end?.({ error, canceled: request.signal.aborted }));
     }
   }

@@ -6,6 +6,9 @@ import type { AgentMessage, ContextSource } from "@typedance/contracts"
 import { AgentChatPanel } from "./AgentChatPanel"
 
 const agentHostMocks = vi.hoisted(() => ({
+  getModelSelection: vi.fn(),
+  updateModelSelection: vi.fn(),
+  getConversationStatistics: vi.fn(),
   getConversationActiveRun: vi.fn(),
   cancelAgentRun: vi.fn(),
   createWorkspaceConversation: vi.fn(),
@@ -22,6 +25,9 @@ vi.mock("@assistant-ui/react", () => ({
 }))
 
 vi.mock("@/agentHost", () => ({
+  getModelSelection: (...args: unknown[]) => agentHostMocks.getModelSelection(...args),
+  updateModelSelection: (...args: unknown[]) => agentHostMocks.updateModelSelection(...args),
+  getConversationStatistics: (...args: unknown[]) => agentHostMocks.getConversationStatistics(...args),
   getConversationActiveRun: (...args: unknown[]) => agentHostMocks.getConversationActiveRun(...args),
   cancelAgentRun: (...args: unknown[]) => agentHostMocks.cancelAgentRun(...args),
   createWorkspaceConversation: (...args: unknown[]) => agentHostMocks.createWorkspaceConversation(...args),
@@ -117,6 +123,11 @@ function mockMessageListScroll(
 describe("AgentChatPanel", () => {
   beforeEach(() => {
     Object.values(agentHostMocks).forEach((mock) => mock.mockReset())
+    agentHostMocks.getModelSelection.mockResolvedValue({ model: "deepseek-flash", reasoning_effort: "high", models: [
+      { id: "deepseek-flash", name: "DeepSeek-V4.1-Flash", context_window: 1_000_000, reasoning_efforts: ["off", "low", "high", "max"] },
+    ] })
+    agentHostMocks.getConversationStatistics.mockResolvedValue({ turns: 0, steps: 0, model_ms: 0, tool_ms: 0, ttft_ms: null, tokens_per_second: null,
+      usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0, cache_read_tokens: 0, cache_miss_tokens: 0, cache_hit_percent: null, measured_calls: 0, unmeasured_calls: 0 }, context: null })
     agentHostMocks.getConversationActiveRun.mockResolvedValue(null)
     agentHostMocks.listAgentRunEvents.mockResolvedValue([])
     agentHostMocks.createAgentRunEventSource.mockReturnValue(eventSourceStub())

@@ -100,6 +100,16 @@ describe("agent host", () => {
     const cleared = await apiFetch(`${server.url}/settings/model/api-key`, { method: "DELETE" });
     expect(cleared.status).toBe(200);
     expect((await cleared.json()).api_key).toEqual({ configured: false, preview: null });
+    const selection = await apiFetch(`${server.url}/settings/model/selection`, {
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "deepseek-flash", reasoning_effort: "max" }),
+    });
+    expect(selection.status).toBe(200);
+    expect(await selection.json()).toMatchObject({ model: "deepseek-flash", reasoning_effort: "max" });
+    expect(await apiFetch(`${server.url}/settings/model/selection`).then((response) => response.json())).toMatchObject({ model: "deepseek-flash", reasoning_effort: "max" });
+    const invalidSelection = await apiFetch(`${server.url}/settings/model/selection`, {
+      method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "deepseek-flash", reasoning_effort: "ultra" }),
+    });
+    expect(invalidSelection.status).toBe(400);
   });
   it("persists workspace conversation messages and projected run events", async () => {
     const seenRequests: HarnessModelRequest[] = [];
@@ -187,8 +197,10 @@ describe("agent host", () => {
     expect(host.listAgentRunEvents(run.id).map((event) => event.type)).toEqual([
       "harness_event",
       "harness_event",
+      "harness_event",
       "thinking_delta",
       "assistant_delta",
+      "harness_event",
       "run_completed",
     ]);
   });
@@ -631,7 +643,7 @@ describe("agent host", () => {
 
     expect(run.id).not.toBe("run_1");
     const events = host.listAgentRunEvents(run.id);
-    expect(events.map((event) => event.type)).toEqual(["harness_event", "harness_event", "assistant_delta", "run_completed"]);
+    expect(events.map((event) => event.type)).toEqual(["harness_event", "harness_event", "harness_event", "assistant_delta", "harness_event", "run_completed"]);
     expect(JSON.stringify(events)).not.toContain("这个简历怎么样");
     expect(host.listMessages(conversation.id)[1]?.content).toBe("new answer");
   });

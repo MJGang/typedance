@@ -24,7 +24,7 @@ describe("run cancellation", () => {
     release.resolve(); await Promise.resolve();
     expect(handler).not.toHaveBeenCalled();
     expect(runtime.getRun(run.id).status).toBe("canceled");
-    expect(runtime.getEvents(run.id).map((event) => event.type)).toEqual(["run.started", "run.canceled"]);
+    expect(runtime.getEvents(run.id).map((event) => event.type)).toEqual(["run.started", "model.call.started", "run.canceled"]);
   });
 
   it("propagates cancellation to a running tool and starts no subsequent calls", async () => {

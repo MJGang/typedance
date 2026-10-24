@@ -13,6 +13,7 @@ export type HarnessModelRequest = {
   capabilityPolicy: HarnessResolvedCapabilityPolicy;
   agentId: string;
   model?: string;
+  modelOptions?: Record<string, unknown>;
   prompt: HarnessPromptBundle;
   availableToolNames: string[];
   availableTools: HarnessModelTool[];
@@ -28,6 +29,7 @@ export type HarnessModelTool = {
 };
 
 export type HarnessModelStreamEvent =
+  | { type: "first_token" }
   | {
       type: "assistant_delta";
       messageId: string;
