@@ -232,7 +232,7 @@ class LangfuseAgentObserver implements HarnessRuntimeObserver {
     return {
       onEvent: (event) => {
         if (ended) return;
-        if (!firstToken && (event.type === "assistant_delta" || event.type === "reasoning_summary_delta" || event.type === "tool_call")) {
+        if (!firstToken && (event.type === "first_token" || event.type === "assistant_delta" || event.type === "reasoning_summary_delta" || event.type === "tool_call")) {
           firstToken = true;
           span.setAttributes(createObservationAttributes("generation", { completionStartTime: new Date() }));
         }

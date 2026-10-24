@@ -8,6 +8,7 @@ import type {
   HarnessModelContent,
 } from "@typedance/harness-core";
 import { renderAgentHostPromptSections } from "../prompt";
+import { reasoningEffortSchema } from "@typedance/contracts";
 
 export type DeepSeekModelAdapterOptions = {
   resolveSettings: () => DeepSeekRuntimeSettings | Promise<DeepSeekRuntimeSettings>;
@@ -20,6 +21,7 @@ export type DeepSeekRuntimeSettings = {
   apiKey: string | undefined;
   baseUrl: string | undefined;
   defaultModel: string | undefined;
+  reasoningEffort?: "off" | "low" | "high" | "max";
 };
 
 type DeepSeekStreamDelta = {
@@ -110,6 +112,9 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
       const baseUrl = (settings.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
       const defaultModel = settings.defaultModel?.trim();
       const model = resolveModelName(request, defaultModel);
+      const requestedEffort = request.modelOptions?.reasoningEffort;
+      const effort = requestedEffort === null ? undefined : requestedEffort !== undefined
+        ? reasoningEffortSchema.parse(requestedEffort) : settings.reasoningEffort ?? options.reasoningEffort;
       const toolNameMap = createProviderToolNameMap(request.availableTools);
       const tools = buildDeepSeekTools(request.availableTools, toolNameMap);
 
@@ -124,10 +129,11 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
           model,
           messages: buildDeepSeekMessages(request, toolNameMap),
           stream: true,
+          stream_options: { include_usage: true },
           ...(request.maxOutputTokens ? { max_tokens: request.maxOutputTokens } : {}),
           ...(tools.length > 0 ? { tools, tool_choice: "auto" } : {}),
-          ...(options.thinking === false ? {} : { thinking: { type: "enabled" } }),
-          ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
+          thinking: { type: effort === "off" || options.thinking === false ? "disabled" : "enabled" },
+          ...(effort ? { reasoning_effort: effort === "off" ? "none" : effort } : {}),
         }),
       });
 
@@ -142,6 +148,7 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
       let emittedAssistantContent = false;
       let usage: HarnessModelUsage | undefined;
       let finishReason: string | undefined;
+      let firstToken = false;
       const toolCalls = new Map<number, DeepSeekToolCall>();
       for await (const chunk of parseDeepSeekSse(response.body)) {
         finishReason = chunk.choices?.[0]?.finish_reason ?? finishReason;
@@ -156,6 +163,10 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
           };
         }
         const delta = chunk.choices?.[0]?.delta;
+        if (!firstToken && (delta?.content || delta?.reasoning_content || delta?.tool_calls?.length)) {
+          firstToken = true;
+          yield { type: "first_token" };
+        }
         const reasoning = normalizeDelta(delta?.reasoning_content);
         if (reasoning) {
           yield {

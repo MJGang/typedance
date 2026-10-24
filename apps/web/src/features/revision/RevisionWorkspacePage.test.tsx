@@ -103,6 +103,12 @@ vi.mock("@/api", () => ({
 }))
 
 vi.mock("@/agentHost", () => ({
+  getModelSelection: async () => ({ model: "deepseek-flash", reasoning_effort: "high", models: [
+    { id: "deepseek-flash", name: "DeepSeek-V4.1-Flash", context_window: 1_000_000, reasoning_efforts: ["off", "low", "high", "max"] },
+  ] }),
+  updateModelSelection: vi.fn(),
+  getConversationStatistics: async () => ({ turns: 0, steps: 0, model_ms: 0, tool_ms: 0, ttft_ms: null, tokens_per_second: null,
+    usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0, cache_read_tokens: 0, cache_miss_tokens: 0, cache_hit_percent: null, measured_calls: 0, unmeasured_calls: 0 }, context: null }),
   listWorkspaceConversations: (...args: unknown[]) => agentHostMocks.listWorkspaceConversations(...args),
   createWorkspaceConversation: (...args: unknown[]) => agentHostMocks.createWorkspaceConversation(...args),
   updateWorkspaceConversation: (...args: unknown[]) => agentHostMocks.updateWorkspaceConversation(...args),

@@ -37,6 +37,7 @@ export const harnessCheckpointSchema = z.object({
   run: harnessRunSchema,
   agent_id: z.string().min(1),
   model: z.string().optional(),
+  model_options: z.record(z.unknown()).optional(),
   objective: z.string().min(1),
   prompt: harnessPromptBundleSchema,
   plan: z.array(harnessPlanItemSchema),
