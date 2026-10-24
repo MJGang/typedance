@@ -180,6 +180,22 @@ export async function getAgentRun(runId: string): Promise<AgentRun> {
   )
 }
 
+export async function sendAgentRunInput(input: {
+  runId: string
+  content: string
+  mentions?: ContextMention[]
+  references?: EditorReference[]
+  attachments?: HarnessAttachment[]
+  context?: Record<string, unknown>
+}): Promise<AgentMessage> {
+  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(input.runId)}/input`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ message: { content: input.content, mentions: input.mentions ?? [],
+      references: input.references, attachments: input.attachments }, context: input.context ?? {} }),
+  })
+  return parseAgentHostResponse(response, (value) => agentMessageSchema.parse(value), "任务已结束或补充发送失败，请重试")
+}
+
 export async function cancelAgentRun(runId: string): Promise<void> {
   const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/cancel`, {
     method: "POST",

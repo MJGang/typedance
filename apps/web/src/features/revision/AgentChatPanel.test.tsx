@@ -13,6 +13,7 @@ const agentHostMocks = vi.hoisted(() => ({
   listAgentRunEvents: vi.fn(),
   listConversationMessages: vi.fn(),
   startConversationRun: vi.fn(),
+  sendAgentRunInput: vi.fn(),
 }))
 
 vi.mock("@assistant-ui/react", () => ({
@@ -28,6 +29,7 @@ vi.mock("@/agentHost", () => ({
   listAgentRunEvents: (...args: unknown[]) => agentHostMocks.listAgentRunEvents(...args),
   listConversationMessages: (...args: unknown[]) => agentHostMocks.listConversationMessages(...args),
   startConversationRun: (...args: unknown[]) => agentHostMocks.startConversationRun(...args),
+  sendAgentRunInput: (...args: unknown[]) => agentHostMocks.sendAgentRunInput(...args),
 }))
 
 function assistantMessage(content: string, runId?: string): AgentMessage {
@@ -176,9 +178,8 @@ describe("AgentChatPanel", () => {
     agentHostMocks.createWorkspaceConversation.mockResolvedValue({ id: "created" })
     if (failure) agentHostMocks.startConversationRun.mockRejectedValue(new Error("发送失败"))
     else agentHostMocks.startConversationRun.mockResolvedValue({ id: "sent", conversation_id: "created", status: "running" })
-    let view: ReturnType<typeof render>
     const props = { workspaceId: "doc_1", contextSources: [], onConversationCreated: (id: string) => view.rerender(<AgentChatPanel {...props} activeConversationId={id} />) }
-    view = render(<AgentChatPanel {...props} />)
+    const view: ReturnType<typeof render> = render(<AgentChatPanel {...props} />)
     typeComposerText(screen.getByRole("textbox"), "待发送的草稿")
     fireEvent.paste(screen.getByRole("textbox"), { clipboardData: { files: [new File(["image"], "cached.png", { type: "image/png" })], getData: () => "" } })
     await screen.findByRole("img", { name: "cached.png" })
@@ -220,7 +221,7 @@ describe("AgentChatPanel", () => {
     render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
     await waitFor(() => expect(agentHostMocks.createAgentRunEventSource).toHaveBeenCalledWith("active"))
     act(() => events.source.onerror?.(new Event("error")))
-    expect(screen.getByRole("status")).toHaveTextContent("正在重连")
+    expect(screen.getByText("连接中断，正在重连")).toBeInTheDocument()
     expect(screen.queryByText("处理失败")).not.toBeInTheDocument()
     expect(events.source.close).not.toHaveBeenCalled()
     act(() => events.dispatch("assistant_delta", { id: "resume", run_id: "active", sequence: 0, type: "assistant_delta", payload: { delta: "恢复后的回答" }, created_at: "2026-10-21T00:00:00.000Z" }))
@@ -774,7 +775,8 @@ describe("AgentChatPanel", () => {
       })
     })
 
-    const toggle = await screen.findByRole("button", { name: /正在思考/ })
+    expect(await screen.findByText(/正在思考/)).toBeInTheDocument()
+    const toggle = screen.getByRole("button", { name: "思考过程" })
     expect(screen.queryByText("Reading the resume and job context.")).not.toBeInTheDocument()
 
     fireEvent.click(toggle)
@@ -794,9 +796,9 @@ describe("AgentChatPanel", () => {
     })
 
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /正在思考/ })).not.toBeInTheDocument()
+      expect(screen.queryByText(/正在思考/)).not.toBeInTheDocument()
     })
-    expect(screen.queryByText("Reading the resume and job context.")).not.toBeInTheDocument()
+    expect(screen.getByText("Reading the resume and job context.")).toBeInTheDocument()
   })
 
   it("hides the in-progress status after assistant output starts", async () => {
@@ -841,7 +843,7 @@ describe("AgentChatPanel", () => {
       })
     })
 
-    expect(await screen.findByRole("button", { name: /正在思考/ })).toBeInTheDocument()
+    expect(await screen.findByText(/正在思考/)).toBeInTheDocument()
 
     act(() => {
       eventSource.dispatch("assistant_delta", {
@@ -855,11 +857,12 @@ describe("AgentChatPanel", () => {
     })
 
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /正在思考/ })).not.toBeInTheDocument()
+      expect(screen.queryByText(/正在思考/)).not.toBeInTheDocument()
     })
     expect(screen.queryByRole("button", { name: /正在处理/ })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /正在回复/ })).not.toBeInTheDocument()
     expect(screen.getByText("Here is the review.")).toBeInTheDocument()
+    expect(screen.getByText(/正在回复/)).toBeInTheDocument()
   })
 
   it("shows completed processing traces without exposing raw thinking", async () => {
@@ -930,16 +933,158 @@ describe("AgentChatPanel", () => {
       />,
     )
 
-    const toggle = await screen.findByRole("button", { name: /已处理 5s/ })
-    expect(screen.getByText("结论")).toBeInTheDocument()
+    await screen.findByText(/已处理 5s/)
+    expect(screen.queryByText("结论")).not.toBeInTheDocument()
     expect(screen.getByText("可以优化专业技能。")).toBeInTheDocument()
     expect(screen.queryByText("我会先读取上下文。")).not.toBeInTheDocument()
 
-    fireEvent.click(toggle)
+    fireEvent.click(screen.getByRole("button", { name: /已运行 alpha.readContext/ }))
 
-    expect(screen.getByText("分析请求与上下文")).toBeInTheDocument()
+    expect(screen.queryByText("分析请求与上下文")).not.toBeInTheDocument()
     expect(screen.queryByText("我会先读取上下文。")).not.toBeInTheDocument()
-    expect(screen.getByText("alpha.readContext")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /已运行 alpha.readContext/ })).toBeInTheDocument()
     expect(screen.getByText(/已持续 3s/)).toBeInTheDocument()
+  })
+
+  it("keeps streaming text, tools, steering and subsequent replies in chronological segments after reload", async () => {
+    const runId = "run_segments"
+    const steering = { ...userMessage("只调整边距，不改文字"), id: "steer", run_id: runId, conversation_id: "conv_1" }
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage("前面的说明最终答复", runId), steering])
+    agentHostMocks.listAgentRunEvents.mockResolvedValue([
+      { type: "assistant_delta", payload: { message_id: "0:answer", delta: "前面的说明" } },
+      { type: "tool_call_started", payload: { tool_call: { id: "read", name: "resume.inspect", input: {} } } },
+      { type: "tool_call_completed", payload: { result: { tool_call_id: "read", status: "completed" } } },
+      { type: "user_input_received", payload: { message_id: "steer" } },
+      { type: "user_input_applied", payload: { message_id: "steer" } },
+      { type: "thinking_delta", payload: { delta: "private reasoning" } },
+      { type: "assistant_delta", payload: { message_id: "1:answer", delta: "最终答复" } },
+      { type: "run_completed", payload: {} },
+    ].map((event, sequence) => ({ ...event, id: `segment-${sequence}`, run_id: runId, sequence, created_at: `2026-06-16T08:00:0${sequence}.000Z` })))
+    render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
+    await screen.findByText("最终答复")
+    const list = screen.getByTestId("agent-chat-messages")
+    expect(list.querySelectorAll("[data-agent-segment-id]")).toHaveLength(2)
+    const content = list.textContent!
+    expect(content.indexOf("前面的说明")).toBeLessThan(content.indexOf("已运行"))
+    expect(content.indexOf("已运行")).toBeLessThan(content.indexOf("只调整边距"))
+    expect(content.indexOf("只调整边距")).toBeLessThan(content.indexOf("最终答复"))
+    expect(screen.getAllByText("只调整边距，不改文字")).toHaveLength(1)
+    expect(screen.queryByText("结论")).not.toBeInTheDocument()
+    expect(screen.queryByText("private reasoning")).not.toBeInTheDocument()
+    expect(screen.queryByText("将在下一步处理")).not.toBeInTheDocument()
+  })
+
+  it("sends follow-up input during a run while preserving a newer draft and the independent stop control", async () => {
+    const eventSource = controllableEventSource()
+    agentHostMocks.createAgentRunEventSource.mockReturnValue(eventSource.source)
+    agentHostMocks.getConversationActiveRun.mockResolvedValue({ id: "run_live", conversation_id: "conv_1", status: "running" })
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage("", "run_live")])
+    let accept!: (message: AgentMessage) => void
+    agentHostMocks.sendAgentRunInput.mockImplementation(() => new Promise<AgentMessage>((resolve) => { accept = resolve }))
+    render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
+    await screen.findByRole("button", { name: "停止" })
+    const composer = screen.getByRole("textbox")
+    typeComposerText(composer, "改成左右 64px")
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+    await waitFor(() => expect(agentHostMocks.sendAgentRunInput).toHaveBeenCalledWith(expect.objectContaining({ runId: "run_live", content: "改成左右 64px" })))
+    expect(screen.getByRole("button", { name: "停止" })).toBeEnabled()
+    expect(composer).toHaveAttribute("contenteditable", "true")
+    typeComposerText(composer, "再补充一点")
+    await act(async () => accept({ ...userMessage("改成左右 64px"), id: "steer_live", run_id: "run_live" }))
+    expect(composer).toHaveTextContent("再补充一点")
+    expect(agentHostMocks.startConversationRun).not.toHaveBeenCalled()
+    act(() => eventSource.dispatch("user_input_received", { id: "received", run_id: "run_live", sequence: 0, type: "user_input_received", created_at: "2026-06-16T08:00:01.000Z", payload: { message_id: "steer_live" } }))
+    expect(await screen.findByText("改成左右 64px")).toBeInTheDocument()
+    expect(screen.getByText("将在下一步处理")).toBeInTheDocument()
+    act(() => eventSource.dispatch("assistant_delta", { id: "answer", run_id: "run_live", sequence: 1, type: "assistant_delta", created_at: "2026-06-16T08:00:02.000Z", payload: { message_id: "0:answer", delta: "开始调整" } }))
+    expect(screen.getByText("改成左右 64px")).toBeInTheDocument()
+    expect(screen.queryByText("改成左右 64px开始调整")).not.toBeInTheDocument()
+  })
+
+  it("keeps follow-up input editable when delivery fails", async () => {
+    agentHostMocks.getConversationActiveRun.mockResolvedValue({ id: "run_live", conversation_id: "conv_1", status: "running" })
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage("", "run_live")])
+    agentHostMocks.sendAgentRunInput.mockRejectedValue(new Error("run ended"))
+    render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
+    await screen.findByRole("button", { name: "停止" })
+    typeComposerText(screen.getByRole("textbox"), "保留这条补充")
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+    await waitFor(() => expect(agentHostMocks.sendAgentRunInput).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByRole("button", { name: "发送" })).toBeEnabled())
+    expect(screen.getByRole("textbox")).toHaveTextContent("保留这条补充")
+  })
+
+  it("updates inline grouped tool statuses without closing expanded details", async () => {
+    const eventSource = controllableEventSource()
+    agentHostMocks.createAgentRunEventSource.mockReturnValue(eventSource.source)
+    agentHostMocks.getConversationActiveRun.mockResolvedValue({ id: "tools", conversation_id: "conv_1", status: "running" })
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage("", "tools")])
+    agentHostMocks.listAgentRunEvents.mockResolvedValue([
+      { type: "assistant_delta", payload: { message_id: "0:answer", delta: "我先检查当前画布。" } },
+      { type: "tool_call_started", payload: { tool_call: { id: "read", name: "resume.inspect", input: { target: "当前画布" } } } },
+      { type: "tool_call_completed", payload: { result: { tool_call_id: "read", status: "completed", output: { ok: true } } } },
+      { type: "tool_call_started", payload: { tool_call: { id: "edit", name: "resume.edit", input: { task: "调整边距" } } } },
+    ].map((event, sequence) => ({ ...event, id: `tool-${sequence}`, run_id: "tools", sequence, created_at: "2026-06-16T08:00:00.000Z" })))
+    render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
+    const group = await screen.findByRole("button", { name: "正在执行 2 项操作" })
+    expect(group).toHaveAttribute("aria-expanded", "false")
+    fireEvent.click(group)
+    expect(screen.getByText(/正在运行 编辑简历/)).toBeInTheDocument()
+    act(() => eventSource.dispatch("tool_call_failed", { id: "failed", run_id: "tools", sequence: 4, type: "tool_call_failed", created_at: "2026-06-16T08:00:03.000Z", payload: { result: { tool_call_id: "edit", status: "failed", error: { message: "编辑器拒绝修改" } } } }))
+    expect(screen.getByRole("button", { name: "已执行 2 项操作，1 项失败" })).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByText(/运行失败 编辑简历/)).toBeInTheDocument()
+    expect(screen.getByText(/编辑器拒绝修改/)).toBeInTheDocument()
+  })
+
+  it("shows image and file read receipts only when the corresponding event arrives", async () => {
+    const eventSource = controllableEventSource()
+    agentHostMocks.createAgentRunEventSource.mockReturnValue(eventSource.source)
+    agentHostMocks.getConversationActiveRun.mockResolvedValue({ id: "read", conversation_id: "conv_1", status: "running" })
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage("", "read")])
+    render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
+    await screen.findByRole("button", { name: "停止" })
+    expect(screen.queryByText(/已查看.*张图片/)).not.toBeInTheDocument()
+    act(() => eventSource.dispatch("attachments_read", { id: "read-ack", run_id: "read", sequence: 0, type: "attachments_read", created_at: "2026-06-16T08:00:01.000Z", payload: { image_count: 1, file_count: 2 } }))
+    expect(screen.getByText("已查看 1 张图片，已读取 2 个文件")).toBeInTheDocument()
+    act(() => eventSource.dispatch("assistant_delta", { id: "read-answer", run_id: "read", sequence: 1, type: "assistant_delta", created_at: "2026-06-16T08:00:02.000Z", payload: { message_id: "0:answer", delta: "图片里的边距确实偏窄。" } }))
+    const list = screen.getByTestId("agent-chat-messages")
+    expect(list.textContent!.indexOf("已查看")).toBeLessThan(list.textContent!.indexOf("图片里的边距"))
+  })
+
+  it.each([
+    { prefix: "```ts\nconst margin = ", suffix: "64\n```", selector: "pre code", text: "const margin = 64" },
+    { prefix: "| 项目 | 说明 |\n| --- | --- |\n| 边距 | ", suffix: "64px |\n", selector: "table", text: "64px" },
+    { prefix: "[页面", suffix: "说明](https://example.com/layout)", selector: "a", text: "页面说明" },
+  ])("preserves streamed Markdown around steering and after replay: $selector", async ({ prefix, suffix, selector, text }) => {
+    const source = controllableEventSource()
+    agentHostMocks.createAgentRunEventSource.mockReturnValue(source.source)
+    agentHostMocks.getConversationActiveRun.mockResolvedValue({ id: "markdown", conversation_id: "conv_1", status: "running" })
+    const steering = { ...userMessage("补充要求"), id: "steer_markdown", conversation_id: "conv_1", run_id: "markdown" }
+    const events = [
+      { id: "md-start", sequence: 0, type: "assistant_delta", payload: { message_id: "0:markdown", delta: prefix } },
+      { id: "md-user", sequence: 1, type: "user_input_received", payload: { message_id: steering.id } },
+      { id: "md-end", sequence: 2, type: "assistant_delta", payload: { message_id: "0:markdown", delta: suffix } },
+    ].map((event) => ({ ...event, run_id: "markdown", created_at: "2026-06-16T08:00:00.000Z" }))
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage(prefix, "markdown"), steering])
+    agentHostMocks.listAgentRunEvents.mockResolvedValue(events.slice(0, 2))
+    const props = { workspaceId: "doc_1", activeConversationId: "conv_1", contextSources: [], onConversationCreated: () => {} }
+    const view = render(<AgentChatPanel {...props} />)
+    await screen.findByText("补充要求")
+    act(() => source.dispatch("assistant_delta", events[2]))
+    const list = screen.getByTestId("agent-chat-messages")
+    expect(list.querySelectorAll("[data-agent-segment-id]")).toHaveLength(1)
+    expect(list.querySelector(selector)).toHaveTextContent(text)
+    expect(list.textContent!.indexOf(text)).toBeLessThan(list.textContent!.indexOf("补充要求"))
+    if (selector === "a") expect(list.querySelector("a")).toHaveAttribute("href", "https://example.com/layout")
+    view.unmount()
+    agentHostMocks.getConversationActiveRun.mockResolvedValue(null)
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage(prefix + suffix, "markdown"), steering])
+    agentHostMocks.listAgentRunEvents.mockResolvedValue([...events, { id: "md-done", sequence: 3, type: "run_completed", payload: {}, run_id: "markdown", created_at: "2026-06-16T08:00:01.000Z" }])
+    render(<AgentChatPanel {...props} />)
+    await screen.findByText("补充要求")
+    const replay = screen.getByTestId("agent-chat-messages")
+    expect(replay.querySelectorAll("[data-agent-segment-id]")).toHaveLength(1)
+    expect(replay.querySelector(selector)).toHaveTextContent(text)
+    expect(screen.getAllByText("补充要求")).toHaveLength(1)
   })
 })

@@ -186,6 +186,7 @@ describe("agent host", () => {
     expect(JSON.stringify(seenRequests[0]?.prompt)).not.toContain("workspace_id");
     expect(host.listAgentRunEvents(run.id).map((event) => event.type)).toEqual([
       "harness_event",
+      "harness_event",
       "thinking_delta",
       "assistant_delta",
       "run_completed",
@@ -628,7 +629,7 @@ describe("agent host", () => {
 
     expect(run.id).not.toBe("run_1");
     const events = host.listAgentRunEvents(run.id);
-    expect(events.map((event) => event.type)).toEqual(["harness_event", "assistant_delta", "run_completed"]);
+    expect(events.map((event) => event.type)).toEqual(["harness_event", "harness_event", "assistant_delta", "run_completed"]);
     expect(JSON.stringify(events)).not.toContain("这个简历怎么样");
     expect(host.listMessages(conversation.id)[1]?.content).toBe("new answer");
   });

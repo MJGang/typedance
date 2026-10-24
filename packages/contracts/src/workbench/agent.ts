@@ -85,6 +85,9 @@ export const agentRunSchema = z.object({
 export const agentRunEventTypeSchema = z.enum([
   "thinking_delta",
   "assistant_delta",
+  "user_input_received",
+  "user_input_applied",
+  "attachments_read",
   "tool_call_started",
   "tool_call_delta",
   "tool_call_completed",
