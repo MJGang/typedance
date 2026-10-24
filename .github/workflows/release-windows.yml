@@ -77,6 +77,10 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: pnpm release
 
+      - name: Smoke test installed package
+        shell: pwsh
+        run: pnpm release:smoke
+
       - name: Publish GitHub Release
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
@@ -92,11 +96,6 @@ jobs:
             --repo $env:TYPEDANCE_UPDATE_REPOSITORY `
             --notes-file docs/release-notes.md `
             --title "TypeDance $version"
-
-      - name: Smoke test installed package
-        if: github.event_name == 'workflow_dispatch'
-        shell: pwsh
-        run: pnpm release:smoke
 
       - name: Compare NSIS compression on identical runtime files
         if: github.event_name == 'workflow_dispatch' && inputs.compare_compression

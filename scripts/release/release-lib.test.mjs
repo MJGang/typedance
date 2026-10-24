@@ -95,6 +95,7 @@ test("release Tauri config bundles only NSIS runtime inputs", () => {
   ])
   assert.deepEqual(config.bundle.resources, {
     "resources/ms-playwright/": "ms-playwright/",
+    "resources/speech-runtime/": "speech-runtime/",
     "../../../plugins/": "plugins/",
   })
   assert.equal(config.bundle.windows.nsis.installMode, "currentUser")

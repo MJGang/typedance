@@ -9,6 +9,10 @@ import {
   agentRunSchema,
   modelSettingsResponseSchema,
   modelSettingsUpdateSchema,
+  speechStatusSchema,
+  type SpeechPreferences,
+  type SpeechStatus,
+  type HarnessAttachment,
   canvasMutationModeSchema,
   type AgentConversation,
   type AgentMessage,
@@ -24,6 +28,24 @@ import {
 } from "@typedance/contracts"
 
 const agentHostBaseUrl = import.meta.env.VITE_AGENT_HOST_URL ?? "http://127.0.0.1:4327"
+
+export async function getSpeechStatus(): Promise<SpeechStatus> {
+  return parseAgentHostResponse(await agentHostFetch(`${agentHostBaseUrl}/speech/settings`), (value) => speechStatusSchema.parse(value), "语音设置加载失败")
+}
+export async function configureSpeech(preferences: SpeechPreferences): Promise<SpeechStatus> {
+  return parseAgentHostResponse(await agentHostFetch(`${agentHostBaseUrl}/speech/settings`, {
+    method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(preferences),
+  }), (value) => speechStatusSchema.parse(value), "语音设置保存失败")
+}
+export async function prepareSpeech(cancel = false): Promise<SpeechStatus> {
+  return parseAgentHostResponse(await agentHostFetch(`${agentHostBaseUrl}/speech/prepare`, { method: cancel ? "DELETE" : "POST" }),
+    (value) => speechStatusSchema.parse(value), "本地模型准备失败")
+}
+export async function transcribeSpeech(audio: string, signal: AbortSignal): Promise<string> {
+  return parseAgentHostResponse(await agentHostFetch(`${agentHostBaseUrl}/speech/transcribe`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ audio }), signal,
+  }), (value) => z.object({ text: z.string() }).parse(value).text, "语音转写失败")
+}
 
 export async function getEditorRequest(runId: string, requestId: string) {
   const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/editor-requests/${encodeURIComponent(requestId)}`)
@@ -119,6 +141,7 @@ export async function startConversationRun(input: {
   content: string
   mentions?: ContextMention[]
   references?: EditorReference[]
+  attachments?: HarnessAttachment[]
   model?: string
   mutationMode?: CanvasMutationMode
   context?: Record<string, unknown>
@@ -133,6 +156,7 @@ export async function startConversationRun(input: {
           content: input.content,
           mentions: input.mentions ?? [],
           ...(input.references?.length ? { references: input.references } : {}),
+          ...(input.attachments?.length ? { attachments: input.attachments } : {}),
         },
         model: input.model,
         mutation_mode: canvasMutationModeSchema.parse(input.mutationMode ?? "review"),
@@ -237,7 +261,7 @@ async function parseAgentHostResponse<T>(
 ): Promise<T> {
   const payload = await response.json().catch(() => null)
   if (!response.ok) {
-    const message = typeof payload?.message === "string" ? payload.message : `${response.status}`
+    const message = typeof payload?.message === "string" ? payload.message : typeof payload?.error === "string" ? payload.error : `${response.status}`
     throw new Error(`${fallbackMessage}: ${message}`)
   }
   return parser(payload)

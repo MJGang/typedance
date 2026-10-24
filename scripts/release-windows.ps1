@@ -67,6 +67,7 @@ function Read-ReleaseVersion {
 function Assert-NoForbiddenReleaseInputs {
     $roots = @(
         (Join-Path $tauriRoot "resources\ms-playwright"),
+        (Join-Path $tauriRoot "resources\speech-runtime"),
         (Join-Path $repositoryRoot "plugins")
     )
     $forbidden = Get-ChildItem $roots -Recurse -Force -File | Where-Object {

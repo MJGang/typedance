@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { isoDateTimeSchema } from "../shared";
 import { editorReferencesSchema } from "./editor-reference";
+import { harnessAttachmentsSchema } from "@typedance/harness-contracts";
+export { harnessAttachmentSchema, harnessAttachmentsSchema, type HarnessAttachment } from "@typedance/harness-contracts";
 
 export const canvasMutationModeSchema = z.enum(["suggest", "review", "solo"]);
 
@@ -61,6 +63,7 @@ export const agentMessageSchema = z.object({
   content: z.string().default(""),
   mentions: z.array(contextMentionSchema).default([]),
   references: editorReferencesSchema.optional(),
+  attachments: harnessAttachmentsSchema.optional(),
   run_id: z.string().min(1).optional(),
   created_at: isoDateTimeSchema,
 });

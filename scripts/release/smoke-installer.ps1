@@ -41,6 +41,11 @@ try {
         throw "Installed TypeDance executable was not found: $installedExecutable"
     }
     $installDirectory = Split-Path -Parent $installedExecutable
+    $speechHost = Join-Path $installDirectory "typedance-agent-host.exe"
+    $speechCheck = Start-Process -FilePath $speechHost -ArgumentList "--check-speech-runtime" -WindowStyle Hidden -PassThru -Wait
+    if ($speechCheck.ExitCode -ne 0) {
+        throw "Installed speech native runtime failed to load (exit $($speechCheck.ExitCode))"
+    }
     $chromium = Get-ChildItem -LiteralPath $installDirectory -Recurse -Filter "chrome.exe" -File |
         Select-Object -First 1
     if (-not $chromium) {

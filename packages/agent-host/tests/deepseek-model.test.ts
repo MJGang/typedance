@@ -10,6 +10,17 @@ import {
 import { buildAgentHostPromptBundle } from "../src/prompt";
 
 describe("DeepSeek model adapter", () => {
+  it("preserves user image parts and document text in provider requests", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(sse("data: [DONE]\n\n")));
+    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-flash" }), fetch: fetchMock });
+    await drain(adapter.stream(makeRequest({ runId: "user-images", agentId: "agent", messages: [{ role: "user", content: [
+      { type: "text", text: "请阅读图片和文档" }, { type: "image", image_url: "data:image/png;base64,aGVsbG8=" }, { type: "text", text: "附件：项目说明.md\nPostgreSQL" },
+    ] }] })));
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.messages.at(-1)).toEqual({ role: "user", content: [
+      { type: "text", text: "请阅读图片和文档" }, { type: "image_url", image_url: { url: "data:image/png;base64,aGVsbG8=" } }, { type: "text", text: "附件：项目说明.md\nPostgreSQL" },
+    ] });
+  });
   it("sends tool images as real provider image parts with their call ID", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(sse("data: [DONE]\n\n")));
     const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-flash" }), fetch: fetchMock });

@@ -20,3 +20,4 @@ export * from "./workbench/agent";
 export * from "./workbench/editor-reference";
 export * from "./workbench/editor-operations";
 export * from "./workbench/model-settings";
+export * from "./workbench/speech";
