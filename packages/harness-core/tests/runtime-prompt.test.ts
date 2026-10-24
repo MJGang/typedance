@@ -67,8 +67,8 @@ describe("HarnessRuntime prompt assembly", () => {
     expect("skillContext" in (captured ?? {})).toBe(false);
     expect("messages" in (captured ?? {})).toBe(false);
     expect(captured?.prompt).toEqual({
-      developer: [],
-      contextual: [],
+      developer: [expect.objectContaining({ source: "harness.runtime" })],
+      contextual: [expect.objectContaining({ source: "harness.task", content: expect.stringContaining("Review this project.") })],
       conversation: [{ role: "user", content: "Review this project." }],
     });
     const requestJson = JSON.stringify(captured);
@@ -76,7 +76,7 @@ describe("HarnessRuntime prompt assembly", () => {
     expect(requestJson).not.toContain("secret_business_context");
   });
 
-  it("passes a host-owned prompt bundle through unchanged", async () => {
+  it("preserves host-owned sections while adding generic task constraints without mutating the caller", async () => {
     let captured: HarnessModelRequest | undefined;
     const runtime = new HarnessRuntime({
       model: {
@@ -141,7 +141,11 @@ describe("HarnessRuntime prompt assembly", () => {
       prompt,
     });
 
-    expect(captured?.prompt).toBe(prompt);
+    expect(captured?.prompt.developer[0]).toEqual(prompt.developer[0]);
+    expect(captured?.prompt.contextual[0]).toEqual(prompt.contextual[0]);
+    expect(captured?.prompt.conversation).toEqual(prompt.conversation);
+    expect(prompt.developer).toHaveLength(1);
+    expect(prompt.contextual).toHaveLength(1);
     expect("messages" in (captured ?? {})).toBe(false);
   });
 });

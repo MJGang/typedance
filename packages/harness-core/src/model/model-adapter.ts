@@ -3,49 +3,9 @@ import type { HarnessModelContent } from "@typedance/harness-contracts";
 export type { HarnessContentPart, HarnessModelContent } from "@typedance/harness-contracts";
 import type { HarnessResolvedCapabilityPolicy } from "../plugin/plugin-registry";
 
-export type HarnessModelMessage =
-  | {
-      role: "system";
-      content: string;
-    }
-  | { role: "user"; content: HarnessModelContent }
-  | {
-      role: "assistant";
-      content: string;
-      toolCalls?: HarnessToolCall[];
-    }
-  | {
-      role: "tool";
-      content: HarnessModelContent;
-      toolCallId: string;
-      toolName: string;
-    };
-
+export type { HarnessModelMessage, HarnessPromptSection, HarnessPromptBundle } from "@typedance/harness-contracts";
+import type { HarnessPromptBundle } from "@typedance/harness-contracts";
 export type HarnessPromptSectionSlot = "developer" | "contextual";
-
-export type HarnessPromptSection = {
-  slot: HarnessPromptSectionSlot;
-  source: string;
-  content: string;
-  priority?: number;
-  budget?: {
-    maxChars: number;
-    originalChars: number;
-    truncated: boolean;
-  };
-  provenance?: {
-    kind: string;
-    sourceId?: string;
-    path?: string;
-    metadata?: Record<string, string>;
-  };
-};
-
-export type HarnessPromptBundle = {
-  developer: HarnessPromptSection[];
-  contextual: HarnessPromptSection[];
-  conversation: HarnessModelMessage[];
-};
 
 export type HarnessModelRequest = {
   signal: AbortSignal;
@@ -56,6 +16,8 @@ export type HarnessModelRequest = {
   prompt: HarnessPromptBundle;
   availableToolNames: string[];
   availableTools: HarnessModelTool[];
+  purpose?: "response" | "compaction";
+  maxOutputTokens?: number;
 };
 
 export type HarnessModelTool = {
@@ -84,6 +46,7 @@ export type HarnessModelStreamEvent =
       type: "final";
       output: Record<string, unknown>;
       usage?: HarnessModelUsage;
+      incomplete?: boolean;
     };
 
 export type HarnessModelUsage = {

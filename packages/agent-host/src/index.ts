@@ -58,6 +58,7 @@ export {
   type DeepSeekModelAdapterOptions,
 } from "./model/deepseek";
 export { createLangfuseTelemetry, type LangfuseTelemetry } from "./observability/langfuse";
+export { JsonFileHarnessCheckpointStore } from "./checkpoint-store";
 export {
   buildAgentHostPromptBundle,
   collectPromptFragments,
@@ -91,6 +92,7 @@ export type AgentHostStartConversationRunInput = {
   };
   model?: string;
   mutationMode?: CanvasMutationMode;
+  resumeFromRunId?: string;
   context?: Record<string, unknown>;
 };
 
@@ -188,6 +190,7 @@ export class AgentHost {
 
   deleteConversation(conversationId: string): boolean {
     if (this.#activeConversations.has(conversationId)) throw new HttpError(409, "conversation_run_active");
+    for (const run of this.store.listRuns(conversationId)) this.runtime.deleteCheckpoint(run.id);
     return this.store.deleteConversation(conversationId);
   }
 
@@ -243,6 +246,11 @@ export class AgentHost {
       throw new Error(`Unknown conversation for workspace: ${conversationId}`);
     }
     if (this.#activeConversations.has(conversationId)) throw new HttpError(409, "conversation_run_active");
+    if (input.resumeFromRunId) {
+      const source = this.store.getRun(input.resumeFromRunId);
+      if (!source || source.conversation_id !== conversationId || source.status === "running" || source.status === "completed"
+        || !this.runtime.getCheckpoint(source.id)) throw new HttpError(409, "run_checkpoint_not_resumable");
+    }
 
     const timestamp = this.#timestamp();
     const { content, mentions, references, attachments, editorSnapshot } = prepareConversationInput(workspaceId, input);
@@ -294,6 +302,7 @@ export class AgentHost {
       editor_snapshot: editorSnapshot,
       references,
       ...(model ? { model } : {}),
+      resume_from_run_id: input.resumeFromRunId,
     };
     const harnessRun = this.runtime.createRun({
       capability_policy: {
@@ -302,7 +311,7 @@ export class AgentHost {
       },
       user_message: content,
       context,
-    });
+    }, { id: agentRun.id });
     this.#runtimeRunIds.set(agentRun.id, harnessRun.id);
     this.#activePacks.set(agentRun.id, pack);
     this.store.updateMessage(assistantMessage.id, { run_id: agentRun.id });
@@ -483,6 +492,7 @@ export class AgentHost {
         messages,
         prompt,
         inputIds,
+        ...(typeof context.resume_from_run_id === "string" ? { resumeFromRunId: context.resume_from_run_id } : {}),
       });
     } catch (error) {
       if (!isTerminalHarnessRunStatus(this.runtime.getRun(run.id).status)) {
@@ -515,8 +525,10 @@ export class AgentHost {
       return event.type === "harness_event" && runtimeEvent?.type === "model.input.consumed" && Array.isArray(runtimeEvent.input_ids) ? runtimeEvent.input_ids : [];
     }));
     const pendingInputs = storedMessages.filter((message) => message.role === "user" && message.id !== context.user_message_id && !consumedInputs.has(message.id));
-    const history = buildConversationModelHistory(storedMessages.filter((message) => message.id !== assistantMessageId),
-      (runId) => eventsByRun.get(runId) ?? [], storedMessages);
+    const history = typeof context.resume_from_run_id === "string"
+      ? storedMessages.filter((message) => message.id === context.user_message_id).map(toModelMessage)
+      : buildConversationModelHistory(storedMessages.filter((message) => message.id !== assistantMessageId),
+        (runId) => eventsByRun.get(runId) ?? [], storedMessages);
     const fallback = [{ role: "user" as const, content: userMessage }];
     const contextInput = {
       workspaceId: String(context.workspace_id ?? ""),
@@ -905,6 +917,7 @@ async function route(context: RouteContext): Promise<boolean> {
         message: parseMessageBody(body.message),
         model: optionalString(body.model),
         mutationMode: body.mutation_mode === undefined ? undefined : canvasMutationModeSchema.parse(body.mutation_mode),
+        resumeFromRunId: optionalString(body.resume_from_run_id),
         context: objectRecord(body.context),
       }
     );

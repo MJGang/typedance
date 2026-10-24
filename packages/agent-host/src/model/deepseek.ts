@@ -124,6 +124,7 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
           model,
           messages: buildDeepSeekMessages(request, toolNameMap),
           stream: true,
+          ...(request.maxOutputTokens ? { max_tokens: request.maxOutputTokens } : {}),
           ...(tools.length > 0 ? { tools, tool_choice: "auto" } : {}),
           ...(options.thinking === false ? {} : { thinking: { type: "enabled" } }),
           ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
@@ -140,8 +141,10 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
 
       let emittedAssistantContent = false;
       let usage: HarnessModelUsage | undefined;
+      let finishReason: string | undefined;
       const toolCalls = new Map<number, DeepSeekToolCall>();
       for await (const chunk of parseDeepSeekSse(response.body)) {
+        finishReason = chunk.choices?.[0]?.finish_reason ?? finishReason;
         if (chunk.usage) {
           usage = {
             inputTokens: chunk.usage.prompt_tokens,
@@ -205,6 +208,7 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
       yield {
         type: "final",
         ...(usage ? { usage } : {}),
+        ...(finishReason === "length" || finishReason === "content_filter" ? { incomplete: true } : {}),
         output: {
           model,
           empty: !emittedAssistantContent,
@@ -326,24 +330,28 @@ async function* parseDeepSeekSse(stream: ReadableStream<Uint8Array>): AsyncItera
       buffer = lines.pop() ?? "";
       for (const line of lines) {
         const chunk = parseSseLine(line);
+        if (chunk === "done") return;
         if (chunk) yield chunk;
       }
     }
     buffer += decoder.decode();
     for (const line of buffer.split(/\r?\n/)) {
       const chunk = parseSseLine(line);
+      if (chunk === "done") return;
       if (chunk) yield chunk;
     }
+    throw new Error("DeepSeek stream ended before its completion marker; the response is incomplete");
   } finally {
     reader.releaseLock();
   }
 }
 
-function parseSseLine(line: string): DeepSeekStreamChunk | undefined {
+function parseSseLine(line: string): DeepSeekStreamChunk | "done" | undefined {
   const trimmed = line.trim();
   if (!trimmed.startsWith("data:")) return undefined;
   const data = trimmed.slice("data:".length).trim();
-  if (!data || data === "[DONE]") return undefined;
+  if (data === "[DONE]") return "done";
+  if (!data) return undefined;
   return JSON.parse(data) as DeepSeekStreamChunk;
 }
 

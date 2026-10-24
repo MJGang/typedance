@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHarnessRuntime, type HarnessModelRequest } from "@typedance/harness-core";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentHost, createAgentHostServer, createMemoryAgentHostStore, type AgentHostHttpServer } from "../src";
 import { createFileModelSettings } from "../src/model-settings";
 
@@ -400,7 +400,7 @@ describe("agent host", () => {
     expect(host.listAgentRunEvents(run.id).some((event) => event.type === "run_failed")).toBe(true);
   });
 
-  it("projects a runtime-handled permission failure once with the original error code", async () => {
+  it("keeps a permission request active and projects cancellation once", async () => {
     const runtime = createHarnessRuntime({
       model: {
         stream: async function* () {
@@ -468,10 +468,12 @@ describe("agent host", () => {
       message: { content: "读取受保护上下文" },
     });
 
+    await vi.waitFor(() => expect(runtime.getRun(run.id).status).toBe("awaiting_permission"));
+    expect(host.getAgentRun(run.id).status).toBe("running");
+    host.cancelAgentRun(run.id);
     await expect(host.waitForRun(run.id)).resolves.toBeUndefined();
-    const failedEvents = host.listAgentRunEvents(run.id).filter((event) => event.type === "run_failed");
-    expect(failedEvents).toHaveLength(1);
-    expect((failedEvents[0]?.payload.error as { code?: string } | undefined)?.code).toBe("agent_tool_permission_required");
+    expect(host.listAgentRunEvents(run.id).filter((event) => event.type === "run_failed")).toHaveLength(0);
+    expect(host.listAgentRunEvents(run.id).filter((event) => event.type === "run_cancelled")).toHaveLength(1);
   });
 
   it("recovers persisted running runs as failed after the host restarts", () => {
