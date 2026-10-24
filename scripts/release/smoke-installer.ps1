@@ -46,6 +46,10 @@ try {
     if ($speechCheck.ExitCode -ne 0) {
         throw "Installed speech native runtime failed to load (exit $($speechCheck.ExitCode))"
     }
+    & node (Join-Path $repositoryRoot "scripts\release\smoke-speech-runtime.mjs") --host $speechHost
+    if ($LASTEXITCODE -ne 0) {
+        throw "Installed speech recognition smoke test failed (exit $LASTEXITCODE)"
+    }
     $chromium = Get-ChildItem -LiteralPath $installDirectory -Recurse -Filter "chrome.exe" -File |
         Select-Object -First 1
     if (-not $chromium) {
