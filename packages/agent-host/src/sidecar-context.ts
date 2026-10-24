@@ -87,7 +87,7 @@ export function createSidecarContextProvider(options: SidecarContextProviderOpti
       }
       return [{ id: "workspace.current", kind: "workspace", sourceId: input.workspaceId, content }];
     })();
-    const mentionTasks = selected.map(async (mention, index): Promise<AgentHostContextItem> => {
+    const mentionTasks = selected.map(async (mention): Promise<AgentHostContextItem> => {
       const url = new URL(`${baseUrl}/context-sources/${encodeURIComponent(mention.context_source_id)}/content`);
       if (mention.target_path) url.searchParams.set("path", mention.target_path);
       let content: string;
@@ -100,7 +100,7 @@ export function createSidecarContextProvider(options: SidecarContextProviderOpti
         input.signal?.throwIfAborted();
         content = `Mentioned context unavailable: ${mention.label}. ${error instanceof Error ? error.message : "Read failed"}`;
       }
-      return { id: `mention.${index}`, kind: "mention", sourceId: mention.context_source_id, path: mention.target_path ?? undefined, content };
+      return { id: `mention.${JSON.stringify([mention.context_source_id, mention.target_path ?? null])}`, kind: "mention", sourceId: mention.context_source_id, path: mention.target_path ?? undefined, content };
     });
     const [workspace, loadedMentions] = await Promise.all([workspaceTask, Promise.all(mentionTasks)]);
     return [...workspace, ...loadedMentions, ...(mentions.length > selected.length ? [{

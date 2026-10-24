@@ -507,20 +507,27 @@ export class AgentHost {
     signal: AbortSignal
   ) {
     const storedMessages = this.store.listMessages(conversationId);
+    const eventsByRun = new Map(storedMessages.filter((message) => message.role === "assistant" && message.run_id)
+      .map((message) => [message.run_id!, this.store.listRunEvents(message.run_id!)] as const));
+    const runEvents = [...eventsByRun.values()].flat();
+    const consumedInputs = new Set(runEvents.flatMap((event) => {
+      const runtimeEvent = event.payload.event as Partial<Extract<HarnessRunEvent, { type: "model.input.consumed" }>> | undefined;
+      return event.type === "harness_event" && runtimeEvent?.type === "model.input.consumed" && Array.isArray(runtimeEvent.input_ids) ? runtimeEvent.input_ids : [];
+    }));
+    const pendingInputs = storedMessages.filter((message) => message.role === "user" && message.id !== context.user_message_id && !consumedInputs.has(message.id));
     const history = buildConversationModelHistory(storedMessages.filter((message) => message.id !== assistantMessageId),
-      (runId) => this.store.listRunEvents(runId), storedMessages);
+      (runId) => eventsByRun.get(runId) ?? [], storedMessages);
     const fallback = [{ role: "user" as const, content: userMessage }];
     const contextInput = {
       workspaceId: String(context.workspace_id ?? ""),
-      mentions,
+      mentions: [...mentions, ...pendingInputs.flatMap((message) => message.mentions)],
       signal,
       ...(context.editor_snapshot ? { editorSnapshot: context.editor_snapshot as EditorSnapshot } : {}),
     };
     const contextItems = await this.#contextProvider?.loadContext(contextInput) ?? [];
-    const readMessages = new Set(storedMessages.filter((message) => message.role === "assistant" && message.run_id)
-      .flatMap((message) => this.store.listRunEvents(message.run_id!))
+    const readMessages = new Set(runEvents
       .filter((event) => event.type === "attachments_read").map((event) => event.payload.message_id));
-    const inputIds = [...new Set([String(context.user_message_id), ...storedMessages
+    const inputIds = [...new Set([String(context.user_message_id), ...pendingInputs.map((message) => message.id), ...storedMessages
       .filter((message) => message.role === "user" && message.attachments?.length && !readMessages.has(message.id)).map((message) => message.id)])];
     return { messages: history.length > 0 ? history : fallback, contextItems, inputIds };
   }
@@ -549,6 +556,7 @@ export class AgentHost {
   ): void {
     const timestamp = event.created_at;
     if (event.type === "model.input.consumed") {
+      this.#appendAgentRunEvent(runId, "harness_event", { event }, timestamp);
       for (const messageId of event.input_ids) {
         const message = this.store.getMessage(messageId);
         if (!message?.attachments?.length) continue;
