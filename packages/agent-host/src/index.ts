@@ -111,6 +111,7 @@ export class AgentHost {
   #runTasks = new Map<string, Promise<Record<string, unknown> | undefined>>();
   #activeConversations = new Set<string>();
   #runtimeRunIds = new Map<string, string>();
+  #activePacks = new Map<string, AgentHostPackDefinition>();
   #subscribers = new Map<string, Set<(event: AgentRunEvent) => void>>();
   #defaultModel?: string;
   #contextProvider?: AgentHostContextProvider;
@@ -243,25 +244,8 @@ export class AgentHost {
     }
     if (this.#activeConversations.has(conversationId)) throw new HttpError(409, "conversation_run_active");
 
-    const content = input.message.content.trim();
-    if (!content) {
-      throw new Error("message.content must be non-empty");
-    }
-
     const timestamp = this.#timestamp();
-    const mentions = (input.message.mentions ?? []).map((mention) => contextMentionSchema.parse(mention));
-    const references = parseEditorReferences(input.message.references);
-    const attachments = parseAttachments(input.message.attachments);
-    const snapshotResult = input.context?.editor_snapshot === undefined ? undefined : editorSnapshotSchema.safeParse(input.context.editor_snapshot);
-    if (snapshotResult && !snapshotResult.success) throw new HttpError(400, "invalid_editor_snapshot");
-    const editorSnapshot = snapshotResult?.data;
-    if (references.some((reference) => reference.document_id !== workspaceId)
-      || (editorSnapshot && editorSnapshot.document_id !== workspaceId)
-      || new Set(references.map((reference) => reference.id)).size !== references.length
-      || references.some((reference) => reference.source.kind === "canvas" && (!editorSnapshot || reference.source.editor_session_id !== editorSnapshot.editor_session_id || reference.source.content_revision !== editorSnapshot.content_revision))) {
-      throw new HttpError(400, "invalid_editor_reference");
-    }
-    if (editorSnapshot && JSON.stringify(editorSnapshot.doc_json).length > 500_000) throw new HttpError(400, "editor_snapshot_too_large");
+    const { content, mentions, references, attachments, editorSnapshot } = prepareConversationInput(workspaceId, input);
     const mutationMode = canvasMutationModeSchema.parse(input.mutationMode ?? "review");
     const userMessage = this.store.appendMessage({
       message: {
@@ -320,6 +304,7 @@ export class AgentHost {
       context,
     });
     this.#runtimeRunIds.set(agentRun.id, harnessRun.id);
+    this.#activePacks.set(agentRun.id, pack);
     this.store.updateMessage(assistantMessage.id, { run_id: agentRun.id });
     const firstUserMessage = conversation.first_user_message ?? content;
     this.store.updateConversation(conversationId, {
@@ -347,6 +332,7 @@ export class AgentHost {
     void combinedTask.finally(() => {
       this.#runTasks.delete(agentRun.id);
       this.#runtimeRunIds.delete(agentRun.id);
+      this.#activePacks.delete(agentRun.id);
       this.#activeConversations.delete(conversationId);
     });
     return agentRun;
@@ -361,6 +347,42 @@ export class AgentHost {
     const runtimeRunId = this.#runtimeRunIds.get(runId);
     if (!runtimeRunId || run.status !== "running") throw new HttpError(409, "agent_run_not_active");
     return this.runtime.cancelRun(runtimeRunId, reason);
+  }
+
+  async steerAgentRun(runId: string, input: Pick<AgentHostStartConversationRunInput, "message" | "context">): Promise<AgentMessage> {
+    const run = this.getAgentRun(runId);
+    const runtimeRunId = this.#runtimeRunIds.get(runId);
+    if (!runtimeRunId || run.status !== "running") throw new HttpError(409, "agent_run_not_active");
+    const conversation = this.store.getConversation(run.conversation_id)!;
+    const prepared = prepareConversationInput(conversation.workspace_id, input);
+    const signal = this.runtime.getRunSignal(runtimeRunId);
+    const runtimeRun = this.runtime.getRun(runtimeRunId);
+    const pack = this.#activePacks.get(runId)!;
+    const session = this.#editorSessions.get(runId);
+    if (session && prepared.editorSnapshot && prepared.editorSnapshot.editor_session_id !== session.snapshot.editor_session_id) {
+      throw new HttpError(409, "editor_session_changed");
+    }
+    const contextItems = await withRunSignal(this.#contextProvider?.loadContext({
+      workspaceId: conversation.workspace_id, mentions: prepared.mentions, signal,
+      ...(prepared.editorSnapshot ? { editorSnapshot: prepared.editorSnapshot } : {}),
+    }) ?? Promise.resolve([]), signal);
+    const skillContext = await withRunSignal(this.runtime.buildAgentSkillContext({ policy: {
+      scopeIds: runtimeRun.capability_policy.scope_ids, pluginIds: runtimeRun.capability_policy.plugin_ids,
+    }, agentId: pack.primaryAgentId }), signal);
+    const contextual = buildAgentHostPromptBundle({ messages: [], skillContext, contextItems }).contextual;
+    const message: AgentMessage = {
+      id: this.#messageId(), conversation_id: run.conversation_id, role: "user", content: prepared.content,
+      mentions: prepared.mentions, run_id: runId, created_at: this.#timestamp(),
+      ...(prepared.references.length ? { references: prepared.references } : {}),
+      ...(prepared.attachments.length ? { attachments: prepared.attachments } : {}),
+    };
+    // Admission and persistence have no await between them: an ended run cannot accept an orphan message.
+    if (isTerminalHarnessRunStatus(this.runtime.getRun(runtimeRunId).status)) throw new HttpError(409, "agent_run_not_active");
+    this.runtime.enqueueUserInput(runtimeRunId, { id: message.id, messages: [toModelMessage(message)], contextual });
+    this.store.appendMessage({ message });
+    if (session && prepared.editorSnapshot && prepared.editorSnapshot.content_revision >= session.snapshot.content_revision) session.snapshot = prepared.editorSnapshot;
+    this.store.updateConversation(run.conversation_id, { last_message_at: message.created_at, updated_at: message.created_at });
+    return message;
   }
 
   streamAgentRunEvents(runId: string, options: { afterSequence?: number } = {}): AsyncIterableIterator<AgentRunEvent> {
@@ -440,7 +462,7 @@ export class AgentHost {
         this.#resumeTools?.enter(signal, { session, model });
       }
       signal.throwIfAborted();
-      const { messages, contextItems } = await withRunSignal(this.#buildModelMessages(conversationId, assistantMessageId, mentions, userMessage, context, signal), signal);
+      const { messages, contextItems, inputIds } = await withRunSignal(this.#buildModelMessages(conversationId, assistantMessageId, mentions, userMessage, context, signal), signal);
       signal.throwIfAborted();
       const skillContext = await withRunSignal(this.runtime.buildAgentSkillContext({
         policy: {
@@ -460,6 +482,7 @@ export class AgentHost {
         model,
         messages,
         prompt,
+        inputIds,
       });
     } catch (error) {
       if (!isTerminalHarnessRunStatus(this.runtime.getRun(run.id).status)) {
@@ -483,16 +506,9 @@ export class AgentHost {
     context: Record<string, unknown>,
     signal: AbortSignal
   ) {
-    const history = this.store
-      .listMessages(conversationId)
-      .filter((message) => message.id !== assistantMessageId)
-      .map((message): HarnessModelMessage => {
-        const text = formatReferencedMessage(message.content, message.references);
-        return message.role === "user" && message.attachments?.length
-          ? { role: "user", content: [{ type: "text", text }, ...message.attachments.map((attachment) => attachment.content.type === "image"
-            ? attachment.content : { type: "text" as const, text: `附件：${attachment.name}\n${attachment.content.text}` })] }
-          : { role: message.role, content: text };
-      });
+    const storedMessages = this.store.listMessages(conversationId);
+    const history = buildConversationModelHistory(storedMessages.filter((message) => message.id !== assistantMessageId),
+      (runId) => this.store.listRunEvents(runId), storedMessages);
     const fallback = [{ role: "user" as const, content: userMessage }];
     const contextInput = {
       workspaceId: String(context.workspace_id ?? ""),
@@ -501,7 +517,12 @@ export class AgentHost {
       ...(context.editor_snapshot ? { editorSnapshot: context.editor_snapshot as EditorSnapshot } : {}),
     };
     const contextItems = await this.#contextProvider?.loadContext(contextInput) ?? [];
-    return { messages: history.length > 0 ? history : fallback, contextItems };
+    const readMessages = new Set(storedMessages.filter((message) => message.role === "assistant" && message.run_id)
+      .flatMap((message) => this.store.listRunEvents(message.run_id!))
+      .filter((event) => event.type === "attachments_read").map((event) => event.payload.message_id));
+    const inputIds = [...new Set([String(context.user_message_id), ...storedMessages
+      .filter((message) => message.role === "user" && message.attachments?.length && !readMessages.has(message.id)).map((message) => message.id)])];
+    return { messages: history.length > 0 ? history : fallback, contextItems, inputIds };
   }
 
   async #projectHarnessEvents(
@@ -527,6 +548,27 @@ export class AgentHost {
     event: HarnessRunEvent
   ): void {
     const timestamp = event.created_at;
+    if (event.type === "model.input.consumed") {
+      for (const messageId of event.input_ids) {
+        const message = this.store.getMessage(messageId);
+        if (!message?.attachments?.length) continue;
+        this.#appendAgentRunEvent(runId, "attachments_read", {
+          message_id: messageId,
+          attachment_ids: message.attachments.map((attachment) => attachment.id),
+          image_count: message.attachments.filter((attachment) => attachment.content.type === "image").length,
+          file_count: message.attachments.filter((attachment) => attachment.content.type !== "image").length,
+        }, timestamp);
+      }
+      return;
+    }
+    if (event.type === "user.input.received") {
+      this.#appendAgentRunEvent(runId, "user_input_received", { message_id: event.input.id }, timestamp);
+      return;
+    }
+    if (event.type === "user.input.applied") {
+      this.#appendAgentRunEvent(runId, "user_input_applied", { message_id: event.input_id }, timestamp);
+      return;
+    }
     if (event.type === "reasoning.summary.delta") {
       this.#appendAgentRunEvent(runId, "thinking_delta", { delta: event.delta, summary_id: event.summary_id }, timestamp);
       return;
@@ -898,6 +940,16 @@ async function route(context: RouteContext): Promise<boolean> {
     return true;
   }
 
+  const agentRunInputMatch = /^\/agent-runs\/([^/]+)\/input$/.exec(pathname);
+  if (request.method === "POST" && agentRunInputMatch) {
+    const body = await readJson(request);
+    const message = await host.steerAgentRun(decodeURIComponent(agentRunInputMatch[1]!), {
+      message: parseMessageBody(body.message), context: objectRecord(body.context),
+    });
+    writeJson(response, 201, message);
+    return true;
+  }
+
   const agentRunCancelMatch = /^\/agent-runs\/([^/]+)\/cancel$/.exec(pathname);
   if (request.method === "POST" && agentRunCancelMatch) {
     const runId = decodeURIComponent(agentRunCancelMatch[1] ?? "");
@@ -1061,6 +1113,65 @@ function objectRecord(value: unknown): Record<string, unknown> {
     return value as Record<string, unknown>;
   }
   throw new Error("context must be an object");
+}
+
+function prepareConversationInput(workspaceId: string, input: Pick<AgentHostStartConversationRunInput, "message" | "context">) {
+  const content = input.message.content.trim();
+  if (!content) throw new HttpError(400, "message.content must be non-empty");
+  const mentions = (input.message.mentions ?? []).map((mention) => contextMentionSchema.parse(mention));
+  const references = parseEditorReferences(input.message.references);
+  const attachments = parseAttachments(input.message.attachments);
+  const snapshotResult = input.context?.editor_snapshot === undefined ? undefined : editorSnapshotSchema.safeParse(input.context.editor_snapshot);
+  if (snapshotResult && !snapshotResult.success) throw new HttpError(400, "invalid_editor_snapshot");
+  const editorSnapshot = snapshotResult?.data;
+  if (references.some((reference) => reference.document_id !== workspaceId)
+    || (editorSnapshot && editorSnapshot.document_id !== workspaceId)
+    || new Set(references.map((reference) => reference.id)).size !== references.length
+    || references.some((reference) => reference.source.kind === "canvas" && (!editorSnapshot || reference.source.editor_session_id !== editorSnapshot.editor_session_id || reference.source.content_revision !== editorSnapshot.content_revision))) {
+    throw new HttpError(400, "invalid_editor_reference");
+  }
+  if (editorSnapshot && JSON.stringify(editorSnapshot.doc_json).length > 500_000) throw new HttpError(400, "editor_snapshot_too_large");
+  return { content, mentions, references, attachments, editorSnapshot };
+}
+
+function toModelMessage(message: AgentMessage): HarnessModelMessage {
+  const text = formatReferencedMessage(message.content, message.references);
+  return message.role === "user" && message.attachments?.length
+    ? { role: "user", content: [{ type: "text", text }, ...message.attachments.map((attachment) => attachment.content.type === "image"
+      ? attachment.content : { type: "text" as const, text: `附件：${attachment.name}\n${attachment.content.text}` })] }
+    : { role: message.role, content: text };
+}
+
+/** Replay response boundaries and consumed steering in the same order the model saw them. */
+function buildConversationModelHistory(messages: AgentMessage[], eventsForRun: (runId: string) => AgentRunEvent[], allMessages: AgentMessage[]): HarnessModelMessage[] {
+  const byId = new Map(allMessages.map((message) => [message.id, message]));
+  return messages.flatMap((message): HarnessModelMessage[] => {
+    if (message.role === "user" && message.run_id) return [];
+    if (message.role !== "assistant" || !message.run_id) return [toModelMessage(message)];
+    const history: HarnessModelMessage[] = [];
+    const applied = new Set<string>();
+    let responseId: unknown;
+    for (const event of eventsForRun(message.run_id)) {
+      if (event.type === "assistant_delta") {
+        const last = history[history.length - 1];
+        const delta = String(event.payload.delta ?? "");
+        if (last?.role === "assistant" && responseId === event.payload.message_id) last.content += delta;
+        else history.push({ role: "assistant", content: delta });
+        responseId = event.payload.message_id;
+      } else if (event.type === "user_input_applied") {
+        const id = String(event.payload.message_id);
+        const steering = byId.get(id);
+        if (steering) history.push(toModelMessage(steering));
+        applied.add(id);
+        responseId = undefined;
+      }
+    }
+    // Accepted input remains conversation history even if the run was stopped before consuming it.
+    for (const steering of allMessages) {
+      if (steering.role === "user" && steering.run_id === message.run_id && !applied.has(steering.id)) history.push(toModelMessage(steering));
+    }
+    return history;
+  });
 }
 
 function parseMessageBody(value: unknown): AgentHostStartConversationRunInput["message"] {

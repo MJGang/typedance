@@ -66,6 +66,7 @@ export class HarnessRuntime {
   #observer?: HarnessRuntimeObserver;
   #controllers = new Map<string, AbortController>();
   #executing = new Set<string>();
+  #pendingInputs = new Map<string, Array<{ id: string; messages: HarnessModelMessage[]; contextual: HarnessPromptBundle["contextual"] }>>();
 
   constructor(options: HarnessRuntimeOptions = {}) {
     this.#now = options.now ?? (() => new Date());
@@ -225,6 +226,16 @@ export class HarnessRuntime {
     });
   }
 
+  /** Accept steering for the active run; consume it only between model/tool steps. */
+  enqueueUserInput(runId: string, input: { id: string; messages: HarnessModelMessage[]; contextual?: HarnessPromptBundle["contextual"] }): void {
+    this.#assertActive(runId);
+    if (!input.id || input.messages.length === 0) throw new Error("User input must contain an id and messages");
+    const pending = this.#pendingInputs.get(runId) ?? [];
+    pending.push(structuredClone({ ...input, contextual: input.contextual ?? [] }));
+    this.#pendingInputs.set(runId, pending);
+    this.#appendEvent(runId, { type: "user.input.received", input: { id: input.id } });
+  }
+
   completeRun(runId: string, output: Record<string, unknown> = {}): HarnessRunEvent {
     return this.#finishRun(runId, "completed", {
       type: "run.completed",
@@ -364,6 +375,7 @@ export class HarnessRuntime {
     model?: string;
     messages: HarnessModelMessage[];
     prompt?: HarnessPromptBundle;
+    inputIds?: string[];
   }): Promise<Record<string, unknown>> {
     this.#assertActive(input.runId);
     if (this.#executing.has(input.runId)) throw new Error(`Run is already executing: ${input.runId}`);
@@ -381,7 +393,7 @@ export class HarnessRuntime {
   }
 
   async #executeAgentTurn(input: {
-    runId: string; agentId: string; model?: string; messages: HarnessModelMessage[]; prompt?: HarnessPromptBundle;
+    runId: string; agentId: string; model?: string; messages: HarnessModelMessage[]; prompt?: HarnessPromptBundle; inputIds?: string[];
   }): Promise<Record<string, unknown>> {
     const signal = this.getRunSignal(input.runId);
     if (!this.#model) {
@@ -401,20 +413,35 @@ export class HarnessRuntime {
       conversation: input.messages,
     };
     const conversation = [...basePrompt.conversation];
+    const contextual = [...basePrompt.contextual];
     const maxModelPasses = 8;
+    let passesWithoutInput = 0;
+    let unconfirmedInputIds = [...(input.inputIds ?? [])];
 
-    for (let pass = 0; pass < maxModelPasses; pass += 1) {
+    for (let pass = 0; passesWithoutInput < maxModelPasses || this.#pendingInputs.get(input.runId)?.length; pass += 1) {
       this.#assertActive(input.runId);
+      const pendingInputs = this.#pendingInputs.get(input.runId) ?? [];
+      if (pendingInputs.length) passesWithoutInput = 0;
+      passesWithoutInput += 1;
+      this.#pendingInputs.delete(input.runId);
+      for (const pending of pendingInputs) {
+        unconfirmedInputIds.push(pending.id);
+        conversation.push(...pending.messages);
+        for (const section of pending.contextual) {
+          const index = contextual.findIndex((existing) => existing.source === section.source && existing.slot === section.slot);
+          if (index < 0) contextual.push(section);
+          else contextual[index] = section;
+        }
+        this.#appendEvent(input.runId, { type: "user.input.applied", input_id: pending.id });
+      }
       let assistantContent = "";
       const toolCalls: HarnessToolCall[] = [];
       let finalOutput: Record<string, unknown> | undefined;
-      const prompt: HarnessPromptBundle = pass === 0
-        ? basePrompt
-        : {
-            developer: basePrompt.developer,
-            contextual: basePrompt.contextual,
-            conversation: [...conversation],
-          };
+      const prompt: HarnessPromptBundle = pass === 0 && pendingInputs.length === 0 ? basePrompt : {
+        developer: basePrompt.developer,
+        contextual: [...contextual],
+        conversation: [...conversation],
+      };
       const stream = this.#streamModel({
         signal,
         runId: input.runId,
@@ -428,14 +455,18 @@ export class HarnessRuntime {
 
       for await (const event of stream) {
         this.#assertActive(input.runId);
+        if (unconfirmedInputIds.length) {
+          this.#appendEvent(input.runId, { type: "model.input.consumed", input_ids: unconfirmedInputIds });
+          unconfirmedInputIds = [];
+        }
         if (event.type === "reasoning_summary_delta") {
-          this.appendReasoningSummaryDelta(input.runId, event.summaryId, event.delta);
+          this.appendReasoningSummaryDelta(input.runId, `${pass}:${event.summaryId}`, event.delta);
           continue;
         }
 
         if (event.type === "assistant_delta") {
           assistantContent += event.delta;
-          this.appendAssistantDelta(input.runId, event.messageId, event.delta);
+          this.appendAssistantDelta(input.runId, `${pass}:${event.messageId}`, event.delta);
           continue;
         }
 
@@ -455,6 +486,11 @@ export class HarnessRuntime {
         });
         for (const call of toolCalls) {
           this.#assertActive(input.runId);
+          if (this.#pendingInputs.get(input.runId)?.length) {
+            conversation.push({ role: "tool", toolCallId: call.id, toolName: call.name,
+              content: "Tool was not executed because new user instructions arrived. Reconsider this action using the new instructions." });
+            continue;
+          }
           const result = await this.invokeAgentTool({
             runId: input.runId,
             agentId: input.agentId,
@@ -480,6 +516,11 @@ export class HarnessRuntime {
             content: serializeToolResultForModel(result),
           });
         }
+        continue;
+      }
+
+      if (this.#pendingInputs.get(input.runId)?.length) {
+        if (assistantContent) conversation.push({ role: "assistant", content: assistantContent });
         continue;
       }
 
@@ -572,6 +613,7 @@ export class HarnessRuntime {
   }
 
   #finishRun(runId: string, status: "completed" | "failed" | "canceled", event: Record<string, unknown>): HarnessRunEvent {
+    this.#pendingInputs.delete(runId);
     if (isTerminalRunStatus(this.getRun(runId).status)) {
       const terminal = this.events.get(runId).find((item) => item.type === "run.completed" || item.type === "run.failed" || item.type === "run.canceled");
       if (!terminal) throw new Error(`Terminal event missing for run: ${runId}`);

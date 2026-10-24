@@ -144,6 +144,16 @@ const harnessUserInputReceivedEventSchema = harnessRunEventBaseSchema.extend({
   input: z.record(z.unknown()).default({}),
 });
 
+const harnessUserInputAppliedEventSchema = harnessRunEventBaseSchema.extend({
+  type: z.literal("user.input.applied"),
+  input_id: z.string().min(1),
+});
+
+const harnessModelInputConsumedEventSchema = harnessRunEventBaseSchema.extend({
+  type: z.literal("model.input.consumed"),
+  input_ids: z.array(z.string().min(1)),
+});
+
 export const harnessRunEventSchema = z.discriminatedUnion("type", [
   harnessRunStartedEventSchema,
   harnessAssistantDeltaEventSchema,
@@ -166,6 +176,8 @@ export const harnessRunEventSchema = z.discriminatedUnion("type", [
   harnessRunFailedEventSchema,
   harnessRunCanceledEventSchema,
   harnessUserInputReceivedEventSchema,
+  harnessUserInputAppliedEventSchema,
+  harnessModelInputConsumedEventSchema,
 ]);
 
 export type HarnessRunEvent = z.infer<typeof harnessRunEventSchema>;

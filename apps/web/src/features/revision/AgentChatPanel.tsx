@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { AssistantRuntimeProvider, useLocalRuntime, type ChatModelAdapter } from "@assistant-ui/react"
-import { ArrowUp, ChevronDown, ChevronRight, Loader2, Mic, MoreHorizontal, PanelRight, Pin, Plus, ShieldCheck, Square, SquarePen, WandSparkles, X } from "lucide-react"
+import { ArrowUp, ChevronDown, ChevronRight, FileText, ImageIcon, Loader2, Mic, MoreHorizontal, PanelRight, Pin, Plus, ShieldCheck, Square, SquarePen, WandSparkles, X } from "lucide-react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import { useEditorReferences } from "./references/EditorReferences"
@@ -23,6 +24,7 @@ import {
   listAgentRunEvents,
   listConversationMessages,
   startConversationRun,
+  sendAgentRunInput,
 } from "@/agentHost"
 import type {
   AgentMessage,
@@ -58,6 +60,9 @@ const terminalEvents = new Set<AgentRunEvent["type"]>(["run_completed", "run_fai
 const streamedEventTypes: AgentRunEvent["type"][] = [
   "thinking_delta",
   "assistant_delta",
+  "user_input_received",
+  "user_input_applied",
+  "attachments_read",
   "tool_call_started",
   "tool_call_delta",
   "tool_call_completed",
@@ -76,9 +81,6 @@ const streamedEventTypes: AgentRunEvent["type"][] = [
 const RUN_TRACE_COPY = {
   thinkingStatus: "正在思考",
   thinkingHeading: "思考内容",
-  preparingContext: "正在准备上下文",
-  emptyCompletedTrace: "暂无处理过程",
-  reasoningSummaryStep: "分析请求与上下文",
 }
 
 const CHAT_BOTTOM_THRESHOLD_PX = 24
@@ -102,8 +104,11 @@ function getRunStatusLabel(terminal: AgentRunEvent, message: AgentMessage): stri
 }
 
 function getInProgressRunStatusLabel(events: AgentRunEvent[]): string | null {
-  if (events[events.length - 1]?.type === "thinking_delta") return RUN_TRACE_COPY.thinkingStatus
-  return null
+  const latest = [...events].reverse().find((event) => event.type !== "user_input_received" && event.type !== "user_input_applied")
+  if (latest?.type === "thinking_delta") return RUN_TRACE_COPY.thinkingStatus
+  if (latest?.type === "assistant_delta") return "正在回复"
+  if (latest?.type === "tool_call_started" || latest?.type === "tool_call_delta" || latest?.type === "editor_request") return "正在执行"
+  return "正在处理"
 }
 
 const assistantMarkdownComponents: Components = {
@@ -198,7 +203,6 @@ function AgentChatContent({
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mutationMode, setMutationMode] = useState<CanvasMutationMode>("review")
   const [model] = useState(defaultAgentModel)
-  const [expandedRuns, setExpandedRuns] = useState<Set<string>>(() => new Set())
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const composerRef = useRef<HTMLDivElement>(null)
   useEffect(() => registerComposer?.(() => composerRef.current?.focus()), [registerComposer])
@@ -270,12 +274,12 @@ function AgentChatContent({
       const [nextMessages, activeRun] = await Promise.all([
         listConversationMessages(conversationId), getConversationActiveRun(conversationId),
       ])
-      const runIds = nextMessages.map((message) => message.run_id).filter((runId): runId is string => !!runId)
+      const runIds = [...new Set(nextMessages.map((message) => message.run_id).filter((runId): runId is string => !!runId))]
       const eventEntries = await Promise.all(runIds.map(async (runId) => [runId, await listAgentRunEvents(runId)] as const))
       if (generation !== loadGenerationRef.current) return null
       const eventsByRun = Object.fromEntries(eventEntries)
       setMessages(nextMessages.map((message) => {
-        const deltas = message.run_id ? eventsByRun[message.run_id]?.filter((event) => event.type === "assistant_delta") : []
+        const deltas = message.role === "assistant" && message.run_id ? eventsByRun[message.run_id]?.filter((event) => event.type === "assistant_delta") : []
         return deltas?.length ? { ...message, content: deltas.map((event) => String(event.payload.delta ?? "")).join("") } : message
       }))
       knownRunEventIdsRef.current = new Set(eventEntries.flatMap(([, events]) => events.map((event) => event.id)))
@@ -396,9 +400,15 @@ function AgentChatContent({
           const delta = typeof parsed.payload.delta === "string" ? parsed.payload.delta : ""
           if (delta) {
             setMessages((current) => current.map((message) => (
-              message.run_id === parsed.run_id ? { ...message, content: `${message.content}${delta}` } : message
+              message.role === "assistant" && message.run_id === parsed.run_id ? { ...message, content: `${message.content}${delta}` } : message
             )))
           }
+        }
+        if (parsed.type === "user_input_received") {
+          void listConversationMessages(conversationId).then((nextMessages) => {
+            if (subscriptionRef.current !== source) return
+            setMessages((current) => [...current, ...nextMessages.filter((message) => message.role === "user" && !current.some((known) => known.id === message.id))])
+          }).catch(() => toast.error("补充消息加载失败，重新打开对话后可查看"))
         }
         if (parsed.type === "canvas_patch_applied") {
           callbacksRef.current.onCanvasPatchApplied?.(parsed)
@@ -437,7 +447,7 @@ function AgentChatContent({
 
   const handleSend = useCallback(async () => {
     const content = input.trim() || (editorReferences?.pending.length ? "请按每处引用的修改要求处理。" : attachments.length ? "请阅读这些附件。" : "")
-    if (!content || runningRunId || pendingSendRef.current || attachmentLoading || voice.phase !== "idle") return
+    if (!content || pendingSendRef.current || attachmentLoading || voice.phase !== "idle") return
     const pending = { workspaceId, expectedConversationId: activeConversationId, createdConversationId: undefined as string | undefined, invalidated: false }
     pendingSendRef.current = pending
     setSending(true)
@@ -452,7 +462,7 @@ function AgentChatContent({
         pending.createdConversationId = conversationId
         onConversationCreated(conversation.id)
       }
-      const run = await startConversationRun({
+      const messageInput = {
         workspaceId,
         conversationId,
         content,
@@ -462,14 +472,24 @@ function AgentChatContent({
         model,
         mutationMode,
         context: { document_id: workspaceId, ...(editorPayload?.snapshot ? { editor_snapshot: editorPayload.snapshot } : {}) },
-      })
+      }
+      const result = runningRunId
+        ? await sendAgentRunInput({ ...messageInput, runId: runningRunId })
+        : await startConversationRun(messageInput)
       if (pending.invalidated) return
       drafts.current.delete(`${workspaceId}:${activeConversationId ?? "new"}`)
       editorReferences?.consume(editorPayload?.references.map((reference) => reference.id) ?? [])
-      setInput("")
-      setAttachments([])
-      setMentions([])
+      setInput((current) => current === input ? "" : current)
+      setAttachments((current) => current.filter((attachment) => !attachments.some((sent) => sent.id === attachment.id)))
+      setMentions((current) => current.filter((mention) => !mentions.includes(mention)))
       setMentionQuery(null)
+      if (runningRunId) {
+        const message = result as AgentMessage
+        setMessages((current) => current.some((known) => known.id === message.id) ? current : [...current, message])
+        onConversationUpdated?.()
+        return
+      }
+      const run = result as AgentRun
       setRunningRunId(run.id)
       await loadMessages(conversationId)
       if (pending.invalidated) return
@@ -492,7 +512,8 @@ function AgentChatContent({
     }
   }, [runningRunId])
 
-  const visibleMessages = messages
+  const visibleMessages = messages.filter((message) => !(message.role === "user" && message.run_id))
+  const hasDraft = !!(input.trim() || editorReferences?.pending.length || attachments.length)
   const headerTitle = activeConversationTitle?.trim() || "当前对话"
 
   return (
@@ -547,16 +568,7 @@ function AgentChatContent({
               key={message.id}
               message={message}
               events={message.run_id ? runEvents[message.run_id] ?? [] : []}
-              expanded={!!message.run_id && expandedRuns.has(message.run_id)}
-              onToggleExpanded={() => {
-                if (!message.run_id) return
-                setExpandedRuns((current) => {
-                  const next = new Set(current)
-                  if (next.has(message.run_id!)) next.delete(message.run_id!)
-                  else next.add(message.run_id!)
-                  return next
-                })
-              }}
+              steeringMessages={messages.filter((item) => item.role === "user" && item.run_id === message.run_id)}
             />
           ))}
         </div>
@@ -591,9 +603,9 @@ function AgentChatContent({
               role="textbox"
               aria-label="AI 输入"
               aria-multiline="true"
-              contentEditable={!sending}
+              contentEditable
               suppressContentEditableWarning
-              data-placeholder="随心输入"
+              data-placeholder={runningRunId ? "随时补充要求" : "随心输入"}
               className="block max-h-60 min-h-24 w-full overflow-y-auto whitespace-pre-wrap break-words bg-transparent px-3 pt-3 text-sm leading-6 text-foreground caret-foreground outline-none empty:before:pointer-events-none empty:before:text-muted-foreground/50 empty:before:content-[attr(data-placeholder)]"
               onInput={(event) => {
                 const composer = event.currentTarget
@@ -669,25 +681,17 @@ function AgentChatContent({
               <Button variant="ghost" size="icon-sm" aria-label="语音输入" title="语音输入" disabled={sending} onClick={() => void voice.start()}>
                 <Mic className="size-4" />
               </Button>
-              <Button
+              {runningRunId ? <Button size="icon-sm" variant={hasDraft ? "ghost" : "default"} className="rounded-full" aria-label="停止" title="停止" onClick={() => void handleCancelRun()}><Square className="fill-current" /></Button> : null}
+              {!runningRunId || hasDraft ? <Button
                 size="icon-sm"
-                aria-label={runningRunId ? "停止" : "发送"}
-                title={runningRunId ? "停止" : "发送"}
-                className={cn(
-                  "size-8 rounded-full bg-neutral-900 text-white hover:bg-neutral-800 disabled:bg-muted-foreground/60 disabled:text-white disabled:opacity-100",
-                  runningRunId && "hover:bg-neutral-900",
-                )}
-                onClick={() => {
-                  if (runningRunId) {
-                    void handleCancelRun()
-                    return
-                  }
-                  void handleSend()
-                }}
-                disabled={!runningRunId && (sending || attachmentLoading || voice.phase !== "idle" || (!input.trim() && !editorReferences?.pending.length && !attachments.length))}
+                aria-label="发送"
+                title={runningRunId ? "发送补充要求" : "发送"}
+                className="rounded-full"
+                onClick={() => void handleSend()}
+                disabled={sending || attachmentLoading || voice.phase !== "idle" || !hasDraft}
               >
-                {runningRunId ? <Square className="size-3.5 fill-current" /> : <ArrowUp className="size-5" />}
-              </Button>
+                <ArrowUp />
+              </Button> : null}
             </div>
           </div>
         </div>
@@ -732,75 +736,73 @@ function EmptyChatState({ onPrompt }: { onPrompt: (prompt: string) => void }) {
 function ChatMessage({
   message,
   events,
-  expanded,
-  onToggleExpanded,
+  steeringMessages = [],
 }: {
   message: AgentMessage
   events: AgentRunEvent[]
-  expanded: boolean
-  onToggleExpanded: () => void
+  steeringMessages?: AgentMessage[]
 }) {
   const isAssistant = message.role === "assistant"
   const orderedEvents = useMemo(() => [...events].sort((a, b) => a.sequence - b.sequence), [events])
   const terminal = orderedEvents.find((event) => terminalEvents.has(event.type))
   const startedAt = orderedEvents[0]?.created_at ?? message.created_at
-  const elapsedMs = useElapsedMs(startedAt, terminal?.created_at)
+  const elapsedMs = useElapsedMs(startedAt, isAssistant && message.run_id ? terminal?.created_at : message.created_at)
   const duration = formatDuration(elapsedMs)
   const statusLabel = terminal ? getRunStatusLabel(terminal, message) : getInProgressRunStatusLabel(orderedEvents)
   const traceItems = useMemo(() => buildRunTraceItems(orderedEvents, { includeRawThinking: !terminal }), [orderedEvents, terminal])
-  const showTraceToggle = isAssistant && !!message.run_id && statusLabel !== null
-  const traceOpen = showTraceToggle && expanded
-  const hasConclusion = isAssistant && message.content.trim().length > 0
   const failure = terminal?.type === "run_failed" ? getRecordString(terminal.payload.error, "message") : undefined
   const requests = useMemo(() => editorRequests(orderedEvents), [orderedEvents])
+  const appliedInputs = new Set(orderedEvents.filter((event) => event.type === "user_input_applied").map((event) => event.payload.message_id))
+  const hasSegments = traceItems.some((item) => item.kind === "assistant")
 
   return (
-    <article data-agent-message-id={message.id} className={cn("space-y-3", message.role === "user" && "rounded-lg bg-muted/60 p-3")}>
+    <article data-agent-message-id={message.id} className={cn("flex flex-col gap-4", message.role === "user" && "rounded-lg bg-muted/60 p-3")}>
       <MessageReferences references={message.references} />
       <ChatAttachments attachments={message.attachments ?? []} />
       {failure ? <p role="alert" className="break-words text-sm leading-6 text-destructive">{failure}</p> : null}
-      {showTraceToggle ? (
-        <button
-          type="button"
-          className="flex items-center gap-1 text-xs text-muted-foreground"
-          onClick={onToggleExpanded}
-          aria-expanded={traceOpen}
-        >
-          <span>{statusLabel}{duration ? ` ${duration}` : ""}</span>
-          {traceOpen ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-        </button>
-      ) : null}
-
-      {traceOpen ? (
-        <div className="space-y-3 border-b border-border pb-4 text-sm leading-7 text-foreground">
-          {traceItems.length > 0 ? traceItems.map((item) => (
-            <RunTraceItemView key={item.id} item={item} />
-          )) : (
-            <p className="text-muted-foreground">{terminal ? RUN_TRACE_COPY.emptyCompletedTrace : RUN_TRACE_COPY.preparingContext}</p>
-          )}
-        </div>
-      ) : null}
-
-      <div className="max-w-none">
-        {message.role === "user" ? (
+      {message.role === "user" ? (
           <p className="m-0 whitespace-pre-wrap text-sm leading-6">
             <HighlightedMessageText text={message.content} mentions={message.mentions} />
           </p>
-        ) : (
-          <MessageReferenceSelection messageId={message.id}>
-            {hasConclusion ? <p className="mb-2 text-sm font-semibold text-foreground">结论</p> : null}
-            <ReactMarkdown skipHtml remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>
-              {message.content}
-            </ReactMarkdown>
-          </MessageReferenceSelection>
-        )}
-      </div>
-      {message.run_id ? requests.map((request) => <EditorRequestCard key={request.id} request={request} runId={message.run_id!} events={orderedEvents} active={!terminal} />) : null}
+      ) : <>
+        {groupToolItems(traceItems).map((item) => {
+          if (item.kind === "tool_group") return <ToolTraceGroup key={item.id} tools={item.tools} />
+          if (item.kind === "assistant") return <AssistantSegment key={item.id} id={item.id} messageId={message.id} text={item.text} />
+          if (item.kind === "user") {
+            const steering = steeringMessages.find((candidate) => candidate.id === item.messageId)
+            return steering ? <div key={item.id} className="flex flex-col gap-1">
+              <ChatMessage message={steering} events={[]} />
+              {!appliedInputs.has(steering.id) ? <span className="px-3 text-xs text-muted-foreground">{terminal ? "本次未处理" : "将在下一步处理"}</span> : null}
+            </div> : null
+          }
+          if (item.kind === "editor") {
+            const request = requests.find((candidate) => candidate.id === item.requestId)
+            return request && message.run_id ? <EditorRequestCard key={item.id} request={request} runId={message.run_id} events={orderedEvents} active={!terminal} /> : null
+          }
+          return <RunTraceItemView key={item.id} item={item} />
+        })}
+        {!hasSegments && message.content ? <AssistantSegment id={message.id} messageId={message.id} text={message.content} /> : null}
+        {message.run_id ? <div role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
+          {!terminal ? <Loader2 className="size-3 animate-spin" /> : null}
+          <span>{statusLabel}{duration ? ` ${duration}` : ""}</span>
+        </div> : null}
+      </>}
     </article>
   )
 }
 
+function AssistantSegment({ id, messageId, text }: { id: string; messageId: string; text: string }) {
+  return <div data-agent-segment-id={id} className="min-w-0 max-w-none">
+    <MessageReferenceSelection messageId={messageId}>
+      <ReactMarkdown skipHtml remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>{text}</ReactMarkdown>
+    </MessageReferenceSelection>
+  </div>
+}
+
 type RunTraceItem =
+  | { id: string; kind: "assistant"; messageId: unknown; text: string }
+  | { id: string; kind: "user"; messageId: string }
+  | { id: string; kind: "editor"; requestId: string }
   | {
       id: string;
       kind: "thinking";
@@ -811,41 +813,81 @@ type RunTraceItem =
       kind: "tool";
       label: string;
       detail?: string;
+      input?: string;
       durationMs?: number;
-      status: "running" | "completed" | "failed";
+      status: "running" | "completed" | "failed" | "cancelled";
     }
   | {
       id: string;
       kind: "event";
       label: string;
       detail?: string;
+      attachment?: "image" | "file";
     };
 
-function RunTraceItemView({ item }: { item: RunTraceItem }) {
+type ToolTraceItem = Extract<RunTraceItem, { kind: "tool" }>
+type GroupedTraceItem = Exclude<RunTraceItem, { kind: "tool" }> | { id: string; kind: "tool_group"; tools: ToolTraceItem[] }
+
+function groupToolItems(items: RunTraceItem[]): GroupedTraceItem[] {
+  const grouped: GroupedTraceItem[] = []
+  for (const item of items) {
+    if (item.kind !== "tool") { grouped.push(item); continue }
+    const last = grouped[grouped.length - 1]
+    if (last?.kind === "tool_group") last.tools.push(item)
+    else grouped.push({ id: item.id, kind: "tool_group", tools: [item] })
+  }
+  return grouped
+}
+
+function toolStatusLabel(status: ToolTraceItem["status"]): string {
+  return status === "running" ? "正在运行" : status === "failed" ? "运行失败" : status === "cancelled" ? "已停止" : "已运行"
+}
+
+function ToolTraceGroup({ tools }: { tools: ToolTraceItem[] }) {
+  const [expanded, setExpanded] = useState(false)
+  const running = tools.some((tool) => tool.status === "running")
+  const failed = tools.filter((tool) => tool.status === "failed").length
+  const stopped = tools.some((tool) => tool.status === "cancelled")
+  const label = tools.length === 1
+    ? `${toolStatusLabel(tools[0].status)} ${tools[0].label}`
+    : `${running ? "正在执行" : stopped ? "已停止" : "已执行"} ${tools.length} 项操作${failed ? `，${failed} 项失败` : ""}`
+  return <Collapsible open={expanded} onOpenChange={setExpanded} className="min-w-0">
+    <CollapsibleTrigger asChild>
+      <Button variant="ghost" size="sm" className="h-auto max-w-full justify-start px-0">
+        {running ? <Loader2 className="animate-spin" /> : <SquarePen />}
+        <span className={cn("truncate text-xs text-muted-foreground", failed > 0 && "text-destructive")}>{label}</span>
+        {expanded ? <ChevronDown /> : <ChevronRight />}
+      </Button>
+    </CollapsibleTrigger>
+    <CollapsibleContent className="max-h-64 overflow-y-auto">
+      <div className="mt-2 flex flex-col gap-3 border-l border-border pl-3 text-muted-foreground">
+        {tools.map((tool) => <div key={tool.id} className="flex min-w-0 flex-col gap-1">
+          {tools.length > 1 ? <p className="break-words text-xs">{toolStatusLabel(tool.status)} {tool.label}</p> : null}
+          {tool.durationMs !== undefined ? <p className="text-xs">已持续 {formatDuration(tool.durationMs)}</p> : null}
+          {tool.input ? <p className="whitespace-pre-wrap break-words text-xs leading-5">{tool.input}</p> : null}
+          {tool.detail ? <p className="whitespace-pre-wrap break-words text-xs leading-5">{tool.detail}</p> : null}
+        </div>)}
+      </div>
+    </CollapsibleContent>
+  </Collapsible>
+}
+
+function RunTraceItemView({ item }: { item: Extract<RunTraceItem, { kind: "thinking" | "event" }> }) {
+  const [expanded, setExpanded] = useState(false)
   if (item.kind === "thinking") {
     return (
-      <div className="space-y-1">
-        <p className="text-xs font-medium text-muted-foreground">{RUN_TRACE_COPY.thinkingHeading}</p>
-        <p className="whitespace-pre-wrap rounded-md border border-border bg-muted/40 px-3 py-2 text-sm leading-6 text-muted-foreground">{item.text}</p>
-      </div>
-    )
-  }
-
-  if (item.kind === "tool") {
-    return (
-      <div className="space-y-1 text-muted-foreground">
-        <p>
-          {item.status === "running" ? "正在运行" : "已运行"} <code className="rounded bg-muted px-1 py-0.5 text-[0.85em] text-foreground">{item.label}</code>
-          {item.durationMs !== undefined ? `，已持续 ${formatDuration(item.durationMs)}` : ""}
-        </p>
-        {item.detail ? <p className="break-words text-xs leading-5">{item.detail}</p> : null}
+      <div className="flex flex-col gap-2">
+        <Button variant="ghost" size="sm" className="h-auto justify-start self-start px-0" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
+          {expanded ? <ChevronDown /> : <ChevronRight />}<span className="text-xs text-muted-foreground">思考过程</span>
+        </Button>
+        {expanded ? <div className="flex flex-col gap-1"><p className="text-xs text-muted-foreground">{RUN_TRACE_COPY.thinkingHeading}</p><p className="whitespace-pre-wrap border-l border-border pl-3 text-sm leading-6 text-muted-foreground">{item.text}</p></div> : null}
       </div>
     )
   }
 
   return (
     <div className="space-y-1 text-muted-foreground">
-      <p>{item.label}</p>
+      <p className="flex items-center gap-2 text-xs">{item.attachment === "image" ? <ImageIcon className="size-3.5 shrink-0" /> : item.attachment === "file" ? <FileText className="size-3.5 shrink-0" /> : null}{item.label}</p>
       {item.detail ? <p className="break-words text-xs leading-5">{item.detail}</p> : null}
     </div>
   )
@@ -869,7 +911,6 @@ function buildRunTraceItems(events: AgentRunEvent[], options: { includeRawThinki
   const items: RunTraceItem[] = []
   const toolStarts = new Map<string, AgentRunEvent>()
   let thinkingItem: Extract<RunTraceItem, { kind: "thinking" }> | undefined
-  let summarizedThinking = false
 
   for (const event of events) {
     if (event.type === "thinking_delta") {
@@ -885,18 +926,34 @@ function buildRunTraceItems(events: AgentRunEvent[], options: { includeRawThinki
           }
           items.push(thinkingItem)
         }
-      } else if (text && !summarizedThinking) {
-        items.push({
-          id: event.id,
-          kind: "event",
-          label: RUN_TRACE_COPY.reasoningSummaryStep,
-        })
-        summarizedThinking = true
       }
       continue
     }
 
     thinkingItem = undefined
+
+    if (event.type === "assistant_delta") {
+      const text = String(event.payload.delta ?? "")
+      const last = items[items.length - 1]
+      if (text && last?.kind === "assistant" && last.messageId === event.payload.message_id) last.text += text
+      else if (text) items.push({ id: event.id, kind: "assistant", messageId: event.payload.message_id, text })
+      continue
+    }
+    if (event.type === "user_input_received") {
+      items.push({ id: event.id, kind: "user", messageId: String(event.payload.message_id) })
+      continue
+    }
+    if (event.type === "editor_request") {
+      items.push({ id: event.id, kind: "editor", requestId: getRecordString(event.payload.request, "id") ?? "" })
+      continue
+    }
+    if (event.type === "attachments_read") {
+      const images = Number(event.payload.image_count ?? 0)
+      const files = Number(event.payload.file_count ?? 0)
+      const labels = [images > 0 ? `已查看 ${images} 张图片` : "", files > 0 ? `已读取 ${files} 个文件` : ""].filter(Boolean)
+      if (labels.length) items.push({ id: event.id, kind: "event", label: labels.join("，"), attachment: images > 0 ? "image" : "file" })
+      continue
+    }
 
     if (event.type === "tool_call_started") {
       const toolCall = event.payload.tool_call
@@ -906,7 +963,7 @@ function buildRunTraceItems(events: AgentRunEvent[], options: { includeRawThinki
         id: event.id,
         kind: "tool",
         label: toolLabel(getRecordString(toolCall, "name")),
-        detail: summarizeRecord(getRecord(toolCall, "input")),
+        input: summarizeRecord(getRecord(toolCall, "input")),
         status: "running",
       })
       continue
@@ -923,6 +980,7 @@ function buildRunTraceItems(events: AgentRunEvent[], options: { includeRawThinki
         kind: "tool",
         label: toolLabel(getRecordString(startedTool, "name") || toolCallId),
         detail: summarizeToolResult(result),
+        input: summarizeRecord(getRecord(startedTool, "input")),
         durationMs: start ? Date.parse(event.created_at) - Date.parse(start.created_at) : undefined,
         status,
       }
@@ -954,6 +1012,10 @@ function buildRunTraceItems(events: AgentRunEvent[], options: { includeRawThinki
     }
   }
 
+  const terminal = events.find((event) => terminalEvents.has(event.type))
+  if (terminal) {
+    for (const item of items) if (item.kind === "tool" && item.status === "running") item.status = terminal.type === "run_failed" ? "failed" : "cancelled"
+  }
   return items
 }
 
