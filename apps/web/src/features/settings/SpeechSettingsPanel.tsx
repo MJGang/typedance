@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { MicrophoneSettingsPanel } from "./MicrophoneSettingsPanel"
 
 const languageNames = { auto: "自动识别", zh: "中文", en: "英语", yue: "粤语", ja: "日语", ko: "韩语" }
 const phaseNames = { checking: "正在检查模型", unprepared: "尚未下载", downloading: "正在下载并校验", ready: "模型已就绪", failed: "准备失败" }
@@ -51,12 +52,14 @@ export function SpeechSettingsPanel() {
       </div>
       {error ? <div role="alert" className="flex flex-col items-start gap-2 text-sm"><p>{error}</p><Button variant="outline" onClick={() => setRetry((current) => current + 1)}>重试</Button></div> : null}
       {preferences ? <FieldGroup>
+        <MicrophoneSettingsPanel />
         <Field>
           <FieldLabel htmlFor="speech-language">识别语言</FieldLabel>
           <Select value={preferences.language} disabled={busy || preparing} onValueChange={(language) => setPreferences({ ...preferences, language: language as SpeechPreferences["language"] })}>
             <SelectTrigger id="speech-language"><SelectValue /></SelectTrigger>
             <SelectContent><SelectGroup>{Object.entries(languageNames).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectGroup></SelectContent>
           </Select>
+          <FieldDescription>中文短句建议选择中文，可减少自动语言判断偏差。</FieldDescription>
         </Field>
         <Field>
           <FieldLabel htmlFor="speech-download-origin">模型下载源</FieldLabel>

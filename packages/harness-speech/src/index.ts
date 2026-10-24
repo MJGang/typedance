@@ -185,25 +185,73 @@ process.once("message", (initial) => {
   const recognizer = new sherpa.OfflineRecognizer(config);
   const detector = new sherpa.Vad({ sileroVad: { model: pathJoin(workerData.directory, "silero_vad.onnx"), threshold: 0.5,
     minSilenceDuration: 0.5, minSpeechDuration: 0.2, maxSpeechDuration: 20, windowSize: 512 }, sampleRate: 16000, numThreads: 1, provider: "cpu", debug: 0 }, 22);
+  let shortDetector;
+  // A stable tone/noise floor is not enough evidence to relax speech detection.
+  function hasForeground(samples) {
+    let mean = 0;
+    for (const sample of samples) mean += sample;
+    mean /= samples.length;
+    const levels = [];
+    for (let i = 0; i + 320 <= samples.length; i += 320) {
+      let energy = 0;
+      for (let j = i; j < i + 320; j++) energy += (samples[j] - mean) ** 2;
+      levels.push(Math.sqrt(energy / 320));
+    }
+    if (levels.length < 5) return false;
+    const sorted = levels.slice().sort((a, b) => a - b);
+    const threshold = Math.max(0.0001, sorted[Math.floor(sorted.length * 0.2)] * 3);
+    return levels.filter(level => level > threshold).length >= 5;
+  }
+  function feed(detector, samples, drain) {
+    for (let i = 0; i < samples.length; i += 512) {
+      const chunk = samples.subarray(i, i + 512);
+      if (chunk.length === 512) detector.acceptWaveform(chunk);
+      else { const padded = new Float32Array(512); padded.set(chunk); detector.acceptWaveform(padded); }
+      drain();
+    }
+    detector.flush(); drain();
+  }
+  function decode(samples) {
+    const stream = recognizer.createStream();
+    stream.acceptWaveform({ samples, sampleRate: 16000 });
+    recognizer.decode(stream);
+    return recognizer.getResult(stream).text.trim();
+  }
   parentPort.on("message", (input) => {
     try {
       config.modelConfig.senseVoice.language = input.language;
       recognizer.setConfig(config); detector.reset();
       const texts = [];
+      const short = input.samples.length <= 16000 * 20;
+      let detected = false;
       let firstSegment = true;
       const drain = () => {
         while (!detector.isEmpty()) {
           const segment = detector.front(false);
-          const from = firstSegment ? Math.max(0, segment.start - 3200) : segment.start;
+          if (segment.start >= input.samples.length) { detector.pop(); continue; }
+          detected = true;
+          const from = firstSegment ? Math.max(0, segment.start - 4800) : segment.start;
           firstSegment = false;
           const speech = input.samples.slice(from, Math.min(input.samples.length, segment.start + segment.samples.length));
-          const stream = recognizer.createStream();
-          stream.acceptWaveform({ samples: speech, sampleRate: 16000 });
-          recognizer.decode(stream); texts.push(recognizer.getResult(stream).text.trim()); detector.pop();
+          if (!short && speech.length) texts.push(decode(speech));
+          detector.pop();
         }
       };
-      for (let i = 0; i < input.samples.length; i += 512) { detector.acceptWaveform(input.samples.subarray(i, i + 512)); drain(); }
-      detector.flush(); drain(); parentPort.postMessage({ text: texts.filter(Boolean).join(" ").trim() });
+      feed(detector, input.samples, drain);
+      if (short && !detected && hasForeground(input.samples)) {
+        shortDetector ??= new sherpa.Vad({ sileroVad: { model: pathJoin(workerData.directory, "silero_vad.onnx"), threshold: 0.15,
+          minSilenceDuration: 0.3, minSpeechDuration: 0.08, maxSpeechDuration: 20, windowSize: 512 }, sampleRate: 16000, numThreads: 1, provider: "cpu", debug: 0 }, 22);
+        shortDetector.reset();
+        feed(shortDetector, input.samples, () => {
+          while (!shortDetector.isEmpty()) {
+            if (shortDetector.front(false).start < input.samples.length) detected = true;
+            shortDetector.pop();
+          }
+        });
+      }
+      // Preserve every word of a bounded dictation; VAD is evidence, not a crop boundary.
+      if (short && detected) texts.push(decode(input.samples));
+      parentPort.postMessage({ text: texts.filter(Boolean).join(" ").trim() });
     } catch (error) { parentPort.postMessage({ error: error instanceof Error ? error.message : "Local recognition failed" }); }
   });
   process.send({ type: "ready" });
