@@ -111,7 +111,7 @@ describe("WorkbenchSidebar", () => {
 
     await waitFor(() => expect(apiMocks.listContextSources).toHaveBeenCalledWith("doc_1"))
     await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1"))
-    await waitFor(() => expect(screen.queryByText("加载上下文")).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText("加载资料")).not.toBeInTheDocument())
     await screen.findByText("还没有对话。")
 
     expect(screen.getAllByRole("button", { name: "新对话" })).toHaveLength(2)
@@ -141,7 +141,7 @@ describe("WorkbenchSidebar", () => {
     )
 
     await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1"))
-    await waitFor(() => expect(screen.queryByText("加载上下文")).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText("加载资料")).not.toBeInTheDocument())
     await screen.findByText("还没有对话。")
 
     const createButtons = screen.getAllByRole("button", { name: "新对话" })
