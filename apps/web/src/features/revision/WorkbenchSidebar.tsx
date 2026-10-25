@@ -27,6 +27,9 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
+import { HoverScrollText } from "@/components/HoverScrollText"
+import { useWorkspaceConversations } from "./WorkspaceConversations"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { SettingsButton } from "@/features/settings/SettingsDialog"
@@ -46,7 +49,6 @@ import {
 } from "@/api"
 import {
   deleteWorkspaceConversation,
-  listWorkspaceConversations,
   listWorkspacePlugins,
   updateWorkspaceConversation,
 } from "@/agentHost"
@@ -57,11 +59,9 @@ type WorkbenchSidebarProps = {
   navigation?: import("react").ReactNode
   workspaceId: string
   activeConversationId?: string
-  conversationRefreshToken?: number
   onSelectConversation: (conversationId: string) => void
   onStartNewConversation: () => void
   onContextSourcesChange: (sources: ContextSource[]) => void
-  onConversationsChange?: (conversations: AgentConversation[]) => void
 }
 
 type DirectoryNodeProps = {
@@ -74,17 +74,15 @@ export function WorkbenchSidebar({
   navigation,
   workspaceId,
   activeConversationId,
-  conversationRefreshToken = 0,
   onSelectConversation,
   onStartNewConversation,
   onContextSourcesChange,
-  onConversationsChange,
 }: WorkbenchSidebarProps) {
   const [contextSources, setContextSources] = useState<ContextSource[]>([])
-  const [conversations, setConversations] = useState<AgentConversation[]>([])
+  const { conversations: workspaceConversations, loading: loadingConversations, refresh: loadConversations } = useWorkspaceConversations()
+  const conversations = workspaceConversations.filter(hasConversationTitle)
   const [plugins, setPlugins] = useState<AgentPluginSummary[]>([])
   const [loadingContext, setLoadingContext] = useState(false)
-  const [loadingConversations, setLoadingConversations] = useState(false)
   const [webDialogOpen, setWebDialogOpen] = useState(false)
   const [webUrl, setWebUrl] = useState("")
   const [pluginDialogOpen, setPluginDialogOpen] = useState(false)
@@ -107,26 +105,9 @@ export function WorkbenchSidebar({
     }
   }, [onContextSourcesChange, workspaceId])
 
-  const loadConversations = useCallback(async () => {
-    setLoadingConversations(true)
-    try {
-      const nextConversations = (await listWorkspaceConversations(workspaceId)).filter(hasConversationTitle)
-      setConversations(nextConversations)
-      onConversationsChange?.(nextConversations)
-    } catch {
-      toast.error("对话加载失败")
-    } finally {
-      setLoadingConversations(false)
-    }
-  }, [onConversationsChange, workspaceId])
-
   useEffect(() => {
     void loadContextSources()
   }, [loadContextSources])
-
-  useEffect(() => {
-    void loadConversations()
-  }, [conversationRefreshToken, loadConversations])
 
   const handleNewConversation = useCallback(() => {
     onStartNewConversation()
@@ -701,7 +682,7 @@ function ConversationRow({
   onSelect: () => void
   onRename: () => void
   onRequestDelete: () => void
-  onChanged: () => Promise<void>
+  onChanged: () => void | Promise<void>
 }) {
   const displayTitle = conversationDisplayTitle(conversation)
   return (
@@ -713,9 +694,19 @@ function ConversationRow({
         onRename()
       }}
     >
-      <button type="button" className="min-w-0 flex-1 truncate text-left" title={displayTitle} onClick={onSelect}>
-        {displayTitle}
-      </button>
+      <HoverCard openDelay={500} closeDelay={100}>
+        <HoverCardTrigger asChild>
+          <button type="button" className="min-w-0 flex-1 text-left" aria-label={displayTitle} onClick={onSelect}>
+            <HoverScrollText text={displayTitle} />
+          </button>
+        </HoverCardTrigger>
+        <HoverCardContent side="right" align="start" sideOffset={12} className="w-80 max-w-[calc(100vw-2rem)] p-3">
+          <p className="break-words text-sm font-medium leading-5">{displayTitle}</p>
+          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><File className="size-3.5" /><span>当前简历</span>
+            <span className="ml-auto">{conversation.last_message_at ? relativeTime(conversation.last_message_at) : ""}</span>
+          </div>
+        </HoverCardContent>
+      </HoverCard>
       <div className="ml-auto flex shrink-0 items-center gap-1 text-muted-foreground">
         {conversation.status === "running" ? <Loader2 className="size-3.5 animate-spin" /> : null}
         {conversation.pinned ? <Pin data-pinned="true" className="size-3" fill="currentColor" /> : null}

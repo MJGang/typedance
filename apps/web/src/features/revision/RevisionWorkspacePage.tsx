@@ -19,6 +19,8 @@ import {
 } from "@/api"
 import { updateWorkspaceConversation } from "@/agentHost"
 import { AgentChatPanel } from "./AgentChatPanel"
+import { EditorRunBridge } from "./EditorRunBridge"
+import { WorkspaceConversationsProvider, useWorkspaceConversations } from "./WorkspaceConversations"
 import { EditorReferencesProvider } from "./references/EditorReferences"
 import { DraftCanvas, type CanvasPatchFlash } from "./DraftCanvas"
 import { PanelResizeHandle } from "./PanelResizeHandle"
@@ -102,7 +104,7 @@ export function RevisionWorkspacePage() {
   const { documentId } = useParams<{ documentId: string }>()
   const { setAssistantPanelVisible } = useOutletContext<RevisionWorkspaceChromeContext>()
   const showAssistant = useCallback(() => setAssistantPanelVisible?.(true), [setAssistantPanelVisible])
-  return <EditorReferencesProvider key={documentId} documentId={documentId ?? ""} onReferenceAdded={showAssistant}><RevisionWorkspaceContent /></EditorReferencesProvider>
+  return <EditorReferencesProvider key={documentId} documentId={documentId ?? ""} onReferenceAdded={showAssistant}><WorkspaceConversationsProvider workspaceId={documentId ?? ""}><RevisionWorkspaceContent /></WorkspaceConversationsProvider></EditorReferencesProvider>
 }
 
 function RevisionWorkspaceContent() {
@@ -126,11 +128,10 @@ function RevisionWorkspaceContent() {
   const [titleSaveError, setTitleSaveError] = useState<string | null>(null)
   const [isSavingTitle, setIsSavingTitle] = useState(false)
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>()
-  const [conversations, setConversations] = useState<AgentConversation[]>([])
+  const { conversations, loaded: conversationsLoaded, revision: conversationRevision, refresh: refreshConversations } = useWorkspaceConversations()
   const [renamingConversation, setRenamingConversation] = useState<AgentConversation | null>(null)
   const [conversationNameDraft, setConversationNameDraft] = useState("")
   const [savingConversationName, setSavingConversationName] = useState(false)
-  const [conversationRefreshToken, setConversationRefreshToken] = useState(0)
   const [contextSources, setContextSources] = useState<ContextSource[]>([])
   const [canvasPatchFlash, setCanvasPatchFlash] = useState<CanvasPatchFlash | null>(null)
   const canvasPatchFlashSequenceRef = useRef(0)
@@ -189,10 +190,6 @@ function RevisionWorkspaceContent() {
     setCanvasPatchFlash(patchFlashFromRunEvent(event, canvasPatchFlashSequenceRef.current))
   }, [])
 
-  const refreshConversations = useCallback(() => {
-    setConversationRefreshToken((current) => current + 1)
-  }, [])
-
   const handleConversationCreated = useCallback((conversationId: string) => {
     setActiveConversationId(conversationId)
     refreshConversations()
@@ -208,14 +205,14 @@ function RevisionWorkspaceContent() {
     setAssistantPanelVisible?.(true)
   }, [setAssistantPanelVisible])
 
-  const handleConversationsChange = useCallback((nextConversations: AgentConversation[]) => {
-    setConversations(nextConversations)
+  useEffect(() => {
+    if (!conversationsLoaded) return
     setActiveConversationId((currentConversationId) => (
-      currentConversationId && nextConversations.some((conversation) => conversation.id === currentConversationId)
+      currentConversationId && conversations.some((conversation) => conversation.id === currentConversationId)
         ? currentConversationId
         : undefined
     ))
-  }, [])
+  }, [conversationsLoaded, conversations])
 
   const activeConversation = conversations.find((conversation) => conversation.id === activeConversationId)
 
@@ -306,7 +303,6 @@ function RevisionWorkspaceContent() {
     const requestEpoch = ++loadRequestEpochRef.current
     setState({ status: "loading" })
     setActiveConversationId(undefined)
-    setConversations([])
     setContextSources([])
     void (async () => {
       await flushCanvasSaves()
@@ -574,11 +570,9 @@ function RevisionWorkspaceContent() {
               )}
               workspaceId={documentId}
               activeConversationId={activeConversationId}
-              conversationRefreshToken={conversationRefreshToken}
               onSelectConversation={handleSelectConversation}
               onStartNewConversation={handleStartNewConversation}
               onContextSourcesChange={setContextSources}
-              onConversationsChange={handleConversationsChange}
             />
           </div>
           <PanelResizeHandle
@@ -780,6 +774,9 @@ function RevisionWorkspaceContent() {
             </div>
           </div>
         </section>
+        {conversations.filter((conversation) => conversation.status === "running").map((conversation) => (
+          <EditorRunBridge key={conversation.id} conversationId={conversation.id} revision={conversationRevision} onCompleted={refreshConversations} />
+        ))}
         {assistantPanelVisible ? (
           <PanelResizeHandle
             ariaLabel="调整 AI 面板宽度"
@@ -794,7 +791,7 @@ function RevisionWorkspaceContent() {
         {assistantPanelVisible ? (
           <AgentChatPanel
             workspaceId={workspace.document.id}
-            activeConversationId={activeConversation?.id}
+            activeConversationId={activeConversationId}
             activeConversationTitle={conversationDisplayTitle(activeConversation)}
             activeConversationPinned={activeConversation?.pinned}
             contextSources={contextSources}

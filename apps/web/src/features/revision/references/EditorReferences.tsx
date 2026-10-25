@@ -165,7 +165,7 @@ export function EditorReferencesProvider({ documentId, children, onReferenceAdde
           }
         }
         const snapshot = await bridge.getSnapshot()
-        if (snapshot.editor_session_id !== request.editor_session_id || canvas.current !== bridge) throw new Error("编辑会话已切换")
+        if ((request.kind === "transaction" && snapshot.editor_session_id !== request.editor_session_id) || canvas.current !== bridge) throw new Error("编辑会话已切换")
         return { status: request.kind === "snapshot" ? "snapshot" : unchanged ? "unchanged" : "applied", snapshot, ...(applied ? { persisted } : {}) }
       } catch (error) {
         const message = error instanceof Error ? error.message : "编辑器操作失败"

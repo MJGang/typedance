@@ -55,10 +55,6 @@ export function EditorRequestCard({ runId, request, events, active }: { runId: s
     }
   }, [runId, request.id, handleRequest, completeRequest])
 
-  useEffect(() => {
-    if (active && !resolved && !status && !error && (request.kind === "snapshot" || request.mode === "solo")) void submit(true)
-  }, [active, resolved, status, error, request.kind, request.mode, submit])
-
   if (request.kind === "snapshot") return error ? <div><p role="alert" className="text-sm text-destructive">{error}</p>{active ? <Button variant="outline" size="sm" disabled={busy} onClick={() => { void submit(true) }}>重试读取画布</Button> : null}</div> : null
   const transaction = request.transaction
   if (!transaction) return null

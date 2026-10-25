@@ -9,7 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 
 const effortLabels: Record<ReasoningEffort, string> = { off: "Off", low: "Low", high: "High", max: "Max" }
 
-export function ChatModelMenu({ disabled }: { disabled: boolean }) {
+export function ChatModelMenu({ disabled, running = false }: { disabled: boolean; running?: boolean }) {
   const [selection, setSelection] = useState<ModelSelection | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(false)
@@ -59,7 +59,7 @@ export function ChatModelMenu({ disabled }: { disabled: boolean }) {
     <DropdownMenuContent side="top" align="end" className="w-64" aria-label="模型与推理强度">
       <DropdownMenuGroup>
         {pane === "root" ? <>
-          <DropdownMenuItem disabled={!selection} className="gap-2" onSelect={(event) => { event.preventDefault(); setPane("model") }}>
+          <DropdownMenuItem disabled={!selection || running} className="gap-2" onSelect={(event) => { event.preventDefault(); setPane("model") }}>
             <span>模型</span><span className="ml-auto truncate text-xs text-muted-foreground">{name}</span><ChevronRight />
           </DropdownMenuItem>
           {current?.reasoning_efforts.length ? <DropdownMenuItem className="gap-2" onSelect={(event) => { event.preventDefault(); setPane("reasoning") }}>
@@ -70,18 +70,20 @@ export function ChatModelMenu({ disabled }: { disabled: boolean }) {
           <DropdownMenuLabel>{pane === "model" ? "DeepSeek" : "推理强度"}</DropdownMenuLabel>
           {pane === "model" ? <>
             <DropdownMenuRadioGroup value={selection?.model} onValueChange={(model) => {
+              if (running) return
               const option = selection?.models.find((entry) => entry.id === model)
               void choose(model, option?.reasoning_efforts.length ? effort ?? "high" : null)
             }}>
-              {selection?.models.map((model) => <DropdownMenuRadioItem key={model.id} value={model.id}>{model.name}</DropdownMenuRadioItem>)}
+              {selection?.models.map((model) => <DropdownMenuRadioItem key={model.id} value={model.id} disabled={running || saving}>{model.name}</DropdownMenuRadioItem>)}
             </DropdownMenuRadioGroup>
           </> :
             <DropdownMenuRadioGroup value={effort ?? undefined} onValueChange={(value) => { if (selection) void choose(selection.model, value as ReasoningEffort) }}>
-              {current?.reasoning_efforts.map((value) => <DropdownMenuRadioItem key={value} value={value}>{effortLabels[value]}</DropdownMenuRadioItem>)}
+              {current?.reasoning_efforts.map((value) => <DropdownMenuRadioItem key={value} value={value} disabled={saving}>{effortLabels[value]}</DropdownMenuRadioItem>)}
             </DropdownMenuRadioGroup>
           }
         </>}
       </DropdownMenuGroup>
+      {running ? <p className="px-2 py-1 text-xs text-muted-foreground">推理强度从下一次思考起生效。</p> : null}
       {error ? <p role="alert" className="px-2 py-1 text-xs text-destructive">模型配置加载失败，重新打开可重试</p> : null}
     </DropdownMenuContent>
   </DropdownMenu>

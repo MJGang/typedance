@@ -4,6 +4,22 @@ import { createDeepSeekModelAdapter } from "../src/model/deepseek";
 import { buildAgentHostPromptBundle } from "../src/prompt";
 
 describe("createDeepSeekModelAdapter", () => {
+  it("uses a changed reasoning setting on the next call of the same run without changing its model", async () => {
+    let effort = "high" as "high" | "low";
+    const bodies: Record<string, unknown>[] = [];
+    const adapter = createDeepSeekModelAdapter({
+      resolveSettings: () => ({ apiKey: "test", baseUrl: undefined, defaultModel: "deepseek-v4-pro", reasoningEffort: effort }),
+      fetch: async (_url, init) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return new Response(sse('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n'));
+      },
+    });
+    const request = { ...makeRequest(), model: "deepseek-flash" };
+    await drain(adapter.stream(request));
+    effort = "low";
+    await drain(adapter.stream(request));
+    expect(bodies.map((body) => [body.model, body.reasoning_effort])).toEqual([["deepseek-flash", "high"], ["deepseek-flash", "low"]]);
+  });
   it.each(["off", "low", "high", "max"] as const)("sends the selected %s effort and requests authoritative usage", async (effort) => {
     let body: Record<string, unknown> = {};
     const adapter = createDeepSeekModelAdapter({

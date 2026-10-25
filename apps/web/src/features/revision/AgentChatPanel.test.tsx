@@ -122,6 +122,7 @@ function mockMessageListScroll(
 
 describe("AgentChatPanel", () => {
   beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} })
     Object.values(agentHostMocks).forEach((mock) => mock.mockReset())
     agentHostMocks.getModelSelection.mockResolvedValue({ model: "deepseek-flash", reasoning_effort: "high", models: [
       { id: "deepseek-flash", name: "DeepSeek-V4.1-Flash", context_window: 1_000_000, reasoning_efforts: ["off", "low", "high", "max"] },
@@ -263,6 +264,24 @@ describe("AgentChatPanel", () => {
     await waitFor(() => expect(events.source.close).toHaveBeenCalled())
     act(() => events.dispatch("assistant_delta", { id: "late", run_id: "active", sequence: 0, type: "assistant_delta", payload: { delta: "旧会话迟到消息" }, created_at: "2026-10-21T00:00:00.000Z" }))
     expect(screen.queryByText("旧会话迟到消息")).not.toBeInTheDocument()
+  })
+
+  it("clears the previous conversation immediately while the next history is pending", async () => {
+    let finishLoad!: (messages: AgentMessage[]) => void
+    agentHostMocks.listConversationMessages.mockResolvedValueOnce([assistantMessage("previous conversation")])
+      .mockImplementationOnce(() => new Promise((resolve) => { finishLoad = resolve }))
+    const props = { workspaceId: "doc_1", contextSources: [], onConversationCreated: () => {} }
+    const view = render(<AgentChatPanel {...props} activeConversationId="conv_1" />)
+    await screen.findByText("previous conversation")
+    view.rerender(<AgentChatPanel {...props} activeConversationId="conv_2" />)
+    expect(screen.queryByText("previous conversation")).not.toBeInTheDocument()
+    expect(screen.getByText("正在加载对话…")).toBeInTheDocument()
+    view.rerender(<AgentChatPanel {...props} />)
+    expect(screen.getByText("从当前画布开始")).toBeInTheDocument()
+    await act(async () => { finishLoad([assistantMessage("late conversation", "old-run")]) })
+    expect(screen.queryByText("late conversation")).not.toBeInTheDocument()
+    expect(agentHostMocks.listAgentRunEvents).not.toHaveBeenCalled()
+    expect(agentHostMocks.cancelAgentRun).not.toHaveBeenCalled()
   })
 
   it("ignores a pending send after the user clears the selected conversation", async () => {
@@ -474,7 +493,7 @@ describe("AgentChatPanel", () => {
 
     expect(headers).toEqual(["问题", "建议"])
     expect(cells).toEqual(["缺乏作品集", "补充 GitHub / 个人博客链接"])
-    await waitFor(() => expect(agentHostMocks.listConversationMessages).toHaveBeenCalledWith("conv_1"))
+    await waitFor(() => expect(agentHostMocks.listConversationMessages).toHaveBeenCalledWith("conv_1", expect.any(AbortSignal)))
   })
 
   it("does not label failed or empty assistant runs as processed", async () => {
@@ -577,7 +596,7 @@ describe("AgentChatPanel", () => {
     fireEvent.keyDown(screen.getByLabelText("AI 输入"), { key: "Enter" })
 
     await waitFor(() => expect(agentHostMocks.startConversationRun).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(agentHostMocks.listConversationMessages).toHaveBeenCalledWith("conv_new"))
+    await waitFor(() => expect(agentHostMocks.listConversationMessages).toHaveBeenCalledWith("conv_new", expect.any(AbortSignal)))
     await waitFor(() => expect(onConversationUpdated).toHaveBeenCalled())
     expect(screen.getByText("检查这份简历质量")).toBeInTheDocument()
     expect(agentHostMocks.startConversationRun).toHaveBeenCalledWith(expect.objectContaining({

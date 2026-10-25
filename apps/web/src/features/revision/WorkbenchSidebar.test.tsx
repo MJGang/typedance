@@ -1,8 +1,14 @@
 import "@testing-library/jest-dom/vitest"
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { fireEvent, render as renderBase, screen, waitFor, within } from "@testing-library/react"
+import type { ReactElement } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { WorkbenchSidebar } from "./WorkbenchSidebar"
+import { WorkspaceConversationsProvider } from "./WorkspaceConversations"
+
+function render(element: ReactElement) {
+  return renderBase(<WorkspaceConversationsProvider workspaceId="doc_1">{element}</WorkspaceConversationsProvider>)
+}
 
 const apiMocks = vi.hoisted(() => ({
   addDirectoryContextSource: vi.fn(),
@@ -64,6 +70,7 @@ vi.mock("@/tauri", () => ({
 
 describe("WorkbenchSidebar", () => {
   beforeEach(() => {
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} })
     Object.values(apiMocks).forEach((mock) => mock.mockReset())
     Object.values(agentHostMocks).forEach((mock) => mock.mockReset())
     apiMocks.listContextSources.mockResolvedValue([])
@@ -74,6 +81,13 @@ describe("WorkbenchSidebar", () => {
       base_url: "https://api.deepseek.com",
       api_key: { configured: false, preview: null },
     })
+  })
+
+  it("recovers the workspace conversation list after an initial network failure", async () => {
+    agentHostMocks.listWorkspaceConversations.mockRejectedValueOnce(new Error("network failure"))
+    render(<TooltipProvider><WorkbenchSidebar workspaceId="doc_1" onSelectConversation={() => {}} onStartNewConversation={() => {}} onContextSourcesChange={() => {}} /></TooltipProvider>)
+    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledTimes(2), { timeout: 3500 })
+    expect(await screen.findByText("还没有对话。")).toBeInTheDocument()
   })
 
   it("loads AI settings from Agent Host instead of hardcoded frontend defaults", async () => {
@@ -110,7 +124,7 @@ describe("WorkbenchSidebar", () => {
     )
 
     await waitFor(() => expect(apiMocks.listContextSources).toHaveBeenCalledWith("doc_1"))
-    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1"))
+    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1", expect.any(AbortSignal)))
     await waitFor(() => expect(screen.queryByText("加载资料")).not.toBeInTheDocument())
     await screen.findByText("还没有对话。")
 
@@ -140,7 +154,7 @@ describe("WorkbenchSidebar", () => {
       </TooltipProvider>,
     )
 
-    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1"))
+    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1", expect.any(AbortSignal)))
     await waitFor(() => expect(screen.queryByText("加载资料")).not.toBeInTheDocument())
     await screen.findByText("还没有对话。")
 
@@ -209,10 +223,10 @@ describe("WorkbenchSidebar", () => {
 
     const namedRow = await screen.findByRole("button", { name: "查明提示词管理方式" })
     const previewRow = await screen.findByRole("button", { name: longPreview })
-    expect(namedRow).toHaveClass("truncate")
-    expect(namedRow).toHaveAttribute("title", "查明提示词管理方式")
-    expect(previewRow).toHaveClass("truncate")
-    expect(previewRow).toHaveAttribute("title", longPreview)
+    expect(namedRow.querySelector("[data-hover-scroll-text]")).toBeInTheDocument()
+    expect(namedRow).toHaveAttribute("aria-label", "查明提示词管理方式")
+    expect(previewRow.querySelector("[data-hover-scroll-text]")).toBeInTheDocument()
+    expect(previewRow).toHaveAttribute("aria-label", longPreview)
   })
 
   it("renames a conversation from the row context menu", async () => {
@@ -284,7 +298,7 @@ describe("WorkbenchSidebar", () => {
       </TooltipProvider>,
     )
 
-    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1"))
+    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1", expect.any(AbortSignal)))
     expect(document.querySelector("[data-conversation-row]")).not.toBeInTheDocument()
     expect(screen.getByText("还没有对话。")).toBeInTheDocument()
   })
@@ -318,7 +332,7 @@ describe("WorkbenchSidebar", () => {
     const row = (await screen.findByRole("button", { name: "质量检查" })).closest("[data-conversation-row]") as HTMLElement | null
     expect(row).not.toBeNull()
     expect(within(row!).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
-      null,
+      "质量检查",
       "质量检查操作",
       "重命名质量检查",
     ])

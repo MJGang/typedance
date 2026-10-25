@@ -45,4 +45,15 @@ describe("chat model selection", () => {
     expect(await screen.findByRole("button", { name: /当前 DeepSeek-V4-Pro，推理强度 Low/ })).toBeInTheDocument()
     expect(screen.queryByRole("menu")).not.toBeInTheDocument()
   })
+  it("allows changing reasoning during a run while keeping the running model fixed", async () => {
+    render(<ChatModelMenu disabled={false} running />)
+    const trigger = await screen.findByRole("button", { name: /当前 DeepSeek-V4.1-Flash/ })
+    expect(trigger).toBeEnabled()
+    fireEvent.keyDown(trigger, { key: "Enter" })
+    expect(await screen.findByRole("menuitem", { name: /模型 DeepSeek-V4.1-Flash/ })).toHaveAttribute("aria-disabled", "true")
+    fireEvent.click(screen.getByRole("menuitem", { name: /推理强度 High/ }))
+    expect(screen.getByText("推理强度从下一次思考起生效。")).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Low" }))
+    await waitFor(() => expect(updateModelSelection).toHaveBeenCalledWith({ model: "deepseek-flash", reasoning_effort: "low" }))
+  })
 });

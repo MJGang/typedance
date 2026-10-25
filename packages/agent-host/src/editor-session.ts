@@ -21,6 +21,24 @@ export class EditorSession {
     this.#emit = input.emit;
   }
 
+  updateSnapshot(snapshot: EditorSnapshot): void {
+    if (snapshot.document_id !== this.snapshot.document_id) throw new Error("编辑器快照不属于本次授权文档");
+    if (snapshot.editor_session_id === this.snapshot.editor_session_id) {
+      if (snapshot.content_revision >= this.snapshot.content_revision) this.snapshot = snapshot;
+      return;
+    }
+    // A fresh read can reconnect the same document. Old transactions must be regenerated.
+    for (const [id, item] of this.#pending) {
+      item.cleanup();
+      this.#pending.delete(id);
+      const error = "编辑器已重新连接，请重新读取当前画布后操作";
+      if (item.request.kind === "transaction") this.#decisions.push({ status: "failed" });
+      this.#emit("editor_response", { request_id: id, status: "failed", error });
+      item.resolve({ status: "failed", error });
+    }
+    this.snapshot = snapshot;
+  }
+
   pending(requestId: string): EditorRequest {
     const item = this.#pending.get(requestId);
     if (!item || this.#signal.aborted) throw new Error("编辑请求已结束，请重新发送任务");
@@ -32,15 +50,15 @@ export class EditorSession {
     if (!item || this.#signal.aborted) throw new Error("编辑请求已结束");
     const response = editorResponseSchema.parse(value);
     const snapshot = response.snapshot;
-    if (snapshot && (snapshot.document_id !== this.snapshot.document_id || snapshot.editor_session_id !== this.snapshot.editor_session_id
+    if (snapshot && (snapshot.document_id !== this.snapshot.document_id || (item.request.kind !== "snapshot" && snapshot.editor_session_id !== this.snapshot.editor_session_id)
       || JSON.stringify(snapshot.doc_json).length > 500_000)) throw new Error("编辑器快照不属于本次授权文档或编辑会话");
     if ((response.status === "snapshot" || response.status === "applied" || response.status === "unchanged") && !snapshot) throw new Error("编辑器必须返回实际快照");
     if (item.request.kind === "snapshot" && (response.status === "applied" || response.status === "unchanged")) throw new Error("只读请求不能报告写入");
     if (item.request.kind === "transaction" && response.status === "snapshot") throw new Error("写请求必须返回实际执行决定");
-    if (snapshot && snapshot.content_revision < this.snapshot.content_revision) throw new Error("编辑器返回了过期快照");
+    if (snapshot && snapshot.editor_session_id === this.snapshot.editor_session_id && snapshot.content_revision < this.snapshot.content_revision) throw new Error("编辑器返回了过期快照");
     item.cleanup();
     this.#pending.delete(requestId);
-    if (snapshot) this.snapshot = snapshot;
+    if (snapshot) this.updateSnapshot(snapshot);
     if (item.request.kind === "transaction") this.#decisions.push({ status: response.status,
       ...(response.status === "applied" ? { persisted: response.persisted === true } : {}), revision: snapshot?.content_revision });
     this.#emit("editor_response", { request_id: requestId, status: response.status, error: response.error,
@@ -57,6 +75,7 @@ export class EditorSession {
 
   async apply(transaction: EditorTransaction): Promise<EditorResponse> {
     if (this.mode === "suggest") throw new Error("建议模式不能修改文档，请切换手动应用或自动修改模式");
+    if (transaction.editor_session_id !== this.snapshot.editor_session_id) throw new Error("编辑器已重新连接，请重新读取当前画布后操作");
     return this.#request("transaction", transaction);
   }
 
@@ -76,7 +95,11 @@ export class EditorSession {
       const abort = () => finish(new Error("编辑请求已取消"));
       const timeout = setTimeout(() => finish(new Error("等待编辑器响应超时，请重新发送任务")), 300_000);
       const cleanup = () => { clearTimeout(timeout); this.#signal.removeEventListener("abort", abort); };
-      const finish = (error: Error) => { cleanup(); this.#pending.delete(request.id); reject(error); };
+      const finish = (error: Error) => {
+        cleanup(); this.#pending.delete(request.id);
+        this.#emit("editor_response", { request_id: request.id, status: "failed", error: error.message });
+        reject(error);
+      };
       this.#pending.set(request.id, { request, resolve, reject, cleanup });
       this.#signal.addEventListener("abort", abort, { once: true });
       this.#emit("editor_request", { request });

@@ -108,14 +108,10 @@ describe("editor request decisions", () => {
     expect(screen.queryByRole("button", { name: "应用修改" })).not.toBeInTheDocument()
   })
 
-  it("solo applies automatically but a cancelled host request cannot write", async () => {
+  it("leaves automatic execution to the document bridge instead of the selected chat", async () => {
     const bridge = setup({ ...request, mode: "solo" })
-    await screen.findByText("已应用")
-    expect(bridge.apply).toHaveBeenCalledOnce()
-    cleanup()
-    vi.mocked(getEditorRequest).mockRejectedValueOnce(new Error("任务已取消"))
-    const cancelled = setup({ ...request, mode: "solo", id: "cancelled" })
-    await screen.findByText("任务已取消")
-    expect(cancelled.apply).not.toHaveBeenCalled()
+    await screen.findByText("正在应用")
+    expect(bridge.apply).not.toHaveBeenCalled()
+    expect(getEditorRequest).not.toHaveBeenCalled()
   })
 })
