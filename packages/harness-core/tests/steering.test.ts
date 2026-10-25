@@ -25,7 +25,7 @@ describe("active run steering", () => {
     runtime.enqueueUserInput(run.id, { id: "two", messages: [{ role: "user", content: "second follow-up" }] });
     release.resolve(); await work;
     expect(requests).toHaveLength(2);
-    expect(requests[1].prompt.conversation).toEqual([
+    expect(requests[1].prompt.conversation.filter((message) => message.role !== "user" || !message.internal)).toEqual([
       { role: "user", content: "start" }, { role: "assistant", content: "checking" },
       { role: "user", content: "first follow-up" }, { role: "user", content: "second follow-up" },
     ]);
@@ -50,8 +50,8 @@ describe("active run steering", () => {
     release.resolve(); await work;
     expect(handler).toHaveBeenCalledTimes(1);
     expect(requests[1].prompt.conversation.filter((message) => message.role === "tool")).toHaveLength(2);
-    expect(requests[1].prompt.conversation[3]).toMatchObject({ role: "tool", toolCallId: "two", content: expect.stringContaining("not executed") });
-    expect(requests[1].prompt.conversation[4]).toEqual({ role: "user", content: "do not execute the second action" });
+    expect(requests[1].prompt.conversation).toContainEqual(expect.objectContaining({ role: "tool", toolCallId: "two", content: expect.stringContaining("not executed") }));
+    expect(requests[1].prompt.conversation.at(-1)).toEqual({ role: "user", content: "do not execute the second action" });
   });
 
   it("refreshes contextual sources and applies input accepted before the first model call", async () => {
@@ -62,8 +62,9 @@ describe("active run steering", () => {
     await runtime.runAgentTurn({ runId: run.id, agentId: "test.agent", messages: [], prompt: {
       developer: [], contextual: [{ slot: "contextual", source: "document", content: "old snapshot" }], conversation: [{ role: "user", content: "start" }],
     } });
-    expect(seen!.prompt.contextual.filter((section) => section.source !== "harness.task")).toEqual([{ slot: "contextual", source: "document", content: "new snapshot" }]);
-    expect(seen!.prompt.conversation).toHaveLength(2);
+    expect(seen!.prompt.contextual).toEqual([]);
+    expect(seen!.prompt.conversation).toContainEqual(expect.objectContaining({ internal: "context", contextSource: "document", content: expect.stringContaining("new snapshot") }));
+    expect(seen!.prompt.conversation.filter((message) => message.role === "user" && !message.internal)).toHaveLength(2);
   });
 
   it("never revives a canceled run or lets queued input leak into another run", async () => {

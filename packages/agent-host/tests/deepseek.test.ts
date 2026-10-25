@@ -41,7 +41,8 @@ describe("createDeepSeekModelAdapter", () => {
     const messages = (body as { messages: Array<{ role: string; content: string }> }).messages;
     expect(messages[0]?.role).toBe("system");
     expect(messages[0]?.content).toContain("Use resume workspace facts before answering.");
-    expect(messages[0]?.content).toContain("Current active resume canvas:");
+    expect(messages[0]?.content).not.toContain("Current active resume canvas:");
+    expect(messages.at(-1)?.content).toContain("Current active resume canvas:");
     expect(messages).toContainEqual({
       role: "user",
       content: "Please review this resume.",

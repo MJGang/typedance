@@ -34,7 +34,8 @@ function estimateContent(content: HarnessModelContent): number {
     : content.reduce((sum, part) => sum + (part.type === "text" ? estimateTextTokens(part.text) : 4_096), 0);
 }
 export function estimateMessageTokens(message: HarnessModelMessage): number {
-  return 16 + estimateContent(message.content) + (message.role === "assistant" && message.toolCalls ? estimateTextTokens(JSON.stringify(message.toolCalls)) : 0);
+  return 16 + estimateContent(message.content) + (message.role === "assistant"
+    ? estimateTextTokens(message.reasoningContent ?? "") + (message.toolCalls ? estimateTextTokens(JSON.stringify(message.toolCalls)) : 0) : 0);
 }
 export function estimatePromptTokens(prompt: HarnessPromptBundle, tools: HarnessModelTool[] = []): number {
   return 32 + [...prompt.developer, ...prompt.contextual].reduce((sum, section) => sum + estimateTextTokens(section.source + section.content) + 16, 0)

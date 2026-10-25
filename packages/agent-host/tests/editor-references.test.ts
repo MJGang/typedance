@@ -42,7 +42,7 @@ describe("editor references", () => {
       await host.waitForRun(run.id);
       expect(host.getAgentRun(run.id).status).toBe("completed");
       expect(contextFetch).not.toHaveBeenCalled();
-      expect(JSON.stringify(requests[0]?.prompt.contextual)).toContain(snapshot.plain_text);
+      expect(JSON.stringify(requests[0]?.prompt.conversation)).toContain(snapshot.plain_text);
       expect(requests[0]?.prompt.conversation[0]?.content).toContain(reference.comment);
       const restored = createJsonFileAgentHostStore(file);
       expect(restored.listMessages(conversation.id)[0]?.references).toEqual([reference]);

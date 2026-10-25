@@ -54,8 +54,9 @@ describe("host execution reliability", () => {
       ],
     });
     const run = start(); await host.waitForRun(run.id);
-    const sections = request!.prompt.contextual.filter((section) => section.source !== "harness.task");
+    const sections = host.runtime.getCheckpoint(run.id)!.prompt.contextual;
     expect(sections).toHaveLength(7);
+    expect(request!.prompt.conversation.filter((message) => message.role === "user" && message.internal === "context" && message.contextSource !== "harness.task")).toHaveLength(7);
     expect(sections.reduce((sum, section) => sum + section.content.length, 0)).toBeLessThanOrEqual(24000);
     for (let index = 0; index < 6; index++) {
       expect(sections[index + 1].content).toContain(`explicit-${index}`);

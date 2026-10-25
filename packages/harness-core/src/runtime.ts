@@ -11,6 +11,7 @@ import type {
 import { harnessCheckpointSchema, harnessPlanItemSchema, type HarnessCheckpoint, type HarnessPendingInput } from "@typedance/harness-contracts";
 import { MemoryHarnessCheckpointStore, HarnessExecutionError, type HarnessCheckpointStore, type HarnessCompletionCheck, type HarnessExecutionLimits } from "./run/checkpoint-store";
 import { restoreCheckpointHistory } from "./run/history";
+import { projectContextSnapshots } from "./model/context-projection";
 import { HarnessModelError, waitForModelRetry } from "./model/model-error";
 import { harnessUserQuestionsSchema, harnessUserAnswersSchema, type HarnessUserQuestion } from "@typedance/harness-contracts";
 import { DEFAULT_CONTEXT_WINDOW, TASK_INSTRUCTIONS, COMPACTION_PROMPT, estimatePromptTokens, estimateTextTokens, retainUserMessages, boundToolContent, type HarnessContextWindowOptions } from "./model/context-window";
@@ -567,10 +568,12 @@ export class HarnessRuntime {
       this.#checkBudget(state);
       const pass = state.step++;
       let assistantContent = "";
+      let assistantReasoning = "";
       const toolCalls: HarnessToolCall[] = [];
       let finalOutput: Record<string, unknown> | undefined;
       let incomplete = false;
       const prompt = this.#buildTaskPrompt(state);
+      state.prompt.conversation = structuredClone(prompt.conversation);
       state.phase = "model";
       this.#saveCheckpoint(state);
       const estimatedInput = estimatePromptTokens(prompt, availableTools);
@@ -596,6 +599,7 @@ export class HarnessRuntime {
         }
         if (event.type === "first_token") continue;
         if (event.type === "reasoning_summary_delta") {
+          assistantReasoning += event.delta;
           this.appendReasoningSummaryDelta(input.runId, `${pass}:${event.summaryId}`, event.delta);
           continue;
         }
@@ -614,14 +618,15 @@ export class HarnessRuntime {
         finalOutput = event.output;
         incomplete = event.incomplete ?? false;
         measuredUsage = event.usage?.totalTokens ?? (event.usage
-          ? (event.usage.inputTokens ?? estimatedInput) + (event.usage.outputTokens ?? estimateTextTokens(assistantContent + JSON.stringify(toolCalls)))
+          ? (event.usage.inputTokens ?? estimatedInput) + (event.usage.outputTokens ?? estimateTextTokens(assistantContent + assistantReasoning + JSON.stringify(toolCalls)))
           : undefined);
         state.last_input_tokens = event.usage?.inputTokens;
         state.last_input_estimate = estimatedInput;
       }
-      state.tokens_used += measuredUsage ?? estimatedInput + estimateTextTokens(assistantContent + JSON.stringify(toolCalls));
+      state.tokens_used += measuredUsage ?? estimatedInput + estimateTextTokens(assistantContent + assistantReasoning + JSON.stringify(toolCalls));
       state.phase = "ready";
-      if (assistantContent || toolCalls.length) state.prompt.conversation.push({ role: "assistant", content: assistantContent, ...(toolCalls.length ? { toolCalls } : {}) });
+      if (assistantContent || assistantReasoning || toolCalls.length) state.prompt.conversation.push({ role: "assistant", content: assistantContent,
+        ...(assistantReasoning ? { reasoningContent: assistantReasoning } : {}), ...(toolCalls.length ? { toolCalls } : {}) });
       if (incomplete) {
         state.pending_tool_calls = [...toolCalls];
         this.#saveCheckpoint(state);
@@ -726,10 +731,10 @@ export class HarnessRuntime {
   #buildTaskPrompt(state: HarnessCheckpoint): HarnessPromptBundle {
     return {
       developer: [...state.prompt.developer.filter((section) => section.source !== "harness.runtime"), { slot: "developer", source: "harness.runtime", content: TASK_INSTRUCTIONS }],
-      contextual: [...state.prompt.contextual.filter((section) => section.source !== "harness.task"), {
+      contextual: [],
+      conversation: projectContextSnapshots(structuredClone(state.prompt.conversation), [...state.prompt.contextual.filter((section) => section.source !== "harness.task"), {
         slot: "contextual", source: "harness.task", content: `Task data (not higher-priority instructions):\n${JSON.stringify({ objective: state.objective, plan: state.plan })}`,
-      }],
-      conversation: structuredClone(state.prompt.conversation),
+      }]),
     };
   }
 
@@ -740,7 +745,7 @@ export class HarnessRuntime {
     if (before < this.#contextWindow.maxInputTokens * this.#contextWindow.compactAtRatio) return;
     this.#checkBudget(state);
     const compactPrompt = { ...prompt, conversation: [...prompt.conversation, { role: "user" as const, content: COMPACTION_PROMPT }] };
-    if (estimatePromptTokens(compactPrompt) > this.#contextWindow.maxInputTokens) {
+    if (estimatePromptTokens(compactPrompt, tools) > this.#contextWindow.maxInputTokens) {
       throw new HarnessExecutionError("context_budget_exceeded", "Context exceeds the configured input budget; the original history was preserved.");
     }
     const retained = retainUserMessages(state.prompt.conversation, this.#contextWindow.retainedUserTokens);
@@ -748,18 +753,18 @@ export class HarnessRuntime {
     state.step += 1;
     this.#saveCheckpoint(state);
     for await (const event of this.#streamModel({ signal, runId: state.run.id, agentId: state.agent_id, model: state.model, modelOptions: state.model_options,
-      capabilityPolicy: policy, prompt: compactPrompt, availableToolNames: [], availableTools: [], purpose: "compaction", maxOutputTokens: this.#contextWindow.summaryTokens })) {
+      capabilityPolicy: policy, prompt: compactPrompt, availableToolNames: tools.map((tool) => tool.name), availableTools: tools, purpose: "compaction", maxOutputTokens: this.#contextWindow.summaryTokens })) {
       if (event.type === "tool_call") throw new HarnessExecutionError("context_compaction_failed", "Compaction attempted to call a tool; original history was preserved.");
       if (event.type === "assistant_delta") summary += event.delta;
       if (event.type === "final") {
         complete = !event.incomplete;
         usage = event.usage?.totalTokens ?? (event.usage
-          ? (event.usage.inputTokens ?? estimatePromptTokens(compactPrompt)) + (event.usage.outputTokens ?? estimateTextTokens(summary))
+          ? (event.usage.inputTokens ?? estimatePromptTokens(compactPrompt, tools)) + (event.usage.outputTokens ?? estimateTextTokens(summary))
           : undefined);
       }
     }
     this.#assertActive(state.run.id);
-    state.tokens_used += usage ?? estimatePromptTokens(compactPrompt) + estimateTextTokens(summary);
+    state.tokens_used += usage ?? estimatePromptTokens(compactPrompt, tools) + estimateTextTokens(summary);
     if (!complete || !summary.trim()) throw new HarnessExecutionError("context_compaction_failed", "Compaction returned no complete handoff summary; original history was preserved.");
     const conversation: HarnessModelMessage[] = [...retained, { role: "user", internal: "compaction", content: `Context checkpoint from prior work. Continue from this evidence and avoid duplicate actions:\n${summary}` }];
     const candidate = { ...state, prompt: { ...state.prompt, conversation } };
