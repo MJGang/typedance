@@ -83,6 +83,13 @@ describe("WorkbenchSidebar", () => {
     })
   })
 
+  it("recovers the workspace conversation list after an initial network failure", async () => {
+    agentHostMocks.listWorkspaceConversations.mockRejectedValueOnce(new Error("network failure"))
+    render(<TooltipProvider><WorkbenchSidebar workspaceId="doc_1" onSelectConversation={() => {}} onStartNewConversation={() => {}} onContextSourcesChange={() => {}} /></TooltipProvider>)
+    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledTimes(2), { timeout: 3500 })
+    expect(await screen.findByText("还没有对话。")).toBeInTheDocument()
+  })
+
   it("loads AI settings from Agent Host instead of hardcoded frontend defaults", async () => {
     render(
       <TooltipProvider>

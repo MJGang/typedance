@@ -15,17 +15,24 @@ export function WorkspaceConversationsProvider({ workspaceId, children }: { work
   useEffect(() => {
     if (!workspaceId) return
     const abort = new AbortController()
-    void listWorkspaceConversations(workspaceId, abort.signal).then((conversations) => {
-      if (!abort.signal.aborted) setResult({ workspaceId, revision, conversations, status: "loaded" })
-    }).catch(() => {
-      if (abort.signal.aborted) return
-      toast.error("对话加载失败")
-      setResult((current) => ({ workspaceId, revision, status: "error", conversations: current?.workspaceId === workspaceId ? current.conversations : [] }))
-    })
-    return () => abort.abort()
+    let retry: ReturnType<typeof setTimeout> | undefined
+    let attempts = 0
+    const load = async () => {
+      try {
+        const conversations = await listWorkspaceConversations(workspaceId, abort.signal)
+        if (!abort.signal.aborted) setResult({ workspaceId, revision, conversations, status: "loaded" })
+      } catch {
+        if (abort.signal.aborted) return
+        if (++attempts === 3) toast.error("对话连接暂时中断，正在重连")
+        setResult((current) => ({ workspaceId, revision, status: "error", conversations: current?.workspaceId === workspaceId ? current.conversations : [] }))
+        retry = setTimeout(() => { void load() }, 1000)
+      }
+    }
+    void load()
+    return () => { abort.abort(); clearTimeout(retry) }
   }, [workspaceId, revision])
   const conversations = result?.workspaceId === workspaceId ? result.conversations : EMPTY_CONVERSATIONS
-  const loading = result?.workspaceId !== workspaceId || result.revision !== revision
+  const loading = result?.workspaceId !== workspaceId || result.revision !== revision || result.status === "error"
   const loaded = !loading && result?.status === "loaded"
   const value = useMemo(() => ({ conversations, loading, loaded, revision, refresh }), [conversations, loading, loaded, revision, refresh])
   return <Context.Provider value={value}>{children}</Context.Provider>
