@@ -68,8 +68,8 @@ describe("HarnessRuntime prompt assembly", () => {
     expect("messages" in (captured ?? {})).toBe(false);
     expect(captured?.prompt).toEqual({
       developer: [expect.objectContaining({ source: "harness.runtime" })],
-      contextual: [expect.objectContaining({ source: "harness.task", content: expect.stringContaining("Review this project.") })],
-      conversation: [{ role: "user", content: "Review this project." }],
+      contextual: [],
+      conversation: [{ role: "user", content: "Review this project." }, expect.objectContaining({ internal: "context", contextSource: "harness.task", content: expect.stringContaining("Review this project.") })],
     });
     const requestJson = JSON.stringify(captured);
     expect(requestJson).not.toContain("Loaded instruction file");
@@ -142,8 +142,9 @@ describe("HarnessRuntime prompt assembly", () => {
     });
 
     expect(captured?.prompt.developer[0]).toEqual(prompt.developer[0]);
-    expect(captured?.prompt.contextual[0]).toEqual(prompt.contextual[0]);
-    expect(captured?.prompt.conversation).toEqual(prompt.conversation);
+    expect(captured?.prompt.contextual).toEqual([]);
+    expect(captured?.prompt.conversation[0]).toEqual(prompt.conversation[0]);
+    expect(captured?.prompt.conversation).toContainEqual(expect.objectContaining({ internal: "context", contextSource: "agent_host.context", content: expect.stringContaining("Host-owned context text.") }));
     expect(prompt.developer).toHaveLength(1);
     expect(prompt.contextual).toHaveLength(1);
     expect("messages" in (captured ?? {})).toBe(false);

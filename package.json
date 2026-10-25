@@ -1,7 +1,7 @@
 {
   "name": "typedance",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.1.7",
   "packageManager": "pnpm@10.11.0",
   "scripts": {
     "dev": "corepack pnpm --parallel --filter @typedance/desktop --filter @typedance/sidecar --filter @typedance/agent-host dev",

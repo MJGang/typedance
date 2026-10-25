@@ -43,7 +43,12 @@ describe("Codex-style long task execution", () => {
     const { runtime, run, start } = setup({ async *stream(request) {
       requests.push(request);
       if (request.purpose === "compaction") {
-        expect(request.availableTools).toEqual([]);
+        expect(request.availableTools.map((tool) => tool.name)).toContain("test.work");
+        expect(request.availableToolNames).toEqual(request.availableTools.map((tool) => tool.name));
+        const preceding = requests.at(-2)!;
+        expect(request.prompt.developer).toEqual(preceding.prompt.developer);
+        expect(request.availableTools).toEqual(preceding.availableTools);
+        expect(request.prompt.conversation.slice(0, preceding.prompt.conversation.length)).toEqual(preceding.prompt.conversation);
         if (requests.filter((item) => item.purpose === "compaction").length === 1) runtime.enqueueUserInput(run.id, {
           id: "steer", messages: [{ role: "user", content: "Keep the fourth requirement too" }],
           contextual: [{ slot: "contextual", source: "source", content: "Updated authoritative facts" }],
@@ -60,8 +65,8 @@ describe("Codex-style long task execution", () => {
     expect(compacted.length).toBeGreaterThan(1);
     const final = requests[requests.length - 1];
     expect(final.prompt.developer).toContainEqual(expect.objectContaining({ source: "host.rules", content: "Never mutate without approval" }));
-    expect(final.prompt.contextual).toContainEqual(expect.objectContaining({ source: "harness.task", content: expect.stringContaining("Complete all three deliverables") }));
-    expect(final.prompt.contextual).toContainEqual(expect.objectContaining({ source: "source", content: "Updated authoritative facts" }));
+    expect(final.prompt.conversation).toContainEqual(expect.objectContaining({ internal: "context", contextSource: "harness.task", content: expect.stringContaining("Complete all three deliverables") }));
+    expect(final.prompt.conversation).toContainEqual(expect.objectContaining({ internal: "context", contextSource: "source", content: expect.stringContaining("Updated authoritative facts") }));
     expect(final.prompt.conversation).toContainEqual({ role: "user", content: "Keep the fourth requirement too" });
     expect(final.prompt.conversation.filter((message) => message.role === "user" && message.internal === "compaction")).toHaveLength(1);
     for (const request of requests) {
@@ -81,6 +86,18 @@ describe("Codex-style long task execution", () => {
     expect(runtime.getCheckpoint(run.id)?.prompt.conversation.some((message) => message.role === "tool")).toBe(true);
     expect(runtime.getCheckpoint(run.id)?.compactions).toBe(0);
     expect(runtime.getEvents(run.id).some((event) => event.type === "run.completed")).toBe(false);
+  });
+
+  it("rejects compaction tool output even though schemas remain visible for prefix reuse", async () => {
+    let steps = 0;
+    const { runtime, run, start } = setup({ async *stream(request) {
+      yield call(request.purpose === "compaction" ? "forbidden-compaction-action" : `work-${++steps}`);
+    } }, { contextWindow: smallWindow });
+    runtime.registerTool({ name: "test.work", origin: "plugin", handler: () => ({ evidence: "x".repeat(3_000) }) });
+    await expect(start()).rejects.toThrow("Compaction attempted to call a tool");
+    expect(runtime.getCheckpoint(run.id)?.compactions).toBe(0);
+    expect(runtime.getEvents(run.id).some((event) => event.type === "tool.call.started" && event.tool_call.id === "forbidden-compaction-action")).toBe(false);
+    expect(runtime.getRun(run.id).status).toBe("failed");
   });
 
   it("resumes in a new runtime with a persisted plan, fresh constraints and uncertain calls closed without replay", async () => {
@@ -211,10 +228,18 @@ describe("Codex-style long task execution", () => {
     expect(runtime.getRun(run.id).status).toBe("failed");
   });
 
-  it("accounts for context removed by fresh steering instead of compacting a stale large prefix", async () => {
-    let steps = 0;
+  it("compacts superseded context when append-only steering reaches the budget, then restores only current facts", async () => {
+    let steps = 0; let compactions = 0;
     const { runtime, run } = setup({ async *stream(request) {
-      expect(request.purpose).toBe("response");
+      if (request.purpose === "compaction") {
+        compactions++;
+        yield { type: "assistant_delta", messageId: "summary", delta: "The user replaced the source. Continue using current facts." };
+        yield { type: "final", output: {} }; return;
+      }
+      if (steps > 0) {
+        expect(JSON.stringify(request.prompt.conversation)).not.toContain("x".repeat(6_000));
+        expect(JSON.stringify(request.prompt.conversation)).toContain("Current smaller source");
+      }
       if (steps++ === 0) runtime.enqueueUserInput(run.id, { id: "refresh", messages: [{ role: "user", content: "Use the smaller current source" }],
         contextual: [{ slot: "contextual", source: "large", content: "Current smaller source" }] });
       yield { type: "final", output: {}, usage: { inputTokens: steps === 1 ? 4_500 : 600, totalTokens: 4_501 } };
@@ -224,6 +249,7 @@ describe("Codex-style long task execution", () => {
       conversation: [{ role: "user", content: "Read current source" }],
     } });
     expect(steps).toBe(2);
+    expect(compactions).toBe(1);
   });
 
   it("accounts provider input and output usage when totalTokens is omitted", async () => {

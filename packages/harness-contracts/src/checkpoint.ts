@@ -6,8 +6,8 @@ import { harnessToolCallSchema } from "./tool";
 const modelContentSchema = z.union([z.string(), z.array(harnessContentPartSchema)]);
 export const harnessModelMessageSchema = z.discriminatedUnion("role", [
   z.object({ role: z.literal("system"), content: z.string() }),
-  z.object({ role: z.literal("user"), content: modelContentSchema, internal: z.enum(["compaction", "completion"]).optional() }),
-  z.object({ role: z.literal("assistant"), content: z.string(), toolCalls: z.array(harnessToolCallSchema).optional() }),
+  z.object({ role: z.literal("user"), content: modelContentSchema, internal: z.enum(["compaction", "completion", "context"]).optional(), contextSource: z.string().min(1).optional() }),
+  z.object({ role: z.literal("assistant"), content: z.string(), reasoningContent: z.string().optional(), toolCalls: z.array(harnessToolCallSchema).optional() }),
   z.object({ role: z.literal("tool"), content: modelContentSchema, toolCallId: z.string().min(1), toolName: z.string().min(1) }),
 ]);
 

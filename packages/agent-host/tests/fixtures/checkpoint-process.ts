@@ -14,7 +14,7 @@ const runtime = createHarnessRuntime({
       const messages = request.prompt.conversation;
       if (!messages.some((message) => message.role === "tool" && message.toolCallId === "completed" && JSON.stringify(message.content).includes("saved-evidence"))) throw new Error("Lost completed tool evidence");
       if (!messages.some((message) => message.role === "tool" && message.toolCallId === "uncertain" && JSON.stringify(message.content).includes("may have taken effect"))) throw new Error("Lost interrupted tool state");
-      if (!request.prompt.contextual.some((section) => section.source === "harness.task" && section.content.includes("Verify both deliverables"))) throw new Error("Lost original objective");
+      if (!request.prompt.conversation.some((message) => message.role === "user" && message.contextSource === "harness.task" && String(message.content).includes("Verify both deliverables"))) throw new Error("Lost original objective");
       yield { type: "assistant_delta", messageId: "answer", delta: "Resumed from saved evidence" };
       yield { type: "final", output: { recovered: true } };
     }

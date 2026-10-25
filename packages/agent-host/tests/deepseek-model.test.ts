@@ -10,6 +10,27 @@ import {
 import { buildAgentHostPromptBundle } from "../src/prompt";
 
 describe("DeepSeek model adapter", () => {
+  it("keeps tool schemas, choices and collision mappings stable for compaction and registration order", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => new Response(sse("data: [DONE]\n\n")));
+    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test", baseUrl: undefined, defaultModel: "deepseek-flash" }), fetch: fetchMock });
+    const tools = ["a.b", "a_b", "z"].map((name) => ({ name, origin: "plugin" as const, description: name, inputSchema: { type: "object", properties: {} } }));
+    const request = makeRequest({ runId: "cache", agentId: "a", messages: [
+      { role: "assistant", content: "", reasoningContent: "preserve exactly", toolCalls: [{ id: "c", name: "a_b", origin: "plugin", input: {} }] },
+      { role: "tool", toolCallId: "c", toolName: "a_b", content: "ok" },
+    ], availableTools: tools });
+    await drain(adapter.stream(request));
+    await drain(adapter.stream({ ...request, availableTools: [...tools].reverse(), purpose: "compaction" }));
+    const [first, compact] = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)));
+    expect(compact.messages).toEqual(first.messages);
+    expect(compact.tools).toEqual(first.tools);
+    expect(first.messages.find((message: { role: string }) => message.role === "assistant")).toMatchObject({ reasoning_content: "preserve exactly", tool_calls: [expect.objectContaining({ function: { name: "a_b_2", arguments: "{}" } })] });
+    expect(first.tool_choice).toBe("auto");
+    expect(compact.tool_choice).toBe(first.tool_choice);
+    await drain(adapter.stream({ ...request, availableTools: [] }));
+    const withoutTools = JSON.parse(String(fetchMock.mock.calls[2][1]?.body));
+    expect(withoutTools.messages.find((message: { role: string }) => message.role === "assistant")).not.toHaveProperty("reasoning_content");
+  });
+
   it.each([401, 402, 429, 500, 503])("classifies HTTP %i without exposing the credential", async (status) => {
     const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test-secret-key", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-v4-flash" }),
       fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response("test-secret-key upstream error", { status, headers: { "retry-after": "2" } })) });
@@ -142,7 +163,7 @@ describe("DeepSeek model adapter", () => {
     expect(events[events.length - 1]).toMatchObject({ type: "final", incomplete: true });
   });
 
-  it("maps supplied workspace evidence into the first system message without advertising unavailable tools", async () => {
+  it("keeps supplied workspace data after the conversation and out of the stable system prefix", async () => {
     const fetchMock = vi.fn(async () => new Response(sse([
       'data: {"choices":[{"delta":{"content":"checked"}}]}',
       "",
@@ -186,12 +207,12 @@ describe("DeepSeek model adapter", () => {
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     const systemMessages = body.messages.filter((message: { role: string }) => message.role === "system");
 
-    expect(systemMessages).toHaveLength(1);
-    expect(systemMessages[0].content).toContain("Current active resume canvas");
-    expect(systemMessages[0].content).toContain("Sample Resume");
-    expect(systemMessages[0].content).toContain("Frontend lead / AI application developer");
-    expect(systemMessages[0].content).not.toContain("Available harness tools: typedance.context.read");
-    expect(body.messages.at(-1)).toEqual({ role: "user", content: "Check this resume." });
+    expect(systemMessages.every((message: { content: string }) => !message.content.includes("Current active resume canvas"))).toBe(true);
+    expect(body.messages.at(-1)).toMatchObject({ role: "user", content: expect.stringContaining("Current active resume canvas") });
+    expect(body.messages.at(-1).content).toContain("Sample Resume");
+    expect(body.messages.at(-1).content).toContain("Frontend lead / AI application developer");
+    expect(body.messages.at(-2)).toEqual({ role: "user", content: "Check this resume." });
+    expect(JSON.stringify(body)).not.toContain("Available harness tools: typedance.context.read");
   });
 
   it("maps harness tools to provider tool calls without leaking provider-safe names", async () => {

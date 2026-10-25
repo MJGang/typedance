@@ -185,12 +185,12 @@ describe("agent host", () => {
     expect(messages[0]?.mentions[0]?.label).toBe("岗位 JD");
     expect(messages[1]?.content).toBe("可以优化专业技能。");
     expect("messages" in (seenRequests[0] ?? {})).toBe(false);
-    expect(seenRequests[0]?.prompt.contextual[0]).toMatchObject({
-      slot: "contextual",
-      source: "mention.0",
-    });
-    expect(seenRequests[0]?.prompt.contextual[0]?.content).toContain("Context:");
-    expect(seenRequests[0]?.prompt.conversation).toEqual([
+    expect(seenRequests[0]?.prompt.conversation).toContainEqual(expect.objectContaining({
+      internal: "context",
+      contextSource: "mention.0",
+      content: expect.stringContaining("Context:"),
+    }));
+    expect(seenRequests[0]?.prompt.conversation.filter((message) => message.role !== "user" || !message.internal)).toEqual([
       { role: "user", content: "参考岗位 JD 优化专业技能" },
     ]);
     expect(JSON.stringify(seenRequests[0]?.prompt)).not.toContain("workspace_id");
@@ -311,7 +311,7 @@ describe("agent host", () => {
     expect(host.listConversations("doc_1")[0]?.name).toBe("Quality Check");
   });
 
-  it("grounds resume conversations in the current workspace canvas before prior chat history", async () => {
+  it("grounds resume conversations in the latest workspace snapshot beside prior chat history", async () => {
     const seenRequests: HarnessModelRequest[] = [];
     const runtime = createHarnessRuntime({
       model: {
@@ -365,11 +365,12 @@ describe("agent host", () => {
 
     const latestRequest = seenRequests.at(-1);
     expect("messages" in (latestRequest ?? {})).toBe(false);
-    expect(latestRequest?.prompt.contextual[0]).toMatchObject({
-      slot: "contextual",
+    expect(latestRequest?.prompt.conversation).toContainEqual(expect.objectContaining({
+      internal: "context",
+      contextSource: "workspace.current",
       content: expect.stringContaining("刚铭俊"),
-    });
-    expect(latestRequest?.prompt.conversation.at(-1)).toEqual({
+    }));
+    expect(latestRequest?.prompt.conversation).toContainEqual({
       role: "user",
       content: "检查这份简历质量",
     });

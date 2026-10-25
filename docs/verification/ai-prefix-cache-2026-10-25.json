@@ -1,0 +1,560 @@
+{
+  "baseCommit": "37f2fa01ffd3652cbaf9ac5c7c52a6e41a815cf0",
+  "referenceCommit": "22ddee3792402c3e70ec5f86a63c3e3e895a2f60",
+  "model": "deepseek-flash",
+  "groups": [
+    {
+      "name": "baseline-off-trial1",
+      "effort": "off",
+      "totals": {
+        "all": {
+          "calls": 8,
+          "input": 28254,
+          "hit": 17152,
+          "miss": 11102,
+          "hitRate": 0.6070644864443973,
+          "totalModelMs": 14089.004899999993,
+          "meanTtftMs": 685.4836124999993
+        },
+        "afterFirst": {
+          "calls": 7,
+          "input": 25003,
+          "hit": 17152,
+          "miss": 7851,
+          "hitRate": 0.6859976802783666,
+          "totalModelMs": 12862.173499999994,
+          "meanTtftMs": 677.3280285714276
+        },
+        "turns": [
+          {
+            "turn": 1,
+            "calls": 4,
+            "input": 13612,
+            "hit": 7808,
+            "miss": 5804,
+            "hitRate": 0.5736115192477226,
+            "totalModelMs": 4040.6623,
+            "meanTtftMs": 805.1255000000001
+          },
+          {
+            "turn": 2,
+            "calls": 2,
+            "input": 7195,
+            "hit": 3456,
+            "miss": 3739,
+            "hitRate": 0.48033356497567753,
+            "totalModelMs": 3799.646899999996,
+            "meanTtftMs": 507.0005999999994
+          },
+          {
+            "turn": 3,
+            "calls": 2,
+            "input": 7447,
+            "hit": 5888,
+            "miss": 1559,
+            "hitRate": 0.7906539546125957,
+            "totalModelMs": 6248.695699999997,
+            "meanTtftMs": 624.6828499999974
+          }
+        ]
+      },
+      "answers": [
+        {
+          "turn": 1,
+          "role": "前端工程师",
+          "revision": 1,
+          "answer": "岗位：前端工程师；修订号：1。",
+          "historyMessages": 8
+        },
+        {
+          "turn": 2,
+          "role": "AI应用开发工程师",
+          "revision": 2,
+          "answer": "岗位：AI应用开发工程师；修订号：2。",
+          "historyMessages": 12
+        },
+        {
+          "turn": 3,
+          "role": "AI应用开发工程师",
+          "revision": 2,
+          "answer": "岗位：AI应用开发工程师；修订号：2。",
+          "historyMessages": 16
+        }
+      ]
+    },
+    {
+      "name": "baseline-off-trial2",
+      "effort": "off",
+      "totals": {
+        "all": {
+          "calls": 8,
+          "input": 28262,
+          "hit": 17152,
+          "miss": 11110,
+          "hitRate": 0.6068926473710282,
+          "totalModelMs": 5958.1665,
+          "meanTtftMs": 646.7129500000001
+        },
+        "afterFirst": {
+          "calls": 7,
+          "input": 25010,
+          "hit": 17152,
+          "miss": 7858,
+          "hitRate": 0.6858056777289084,
+          "totalModelMs": 4903.511,
+          "meanTtftMs": 616.9630714285715
+        },
+        "turns": [
+          {
+            "turn": 1,
+            "calls": 4,
+            "input": 13616,
+            "hit": 7808,
+            "miss": 5808,
+            "hitRate": 0.5734430082256169,
+            "totalModelMs": 3220.9695,
+            "meanTtftMs": 677.21055
+          },
+          {
+            "turn": 2,
+            "calls": 2,
+            "input": 7197,
+            "hit": 3456,
+            "miss": 3741,
+            "hitRate": 0.48020008336807,
+            "totalModelMs": 1264.0140999999994,
+            "meanTtftMs": 581.83995
+          },
+          {
+            "turn": 3,
+            "calls": 2,
+            "input": 7449,
+            "hit": 5888,
+            "miss": 1561,
+            "hitRate": 0.7904416700228218,
+            "totalModelMs": 1473.1829000000007,
+            "meanTtftMs": 650.5907500000003
+          }
+        ]
+      },
+      "answers": [
+        {
+          "turn": 1,
+          "role": "前端工程师",
+          "revision": 1,
+          "answer": "岗位：前端工程师；修订号：1。",
+          "historyMessages": 8
+        },
+        {
+          "turn": 2,
+          "role": "AI应用开发工程师",
+          "revision": 2,
+          "answer": "岗位：AI应用开发工程师；修订号：2。",
+          "historyMessages": 12
+        },
+        {
+          "turn": 3,
+          "role": "AI应用开发工程师",
+          "revision": 2,
+          "answer": "岗位：AI应用开发工程师；修订号：2。",
+          "historyMessages": 16
+        }
+      ]
+    },
+    {
+      "name": "optimized-off-trial1",
+      "effort": "off",
+      "totals": {
+        "all": {
+          "calls": 8,
+          "input": 39896,
+          "hit": 33024,
+          "miss": 6872,
+          "hitRate": 0.8277521556045719,
+          "totalModelMs": 5567.336599999999,
+          "meanTtftMs": 587.7286375
+        },
+        "afterFirst": {
+          "calls": 7,
+          "input": 36601,
+          "hit": 33024,
+          "miss": 3577,
+          "hitRate": 0.9022704297696784,
+          "totalModelMs": 4215.338199999999,
+          "meanTtftMs": 507.0772
+        },
+        "turns": [
+          {
+            "turn": 1,
+            "calls": 4,
+            "input": 14258,
+            "hit": 10368,
+            "miss": 3890,
+            "hitRate": 0.7271707111796886,
+            "totalModelMs": 3044.466599999999,
+            "meanTtftMs": 627.9251749999999
+          },
+          {
+            "turn": 2,
+            "calls": 2,
+            "input": 12595,
+            "hit": 9984,
+            "miss": 2611,
+            "hitRate": 0.792695514092894,
+            "totalModelMs": 1357.8741999999993,
+            "meanTtftMs": 594.1259500000001
+          },
+          {
+            "turn": 3,
+            "calls": 2,
+            "input": 13043,
+            "hit": 12672,
+            "miss": 371,
+            "hitRate": 0.9715556237062025,
+            "totalModelMs": 1164.9958000000006,
+            "meanTtftMs": 500.93825000000015
+          }
+        ]
+      },
+      "answers": [
+        {
+          "turn": 1,
+          "role": "前端工程师",
+          "revision": 1,
+          "answer": "岗位：前端工程师；修订号：1。",
+          "historyMessages": 12
+        },
+        {
+          "turn": 2,
+          "role": "AI应用开发工程师",
+          "revision": 2,
+          "answer": "岗位：AI应用开发工程师；修订号：2。",
+          "historyMessages": 18
+        },
+        {
+          "turn": 3,
+          "role": "AI应用开发工程师",
+          "revision": 2,
+          "answer": "岗位：AI应用开发工程师；修订号：2。",
+          "historyMessages": 23
+        }
+      ]
+    },
+    {
+      "name": "optimized-off-trial2",
+      "effort": "off",
+      "totals": {
+        "all": {
+          "calls": 8,
+          "input": 39880,
+          "hit": 33024,
+          "miss": 6856,
+          "hitRate": 0.8280842527582748,
+          "totalModelMs": 6146.821400000001,
+          "meanTtftMs": 661.7195625000002
+        },
+        "afterFirst": {
+          "calls": 7,
+          "input": 36587,
+          "hit": 33024,
+          "miss": 3563,
+          "hitRate": 0.9026156831661519,
+          "totalModelMs": 5250.979700000001,
+          "meanTtftMs": 657.3155857142858
+        },
+        "turns": [
+          {
+            "turn": 1,
+            "calls": 4,
+            "input": 14250,
+            "hit": 10368,
+            "miss": 3882,
+            "hitRate": 0.7275789473684211,
+            "totalModelMs": 2647.5468,
+            "meanTtftMs": 540.164025
+          },
+          {
+            "turn": 2,
+            "calls": 2,
+            "input": 12591,
+            "hit": 9984,
+            "miss": 2607,
+            "hitRate": 0.7929473433404813,
+            "totalModelMs": 1960.4696000000008,
+            "meanTtftMs": 886.8158500000002
+          },
+          {
+            "turn": 3,
+            "calls": 2,
+            "input": 13039,
+            "hit": 12672,
+            "miss": 367,
+            "hitRate": 0.9718536697599509,
+            "totalModelMs": 1538.8050000000003,
+            "meanTtftMs": 679.7343500000002
+          }
+        ]
+      },
+      "answers": [
+        {
+          "turn": 1,
+          "role": "前端工程师",
+          "revision": 1,
+          "answer": "岗位：前端工程师；修订号：1。",
+          "historyMessages": 12
+        },
+        {
+          "turn": 2,
+          "role": "AI应用开发工程师",
+          "revision": 2,
+          "answer": "岗位：AI应用开发工程师；修订号：2。",
+          "historyMessages": 18
+        },
+        {
+          "turn": 3,
+          "role": "AI应用开发工程师",
+          "revision": 2,
+          "answer": "岗位：AI应用开发工程师；修订号：2。",
+          "historyMessages": 23
+        }
+      ]
+    },
+    {
+      "name": "baseline-low-trial1",
+      "effort": "low",
+      "totals": {
+        "all": {
+          "calls": 8,
+          "input": 28588,
+          "hit": 17408,
+          "miss": 11180,
+          "hitRate": 0.608926822442983,
+          "totalModelMs": 20388.656600000002,
+          "meanTtftMs": 583.7325500000002
+        },
+        "afterFirst": {
+          "calls": 7,
+          "input": 25305,
+          "hit": 17408,
+          "miss": 7897,
+          "hitRate": 0.6879272870974116,
+          "totalModelMs": 19245.7523,
+          "meanTtftMs": 553.1507571428572
+        },
+        "turns": [
+          {
+            "turn": 1,
+            "calls": 4,
+            "input": 13746,
+            "hit": 8064,
+            "miss": 5682,
+            "hitRate": 0.5866433871671759,
+            "totalModelMs": 3491.0238000000027,
+            "meanTtftMs": 737.8525250000002
+          },
+          {
+            "turn": 2,
+            "calls": 2,
+            "input": 7309,
+            "hit": 3456,
+            "miss": 3853,
+            "hitRate": 0.47284170201121906,
+            "totalModelMs": 11294.8416,
+            "meanTtftMs": 473.6346500000018
+          },
+          {
+            "turn": 3,
+            "calls": 2,
+            "input": 7533,
+            "hit": 5888,
+            "miss": 1645,
+            "hitRate": 0.7816275056418426,
+            "totalModelMs": 5602.7912,
+            "meanTtftMs": 385.5904999999984
+          }
+        ]
+      },
+      "answers": [
+        {
+          "turn": 1,
+          "role": "前端工程师",
+          "revision": 1,
+          "answer": "岗位：前端工程师；修订号：1。",
+          "historyMessages": 8
+        },
+        {
+          "turn": 2,
+          "role": "AI应用开发工程师",
+          "revision": 2,
+          "answer": "岗位：AI应用开发工程师；修订号：2。",
+          "historyMessages": 12
+        },
+        {
+          "turn": 3,
+          "role": "AI应用开发工程师",
+          "revision": 2,
+          "answer": "岗位：AI应用开发工程师；修订号：2。",
+          "historyMessages": 16
+        }
+      ]
+    },
+    {
+      "name": "optimized-low-trial1",
+      "effort": "low",
+      "totals": {
+        "all": {
+          "calls": 8,
+          "input": 40459,
+          "hit": 33408,
+          "miss": 7051,
+          "hitRate": 0.825724807830149,
+          "totalModelMs": 5304.549800000001,
+          "meanTtftMs": 555.0741
+        },
+        "afterFirst": {
+          "calls": 7,
+          "input": 37140,
+          "hit": 33408,
+          "miss": 3732,
+          "hitRate": 0.8995153473344103,
+          "totalModelMs": 4300.8185,
+          "meanTtftMs": 535.6890857142859
+        },
+        "turns": [
+          {
+            "turn": 1,
+            "calls": 4,
+            "input": 14480,
+            "hit": 10496,
+            "miss": 3984,
+            "hitRate": 0.7248618784530386,
+            "totalModelMs": 2656.5911,
+            "meanTtftMs": 561.8262000000001
+          },
+          {
+            "turn": 2,
+            "calls": 2,
+            "input": 12753,
+            "hit": 10112,
+            "miss": 2641,
+            "hitRate": 0.7929114718105543,
+            "totalModelMs": 1278.8092000000001,
+            "meanTtftMs": 452.9986999999999
+          },
+          {
+            "turn": 3,
+            "calls": 2,
+            "input": 13226,
+            "hit": 12800,
+            "miss": 426,
+            "hitRate": 0.9677907152578255,
+            "totalModelMs": 1369.1495000000004,
+            "meanTtftMs": 643.6453000000001
+          }
+        ]
+      },
+      "answers": [
+        {
+          "turn": 1,
+          "role": "前端工程师",
+          "revision": 1,
+          "answer": "岗位：前端工程师；修订号：1。",
+          "historyMessages": 12
+        },
+        {
+          "turn": 2,
+          "role": "AI应用开发工程师",
+          "revision": 2,
+          "answer": "岗位：AI应用开发工程师；修订号：2。",
+          "historyMessages": 18
+        },
+        {
+          "turn": 3,
+          "role": "AI应用开发工程师",
+          "revision": 2,
+          "answer": "岗位：AI应用开发工程师；修订号：2。",
+          "historyMessages": 23
+        }
+      ]
+    },
+    {
+      "name": "optimized-compaction-auto",
+      "effort": "off",
+      "totals": {
+        "all": {
+          "calls": 10,
+          "input": 41327,
+          "hit": 31104,
+          "miss": 10223,
+          "hitRate": 0.7526314515933893,
+          "totalModelMs": 9767.088500000002,
+          "meanTtftMs": 615.9094300000003
+        },
+        "afterFirst": {
+          "calls": 9,
+          "input": 38037,
+          "hit": 31104,
+          "miss": 6933,
+          "hitRate": 0.8177301048978626,
+          "totalModelMs": 8570.643000000004,
+          "meanTtftMs": 574.2263222222224
+        },
+        "turns": [
+          {
+            "turn": 1,
+            "calls": 4,
+            "input": 14246,
+            "hit": 10368,
+            "miss": 3878,
+            "hitRate": 0.727783237399972,
+            "totalModelMs": 3604.0961,
+            "meanTtftMs": 768.8646500000001
+          },
+          {
+            "turn": 2,
+            "calls": 4,
+            "input": 18262,
+            "hit": 12288,
+            "miss": 5974,
+            "hitRate": 0.6728726316942285,
+            "totalModelMs": 4725.266200000001,
+            "meanTtftMs": 502.80050000000006
+          },
+          {
+            "turn": 3,
+            "calls": 2,
+            "input": 8819,
+            "hit": 8448,
+            "miss": 371,
+            "hitRate": 0.9579317382923234,
+            "totalModelMs": 1437.726200000001,
+            "meanTtftMs": 536.2168500000007
+          }
+        ]
+      },
+      "answers": [
+        {
+          "turn": 1,
+          "role": "前端工程师",
+          "revision": 1,
+          "answer": "岗位：前端工程师；修订号：1",
+          "historyMessages": 12
+        },
+        {
+          "turn": 2,
+          "role": "AI应用开发工程师",
+          "revision": 2,
+          "answer": "岗位：AI应用开发工程师；修订号：2",
+          "historyMessages": 13
+        },
+        {
+          "turn": 3,
+          "role": "AI应用开发工程师",
+          "revision": 2,
+          "answer": "岗位：AI应用开发工程师；修订号：2",
+          "historyMessages": 18
+        }
+      ]
+    }
+  ]
+}

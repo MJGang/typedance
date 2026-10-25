@@ -56,7 +56,7 @@ describe("Host active run input", () => {
     expect(host.listAgentRunEvents(run.id).some((event) => event.type === "user_input_applied" && event.payload.message_id === message.id)).toBe(true);
     expect(host.listMessages(conversation.id).filter((item) => item.content === "make it shorter")).toHaveLength(1);
     const next = start("next task"); await host.waitForRun(next.id);
-    expect(requests[2].prompt.conversation).toEqual([
+    expect(requests[2].prompt.conversation.filter((message) => message.role !== "user" || !message.internal)).toEqual([
       { role: "user", content: "start" }, { role: "assistant", content: "original response" },
       { role: "user", content: "make it shorter" }, { role: "assistant", content: "updated response" },
       { role: "user", content: "next task" },
@@ -139,9 +139,9 @@ describe("Host active run input", () => {
     await host.steerAgentRun(run.id, { message: { content: "combine B", mentions: [second] } });
     await host.steerAgentRun(run.id, { message: { content: "refresh A", mentions: [first] } });
     release.resolve(); await host.waitForRun(run.id);
-    const sources = requests[1].prompt.contextual.filter((section) => section.provenance?.kind === "mention");
+    const sources = requests[1].prompt.conversation.filter((message) => message.role === "user" && message.internal === "context" && message.contextSource?.startsWith("mention."));
     expect(sources).toHaveLength(2);
-    expect(new Set(sources.map((section) => section.source)).size).toBe(2);
+    expect(new Set(sources.map((message) => message.role === "user" && message.contextSource)).size).toBe(2);
     expect(sources[0].content).toContain(`${first.context_source_id}:${first.target_path ?? "root"}:version-2`);
     expect(sources[1].content).toContain(`${second.context_source_id}:${second.target_path ?? "root"}:version-1`);
   });
@@ -160,11 +160,11 @@ describe("Host active run input", () => {
     ] } });
     host.cancelAgentRun(run.id); await host.waitForRun(run.id); release.resolve();
     const next = start("continue"); await host.waitForRun(next.id);
-    expect(requests[1].prompt.contextual.some((section) => section.content.includes("folder:guide.md:version-2"))).toBe(true);
+    expect(JSON.stringify(requests[1].prompt.conversation)).toContain("folder:guide.md:version-2");
     expect(JSON.stringify(requests[1].prompt.conversation)).toContain("use this source");
     expect(host.listAgentRunEvents(next.id)).toContainEqual(expect.objectContaining({ type: "harness_event", payload: expect.objectContaining({ event: expect.objectContaining({ type: "model.input.consumed", input_ids: expect.arrayContaining([steering.id]) }) }) }));
     const third = start("next task"); await host.waitForRun(third.id);
     expect(reads.get("folder:guide.md")).toBe(2);
-    expect(requests[2].prompt.contextual.some((section) => section.provenance?.kind === "mention")).toBe(false);
+    expect(requests[2].prompt.conversation).toContainEqual(expect.objectContaining({ internal: "context", content: expect.stringContaining("has been removed") }));
   });
 });

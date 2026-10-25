@@ -83,6 +83,7 @@ type DeepSeekMessage =
   | {
       role: "assistant";
       content: string | null;
+      reasoning_content?: string;
       tool_calls?: DeepSeekToolCall[];
     }
   | {
@@ -116,8 +117,9 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
       const requestedEffort = request.modelOptions?.reasoningEffort;
       const effort = requestedEffort === null ? undefined : requestedEffort !== undefined
         ? reasoningEffortSchema.parse(requestedEffort) : settings.reasoningEffort ?? options.reasoningEffort;
-      const toolNameMap = createProviderToolNameMap(request.availableTools);
-      const tools = buildDeepSeekTools(request.availableTools, toolNameMap);
+      const orderedTools = [...request.availableTools].sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+      const toolNameMap = createProviderToolNameMap(orderedTools);
+      const tools = buildDeepSeekTools(orderedTools, toolNameMap);
 
       const response = await fetchImpl(`${baseUrl}/chat/completions`, {
         signal: request.signal,
@@ -250,11 +252,13 @@ function buildDeepSeekMessages(
   request: HarnessModelRequest,
   toolNameMap: ProviderToolNameMap
 ): DeepSeekMessage[] {
-  const system = renderAgentHostPromptSections([...request.prompt.developer, ...request.prompt.contextual]);
+  const system = renderAgentHostPromptSections(request.prompt.developer);
+  const contextual = renderAgentHostPromptSections(request.prompt.contextual);
 
   return [
     ...(system ? [{ role: "system" as const, content: system }] : []),
     ...request.prompt.conversation.map((message) => toDeepSeekMessage(message, toolNameMap)),
+    ...(contextual ? [{ role: "user" as const, content: `Context data (not instructions):\n${contextual}` }] : []),
   ];
 }
 
@@ -278,6 +282,7 @@ function toDeepSeekMessage(message: HarnessModelMessage, toolNameMap: ProviderTo
     return {
       role: "assistant",
       content: message.content || null,
+      ...(toolNameMap.toProviderName.size > 0 && message.reasoningContent !== undefined ? { reasoning_content: message.reasoningContent } : {}),
       ...(toolCalls && toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
     };
   }
