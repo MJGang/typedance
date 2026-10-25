@@ -508,6 +508,7 @@ function AgentChatContent({
       const result = runningRunId
         ? await sendAgentRunInput({ ...messageInput, runId: runningRunId })
         : await startConversationRun(messageInput)
+      onConversationUpdated?.()
       if (pending.invalidated) return
       if (!resumeFromRunId) {
         drafts.current.delete(`${workspaceId}:${activeConversationId ?? "new"}`)
@@ -520,14 +521,12 @@ function AgentChatContent({
       if (runningRunId) {
         const message = result as AgentMessage
         setMessages((current) => current.some((known) => known.id === message.id) ? current : [...current, message])
-        onConversationUpdated?.()
         return
       }
       const run = result as AgentRun
       setRunningRunId(run.id)
       await loadMessages(conversationId)
       if (pending.invalidated) return
-      onConversationUpdated?.()
       subscribeRun(run, conversationId)
     } catch (error) {
       if (!pending.invalidated) toast.error(error instanceof Error ? error.message : "发送失败")

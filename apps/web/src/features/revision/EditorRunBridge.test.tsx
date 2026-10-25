@@ -19,10 +19,10 @@ function Canvas({ bridge }: { bridge: CanvasReferenceBridge }) {
   useEffect(() => register(bridge), [register, bridge])
   return null
 }
-function Workspace({ bridge }: { bridge: CanvasReferenceBridge }) {
+function Workspace({ bridge, revision = 0 }: { bridge: CanvasReferenceBridge; revision?: number }) {
   const [selected, setSelected] = useState("running chat")
   return <EditorReferencesProvider documentId="doc">
-    <Canvas bridge={bridge} /><EditorRunBridge conversationId="conv" onCompleted={onCompleted} />
+    <Canvas bridge={bridge} /><EditorRunBridge conversationId="conv" revision={revision} onCompleted={onCompleted} />
     <button onClick={() => setSelected("new chat")}>新对话</button><p>{selected}</p>
   </EditorReferencesProvider>
 }
@@ -85,5 +85,27 @@ describe("workspace editor execution", () => {
     dispatch(read)
     await waitFor(() => expect(respondToEditorRequest).toHaveBeenCalledTimes(2), { timeout: 2500 })
     expect(bridge.getSnapshot).toHaveBeenCalledOnce()
+  })
+  it.each(["active run", "history"])("retries an initial %s request after a transient network failure", async (stage) => {
+    if (stage === "active run") vi.mocked(getConversationActiveRun).mockRejectedValueOnce(new Error("network failure"))
+    else vi.mocked(listAgentRunEvents).mockRejectedValueOnce(new Error("network failure"))
+    const { dispatch } = setup()
+    await waitFor(() => expect(createAgentRunEventSource).toHaveBeenCalledWith("run", -1), { timeout: 3500 })
+    dispatch(read)
+    await waitFor(() => expect(respondToEditorRequest).toHaveBeenCalledWith("run", "read", { status: "snapshot", snapshot }))
+  })
+  it("rebinds a new run when the same conversation stays running across list refreshes", async () => {
+    const { source, bridge, rerender } = setup()
+    await waitFor(() => expect(createAgentRunEventSource).toHaveBeenCalledWith("run", -1))
+    const nextSource = Object.assign(new EventTarget(), { close: vi.fn() })
+    vi.mocked(getConversationActiveRun).mockResolvedValue({ id: "next-run", conversation_id: "conv", status: "running" } as Awaited<ReturnType<typeof getConversationActiveRun>>)
+    vi.mocked(createAgentRunEventSource).mockReturnValue(nextSource as unknown as ReturnType<typeof createAgentRunEventSource>)
+    rerender(<Workspace bridge={bridge} revision={1} />)
+    await waitFor(() => expect(createAgentRunEventSource).toHaveBeenCalledWith("next-run", -1))
+    expect(source.close).toHaveBeenCalledOnce()
+    const nextRead = { ...read, id: "next-read" }
+    vi.mocked(getEditorRequest).mockResolvedValue(nextRead)
+    act(() => nextSource.dispatchEvent(new MessageEvent("editor_request", { data: JSON.stringify({ id: "next-read", run_id: "next-run", sequence: 1, type: "editor_request", payload: { request: nextRead }, created_at: "2026-10-25T00:00:00Z" }) })))
+    await waitFor(() => expect(respondToEditorRequest).toHaveBeenCalledWith("next-run", "next-read", { status: "snapshot", snapshot }))
   })
 })

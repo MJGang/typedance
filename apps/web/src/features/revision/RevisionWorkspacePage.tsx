@@ -128,7 +128,7 @@ function RevisionWorkspaceContent() {
   const [titleSaveError, setTitleSaveError] = useState<string | null>(null)
   const [isSavingTitle, setIsSavingTitle] = useState(false)
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>()
-  const { conversations, loaded: conversationsLoaded, refresh: refreshConversations } = useWorkspaceConversations()
+  const { conversations, loaded: conversationsLoaded, revision: conversationRevision, refresh: refreshConversations } = useWorkspaceConversations()
   const [renamingConversation, setRenamingConversation] = useState<AgentConversation | null>(null)
   const [conversationNameDraft, setConversationNameDraft] = useState("")
   const [savingConversationName, setSavingConversationName] = useState(false)
@@ -775,7 +775,7 @@ function RevisionWorkspaceContent() {
           </div>
         </section>
         {conversations.filter((conversation) => conversation.status === "running").map((conversation) => (
-          <EditorRunBridge key={conversation.id} conversationId={conversation.id} onCompleted={refreshConversations} />
+          <EditorRunBridge key={conversation.id} conversationId={conversation.id} revision={conversationRevision} onCompleted={refreshConversations} />
         ))}
         {assistantPanelVisible ? (
           <PanelResizeHandle

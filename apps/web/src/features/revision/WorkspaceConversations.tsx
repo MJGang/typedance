@@ -4,7 +4,7 @@ import { toast } from "sonner"
 import { listWorkspaceConversations } from "@/agentHost"
 
 type ConversationState = { workspaceId: string; revision: number; conversations: AgentConversation[]; status: "loaded" | "error" }
-type Conversations = { conversations: AgentConversation[]; loading: boolean; loaded: boolean; refresh: () => void }
+type Conversations = { conversations: AgentConversation[]; loading: boolean; loaded: boolean; revision: number; refresh: () => void }
 const Context = createContext<Conversations | null>(null)
 const EMPTY_CONVERSATIONS: AgentConversation[] = []
 
@@ -27,7 +27,7 @@ export function WorkspaceConversationsProvider({ workspaceId, children }: { work
   const conversations = result?.workspaceId === workspaceId ? result.conversations : EMPTY_CONVERSATIONS
   const loading = result?.workspaceId !== workspaceId || result.revision !== revision
   const loaded = !loading && result?.status === "loaded"
-  const value = useMemo(() => ({ conversations, loading, loaded, refresh }), [conversations, loading, loaded, refresh])
+  const value = useMemo(() => ({ conversations, loading, loaded, revision, refresh }), [conversations, loading, loaded, revision, refresh])
   return <Context.Provider value={value}>{children}</Context.Provider>
 }
 
