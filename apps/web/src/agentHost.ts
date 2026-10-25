@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { AgentRunEventSource } from "./agentRunStream"
+import { notifyModelSettingsChanged } from "./modelSettingsEvents"
 import {
   editorRequestSchema,
   agentConversationSchema,
@@ -9,6 +10,11 @@ import {
   agentRunSchema,
   modelSettingsResponseSchema,
   modelSettingsUpdateSchema,
+  modelSelectionSchema,
+  modelSelectionUpdateSchema,
+  conversationStatisticsSchema,
+  type ModelSelection,
+  type ConversationStatistics,
   speechStatusSchema,
   type SpeechPreferences,
   type SpeechStatus,
@@ -28,6 +34,20 @@ import {
 } from "@typedance/contracts"
 
 const agentHostBaseUrl = import.meta.env.VITE_AGENT_HOST_URL ?? "http://127.0.0.1:4327"
+
+export async function getModelSelection(): Promise<ModelSelection> {
+  return parseAgentHostResponse(await agentHostFetch(`${agentHostBaseUrl}/settings/model/selection`), (value) => modelSelectionSchema.parse(value), "模型配置加载失败")
+}
+export async function updateModelSelection(input: Pick<ModelSelection, "model" | "reasoning_effort">): Promise<ModelSelection> {
+  const value = await parseAgentHostResponse(await agentHostFetch(`${agentHostBaseUrl}/settings/model/selection`, {
+    method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(modelSelectionUpdateSchema.parse(input)),
+  }), (value) => modelSelectionSchema.parse(value), "模型选择保存失败")
+  notifyModelSettingsChanged()
+  return value
+}
+export async function getConversationStatistics(conversationId: string): Promise<ConversationStatistics> {
+  return parseAgentHostResponse(await agentHostFetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}/statistics`), (value) => conversationStatisticsSchema.parse(value), "会话统计加载失败")
+}
 
 export async function getSpeechStatus(): Promise<SpeechStatus> {
   return parseAgentHostResponse(await agentHostFetch(`${agentHostBaseUrl}/speech/settings`), (value) => speechStatusSchema.parse(value), "语音设置加载失败")
@@ -142,7 +162,6 @@ export async function startConversationRun(input: {
   mentions?: ContextMention[]
   references?: EditorReference[]
   attachments?: HarnessAttachment[]
-  model?: string
   mutationMode?: CanvasMutationMode
   context?: Record<string, unknown>
 }): Promise<AgentRun> {
@@ -158,7 +177,6 @@ export async function startConversationRun(input: {
           ...(input.references?.length ? { references: input.references } : {}),
           ...(input.attachments?.length ? { attachments: input.attachments } : {}),
         },
-        model: input.model,
         mutation_mode: canvasMutationModeSchema.parse(input.mutationMode ?? "review"),
         context: input.context ?? {},
       }),
@@ -254,11 +272,13 @@ export async function updateModelSettings(input: ModelSettingsUpdate): Promise<M
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
   })
-  return parseAgentHostResponse(
+  const value = await parseAgentHostResponse(
     response,
     (value) => modelSettingsResponseSchema.parse(value),
     "Failed to update model settings",
   )
+  notifyModelSettingsChanged()
+  return value
 }
 
 export async function clearModelApiKey(): Promise<ModelSettingsResponse> {

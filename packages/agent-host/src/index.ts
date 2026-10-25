@@ -10,6 +10,8 @@ import {
   editorSnapshotSchema,
   editorResponseSchema,
   modelSettingsUpdateSchema,
+  modelSelectionUpdateSchema,
+  type ReasoningEffort,
   harnessAttachmentsSchema,
   speechPreferencesSchema,
   type HarnessAttachment,
@@ -33,6 +35,7 @@ import {
 import { buildAgentHostPromptBundle } from "./prompt";
 import type { AgentHostContextProvider } from "./sidecar-context";
 import type { ModelSettingsService } from "./model-settings";
+import { conversationStatistics } from "./conversation-statistics";
 import type { LocalSpeechService } from "./speech";
 export {
   JsonFileAgentHostStore,
@@ -91,6 +94,7 @@ export type AgentHostStartConversationRunInput = {
     attachments?: HarnessAttachment[];
   };
   model?: string;
+  reasoningEffort?: ReasoningEffort | null;
   mutationMode?: CanvasMutationMode;
   resumeFromRunId?: string;
   context?: Record<string, unknown>;
@@ -302,6 +306,7 @@ export class AgentHost {
       editor_snapshot: editorSnapshot,
       references,
       ...(model ? { model } : {}),
+      reasoning_effort: input.reasoningEffort,
       resume_from_run_id: input.resumeFromRunId,
     };
     const harnessRun = this.runtime.createRun({
@@ -489,6 +494,7 @@ export class AgentHost {
         runId: run.id,
         agentId: pack.primaryAgentId,
         model,
+        ...(context.reasoning_effort !== undefined ? { modelOptions: { reasoningEffort: context.reasoning_effort } } : {}),
         messages,
         prompt,
         inputIds,
@@ -846,6 +852,15 @@ async function route(context: RouteContext): Promise<boolean> {
     }
   }
 
+  if (modelSettings && pathname === "/settings/model/selection") {
+    if (request.method === "GET") { writeJson(response, 200, await modelSettings.getSelection()); return true; }
+    if (request.method === "PUT") {
+      const parsed = modelSelectionUpdateSchema.safeParse(await readJson(request));
+      if (!parsed.success) throw new HttpError(400, "invalid_model_selection");
+      writeJson(response, 200, await modelSettings.updateSelection(parsed.data)); return true;
+    }
+  }
+
   if (modelSettings && request.method === "DELETE" && pathname === "/settings/model/api-key") {
     writeJson(response, 200, await modelSettings.clearApiKey());
     return true;
@@ -900,6 +915,14 @@ async function route(context: RouteContext): Promise<boolean> {
     return true;
   }
 
+  const statisticsMatch = /^\/conversations\/([^/]+)\/statistics$/.exec(pathname);
+  if (request.method === "GET" && statisticsMatch) {
+    const conversationId = decodeURIComponent(statisticsMatch[1]!);
+    if (!host.store.getConversation(conversationId)) throw new HttpError(404, "conversation_not_found");
+    writeJson(response, 200, conversationStatistics(host.store, conversationId));
+    return true;
+  }
+
   const activeRunMatch = /^\/conversations\/([^/]+)\/active-run$/.exec(pathname);
   if (request.method === "GET" && activeRunMatch) {
     writeJson(response, 200, host.getConversationActiveRun(decodeURIComponent(activeRunMatch[1] ?? "")));
@@ -909,13 +932,15 @@ async function route(context: RouteContext): Promise<boolean> {
   const conversationRunsMatch = /^\/workspaces\/([^/]+)\/conversations\/([^/]+)\/runs$/.exec(pathname);
   if (request.method === "POST" && conversationRunsMatch) {
     const body = await readJson(request);
+    const selection = await modelSettings?.getSelection();
     const run = host.startConversationRun(
       decodeURIComponent(conversationRunsMatch[1] ?? ""),
       decodeURIComponent(conversationRunsMatch[2] ?? ""),
       {
         packId: optionalString(body.pack_id),
         message: parseMessageBody(body.message),
-        model: optionalString(body.model),
+        model: selection?.model ?? optionalString(body.model),
+        reasoningEffort: selection?.reasoning_effort,
         mutationMode: body.mutation_mode === undefined ? undefined : canvasMutationModeSchema.parse(body.mutation_mode),
         resumeFromRunId: optionalString(body.resume_from_run_id),
         context: objectRecord(body.context),

@@ -15,6 +15,9 @@ import { EditorRequestCard, editorRequests } from "./EditorRequestCard"
 import { ChatAttachments } from "./ChatAttachments"
 import { attachmentAccept, readChatAttachment } from "./readChatAttachment"
 import { useVoiceInput } from "./useVoiceInput"
+import { ChatModelMenu } from "./ChatModelMenu"
+import { ChatStatusBar } from "./ChatStatusBar"
+import { statisticsRevision, useChatStatistics } from "./useChatStatistics"
 import { harnessAttachmentsSchema, type HarnessAttachment } from "@typedance/contracts"
 import {
   cancelAgentRun,
@@ -54,7 +57,6 @@ const mutationModeLabels: Record<CanvasMutationMode, string> = {
   review: "手动应用",
   solo: "自动修改",
 }
-const defaultAgentModel = import.meta.env.VITE_DEFAULT_AGENT_MODEL?.trim() || undefined
 
 const terminalEvents = new Set<AgentRunEvent["type"]>(["run_completed", "run_failed", "run_cancelled"])
 const streamedEventTypes: AgentRunEvent["type"][] = [
@@ -207,7 +209,8 @@ function AgentChatContent({
   const [mentions, setMentions] = useState<ContextMention[]>([])
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mutationMode, setMutationMode] = useState<CanvasMutationMode>("review")
-  const [model] = useState(defaultAgentModel)
+  const statisticsKey = statisticsRevision(runEvents)
+  const chatStatistics = useChatStatistics(scope, activeConversationId, statisticsKey)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const composerRef = useRef<HTMLDivElement>(null)
   useEffect(() => registerComposer?.(() => composerRef.current?.focus()), [registerComposer])
@@ -474,7 +477,6 @@ function AgentChatContent({
         mentions,
         ...(attachments.length ? { attachments } : {}),
         ...(editorPayload?.references.length ? { references: editorPayload.references } : {}),
-        model,
         mutationMode,
         context: { document_id: workspaceId, ...(editorPayload?.snapshot ? { editor_snapshot: editorPayload.snapshot } : {}) },
       }
@@ -506,7 +508,7 @@ function AgentChatContent({
       setSending(false)
       if (pendingSendRef.current === pending) pendingSendRef.current = null
     }
-  }, [activeConversationId, input, attachments, attachmentLoading, voice.phase, loadMessages, mentions, model, mutationMode, onConversationCreated, onConversationUpdated, runningRunId, subscribeRun, workspaceId, editorReferences])
+  }, [activeConversationId, input, attachments, attachmentLoading, voice.phase, loadMessages, mentions, mutationMode, onConversationCreated, onConversationUpdated, runningRunId, subscribeRun, workspaceId, editorReferences])
 
   const handleCancelRun = useCallback(async () => {
     if (!runningRunId) return
@@ -522,7 +524,7 @@ function AgentChatContent({
   const headerTitle = activeConversationTitle?.trim() || "当前对话"
 
   return (
-    <aside className="flex min-h-0 w-full min-w-0 flex-col border-l border-border bg-background">
+    <aside className="@container/chat flex min-h-0 w-full min-w-0 flex-col border-l border-border bg-background">
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
         {activeConversationId ? (
           <div className="flex min-w-0 items-center gap-1">
@@ -672,17 +674,15 @@ function AgentChatContent({
             <Button size="icon-sm" className="rounded-full" disabled aria-label="转写完成后发送"><ArrowUp /></Button>
           </div> : null}
           <div className={cn("flex h-11 min-w-0 items-center gap-2 px-3", voice.phase !== "idle" && "hidden")}>
-            <div className="flex min-w-0 flex-1 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               <input ref={attachmentPicker} type="file" multiple accept={attachmentAccept} className="hidden" aria-label="选择聊天附件" onChange={(event) => { void addAttachments(Array.from(event.target.files ?? [])); event.target.value = "" }} />
               <Button variant="ghost" size="icon-sm" aria-label="添加" title="添加图片或文件" disabled={sending || attachmentLoading} onClick={() => attachmentPicker.current?.click()}>
                 <Plus className="size-4" />
               </Button>
               <MutationModeMenu value={mutationMode} onChange={setMutationMode} />
             </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              <Button variant="ghost" size="sm" className="h-8 max-w-32 px-2 text-xs">
-                <span className="truncate">模型 {model ?? "默认"}</span>
-              </Button>
+            <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1.5">
+              <ChatModelMenu disabled={!!runningRunId || sending} />
               <Button variant="ghost" size="icon-sm" aria-label="语音输入" title="语音输入" disabled={sending} onClick={() => void voice.start()}>
                 <Mic className="size-4" />
               </Button>
@@ -699,6 +699,7 @@ function AgentChatContent({
             </div>
           </div>
         </div>
+        <ChatStatusBar statistics={chatStatistics.statistics} failed={chatStatistics.failed} />
       </div>
     </aside>
   )
@@ -1044,10 +1045,10 @@ function MutationModeMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs">
+        <Button variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs" aria-label={mutationModeLabels[value]} title={mutationModeLabels[value]}>
           <ShieldCheck className="size-3.5" />
-          {mutationModeLabels[value]}
-          <ChevronDown className="size-3" />
+          <span className="hidden @min-[480px]/chat:inline">{mutationModeLabels[value]}</span>
+          <ChevronDown className="hidden @min-[480px]/chat:inline" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-64">

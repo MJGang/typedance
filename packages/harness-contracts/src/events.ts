@@ -150,6 +150,22 @@ const harnessModelInputConsumedEventSchema = harnessRunEventBaseSchema.extend({
 });
 
 export const harnessRunEventSchema = z.discriminatedUnion("type", [
+  harnessRunEventBaseSchema.extend({
+    type: z.literal("model.call.started"), call_id: z.string(), model: z.string().optional(),
+    purpose: z.enum(["response", "compaction"]), input_tokens: z.number().nonnegative(),
+    budget_tokens: z.number().positive(), system_tokens: z.number().nonnegative(),
+    tool_tokens: z.number().nonnegative(), conversation_tokens: z.number().nonnegative(),
+  }),
+  harnessRunEventBaseSchema.extend({
+    type: z.literal("model.call.completed"), call_id: z.string(), model: z.string().optional(),
+    duration_ms: z.number().nonnegative(), ttft_ms: z.number().nonnegative().optional(),
+    status: z.enum(["completed", "failed", "canceled"]),
+    usage: z.object({
+      inputTokens: z.number().nonnegative().optional(), outputTokens: z.number().nonnegative().optional(),
+      totalTokens: z.number().nonnegative().optional(), cacheReadInputTokens: z.number().nonnegative().optional(),
+      cacheMissInputTokens: z.number().nonnegative().optional(), reasoningOutputTokens: z.number().nonnegative().optional(),
+    }).optional(),
+  }),
   harnessRunEventBaseSchema.extend({ type: z.literal("context.compacted"), before_tokens: z.number(), after_tokens: z.number(), compaction: z.number().int() }),
   harnessRunEventBaseSchema.extend({ type: z.literal("run.resumed"), source_run_id: z.string() }),
   harnessRunEventBaseSchema.extend({ type: z.literal("completion.blocked"), message: z.string() }),

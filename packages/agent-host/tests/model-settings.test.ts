@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createFileModelSettings } from "../src/model-settings";
+import { migrateRetiredModelId } from "../src/migrations/model-id";
 
 const tempDirectories: string[] = [];
 
@@ -11,6 +12,50 @@ afterEach(async () => {
 });
 
 describe("file model settings", () => {
+  it("applies the environment reasoning default to an existing config until an explicit choice is saved", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "typedance-reasoning-default-"));
+    tempDirectories.push(dataDir);
+    await createFileModelSettings(dataDir, {}).update({ model: "deepseek-flash", base_url: "https://api.deepseek.com" });
+    const settings = createFileModelSettings(dataDir, { DEEPSEEK_REASONING_EFFORT: "low" });
+    expect(await settings.getSelection()).toMatchObject({ reasoning_effort: "low" });
+    expect(await settings.resolve()).toMatchObject({ reasoningEffort: "low" });
+    await settings.update({ model: "deepseek-flash", base_url: "https://api.deepseek.com" });
+    expect(JSON.parse(await readFile(join(dataDir, "agent-host", "config.json"), "utf8"))).not.toHaveProperty("reasoning_effort");
+    expect(await createFileModelSettings(dataDir, { DEEPSEEK_REASONING_EFFORT: "high" }).getSelection()).toMatchObject({ reasoning_effort: "high" });
+    await settings.updateSelection({ model: "deepseek-flash", reasoning_effort: "max" });
+    expect(await settings.resolve()).toMatchObject({ reasoningEffort: "max" });
+  });
+  it("keeps the environment reasoning default when migrating an environment-only retired model", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "typedance-migrated-default-"));
+    tempDirectories.push(dataDir);
+    const environment = { AGENT_MODEL: "deepseek-v4-flash", DEEPSEEK_REASONING_EFFORT: "low" };
+    await migrateRetiredModelId(dataDir, environment);
+    expect(await createFileModelSettings(dataDir, environment).getSelection()).toMatchObject({ model: "deepseek-flash", reasoning_effort: "low" });
+  });
+  it("migrates retired IDs once while preserving endpoint and credentials", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "typedance-model-migrate-"));
+    tempDirectories.push(dataDir);
+    const settings = createFileModelSettings(dataDir, {});
+    await settings.update({ model: "deepseek-v4-flash", base_url: "https://gateway.example/v1", api_key: "private-test" });
+    await migrateRetiredModelId(dataDir, {});
+    expect(await settings.resolve()).toMatchObject({ model: "deepseek-flash", baseUrl: "https://gateway.example/v1", apiKey: "private-test" });
+    await settings.updateSelection({ model: "deepseek-v4-pro", reasoning_effort: "max" });
+    await migrateRetiredModelId(dataDir, { AGENT_MODEL: "deepseek-v4-flash" });
+    expect(await settings.getSelection()).toMatchObject({ model: "deepseek-v4-pro", reasoning_effort: "max" });
+  });
+  it("persists concrete model and reasoning selection without replacing API credentials", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "typedance-selection-"));
+    tempDirectories.push(dataDir);
+    const settings = createFileModelSettings(dataDir, { DEEPSEEK_MODEL: "deepseek-flash", DEEPSEEK_REASONING_EFFORT: "low" });
+    expect(await settings.getSelection()).toMatchObject({ model: "deepseek-flash", reasoning_effort: "low" });
+    await settings.update({ model: "deepseek-flash", base_url: "https://api.deepseek.com", api_key: "test-private" });
+    await settings.updateSelection({ model: "deepseek-v4-pro", reasoning_effort: "off" });
+    const reopened = createFileModelSettings(dataDir, { DEEPSEEK_MODEL: "deepseek-flash" });
+    expect(await reopened.getSelection()).toMatchObject({ model: "deepseek-v4-pro", reasoning_effort: "off" });
+    expect(await reopened.resolve()).toMatchObject({ model: "deepseek-v4-pro", reasoningEffort: "off", apiKey: "test-private" });
+    await expect(settings.updateSelection({ model: "custom-model", reasoning_effort: "max" })).rejects.toThrow("不支持");
+    expect(await settings.updateSelection({ model: "custom-model", reasoning_effort: null })).toMatchObject({ model: "custom-model", reasoning_effort: null });
+  });
   it("stores auth separately and never returns the full API key", async () => {
     const dataDir = await mkdtemp(join(tmpdir(), "typedance-model-settings-"));
     tempDirectories.push(dataDir);

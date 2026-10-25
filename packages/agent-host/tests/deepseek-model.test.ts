@@ -105,6 +105,7 @@ describe("DeepSeek model adapter", () => {
     }));
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).model).toBe("deepseek-v4-flash");
     expect(events).toEqual([
+      { type: "first_token" },
       { type: "reasoning_summary_delta", summaryId: "run_1:reasoning", delta: "think" },
       { type: "assistant_delta", messageId: "run_1:assistant", delta: "answer" },
       { type: "final", output: { model: "deepseek-v4-flash", empty: false } },
