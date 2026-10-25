@@ -6,3 +6,4 @@ export * from "./tool";
 export * from "./content";
 export * from "./attachment";
 export * from "./checkpoint";
+export * from "./user-input";

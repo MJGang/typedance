@@ -91,13 +91,14 @@ describe("harness agent loop", () => {
     expect(seenRequests[0]?.capabilityPolicy).toEqual({ scopeIds: ["context:alpha"], pluginIds: [] });
     expect("skillContext" in (seenRequests[0] ?? {})).toBe(false);
     expect("messages" in (seenRequests[0] ?? {})).toBe(false);
-    expect(seenRequests[0]?.availableToolNames).toEqual(["alpha.readContext", "update_plan"]);
+    expect(seenRequests[0]?.availableToolNames).toEqual(["alpha.readContext", "update_plan", "request_user_input"]);
     expect(seenRequests[0]?.availableTools).toEqual([
       expect.objectContaining({
         name: "alpha.readContext",
         origin: "mcp",
       }),
       expect.objectContaining({ name: "update_plan", origin: "system" }),
+      expect.objectContaining({ name: "request_user_input", origin: "system" }),
     ]);
     expect(seenRequests).toHaveLength(2);
     expect(seenRequests[1]?.prompt.conversation.find((message) => (
@@ -209,7 +210,7 @@ describe("harness agent loop", () => {
       messages: [{ role: "user", content: "Inspect this context" }],
     });
 
-    expect(seenRequests[0]?.availableToolNames).toEqual(["alpha.readContext", "alpha.createProposal", "update_plan"]);
+    expect(seenRequests[0]?.availableToolNames).toEqual(["alpha.readContext", "alpha.createProposal", "update_plan", "request_user_input"]);
   });
 
   it("groups multiple tool calls from one model pass before returning tool results", async () => {

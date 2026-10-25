@@ -142,5 +142,13 @@ export function registerResumeTools(runtime: HarnessRuntime, services: ResumeToo
   return {
     enter(signal: AbortSignal, input: Omit<ResumeTurn, "pageCache">) { turns.set(signal, { ...input, pageCache: new Map() }); },
     leave(signal: AbortSignal) { turns.delete(signal); },
+    async checkCompletion(signal: AbortSignal): Promise<{ complete: true } | { complete: false; message: string }> {
+      const turn = current(signal);
+      const audit = await turn.session.auditCompletion();
+      if (!audit) return { complete: true };
+      const currentState = await services.editor.inspect(audit.snapshot, signal);
+      return { complete: false, message: `Final editor evidence (actual decisions and a fresh authoritative snapshot):\n${JSON.stringify({ decisions: audit.decisions,
+        content_revision: audit.snapshot.content_revision, page_count: audit.snapshot.print_snapshot?.page_tops.length, current: currentState })}\nReport only what this evidence establishes. Denied/failed actions were not completed; persisted:false is not a confirmed save. Do not repeat denied actions. If the user's requirement is satisfied, give the final answer; otherwise continue inspecting or editing within the current grant.` };
+    },
   };
 }

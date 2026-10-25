@@ -10,6 +10,9 @@ import type {
 } from "@typedance/harness-contracts";
 import { harnessCheckpointSchema, harnessPlanItemSchema, type HarnessCheckpoint, type HarnessPendingInput } from "@typedance/harness-contracts";
 import { MemoryHarnessCheckpointStore, HarnessExecutionError, type HarnessCheckpointStore, type HarnessCompletionCheck, type HarnessExecutionLimits } from "./run/checkpoint-store";
+import { restoreCheckpointHistory } from "./run/history";
+import { HarnessModelError, waitForModelRetry } from "./model/model-error";
+import { harnessUserQuestionsSchema, harnessUserAnswersSchema, type HarnessUserQuestion } from "@typedance/harness-contracts";
 import { DEFAULT_CONTEXT_WINDOW, TASK_INSTRUCTIONS, COMPACTION_PROMPT, estimatePromptTokens, estimateTextTokens, retainUserMessages, boundToolContent, type HarnessContextWindowOptions } from "./model/context-window";
 import { HarnessEventLog } from "./event/event-log";
 import { HarnessMemoryStore, type HarnessMemoryRecord, type HarnessMemoryScope } from "./memory/memory-store";
@@ -48,6 +51,7 @@ export type HarnessRuntimeOptions = {
   contextWindow?: HarnessContextWindowOptions;
   limits?: HarnessExecutionLimits;
   completionCheck?: HarnessCompletionCheck;
+  modelRetry?: { maxRetries?: number; initialDelayMs?: number };
 };
 
 export type HarnessRuntimeToolResult =
@@ -81,7 +85,10 @@ export class HarnessRuntime {
   #contextWindow: typeof DEFAULT_CONTEXT_WINDOW;
   #limits: HarnessExecutionLimits;
   #completionCheck?: HarnessCompletionCheck;
-  #permissionWaiters = new Map<string, (decision: HarnessPermissionDecision) => void>();
+  #modelRetry: { maxRetries: number; initialDelayMs: number };
+  #permissionWaiters = new Map<string, (decision: HarnessPermissionDecision | undefined) => void>();
+  #supersededPermissions = new Set<string>();
+  #questionWaiters = new Map<string, { runId: string; questions: HarnessUserQuestion[]; resolve: (answers: Record<string, string>) => void; reject: (error: Error) => void }>();
 
   constructor(options: HarnessRuntimeOptions = {}) {
     this.#now = options.now ?? (() => new Date());
@@ -91,6 +98,9 @@ export class HarnessRuntime {
     this.#contextWindow = { ...DEFAULT_CONTEXT_WINDOW, ...options.contextWindow };
     this.#limits = options.limits ?? {};
     this.#completionCheck = options.completionCheck;
+    this.#modelRetry = { maxRetries: options.modelRetry?.maxRetries ?? 3, initialDelayMs: options.modelRetry?.initialDelayMs ?? 500 };
+    if (!Number.isInteger(this.#modelRetry.maxRetries) || this.#modelRetry.maxRetries < 0 || this.#modelRetry.maxRetries > 10
+      || !Number.isFinite(this.#modelRetry.initialDelayMs) || this.#modelRetry.initialDelayMs <= 0) throw new Error("Invalid model retry budget");
     for (const [name, value] of Object.entries({ ...this.#contextWindow, ...this.#limits })) {
       if (!Number.isFinite(value) || value <= 0 || (name !== "compactAtRatio" && !Number.isInteger(value))) throw new Error(`Invalid execution budget: ${name}`);
     }
@@ -125,6 +135,15 @@ export class HarnessRuntime {
   deleteCheckpoint(runId: string): void {
     if (this.#executing.has(runId)) throw new Error("Cannot delete the checkpoint of an executing run");
     this.#checkpoints.delete(runId);
+  }
+
+  /** One-time import of historical evidence; it is not an execution checkpoint. */
+  importHistory(checkpoint: HarnessCheckpoint): void {
+    const parsed = harnessCheckpointSchema.parse(checkpoint);
+    if (parsed.phase !== "history" || this.getCheckpoint(parsed.run.id) || this.#executing.has(parsed.run.id)) {
+      throw new Error("Historical import must be new and have phase history");
+    }
+    this.#checkpoints.save(parsed);
   }
 
   getEvents(runId: string): HarnessRunEvent[] {
@@ -277,6 +296,18 @@ export class HarnessRuntime {
     const state = this.#states.get(runId);
     if (state) this.#saveCheckpoint(state);
     this.#appendEvent(runId, { type: "user.input.received", input: { id: input.id } });
+    for (const [key, waiter] of this.#questionWaiters) {
+      if (waiter.runId !== runId) continue;
+      this.#questionWaiters.delete(key);
+      this.#appendEvent(runId, { type: "interaction.superseded", request_id: key.slice(runId.length + 1), kind: "questions" });
+      waiter.reject(new HarnessExecutionError("question_superseded", "New user instructions arrived. Reconsider this question using the new instructions."));
+    }
+    for (const [requestId, resolve] of this.#permissionWaiters) {
+      if (this.permissions.getRequest(requestId).run_id !== runId) continue;
+      this.#supersededPermissions.add(requestId);
+      this.#appendEvent(runId, { type: "interaction.superseded", request_id: requestId, kind: "permissions" });
+      resolve(undefined);
+    }
   }
 
   completeRun(runId: string, output: Record<string, unknown> = {}): HarnessRunEvent {
@@ -301,7 +332,7 @@ export class HarnessRuntime {
   }
 
   registerTool(registration: HarnessToolRegistration): HarnessToolRegistration {
-    if (registration.name === "update_plan") throw new Error("update_plan is a reserved runtime tool");
+    if (["update_plan", "request_user_input"].includes(registration.name)) throw new Error(`${registration.name} is a reserved runtime tool`);
     return this.tools.register(registration);
   }
 
@@ -367,6 +398,7 @@ export class HarnessRuntime {
     status: HarnessPermissionDecision["status"];
     remember?: HarnessPermissionDecision["remember"];
   }): HarnessPermissionDecision {
+    if (this.#supersededPermissions.has(input.requestId)) throw new Error("Permission request was superseded by new user instructions");
     this.#assertActive(this.permissions.getRequest(input.requestId).run_id);
     const { request, decision } = this.permissions.resolve(input);
     this.runs.updateStatus(request.run_id, "running");
@@ -407,6 +439,7 @@ export class HarnessRuntime {
     agentId: string;
     call: HarnessToolCall;
   }): Promise<HarnessRuntimeToolResult> {
+    if (input.call.name === "request_user_input") return this.#requestUserInput(input.runId, input.call);
     if (input.call.name === "update_plan") {
       this.#assertActive(input.runId);
       if (input.call.origin !== "system") throw new Error("Tool origin mismatch for update_plan");
@@ -442,6 +475,8 @@ export class HarnessRuntime {
     messages: HarnessModelMessage[];
     prompt?: HarnessPromptBundle;
     inputIds?: string[];
+    historyInputIds?: string[];
+    completionCheck?: HarnessCompletionCheck;
     resumeFromRunId?: string;
   }): Promise<Record<string, unknown>> {
     this.#assertActive(input.runId);
@@ -462,7 +497,7 @@ export class HarnessRuntime {
   }
 
   async #executeAgentTurn(input: {
-    runId: string; agentId: string; model?: string; modelOptions?: Record<string, unknown>; messages: HarnessModelMessage[]; prompt?: HarnessPromptBundle; inputIds?: string[]; resumeFromRunId?: string;
+    runId: string; agentId: string; model?: string; modelOptions?: Record<string, unknown>; messages: HarnessModelMessage[]; prompt?: HarnessPromptBundle; inputIds?: string[]; historyInputIds?: string[]; resumeFromRunId?: string; completionCheck?: HarnessCompletionCheck;
   }): Promise<Record<string, unknown>> {
     const signal = this.getRunSignal(input.runId);
     if (!this.#model) {
@@ -483,7 +518,7 @@ export class HarnessRuntime {
     basePrompt.conversation = basePrompt.conversation.filter((message) => message.role !== "system");
     const recovered = input.resumeFromRunId ? this.getCheckpoint(input.resumeFromRunId) : undefined;
     if (input.resumeFromRunId && !recovered) throw new Error(`Unknown checkpoint: ${input.resumeFromRunId}`);
-    if (recovered && (recovered.run.id === input.runId || recovered.agent_id !== input.agentId
+    if (recovered && (recovered.phase === "history" || recovered.run.id === input.runId || recovered.agent_id !== input.agentId
       || JSON.stringify([...recovered.run.capability_policy.scope_ids].sort()) !== JSON.stringify([...this.getRun(input.runId).capability_policy.scope_ids].sort())
       || JSON.stringify([...recovered.run.capability_policy.plugin_ids].sort()) !== JSON.stringify([...this.getRun(input.runId).capability_policy.plugin_ids].sort()))) {
       throw new Error("Checkpoint must resume into a new run with the same agent and capability policy");
@@ -495,20 +530,13 @@ export class HarnessRuntime {
       prompt: basePrompt, plan: recovered?.plan ?? [], step: recovered?.step ?? 0,
       tokens_used: recovered?.tokens_used ?? 0, compactions: recovered?.compactions ?? 0,
       phase: "ready", pending_tool_calls: [], pending_inputs: [],
-      input_ids: [...(recovered?.input_ids ?? []), ...(input.inputIds ?? [])],
+      input_ids: [...(recovered?.input_ids ?? []), ...(input.historyInputIds ?? []), ...(input.inputIds ?? [])],
       unconfirmed_input_ids: [...(recovered?.unconfirmed_input_ids ?? []), ...(input.inputIds ?? [])],
     };
     if (recovered) {
-      const history = structuredClone(recovered.prompt.conversation);
-      // A recorded invocation can have effects even when its result was not flushed.
-      for (const call of recovered.pending_tool_calls) {
-        history.push({ role: "tool", toolCallId: call.id, toolName: call.name, content: call.id === recovered.in_flight_tool_call_id
-          ? "Execution was interrupted; this tool may have taken effect. Inspect authoritative state before deciding what to do. Do not blindly repeat it."
-          : "This tool was not started before interruption. Reconsider it using current instructions and state." });
-      }
-      for (const pending of recovered.pending_inputs) history.push(...pending.messages);
-      state.prompt.conversation = [...history, ...basePrompt.conversation];
-      state.input_ids.push(...recovered.pending_inputs.map((pending) => pending.id));
+      const history = restoreCheckpointHistory(recovered);
+      state.prompt.conversation = [...history.messages, ...basePrompt.conversation];
+      state.input_ids.push(...history.inputIds);
       state.unconfirmed_input_ids.push(...recovered.pending_inputs.map((pending) => pending.id));
       this.#appendEvent(input.runId, { type: "run.resumed", source_run_id: recovered.run.id });
     }
@@ -623,12 +651,16 @@ export class HarnessRuntime {
           if (result.status === "permission_required") {
             const requestId = result.request.id;
             const known = this.permissions.getDecision(requestId);
-            let decision: HarnessPermissionDecision;
+            let decision: HarnessPermissionDecision | undefined;
             try {
-              decision = known ?? await withRunSignal(new Promise<HarnessPermissionDecision>((resolve) => this.#permissionWaiters.set(requestId, resolve)), signal);
+              if (this.#pendingInputs.get(input.runId)?.length) {
+                this.#supersededPermissions.add(requestId);
+                this.#appendEvent(input.runId, { type: "interaction.superseded", request_id: requestId, kind: "permissions" });
+              } else decision = known ?? await withRunSignal(new Promise<HarnessPermissionDecision | undefined>((resolve) => this.#permissionWaiters.set(requestId, resolve)), signal);
             } finally { this.#permissionWaiters.delete(requestId); }
             this.#assertActive(input.runId);
-            if (decision.status === "approved" && !this.#pendingInputs.get(input.runId)?.length) {
+            if (!decision) this.runs.updateStatus(input.runId, "running");
+            if (decision?.status === "approved" && !this.#pendingInputs.get(input.runId)?.length) {
               result = await this.#executeTool(input.runId, call);
             } else {
               result = { status: "failed", result: { tool_call_id: call.id, status: "failed", error: {
@@ -636,14 +668,14 @@ export class HarnessRuntime {
               } } };
             }
           }
-          state.prompt.conversation.push({
+          if (!state.prompt.conversation.some((message) => message.role === "tool" && message.toolCallId === call.id)) state.prompt.conversation.push({
             role: "tool",
             toolCallId: call.id,
             toolName: call.name,
             content: boundToolContent(serializeToolResultForModel(result), this.#contextWindow.toolOutputTokens),
           });
           state.in_flight_tool_call_id = undefined;
-          state.pending_tool_calls.shift();
+          state.pending_tool_calls = state.pending_tool_calls.filter((pending) => pending.id !== call.id);
           this.#saveCheckpoint(state);
         }
         state.phase = "ready";
@@ -655,18 +687,22 @@ export class HarnessRuntime {
         continue;
       }
       const output = finalOutput ?? {};
-      if (this.#completionCheck) {
-        const result = await withRunSignal(Promise.resolve(this.#completionCheck({ checkpoint: structuredClone(state), output, signal })), signal);
+      let needsContinuation = false;
+      for (const check of [this.#completionCheck, input.completionCheck]) {
+        if (!check) continue;
+        const result = await withRunSignal(Promise.resolve(check({ checkpoint: structuredClone(state), output, signal })), signal);
         this.#assertActive(input.runId);
-        if (this.#pendingInputs.get(input.runId)?.length) continue;
+        if (this.#pendingInputs.get(input.runId)?.length) { needsContinuation = true; break; }
         if (!result.complete) {
           if (!result.message.trim()) throw new Error("Completion check must supply continuation feedback");
           state.prompt.conversation.push({ role: "user", internal: "completion", content: `Completion check requires more work:\n${result.message}` });
           this.#appendEvent(input.runId, { type: "completion.blocked", message: result.message });
           this.#saveCheckpoint(state);
-          continue;
+          needsContinuation = true;
+          break;
         }
       }
+      if (needsContinuation) continue;
       this.#assertActive(input.runId);
       state.phase = "completed";
       this.completeRun(input.runId, output);
@@ -741,6 +777,24 @@ export class HarnessRuntime {
   }
 
   async *#streamModel(request: HarnessModelRequest): AsyncIterable<HarnessModelStreamEvent> {
+    for (let attempt = 0;; attempt++) {
+      let emitted = false;
+      try {
+        for await (const event of this.#observeModel(request)) { emitted = true; yield event; }
+        return;
+      } catch (error) {
+        request.signal.throwIfAborted();
+        // A streamed response may already be visible. Keep its failure explicit instead of duplicating it.
+        if (emitted || !(error instanceof HarnessModelError) || !error.retryable || attempt >= this.#modelRetry.maxRetries) throw error;
+        const delay = error.retryAfterMs ?? Math.min(30_000, this.#modelRetry.initialDelayMs * 2 ** attempt);
+        if (!Number.isFinite(delay) || delay < 0 || delay > 60_000) throw error;
+        this.#appendEvent(request.runId, { type: "model.retrying", attempt: attempt + 1, max_retries: this.#modelRetry.maxRetries, delay_ms: delay });
+        await waitForModelRetry(delay, request.signal);
+      }
+    }
+  }
+
+  async *#observeModel(request: HarnessModelRequest): AsyncIterable<HarnessModelStreamEvent> {
     const callId = randomUUID();
     const started = performance.now();
     const inputTokens = estimatePromptTokens(request.prompt, request.availableTools);
@@ -879,7 +933,60 @@ export class HarnessRuntime {
       inputSchema: { type: "object", properties: { items: { type: "array", items: { type: "object", properties: {
         id: { type: "string" }, title: { type: "string" }, status: { type: "string", enum: ["pending", "in_progress", "completed", "failed", "skipped"] },
       }, required: ["id", "title", "status"], additionalProperties: false } } }, required: ["items"], additionalProperties: false },
+    }, {
+      name: "request_user_input", origin: "system", description: "Ask 1-3 questions when missing user facts or a consequential choice prevents progress. Wait for actual answers; never guess or request secrets. Optional choices help the user, and free text is always allowed. Do not add an Other option; the user can enter a custom answer directly.",
+      inputSchema: { type: "object", properties: { questions: { type: "array", minItems: 1, maxItems: 3, items: {
+        type: "object", properties: { id: { type: "string" }, header: { type: "string" }, question: { type: "string" }, options: {
+          type: "array", minItems: 2, maxItems: 6, items: { type: "object", properties: { label: { type: "string" }, description: { type: "string" } }, required: ["label", "description"], additionalProperties: false },
+        } }, required: ["id", "header", "question"], additionalProperties: false,
+      } } }, required: ["questions"], additionalProperties: false },
     }];
+  }
+
+  answerQuestions(runId: string, requestId: string, value: unknown): void {
+    this.#assertActive(runId);
+    const waiter = this.#questionWaiters.get(`${runId}:${requestId}`);
+    if (!waiter) throw new Error("Question request is no longer pending");
+    const answers = harnessUserAnswersSchema.parse(value);
+    if (Object.keys(answers).length !== waiter.questions.length || waiter.questions.some((question) => !answers[question.id])) {
+      throw new Error("Answer exactly the requested question ids");
+    }
+    const state = this.#states.get(runId);
+    if (state) {
+      const candidate = structuredClone(state);
+      candidate.prompt.conversation.push({ role: "tool", toolCallId: requestId, toolName: "request_user_input",
+        content: serializeToolResultForModel({ status: "completed", result: { tool_call_id: requestId, status: "completed", output: { answers } } }) });
+      candidate.pending_tool_calls = candidate.pending_tool_calls.filter((call) => call.id !== requestId);
+      candidate.in_flight_tool_call_id = undefined;
+      this.#saveCheckpoint(candidate);
+      Object.assign(state, candidate);
+    }
+    this.#questionWaiters.delete(`${runId}:${requestId}`);
+    this.runs.updateStatus(runId, "running");
+    this.#appendEvent(runId, { type: "user.questions.answered", request_id: requestId, answers });
+    waiter.resolve(answers);
+  }
+
+  async #requestUserInput(runId: string, call: HarnessToolCall): Promise<HarnessRuntimeToolResult> {
+    this.#assertActive(runId);
+    if (call.origin !== "system") throw new Error("Tool origin mismatch for request_user_input");
+    this.#appendEvent(runId, { type: "tool.call.started", tool_call: call });
+    let result: HarnessToolResult;
+    const key = `${runId}:${call.id}`;
+    try {
+      const { questions } = harnessUserQuestionsSchema.parse(call.input);
+      const answer = new Promise<Record<string, string>>((resolve, reject) => this.#questionWaiters.set(key, { runId, questions, resolve, reject }));
+      this.runs.updateStatus(runId, "awaiting_user_input");
+      this.#appendEvent(runId, { type: "user.questions.requested", request_id: call.id, questions });
+      const answers = await withRunSignal(answer, this.getRunSignal(runId));
+      result = { tool_call_id: call.id, status: "completed", output: { answers } };
+    } catch (error) {
+      this.#assertActive(runId);
+      this.runs.updateStatus(runId, "running");
+      result = { tool_call_id: call.id, status: "failed", error: { code: error instanceof HarnessExecutionError ? error.code : "invalid_user_questions", message: error instanceof Error ? error.message : "Invalid questions" } };
+    } finally { this.#questionWaiters.delete(key); }
+    this.#appendEvent(runId, { type: "tool.call.completed", result });
+    return { status: result.status === "completed" ? "completed" : "failed", result };
   }
 
   #appendEvent(runId: string, event: Record<string, unknown>): HarnessRunEvent {
