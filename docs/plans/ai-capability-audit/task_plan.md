@@ -7,7 +7,8 @@
 - [x] 接通恢复入口、通用权限处理、结构化用户提问及计划/压缩/使用量状态。
 - [x] 补齐可取消的有界模型重试，以及编辑结束前的实际状态核验。
 - [x] 完成分层回归、真实浏览器、指定真实模型及故障场景验证。
-- [ ] 完整检查、自查、提交、推送、PR、当前 head CI、合并及本地 main 快进同步。
+- [x] 完整检查、自查、提交、推送与创建 PR。
+- 远端交付跟踪：[PR #21](https://github.com/MJGang/typedance/pull/21)；当前 head CI、评审和合并记录以 PR 为准，本地 main 同步结果由最终交付报告记录。
 
 工作区：E:/workspaces/typedance-long-task-runtime，分支 codex/ai-capability-completion。原工作区 .gitignore 和 output/ 既有改动不纳入任务。
 
