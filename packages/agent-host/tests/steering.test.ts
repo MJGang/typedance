@@ -33,6 +33,44 @@ function contextFixture() {
 }
 
 describe("Host active run input", () => {
+  it("runs conversations in parallel and isolates input, events, cancellation and history", async () => {
+    const entered = new Map<string, ReturnType<typeof deferred>>([ ["A", deferred()], ["B", deferred()] ]);
+    const release = new Map<string, ReturnType<typeof deferred>>([ ["A", deferred()], ["B", deferred()] ]);
+    const requests: HarnessModelRequest[] = [];
+    const { host, conversation } = setup({ async *stream(request) {
+      requests.push(request);
+      const label = request.prompt.conversation[0]?.content as string;
+      entered.get(label)!.resolve();
+      yield { type: "assistant_delta", messageId: label, delta: `answer ${label}` };
+      await release.get(label)!.promise;
+      yield { type: "final", output: {} };
+    } });
+    const other = host.createConversation("ws");
+    const a = host.startConversationRun("ws", conversation.id, { message: { content: "A" } });
+    const b = host.startConversationRun("ws", other.id, { message: { content: "B" } });
+    try {
+      await Promise.all([...entered.values()].map((entry) => entry.promise));
+      expect(host.listConversations("ws").map((item) => item.status)).toEqual(["running", "running"]);
+      expect(() => host.startConversationRun("ws", conversation.id, { message: { content: "duplicate" } })).toThrow("conversation_run_active");
+      const input = await host.steerAgentRun(a.id, { message: { content: "A follow-up" } });
+      expect(host.listMessages(other.id).some((message) => message.id === input.id)).toBe(false);
+      host.cancelAgentRun(a.id);
+      await host.waitForRun(a.id);
+      expect(host.getAgentRun(a.id).status).toBe("cancelled");
+      expect(host.getAgentRun(b.id).status).toBe("running");
+      release.get("B")!.resolve();
+      await host.waitForRun(b.id);
+      expect(host.getAgentRun(b.id).status).toBe("completed");
+      expect(host.listMessages(conversation.id).filter((message) => message.role === "assistant").map((message) => message.content)).toEqual(["answer A"]);
+      expect(host.listMessages(other.id).filter((message) => message.role === "assistant").map((message) => message.content)).toEqual(["answer B"]);
+      expect(host.listAgentRunEvents(a.id).every((event) => event.run_id === a.id)).toBe(true);
+      expect(host.listAgentRunEvents(b.id).every((event) => event.run_id === b.id)).toBe(true);
+      expect(JSON.stringify(requests[1].prompt)).not.toContain("A follow-up");
+    } finally {
+      release.forEach((entry) => entry.resolve());
+    }
+  });
+
   it("accepts follow-up input from the remounted editor of the same document without restarting the run", async () => {
     const entered = deferred(); const release = deferred();
     const { host, conversation } = setup({ async *stream() { entered.resolve(); await release.promise; yield { type: "assistant_delta", messageId: "answer", delta: "done" }; } });

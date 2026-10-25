@@ -47,6 +47,29 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe("workspace editor execution", () => {
+  it("services both parallel conversations through the same canvas and routes responses to their own runs", async () => {
+    const sources = new Map(["run-a", "run-b"].map((id) => [id, Object.assign(new EventTarget(), { close: vi.fn() })]));
+    vi.mocked(getConversationActiveRun).mockImplementation(async (id) => ({ id: `run-${id}`, conversation_id: id, status: "running" } as Awaited<ReturnType<typeof getConversationActiveRun>>));
+    vi.mocked(createAgentRunEventSource).mockImplementation((id) => sources.get(id)! as unknown as ReturnType<typeof createAgentRunEventSource>);
+    vi.mocked(getEditorRequest).mockImplementation(async (_runId, requestId) => ({ ...read, id: requestId }));
+    const bridge: CanvasReferenceBridge = { getSnapshot: vi.fn(async () => snapshot), getRevision: () => 0, apply: vi.fn(() => true), undo: () => true,
+      track: vi.fn(), untrack: vi.fn(), setOrdinals: vi.fn(), locate: () => false };
+    render(<EditorReferencesProvider documentId="doc"><Canvas bridge={bridge} />
+      <EditorRunBridge conversationId="a" onCompleted={onCompleted} /><EditorRunBridge conversationId="b" onCompleted={onCompleted} />
+    </EditorReferencesProvider>);
+    await waitFor(() => expect(createAgentRunEventSource).toHaveBeenCalledTimes(2));
+    for (const [runId, source] of sources) {
+      act(() => source.dispatchEvent(new MessageEvent("editor_request", { data: JSON.stringify({
+        id: `${runId}-event`, run_id: runId, sequence: 0, type: "editor_request", payload: { request: { ...read, id: `${runId}-read` } }, created_at: "2026-10-25T00:00:00Z",
+      }) })));
+    }
+    await waitFor(() => expect(respondToEditorRequest).toHaveBeenCalledTimes(2));
+    expect(respondToEditorRequest).toHaveBeenCalledWith("run-a", "run-a-read", { status: "snapshot", snapshot });
+    expect(respondToEditorRequest).toHaveBeenCalledWith("run-b", "run-b-read", { status: "snapshot", snapshot });
+    expect(bridge.getSnapshot).toHaveBeenCalledTimes(2);
+    expect(bridge.apply).not.toHaveBeenCalled();
+  });
+
   it("continues reading after switching to a new chat, reconnects the live canvas, and ignores duplicate events", async () => {
     const { source, bridge, dispatch, unmount } = setup()
     await waitFor(() => expect(createAgentRunEventSource).toHaveBeenCalledWith("run", -1))

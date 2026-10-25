@@ -299,6 +299,54 @@ describe("AgentChatPanel", () => {
     expect(screen.getByText("从当前画布开始")).toBeInTheDocument()
   })
 
+  it("sends in parallel conversations and keeps an in-flight send reserved when returning to it", async () => {
+    const finish = new Map<string, (value: unknown) => void>()
+    agentHostMocks.listConversationMessages.mockResolvedValue([])
+    agentHostMocks.startConversationRun.mockImplementation(({ conversationId }: { conversationId: string }) => (
+      new Promise((resolve) => { finish.set(conversationId, resolve) })
+    ))
+    const props = { workspaceId: "doc_1", contextSources: [], onConversationCreated: () => {} }
+    const view = render(<AgentChatPanel {...props} activeConversationId="a" />)
+    typeComposerText(screen.getByRole("textbox"), "A 的任务")
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+    await waitFor(() => expect(finish.has("a")).toBe(true))
+    await act(async () => view.rerender(<AgentChatPanel {...props} activeConversationId="b" />))
+    typeComposerText(screen.getByRole("textbox"), "B 的任务")
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+    await waitFor(() => expect(finish.has("b")).toBe(true))
+    await act(async () => view.rerender(<AgentChatPanel {...props} activeConversationId="a" />))
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+    expect(agentHostMocks.startConversationRun).toHaveBeenCalledTimes(2)
+    await act(async () => { finish.get("a")!({ id: "run_a", conversation_id: "a", status: "running" }) })
+    await waitFor(() => expect(agentHostMocks.createAgentRunEventSource).toHaveBeenCalledWith("run_a"))
+    expect(screen.getByRole("textbox")).toBeEmptyDOMElement()
+    typeComposerText(screen.getByRole("textbox"), "A 的后续草稿")
+    await act(async () => { finish.get("b")!({ id: "run_b", conversation_id: "b", status: "running" }) })
+    expect(screen.getByRole("textbox")).toHaveTextContent("A 的后续草稿")
+    expect(agentHostMocks.createAgentRunEventSource).not.toHaveBeenCalledWith("run_b")
+    await act(async () => view.rerender(<AgentChatPanel {...props} activeConversationId="b" />))
+    expect(screen.getByRole("textbox")).toBeEmptyDOMElement()
+    expect(agentHostMocks.cancelAgentRun).not.toHaveBeenCalled()
+  })
+
+  it("preserves a failed background send without changing the other conversation's draft", async () => {
+    let rejectSend!: (error: Error) => void
+    agentHostMocks.listConversationMessages.mockResolvedValue([])
+    agentHostMocks.startConversationRun.mockImplementation(() => new Promise((_resolve, reject) => { rejectSend = reject }))
+    const props = { workspaceId: "doc_1", contextSources: [], onConversationCreated: () => {} }
+    const view = render(<AgentChatPanel {...props} activeConversationId="a" />)
+    typeComposerText(screen.getByRole("textbox"), "需要重试的任务")
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+    await waitFor(() => expect(agentHostMocks.startConversationRun).toHaveBeenCalledOnce())
+    await act(async () => view.rerender(<AgentChatPanel {...props} activeConversationId="b" />))
+    typeComposerText(screen.getByRole("textbox"), "B 的草稿")
+    await act(async () => { rejectSend(new Error("temporary failure")) })
+    expect(screen.getByRole("textbox")).toHaveTextContent("B 的草稿")
+    await act(async () => view.rerender(<AgentChatPanel {...props} activeConversationId="a" />))
+    expect(screen.getByRole("textbox")).toHaveTextContent("需要重试的任务")
+    expect(screen.getByRole("button", { name: /^发送$/ })).toBeEnabled()
+  })
+
   it("does not install a subscription if selection changes while messages are loading", async () => {
     let finishLoad!: (value: unknown) => void
     agentHostMocks.listConversationMessages.mockResolvedValueOnce([])
