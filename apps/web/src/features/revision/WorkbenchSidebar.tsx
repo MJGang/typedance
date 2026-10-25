@@ -29,6 +29,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import { Input } from "@/components/ui/input"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
 import { HoverScrollText } from "@/components/HoverScrollText"
+import { useWorkspaceConversations } from "./WorkspaceConversations"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { SettingsButton } from "@/features/settings/SettingsDialog"
@@ -48,7 +49,6 @@ import {
 } from "@/api"
 import {
   deleteWorkspaceConversation,
-  listWorkspaceConversations,
   listWorkspacePlugins,
   updateWorkspaceConversation,
 } from "@/agentHost"
@@ -59,11 +59,9 @@ type WorkbenchSidebarProps = {
   navigation?: import("react").ReactNode
   workspaceId: string
   activeConversationId?: string
-  conversationRefreshToken?: number
   onSelectConversation: (conversationId: string) => void
   onStartNewConversation: () => void
   onContextSourcesChange: (sources: ContextSource[]) => void
-  onConversationsChange?: (conversations: AgentConversation[]) => void
 }
 
 type DirectoryNodeProps = {
@@ -76,17 +74,15 @@ export function WorkbenchSidebar({
   navigation,
   workspaceId,
   activeConversationId,
-  conversationRefreshToken = 0,
   onSelectConversation,
   onStartNewConversation,
   onContextSourcesChange,
-  onConversationsChange,
 }: WorkbenchSidebarProps) {
   const [contextSources, setContextSources] = useState<ContextSource[]>([])
-  const [conversations, setConversations] = useState<AgentConversation[]>([])
+  const { conversations: workspaceConversations, loading: loadingConversations, refresh: loadConversations } = useWorkspaceConversations()
+  const conversations = workspaceConversations.filter(hasConversationTitle)
   const [plugins, setPlugins] = useState<AgentPluginSummary[]>([])
   const [loadingContext, setLoadingContext] = useState(false)
-  const [loadingConversations, setLoadingConversations] = useState(false)
   const [webDialogOpen, setWebDialogOpen] = useState(false)
   const [webUrl, setWebUrl] = useState("")
   const [pluginDialogOpen, setPluginDialogOpen] = useState(false)
@@ -109,26 +105,9 @@ export function WorkbenchSidebar({
     }
   }, [onContextSourcesChange, workspaceId])
 
-  const loadConversations = useCallback(async () => {
-    setLoadingConversations(true)
-    try {
-      const nextConversations = (await listWorkspaceConversations(workspaceId)).filter(hasConversationTitle)
-      setConversations(nextConversations)
-      onConversationsChange?.(nextConversations)
-    } catch {
-      toast.error("对话加载失败")
-    } finally {
-      setLoadingConversations(false)
-    }
-  }, [onConversationsChange, workspaceId])
-
   useEffect(() => {
     void loadContextSources()
   }, [loadContextSources])
-
-  useEffect(() => {
-    void loadConversations()
-  }, [conversationRefreshToken, loadConversations])
 
   const handleNewConversation = useCallback(() => {
     onStartNewConversation()
@@ -703,7 +682,7 @@ function ConversationRow({
   onSelect: () => void
   onRename: () => void
   onRequestDelete: () => void
-  onChanged: () => Promise<void>
+  onChanged: () => void | Promise<void>
 }) {
   const displayTitle = conversationDisplayTitle(conversation)
   return (

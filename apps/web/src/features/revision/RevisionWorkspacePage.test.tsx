@@ -506,7 +506,7 @@ describe("RevisionWorkspacePage", () => {
     expect(workspaceGrid).not.toHaveClass("rounded-l-xl")
 
     await waitFor(() => expect(apiMocks.listContextSources).toHaveBeenCalledWith("doc_1"))
-    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1"))
+    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1", expect.any(AbortSignal)))
   })
 
   it("keeps the format toolbar hidden by default and resets it after switching workspaces", async () => {
@@ -713,6 +713,24 @@ describe("RevisionWorkspacePage", () => {
     expect(await screen.findByTestId("revision-draft-panel")).toBeInTheDocument()
     expect(screen.queryByText("资料")).not.toBeInTheDocument()
     expect(screen.queryByRole("separator", { name: "调整左侧面板宽度" })).not.toBeInTheDocument()
+  })
+
+  it("creates a conversation and connects its editor execution even when the left navigation starts hidden", async () => {
+    const run = { id: "background-run", conversation_id: "conv_new", status: "running", mutation_mode: "review", started_at: "2026-10-25T00:00:00Z" }
+    agentHostMocks.startConversationRun.mockImplementation(async () => {
+      agentHostMocks.listWorkspaceConversations.mockResolvedValue([{ id: "conv_new", workspace_id: "doc_1", name: "后台任务", preview: "", pinned: false, status: "running", created_at: run.started_at, updated_at: run.started_at }])
+      agentHostMocks.getConversationActiveRun.mockResolvedValue(run)
+      return run
+    })
+    agentHostMocks.createAgentRunEventSource.mockReturnValue({ addEventListener: vi.fn(), close: vi.fn() })
+    renderPage(true, false)
+    const composer = await screen.findByRole("textbox", { name: "AI 输入" })
+    typeComposerText(composer, "检查当前简历")
+    fireEvent.keyDown(composer, { key: "Enter" })
+    await waitFor(() => expect(agentHostMocks.createAgentRunEventSource).toHaveBeenCalledWith("background-run", -1))
+    expect(agentHostMocks.createWorkspaceConversation).toHaveBeenCalledTimes(1)
+    expect(await screen.findByText("后台任务")).toBeInTheDocument()
+    expect(screen.queryByText("资料")).not.toBeInTheDocument()
   })
 
   it("lazily expands local directory context sources", async () => {

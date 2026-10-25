@@ -101,8 +101,8 @@ async function agentHostFetch(input: string, init: RequestInit = {}): Promise<Re
   return send()
 }
 
-export async function listWorkspaceConversations(workspaceId: string): Promise<AgentConversation[]> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/workspaces/${encodeURIComponent(workspaceId)}/conversations`)
+export async function listWorkspaceConversations(workspaceId: string, signal?: AbortSignal): Promise<AgentConversation[]> {
+  const response = await agentHostFetch(`${agentHostBaseUrl}/workspaces/${encodeURIComponent(workspaceId)}/conversations`, { signal })
   return parseAgentHostResponse(
     response,
     (value) => z.array(agentConversationSchema).parse(value),

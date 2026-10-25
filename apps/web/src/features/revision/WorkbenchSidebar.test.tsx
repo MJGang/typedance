@@ -1,8 +1,14 @@
 import "@testing-library/jest-dom/vitest"
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { fireEvent, render as renderBase, screen, waitFor, within } from "@testing-library/react"
+import type { ReactElement } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { WorkbenchSidebar } from "./WorkbenchSidebar"
+import { WorkspaceConversationsProvider } from "./WorkspaceConversations"
+
+function render(element: ReactElement) {
+  return renderBase(<WorkspaceConversationsProvider workspaceId="doc_1">{element}</WorkspaceConversationsProvider>)
+}
 
 const apiMocks = vi.hoisted(() => ({
   addDirectoryContextSource: vi.fn(),
@@ -111,7 +117,7 @@ describe("WorkbenchSidebar", () => {
     )
 
     await waitFor(() => expect(apiMocks.listContextSources).toHaveBeenCalledWith("doc_1"))
-    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1"))
+    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1", expect.any(AbortSignal)))
     await waitFor(() => expect(screen.queryByText("加载资料")).not.toBeInTheDocument())
     await screen.findByText("还没有对话。")
 
@@ -141,7 +147,7 @@ describe("WorkbenchSidebar", () => {
       </TooltipProvider>,
     )
 
-    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1"))
+    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1", expect.any(AbortSignal)))
     await waitFor(() => expect(screen.queryByText("加载资料")).not.toBeInTheDocument())
     await screen.findByText("还没有对话。")
 
@@ -285,7 +291,7 @@ describe("WorkbenchSidebar", () => {
       </TooltipProvider>,
     )
 
-    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1"))
+    await waitFor(() => expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledWith("doc_1", expect.any(AbortSignal)))
     expect(document.querySelector("[data-conversation-row]")).not.toBeInTheDocument()
     expect(screen.getByText("还没有对话。")).toBeInTheDocument()
   })
