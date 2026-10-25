@@ -231,8 +231,12 @@ function AgentChatContent({
     workspaceId: string
     expectedConversationId: string | undefined
     createdConversationId?: string
+    scope: string
+    submitted: boolean
     invalidated: boolean
   } | null>(null)
+  // Switching chats changes the visible send, while submitted requests keep their reservation.
+  const pendingSends = useRef(new Map<string, NonNullable<typeof pendingSendRef.current>>())
   const callbacksRef = useRef({ onCanvasPatchApplied, onConversationUpdated })
   const drafts = useRef(new Map<string, { input: string; attachments: HarnessAttachment[]; mentions: ContextMention[] }>())
   const previousScope = useRef(scope)
@@ -276,7 +280,7 @@ function AgentChatContent({
   }
 
   useEffect(() => { callbacksRef.current = { onCanvasPatchApplied, onConversationUpdated } }, [onCanvasPatchApplied, onConversationUpdated])
-  useEffect(() => () => { if (pendingSendRef.current) pendingSendRef.current.invalidated = true }, [])
+  useEffect(() => () => { pendingSends.current.forEach((pending) => { pending.invalidated = true }) }, [])
 
   const loadMessages = useCallback(async (conversationId = activeConversationId) => {
     loadAbortRef.current?.abort()
@@ -455,8 +459,12 @@ function AgentChatContent({
           pending.createdConversationId = undefined
         } else pending.invalidated = true
       }
-      if (pending.invalidated) { pendingSendRef.current = null; setSending(false) }
+      if (pending.invalidated) pendingSendRef.current = null
     }
+    const currentSend = pendingSends.current.get(scope)
+    if (currentSend?.submitted) currentSend.invalidated = false
+    pendingSendRef.current = currentSend ?? null
+    setSending(!!currentSend)
     let disposed = false
     setMessages([])
     setRunEvents({})
@@ -479,9 +487,10 @@ function AgentChatContent({
   const handleSend = useCallback(async (resumeFromRunId?: string) => {
     const content = resumeFromRunId ? "继续未完成的任务。先检查当前状态，避免重复执行已生效的操作。" : input.trim() || (editorReferences?.pending.length ? "请按每处引用的修改要求处理。" : attachments.length ? "请阅读这些附件。" : "")
     if (resumeFromRunId && runningRunId) return
-    if (!content || pendingSendRef.current || attachmentLoading || voice.phase !== "idle") return
-    const pending = { workspaceId, expectedConversationId: activeConversationId, createdConversationId: undefined as string | undefined, invalidated: false }
+    if (!content || pendingSends.current.has(scope) || attachmentLoading || voice.phase !== "idle") return
+    const pending = { workspaceId, expectedConversationId: activeConversationId, createdConversationId: undefined as string | undefined, scope, submitted: false, invalidated: false }
     pendingSendRef.current = pending
+    pendingSends.current.set(scope, pending)
     setSending(true)
     try {
       const editorPayload = await editorReferences?.getPayload()
@@ -492,6 +501,9 @@ function AgentChatContent({
         if (pending.invalidated) return
         conversationId = conversation.id
         pending.createdConversationId = conversationId
+        pendingSends.current.delete(pending.scope)
+        pending.scope = `${workspaceId}:${conversationId}`
+        pendingSends.current.set(pending.scope, pending)
         onConversationCreated(conversation.id)
       }
       const messageInput = {
@@ -505,14 +517,22 @@ function AgentChatContent({
         ...(resumeFromRunId ? { resumeFromRunId } : {}),
         context: { document_id: workspaceId, ...(editorPayload?.snapshot ? { editor_snapshot: editorPayload.snapshot } : {}) },
       }
+      pending.submitted = true
       const result = runningRunId
         ? await sendAgentRunInput({ ...messageInput, runId: runningRunId })
         : await startConversationRun(messageInput)
       onConversationUpdated?.()
+      if (!resumeFromRunId) {
+        const cached = drafts.current.get(pending.scope)
+        if (cached) drafts.current.set(pending.scope, {
+          input: cached.input === input ? "" : cached.input,
+          attachments: cached.attachments.filter((attachment) => !attachments.some((sent) => sent.id === attachment.id)),
+          mentions: cached.mentions.filter((mention) => !mentions.includes(mention)),
+        })
+        editorReferences?.consume(editorPayload?.references.map((reference) => reference.id) ?? [])
+      }
       if (pending.invalidated) return
       if (!resumeFromRunId) {
-        drafts.current.delete(`${workspaceId}:${activeConversationId ?? "new"}`)
-        editorReferences?.consume(editorPayload?.references.map((reference) => reference.id) ?? [])
         setInput((current) => current === input ? "" : current)
         setAttachments((current) => current.filter((attachment) => !attachments.some((sent) => sent.id === attachment.id)))
         setMentions((current) => current.filter((mention) => !mentions.includes(mention)))
@@ -531,9 +551,10 @@ function AgentChatContent({
     } catch (error) {
       if (!pending.invalidated) toast.error(error instanceof Error ? error.message : "发送失败")
     } finally {
+      pendingSends.current.delete(pending.scope)
       if (pendingSendRef.current === pending) { pendingSendRef.current = null; setSending(false) }
     }
-  }, [activeConversationId, input, attachments, attachmentLoading, voice.phase, loadMessages, mentions, mutationMode, onConversationCreated, onConversationUpdated, runningRunId, subscribeRun, workspaceId, editorReferences])
+  }, [activeConversationId, input, attachments, attachmentLoading, voice.phase, loadMessages, mentions, mutationMode, onConversationCreated, onConversationUpdated, runningRunId, subscribeRun, workspaceId, editorReferences, scope])
 
   const handleCancelRun = useCallback(async () => {
     if (!runningRunId) return

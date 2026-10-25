@@ -278,19 +278,14 @@ export function WorkbenchSidebar({
           {conversations.length === 0 ? (
             <p className="px-2 py-2 text-xs leading-5 text-muted-foreground">还没有对话。</p>
           ) : (
-            <div className="space-y-0.5">
-              {conversations.map((conversation) => (
-                <ConversationRow
-                  key={conversation.id}
-                  conversation={conversation}
-                  active={conversation.id === activeConversationId}
-                  onSelect={() => onSelectConversation(conversation.id)}
-                  onRename={() => openRenameConversation(conversation)}
-                  onRequestDelete={() => setDeletingConversation(conversation)}
-                  onChanged={loadConversations}
-                />
-              ))}
-            </div>
+            <ConversationList
+              conversations={conversations}
+              activeConversationId={activeConversationId}
+              onSelect={onSelectConversation}
+              onRename={openRenameConversation}
+              onRequestDelete={setDeletingConversation}
+              onChanged={loadConversations}
+            />
           )}
         </section>
       </div>
@@ -669,8 +664,36 @@ function DirectoryNodeActions({ sourceId, child }: { sourceId: string; child: Co
   )
 }
 
+function ConversationList({ conversations, activeConversationId, onSelect, onRename, onRequestDelete, onChanged }: {
+  conversations: AgentConversation[]
+  activeConversationId?: string
+  onSelect: (id: string) => void
+  onRename: (conversation: AgentConversation) => void
+  onRequestDelete: (conversation: AgentConversation) => void
+  onChanged: () => void | Promise<void>
+}) {
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+  return <div className="space-y-0.5">
+    {conversations.map((conversation) => <ConversationRow
+      key={conversation.id}
+      conversation={conversation}
+      now={now}
+      active={conversation.id === activeConversationId}
+      onSelect={() => onSelect(conversation.id)}
+      onRename={() => onRename(conversation)}
+      onRequestDelete={() => onRequestDelete(conversation)}
+      onChanged={onChanged}
+    />)}
+  </div>
+}
+
 function ConversationRow({
   conversation,
+  now,
   active,
   onSelect,
   onRename,
@@ -678,6 +701,7 @@ function ConversationRow({
   onChanged,
 }: {
   conversation: AgentConversation
+  now: number
   active: boolean
   onSelect: () => void
   onRename: () => void
@@ -703,7 +727,7 @@ function ConversationRow({
         <HoverCardContent side="right" align="start" sideOffset={12} className="w-80 max-w-[calc(100vw-2rem)] p-3">
           <p className="break-words text-sm font-medium leading-5">{displayTitle}</p>
           <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><File className="size-3.5" /><span>当前简历</span>
-            <span className="ml-auto">{conversation.last_message_at ? relativeTime(conversation.last_message_at) : ""}</span>
+            <span className="ml-auto">{conversation.last_message_at ? relativeTime(conversation.last_message_at, now) : ""}</span>
           </div>
         </HoverCardContent>
       </HoverCard>
@@ -711,7 +735,7 @@ function ConversationRow({
         {conversation.status === "running" ? <Loader2 className="size-3.5 animate-spin" /> : null}
         {conversation.pinned ? <Pin data-pinned="true" className="size-3" fill="currentColor" /> : null}
         <span data-testid="conversation-time" className="ml-auto text-xs group-has-[button[data-state=open]]:hidden group-hover:hidden">
-          {conversation.last_message_at ? relativeTime(conversation.last_message_at) : ""}
+          {conversation.last_message_at ? relativeTime(conversation.last_message_at, now) : ""}
         </span>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -764,8 +788,8 @@ function hasConversationTitle(conversation: AgentConversation): boolean {
   return conversationDisplayTitle(conversation).length > 0
 }
 
-function relativeTime(value: string): string {
-  const diffMs = Date.now() - Date.parse(value)
+function relativeTime(value: string, now: number): string {
+  const diffMs = now - Date.parse(value)
   if (!Number.isFinite(diffMs) || diffMs < 0) return ""
   const minutes = Math.floor(diffMs / 60000)
   if (minutes < 1) return "刚刚"

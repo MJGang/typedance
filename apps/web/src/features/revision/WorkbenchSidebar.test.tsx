@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest"
-import { fireEvent, render as renderBase, screen, waitFor, within } from "@testing-library/react"
+import { act, fireEvent, render as renderBase, screen, waitFor, within } from "@testing-library/react"
 import type { ReactElement } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -227,6 +227,30 @@ describe("WorkbenchSidebar", () => {
     expect(namedRow).toHaveAttribute("aria-label", "查明提示词管理方式")
     expect(previewRow.querySelector("[data-hover-scroll-text]")).toBeInTheDocument()
     expect(previewRow).toHaveAttribute("aria-label", longPreview)
+  })
+
+  it("updates every conversation time while tasks run without fetching or clicking again", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-10-25T08:01:00Z"))
+    agentHostMocks.listWorkspaceConversations.mockResolvedValue(["a", "b"].map((id) => ({
+      id, workspace_id: "doc_1", name: `对话 ${id}`, preview: "", pinned: false, status: "running",
+      created_at: "2026-10-25T08:00:00Z", updated_at: "2026-10-25T08:00:00Z", last_message_at: "2026-10-25T08:00:00Z",
+    })))
+    let view: ReturnType<typeof render> | undefined
+    try {
+      await act(async () => {
+        view = render(<TooltipProvider><WorkbenchSidebar workspaceId="doc_1" onSelectConversation={() => {}} onStartNewConversation={() => {}} onContextSourcesChange={() => {}} /></TooltipProvider>)
+      })
+      expect(screen.getAllByTestId("conversation-time").map((time) => time.textContent)).toEqual(["1 分", "1 分"])
+      await act(async () => { vi.advanceTimersByTime(60_000) })
+      expect(screen.getAllByTestId("conversation-time").map((time) => time.textContent)).toEqual(["2 分", "2 分"])
+      expect(agentHostMocks.listWorkspaceConversations).toHaveBeenCalledOnce()
+      view!.unmount()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      view?.unmount()
+      vi.useRealTimers()
+    }
   })
 
   it("renames a conversation from the row context menu", async () => {
