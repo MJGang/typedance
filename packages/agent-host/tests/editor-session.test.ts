@@ -150,12 +150,12 @@ describe("live editor execution lifecycle", () => {
     const test = await setup("review");
     const request = await test.nextRequest();
     expect(() => test.host.respondToEditorRequest(test.run.id, request.id, { status: "snapshot", snapshot: { ...snapshot, document_id: "other" } })).toThrow("不属于");
-    expect(() => test.host.respondToEditorRequest(test.run.id, request.id, { status: "snapshot", snapshot: { ...snapshot, editor_session_id: "other" } })).toThrow("不属于");
     test.host.cancelAgentRun(test.run.id);
     await test.host.waitForRun(test.run.id);
     expect(test.host.getAgentRun(test.run.id).status).toBe("cancelled");
     expect(() => test.host.getEditorRequest(test.run.id, request.id)).toThrow("editor_session_ended");
-    expect(() => test.host.respondToEditorRequest(test.run.id, request.id, { status: "snapshot", snapshot })).toThrow("editor_session_ended");
+    expect(() => test.host.respondToEditorRequest(test.run.id, request.id, { status: "snapshot", snapshot })).toThrow("editor_response_conflict");
+    expect(test.host.listAgentRunEvents(test.run.id)).toContainEqual(expect.objectContaining({ type: "editor_response", payload: expect.objectContaining({ request_id: request.id, status: "failed" }) }));
     expect(test.prepare).not.toHaveBeenCalled();
   });
 });

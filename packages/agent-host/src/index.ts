@@ -11,7 +11,6 @@ import {
   editorResponseSchema,
   modelSettingsUpdateSchema,
   modelSelectionUpdateSchema,
-  type ReasoningEffort,
   harnessAttachmentsSchema,
   speechPreferencesSchema,
   type HarnessAttachment,
@@ -95,7 +94,6 @@ export type AgentHostStartConversationRunInput = {
     attachments?: HarnessAttachment[];
   };
   model?: string;
-  reasoningEffort?: ReasoningEffort | null;
   mutationMode?: CanvasMutationMode;
   resumeFromRunId?: string;
   context?: Record<string, unknown>;
@@ -334,7 +332,6 @@ export class AgentHost {
       editor_snapshot: editorSnapshot,
       references,
       ...(model ? { model } : {}),
-      reasoning_effort: input.reasoningEffort,
       resume_from_run_id: input.resumeFromRunId,
     };
     const harnessRun = this.runtime.createRun({
@@ -401,9 +398,6 @@ export class AgentHost {
     const runtimeRun = this.runtime.getRun(runtimeRunId);
     const pack = this.#activePacks.get(runId)!;
     const session = this.#editorSessions.get(runId);
-    if (session && prepared.editorSnapshot && prepared.editorSnapshot.editor_session_id !== session.snapshot.editor_session_id) {
-      throw new HttpError(409, "editor_session_changed");
-    }
     const contextItems = await withRunSignal(this.#contextProvider?.loadContext({
       workspaceId: conversation.workspace_id, mentions: prepared.mentions, signal,
       ...(prepared.editorSnapshot ? { editorSnapshot: prepared.editorSnapshot } : {}),
@@ -422,7 +416,7 @@ export class AgentHost {
     if (isTerminalHarnessRunStatus(this.runtime.getRun(runtimeRunId).status)) throw new HttpError(409, "agent_run_not_active");
     this.runtime.enqueueUserInput(runtimeRunId, { id: message.id, messages: [toModelMessage(message)], contextual });
     this.store.appendMessage({ message });
-    if (session && prepared.editorSnapshot && prepared.editorSnapshot.content_revision >= session.snapshot.content_revision) session.snapshot = prepared.editorSnapshot;
+    if (session && prepared.editorSnapshot) session.updateSnapshot(prepared.editorSnapshot);
     this.store.updateConversation(run.conversation_id, { last_message_at: message.created_at, updated_at: message.created_at });
     return message;
   }
@@ -522,7 +516,6 @@ export class AgentHost {
         runId: run.id,
         agentId: pack.primaryAgentId,
         model,
-        ...(context.reasoning_effort !== undefined ? { modelOptions: { reasoningEffort: context.reasoning_effort } } : {}),
         messages,
         prompt,
         inputIds,
@@ -977,7 +970,6 @@ async function route(context: RouteContext): Promise<boolean> {
         packId: optionalString(body.pack_id),
         message: parseMessageBody(body.message),
         model: selection?.model ?? optionalString(body.model),
-        reasoningEffort: selection?.reasoning_effort,
         mutationMode: body.mutation_mode === undefined ? undefined : canvasMutationModeSchema.parse(body.mutation_mode),
         resumeFromRunId: optionalString(body.resume_from_run_id),
         context: objectRecord(body.context),

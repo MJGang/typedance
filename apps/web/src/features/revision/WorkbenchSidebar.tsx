@@ -27,6 +27,8 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
+import { HoverScrollText } from "@/components/HoverScrollText"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { SettingsButton } from "@/features/settings/SettingsDialog"
@@ -713,9 +715,19 @@ function ConversationRow({
         onRename()
       }}
     >
-      <button type="button" className="min-w-0 flex-1 truncate text-left" title={displayTitle} onClick={onSelect}>
-        {displayTitle}
-      </button>
+      <HoverCard openDelay={500} closeDelay={100}>
+        <HoverCardTrigger asChild>
+          <button type="button" className="min-w-0 flex-1 text-left" aria-label={displayTitle} onClick={onSelect}>
+            <HoverScrollText text={displayTitle} />
+          </button>
+        </HoverCardTrigger>
+        <HoverCardContent side="right" align="start" sideOffset={12} className="w-80 max-w-[calc(100vw-2rem)] p-3">
+          <p className="break-words text-sm font-medium leading-5">{displayTitle}</p>
+          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><File className="size-3.5" /><span>当前简历</span>
+            <span className="ml-auto">{conversation.last_message_at ? relativeTime(conversation.last_message_at) : ""}</span>
+          </div>
+        </HoverCardContent>
+      </HoverCard>
       <div className="ml-auto flex shrink-0 items-center gap-1 text-muted-foreground">
         {conversation.status === "running" ? <Loader2 className="size-3.5 animate-spin" /> : null}
         {conversation.pinned ? <Pin data-pinned="true" className="size-3" fill="currentColor" /> : null}

@@ -33,6 +33,20 @@ function contextFixture() {
 }
 
 describe("Host active run input", () => {
+  it("accepts follow-up input from the remounted editor of the same document without restarting the run", async () => {
+    const entered = deferred(); const release = deferred();
+    const { host, conversation } = setup({ async *stream() { entered.resolve(); await release.promise; yield { type: "assistant_delta", messageId: "answer", delta: "done" }; } });
+    const snapshot = { document_id: "ws", editor_session_id: "old", content_revision: 5, canvas_version: 1, doc_json: { type: "doc", content: [] }, plain_text: "" };
+    const run = host.startConversationRun("ws", conversation.id, { message: { content: "start" }, context: { editor_snapshot: snapshot } });
+    await entered.promise;
+    const followup = await host.steerAgentRun(run.id, { message: { content: "keep the date on the same line" },
+      context: { editor_snapshot: { ...snapshot, editor_session_id: "remounted", content_revision: 0 } } });
+    expect(followup.run_id).toBe(run.id);
+    expect(host.getConversationActiveRun(conversation.id)?.id).toBe(run.id);
+    await expect(host.steerAgentRun(run.id, { message: { content: "wrong document" }, context: { editor_snapshot: { ...snapshot, document_id: "other" } } })).rejects.toThrow();
+    release.resolve(); await host.waitForRun(run.id);
+    expect(host.listMessages(conversation.id).filter((message) => message.id === followup.id)).toHaveLength(1);
+  });
   it("accepts authenticated HTTP steering in the same run and reconstructs subsequent prompt history in processing order", async () => {
     const entered = deferred(); const release = deferred(); const requests: HarnessModelRequest[] = [];
     const { host, conversation, start } = setup({ async *stream(request) {

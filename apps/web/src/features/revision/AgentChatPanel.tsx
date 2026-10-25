@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { AssistantRuntimeProvider, useLocalRuntime, type ChatModelAdapter } from "@assistant-ui/react"
 import { ArrowUp, ChevronDown, ChevronRight, FileText, ImageIcon, Loader2, Mic, MoreHorizontal, PanelRight, Pin, Plus, ShieldCheck, Square, SquarePen, WandSparkles, X } from "lucide-react"
 import ReactMarkdown, { type Components } from "react-markdown"
@@ -18,6 +18,7 @@ import { attachmentAccept, readChatAttachment } from "./readChatAttachment"
 import { useVoiceInput } from "./useVoiceInput"
 import { ChatModelMenu } from "./ChatModelMenu"
 import { ChatStatusBar } from "./ChatStatusBar"
+import { HoverScrollText } from "@/components/HoverScrollText"
 import { statisticsRevision, useChatStatistics } from "./useChatStatistics"
 import { harnessAttachmentsSchema, type HarnessAttachment } from "@typedance/contracts"
 import {
@@ -87,6 +88,8 @@ const RUN_TRACE_COPY = {
 }
 
 const CHAT_BOTTOM_THRESHOLD_PX = 24
+const NO_EVENTS: AgentRunEvent[] = []
+const NO_MESSAGES: AgentMessage[] = []
 
 function isNearChatBottom(element: HTMLElement): boolean {
   return element.scrollHeight - element.scrollTop - element.clientHeight <= CHAT_BOTTOM_THRESHOLD_PX
@@ -198,6 +201,9 @@ function AgentChatContent({
   const attachmentOperation = useRef<AbortController | null>(null)
   const attachmentPicker = useRef<HTMLInputElement>(null)
   const scope = `${workspaceId}:${activeConversationId ?? "new"}`
+  const [historyScope, setHistoryScope] = useState(scope)
+  const [loadingHistory, setLoadingHistory] = useState(!!activeConversationId)
+  const historyIsCurrent = historyScope === scope
   const voice = useVoiceInput(scope, (text) => {
     setInput((current) => current.trim() ? `${current}${!/\s$/.test(current) ? " " : ""}${text}` : text)
     requestAnimationFrame(() => {
@@ -210,7 +216,7 @@ function AgentChatContent({
   const [mentions, setMentions] = useState<ContextMention[]>([])
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mutationMode, setMutationMode] = useState<CanvasMutationMode>("review")
-  const statisticsKey = statisticsRevision(runEvents)
+  const statisticsKey = useMemo(() => historyIsCurrent ? statisticsRevision(runEvents) : "", [historyIsCurrent, runEvents])
   const chatStatistics = useChatStatistics(scope, activeConversationId, statisticsKey)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const composerRef = useRef<HTMLDivElement>(null)
@@ -220,6 +226,7 @@ function AgentChatContent({
   const knownRunEventIdsRef = useRef<Set<string>>(new Set())
   const subscriptionRef = useRef<ReturnType<typeof createAgentRunEventSource> | null>(null)
   const loadGenerationRef = useRef(0)
+  const loadAbortRef = useRef<AbortController | null>(null)
   const pendingSendRef = useRef<{
     workspaceId: string
     expectedConversationId: string | undefined
@@ -272,19 +279,25 @@ function AgentChatContent({
   useEffect(() => () => { if (pendingSendRef.current) pendingSendRef.current.invalidated = true }, [])
 
   const loadMessages = useCallback(async (conversationId = activeConversationId) => {
+    loadAbortRef.current?.abort()
+    const abort = new AbortController()
+    loadAbortRef.current = abort
     const generation = ++loadGenerationRef.current
     if (!conversationId) {
       setMessages([])
       setRunEvents({})
       knownRunEventIdsRef.current.clear()
+      setHistoryScope(`${workspaceId}:new`)
+      setLoadingHistory(false)
       return null
     }
     try {
       const [nextMessages, activeRun] = await Promise.all([
-        listConversationMessages(conversationId), getConversationActiveRun(conversationId),
+        listConversationMessages(conversationId, abort.signal), getConversationActiveRun(conversationId, abort.signal),
       ])
+      if (generation !== loadGenerationRef.current) return null
       const runIds = [...new Set(nextMessages.map((message) => message.run_id).filter((runId): runId is string => !!runId))]
-      const eventEntries = await Promise.all(runIds.map(async (runId) => [runId, await listAgentRunEvents(runId)] as const))
+      const eventEntries = await Promise.all(runIds.map(async (runId) => [runId, await listAgentRunEvents(runId, -1, abort.signal)] as const))
       if (generation !== loadGenerationRef.current) return null
       const eventsByRun = Object.fromEntries(eventEntries)
       setMessages(nextMessages.map((message) => {
@@ -293,12 +306,15 @@ function AgentChatContent({
       }))
       knownRunEventIdsRef.current = new Set(eventEntries.flatMap(([, events]) => events.map((event) => event.id)))
       setRunEvents(Object.fromEntries(eventEntries))
+      setHistoryScope(`${workspaceId}:${conversationId}`)
       return activeRun
     } catch {
-      if (generation === loadGenerationRef.current) toast.error("消息加载失败")
+      if (generation === loadGenerationRef.current && !abort.signal.aborted) toast.error("消息加载失败")
       return null
+    } finally {
+      if (generation === loadGenerationRef.current) setLoadingHistory(false)
     }
-  }, [activeConversationId])
+  }, [activeConversationId, workspaceId])
 
   useEffect(() => {
     shouldFollowLatestRef.current = true
@@ -439,8 +455,13 @@ function AgentChatContent({
           pending.createdConversationId = undefined
         } else pending.invalidated = true
       }
+      if (pending.invalidated) { pendingSendRef.current = null; setSending(false) }
     }
     let disposed = false
+    setMessages([])
+    setRunEvents({})
+    setHistoryScope(scope)
+    setLoadingHistory(!!activeConversationId)
     setRunningRunId(null)
     setReconnecting(false)
     void loadMessages().then((run) => {
@@ -449,10 +470,11 @@ function AgentChatContent({
     return () => {
       disposed = true
       loadGenerationRef.current += 1
+      loadAbortRef.current?.abort()
       subscriptionRef.current?.close()
       subscriptionRef.current = null
     }
-  }, [workspaceId, activeConversationId, loadMessages, subscribeRun])
+  }, [scope, workspaceId, activeConversationId, loadMessages, subscribeRun])
 
   const handleSend = useCallback(async (resumeFromRunId?: string) => {
     const content = resumeFromRunId ? "继续未完成的任务。先检查当前状态，避免重复执行已生效的操作。" : input.trim() || (editorReferences?.pending.length ? "请按每处引用的修改要求处理。" : attachments.length ? "请阅读这些附件。" : "")
@@ -508,10 +530,9 @@ function AgentChatContent({
       onConversationUpdated?.()
       subscribeRun(run, conversationId)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "发送失败")
+      if (!pending.invalidated) toast.error(error instanceof Error ? error.message : "发送失败")
     } finally {
-      setSending(false)
-      if (pendingSendRef.current === pending) pendingSendRef.current = null
+      if (pendingSendRef.current === pending) { pendingSendRef.current = null; setSending(false) }
     }
   }, [activeConversationId, input, attachments, attachmentLoading, voice.phase, loadMessages, mentions, mutationMode, onConversationCreated, onConversationUpdated, runningRunId, subscribeRun, workspaceId, editorReferences])
 
@@ -524,7 +545,19 @@ function AgentChatContent({
     }
   }, [runningRunId])
 
-  const visibleMessages = messages.filter((message) => !(message.role === "user" && message.run_id))
+  const resumeRun = useCallback((runId: string) => { void handleSend(runId) }, [handleSend])
+  const { visibleMessages, steeringByRun } = useMemo(() => {
+    const visible: AgentMessage[] = []
+    const steering = new Map<string, AgentMessage[]>()
+    if (historyIsCurrent) for (const message of messages) {
+      if (message.role === "user" && message.run_id) {
+        const group = steering.get(message.run_id) ?? []
+        group.push(message)
+        steering.set(message.run_id, group)
+      } else visible.push(message)
+    }
+    return { visibleMessages: visible, steeringByRun: steering }
+  }, [historyIsCurrent, messages])
   const hasDraft = !!(input.trim() || editorReferences?.pending.length || attachments.length)
   const headerTitle = activeConversationTitle?.trim() || "当前对话"
 
@@ -532,8 +565,8 @@ function AgentChatContent({
     <aside className="@container/chat flex min-h-0 w-full min-w-0 flex-col border-l border-border bg-background">
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
         {activeConversationId ? (
-          <div className="flex min-w-0 items-center gap-1">
-            <p className="max-w-[15rem] truncate text-sm font-semibold" title={headerTitle}>{headerTitle}</p>
+          <div className="flex min-w-0 flex-1 items-center gap-1 pr-3">
+            <HoverScrollText text={headerTitle} className="max-w-full text-sm font-semibold" />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button type="button" variant="ghost" size="icon-xs" aria-label="对话操作">
@@ -573,15 +606,17 @@ function AgentChatContent({
           className="h-full space-y-5 overflow-y-auto px-4 py-4"
           onScroll={(event) => handleMessageListScroll(event.currentTarget)}
         >
-          {visibleMessages.length === 0 ? (
+          {visibleMessages.length === 0 && activeConversationId && (!historyIsCurrent || loadingHistory) ? (
+            <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />正在加载对话…</p>
+          ) : visibleMessages.length === 0 ? (
             <EmptyChatState onPrompt={(prompt) => setInput(prompt)} />
           ) : visibleMessages.map((message) => (
             <ChatMessage
               key={message.id}
               message={message}
-              events={message.run_id ? runEvents[message.run_id] ?? [] : []}
-              steeringMessages={messages.filter((item) => item.role === "user" && item.run_id === message.run_id)}
-              onResume={!runningRunId && !sending && message === visibleMessages[visibleMessages.length - 1] ? (runId) => void handleSend(runId) : undefined}
+              events={message.run_id ? runEvents[message.run_id] ?? NO_EVENTS : NO_EVENTS}
+              steeringMessages={message.run_id ? steeringByRun.get(message.run_id) ?? NO_MESSAGES : NO_MESSAGES}
+              onResume={!runningRunId && !sending && message === visibleMessages[visibleMessages.length - 1] ? resumeRun : undefined}
             />
           ))}
         </div>
@@ -688,7 +723,7 @@ function AgentChatContent({
               <MutationModeMenu value={mutationMode} onChange={setMutationMode} />
             </div>
             <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1.5">
-              <ChatModelMenu disabled={!!runningRunId || sending} />
+              <ChatModelMenu disabled={sending} running={!!runningRunId} />
               <Button variant="ghost" size="icon-sm" aria-label="语音输入" title="语音输入" disabled={sending} onClick={() => void voice.start()}>
                 <Mic className="size-4" />
               </Button>
@@ -744,7 +779,7 @@ function EmptyChatState({ onPrompt }: { onPrompt: (prompt: string) => void }) {
   )
 }
 
-function ChatMessage({
+const ChatMessage = memo(function ChatMessage({
   message,
   events,
   steeringMessages = [],
@@ -808,15 +843,15 @@ function ChatMessage({
       </>}
     </article>
   )
-}
+})
 
-function AssistantSegment({ id, messageId, text }: { id: string; messageId: string; text: string }) {
+const AssistantSegment = memo(function AssistantSegment({ id, messageId, text }: { id: string; messageId: string; text: string }) {
   return <div data-agent-segment-id={id} className="min-w-0 max-w-none">
     <MessageReferenceSelection messageId={messageId}>
       <ReactMarkdown skipHtml remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>{text}</ReactMarkdown>
     </MessageReferenceSelection>
   </div>
-}
+})
 
 type RunTraceItem =
   | { id: string; kind: "runtime" }

@@ -146,8 +146,8 @@ export async function deleteWorkspaceConversation(conversationId: string): Promi
   if (!response.ok) throw new Error(`Failed to delete workspace conversation: ${response.status}`)
 }
 
-export async function listConversationMessages(conversationId: string): Promise<AgentMessage[]> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}/messages`)
+export async function listConversationMessages(conversationId: string, signal?: AbortSignal): Promise<AgentMessage[]> {
+  const response = await agentHostFetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}/messages`, { signal })
   return parseAgentHostResponse(
     response,
     (value) => z.array(agentMessageSchema).parse(value),
@@ -232,9 +232,9 @@ export async function respondToAgentInteraction(runId: string, kind: "questions"
   if (!response.ok) throw new Error("请求已结束或提交失败，请刷新后重试")
 }
 
-export async function listAgentRunEvents(runId: string, afterSequence = -1): Promise<AgentRunEvent[]> {
+export async function listAgentRunEvents(runId: string, afterSequence = -1, signal?: AbortSignal): Promise<AgentRunEvent[]> {
   const searchParams = new URLSearchParams({ after: String(afterSequence) })
-  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/events?${searchParams}`)
+  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/events?${searchParams}`, { signal })
   return parseAgentHostResponse(
     response,
     (value) => z.array(agentRunEventSchema).parse(value),
@@ -251,8 +251,8 @@ export function createAgentRunEventSource(runId: string, afterSequence = -1): Ag
   })
 }
 
-export async function getConversationActiveRun(conversationId: string): Promise<AgentRun | null> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}/active-run`)
+export async function getConversationActiveRun(conversationId: string, signal?: AbortSignal): Promise<AgentRun | null> {
+  const response = await agentHostFetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}/active-run`, { signal })
   return parseAgentHostResponse(response, (value) => agentRunSchema.nullable().parse(value), "Failed to load active run")
 }
 

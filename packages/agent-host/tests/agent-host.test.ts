@@ -710,7 +710,9 @@ describe("agent host", () => {
     const run = await runResponse.json();
     await host.waitForRun(run.id);
     expect(run.model).toBe("deepseek-v4-pro");
-    expect(requests[0]).toMatchObject({ model: "deepseek-v4-pro", modelOptions: { reasoningEffort: "low" } });
+    expect(requests[0]).toMatchObject({ model: "deepseek-v4-pro" });
+    // The provider resolves the latest reasoning setting for each model call.
+    expect(requests[0].modelOptions ?? {}).not.toHaveProperty("reasoningEffort");
 
     const messages = await apiFetch(`${server.url}/conversations/${conversation.id}/messages`).then((response) => response.json());
     expect(messages[1].content).toBe("收到。");

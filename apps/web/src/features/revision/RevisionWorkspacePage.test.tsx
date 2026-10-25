@@ -839,7 +839,7 @@ describe("RevisionWorkspacePage", () => {
     await waitFor(() => expect(agentHostMocks.createAgentRunEventSource).toHaveBeenCalledWith("run_1"))
     await waitFor(() => expect(agentHostMocks.listWorkspaceConversations.mock.calls.length).toBeGreaterThanOrEqual(2))
     const refreshedConversation = await screen.findByRole("button", { name: "Check title refresh" })
-    expect(refreshedConversation).toHaveClass("truncate")
+    expect(refreshedConversation.querySelector("[data-hover-scroll-text]")).toBeInTheDocument()
   })
 
   it("closes the dialog and updates the title after a successful rename", async () => {

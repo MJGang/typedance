@@ -19,6 +19,7 @@ import {
 } from "@/api"
 import { updateWorkspaceConversation } from "@/agentHost"
 import { AgentChatPanel } from "./AgentChatPanel"
+import { EditorRunBridge } from "./EditorRunBridge"
 import { EditorReferencesProvider } from "./references/EditorReferences"
 import { DraftCanvas, type CanvasPatchFlash } from "./DraftCanvas"
 import { PanelResizeHandle } from "./PanelResizeHandle"
@@ -780,6 +781,9 @@ function RevisionWorkspaceContent() {
             </div>
           </div>
         </section>
+        {conversations.filter((conversation) => conversation.status === "running").map((conversation) => (
+          <EditorRunBridge key={conversation.id} conversationId={conversation.id} onCompleted={refreshConversations} />
+        ))}
         {assistantPanelVisible ? (
           <PanelResizeHandle
             ariaLabel="调整 AI 面板宽度"
