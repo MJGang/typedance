@@ -30,3 +30,9 @@
 对一个文本节点中间执行 text.replace 时，Sidecar 的正确结果可能包含多个相邻、标记相同的文本节点。ProseMirror 的 JSON 解码保留这些边界，但原生事务会合并它们，导致原来的严格 eq 校验误报“编辑结果与准备事务不一致”。前端现在在解析目标文档后统一使用 Fragment.fromArray 递归规范化，再计算和校验同一原生事务；不修改正文、标记、授权或业务变换规则，不增加错误后的替代执行路径。真实 Sidecar 生成结果的回归同时覆盖纯文本、加粗、引用位置和撤销/重做。
 
 参考已查询的 ProseMirror 官方模型文档：Fragment.fromArray 将相邻同标记文本合并。该规则属于 Frontend 的原生编辑器模型规范，不属于 Harness Core 或 Host 的业务规则。
+
+## 与最新主分支集成
+
+开发期间主分支合入 `0a9748f47cad765a6e7d81d2bd8d90ef2290944a`（PR #20），已提供模型/推理选择及会话统计。最终实现复用它的 model.call.started/completed 契约和会话状态栏，删除本分支曾增加的 model.usage 事件与逐条消息用量展示；每次重试也经过同一请求观测路径。模型选择统一由 Host 当前设置解析，不另建入口。原审计基线与前期实模记录保留为当时证据，最终验收还需覆盖当前 deepseek-flash 标识及统计交互。
+
+跨轮持久化真实工具观察后，实模还暴露了编辑器局部修订号的语义缺口。刷新产生新 editor_session_id，content_revision 可以从 0 开始，不能与旧编辑会话计数直接比较。Host 现在为正文、inspect、页面、编辑结果和完成复查提供一致的 document/session/canvas version/revision 元数据；插件明确跨会话不能据较小计数推断丢失或保存失败。该说明源自当前编辑器身份契约，不能假称 Codex 存在相同画布业务。

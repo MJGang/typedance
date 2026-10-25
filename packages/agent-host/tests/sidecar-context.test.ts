@@ -2,6 +2,19 @@ import { describe, expect, it, vi } from "vitest";
 import { createSidecarContextProvider } from "../src/sidecar-context";
 
 describe("sidecar context provider", () => {
+  it("identifies the current editor session so local revision resets are not confused with saved document rollback", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const provider = createSidecarContextProvider({ fetch: fetchMock });
+    const context = await provider.loadContext({ workspaceId: "doc_1", mentions: [], editorSnapshot: {
+      document_id: "doc_1", editor_session_id: "new-editor-session", content_revision: 0, canvas_version: 3,
+      doc_json: { type: "doc", content: [] }, plain_text: "已保存的最新正文",
+    } });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(context[0].content).toContain("editor_session_id: new-editor-session");
+    expect(context[0].content).toContain("canvas_version: 3");
+    expect(context[0].content).toContain("content_revision: 0");
+    expect(context[0].content).toContain("已保存的最新正文");
+  });
   it("formats the current workspace canvas as primary model context", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       document: {
