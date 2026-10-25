@@ -649,9 +649,11 @@ describe("agent host", () => {
   });
 
   it("exposes workspace conversation APIs over HTTP", async () => {
+    const requests: HarnessModelRequest[] = [];
     const runtime = createHarnessRuntime({
       model: {
-        stream: async function* () {
+        stream: async function* (request) {
+          requests.push(request);
           yield { type: "assistant_delta", messageId: "assistant_1", delta: "收到。" };
           yield { type: "final", output: { ok: true } };
         },
@@ -675,7 +677,11 @@ describe("agent host", () => {
         },
       ],
     });
-    const server = createAgentHostServer({ authToken, host });
+    const dataDir = await mkdtemp(join(tmpdir(), "typedance-current-selection-"));
+    tempDirectories.push(dataDir);
+    const modelSettings = createFileModelSettings(dataDir, { DEEPSEEK_REASONING_EFFORT: "low" });
+    await modelSettings.update({ model: "deepseek-flash", base_url: "https://api.deepseek.com" });
+    const server = createAgentHostServer({ authToken, host, modelSettings });
     servers.push(server);
     server.listen(0, "127.0.0.1");
     await once(server.nodeServer, "listening");
@@ -684,17 +690,26 @@ describe("agent host", () => {
     expect(created.status).toBe(201);
     const conversation = await created.json();
 
+    const saved = await apiFetch(`${server.url}/settings/model`, {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "deepseek-v4-pro", base_url: "https://api.deepseek.com" }),
+    });
+    expect(saved.status).toBe(200);
+
     const runResponse = await apiFetch(`${server.url}/workspaces/doc_1/conversations/${conversation.id}/runs`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         message: { content: "检查简历" },
+        model: "deepseek-flash",
         mutation_mode: "suggest",
       }),
     });
     expect(runResponse.status).toBe(201);
     const run = await runResponse.json();
     await host.waitForRun(run.id);
+    expect(run.model).toBe("deepseek-v4-pro");
+    expect(requests[0]).toMatchObject({ model: "deepseek-v4-pro", modelOptions: { reasoningEffort: "low" } });
 
     const messages = await apiFetch(`${server.url}/conversations/${conversation.id}/messages`).then((response) => response.json());
     expect(messages[1].content).toBe("收到。");

@@ -3,40 +3,47 @@ import { ChevronDown, ChevronLeft, ChevronRight, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import type { ModelSelection, ReasoningEffort } from "@typedance/contracts"
 import { getModelSelection, updateModelSelection } from "@/agentHost"
+import { subscribeModelSettings } from "@/modelSettingsEvents"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 
 const effortLabels: Record<ReasoningEffort, string> = { off: "Off", low: "Low", high: "High", max: "Max" }
 
-export function ChatModelMenu({ disabled, onChange }: { disabled: boolean; onChange: (model: string) => void }) {
+export function ChatModelMenu({ disabled }: { disabled: boolean }) {
   const [selection, setSelection] = useState<ModelSelection | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(false)
   const [pane, setPane] = useState<"root" | "model" | "reasoning">("root")
   const generation = useRef(0)
+  const mounted = useRef(false)
   const load = useCallback(async () => {
     const request = ++generation.current
     try {
       const value = await getModelSelection()
       if (request !== generation.current) return
-      setSelection(value); onChange(value.model); setError(false)
+      setSelection(value); setError(false)
     } catch { if (request === generation.current) setError(true) }
-  }, [onChange])
-  useEffect(() => { void load(); return () => { generation.current += 1 } }, [load])
+  }, [])
+  useEffect(() => {
+    mounted.current = true
+    void load()
+    const unsubscribe = subscribeModelSettings(() => { void load() })
+    return () => { mounted.current = false; generation.current += 1; unsubscribe() }
+  }, [load])
   const current = selection?.models.find((model) => model.id === selection.model)
   const effort = selection?.reasoning_effort
   const name = current?.name ?? (error ? "加载模型失败" : "加载模型…")
 
   async function choose(model: string, reasoning: ReasoningEffort | null) {
     if (saving) return
-    const request = ++generation.current
+    generation.current += 1
     setSaving(true)
     try {
       const value = await updateModelSelection({ model, reasoning_effort: reasoning })
-      if (request !== generation.current) return
-      setSelection(value); onChange(value.model)
+      if (!mounted.current) return
+      setSelection(value); setError(false)
     } catch (caught) { toast.error(caught instanceof Error ? caught.message : "模型选择保存失败") }
-    finally { if (request === generation.current) setSaving(false) }
+    finally { if (mounted.current) setSaving(false) }
   }
 
   return <DropdownMenu onOpenChange={(open) => { if (open) { setPane("root"); void load() } }}>

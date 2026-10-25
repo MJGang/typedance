@@ -209,7 +209,6 @@ function AgentChatContent({
   const [mentions, setMentions] = useState<ContextMention[]>([])
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mutationMode, setMutationMode] = useState<CanvasMutationMode>("review")
-  const [model, setModel] = useState<string>()
   const statisticsKey = statisticsRevision(runEvents)
   const chatStatistics = useChatStatistics(scope, activeConversationId, statisticsKey)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
@@ -478,7 +477,6 @@ function AgentChatContent({
         mentions,
         ...(attachments.length ? { attachments } : {}),
         ...(editorPayload?.references.length ? { references: editorPayload.references } : {}),
-        model,
         mutationMode,
         context: { document_id: workspaceId, ...(editorPayload?.snapshot ? { editor_snapshot: editorPayload.snapshot } : {}) },
       }
@@ -510,7 +508,7 @@ function AgentChatContent({
       setSending(false)
       if (pendingSendRef.current === pending) pendingSendRef.current = null
     }
-  }, [activeConversationId, input, attachments, attachmentLoading, voice.phase, loadMessages, mentions, model, mutationMode, onConversationCreated, onConversationUpdated, runningRunId, subscribeRun, workspaceId, editorReferences])
+  }, [activeConversationId, input, attachments, attachmentLoading, voice.phase, loadMessages, mentions, mutationMode, onConversationCreated, onConversationUpdated, runningRunId, subscribeRun, workspaceId, editorReferences])
 
   const handleCancelRun = useCallback(async () => {
     if (!runningRunId) return
@@ -684,7 +682,7 @@ function AgentChatContent({
               <MutationModeMenu value={mutationMode} onChange={setMutationMode} />
             </div>
             <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1.5">
-              <ChatModelMenu disabled={!!runningRunId || sending} onChange={setModel} />
+              <ChatModelMenu disabled={!!runningRunId || sending} />
               <Button variant="ghost" size="icon-sm" aria-label="语音输入" title="语音输入" disabled={sending} onClick={() => void voice.start()}>
                 <Mic className="size-4" />
               </Button>

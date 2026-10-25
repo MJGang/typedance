@@ -53,19 +53,20 @@ export function createFileModelSettings(
     provider: "deepseek",
     model: environment.AGENT_MODEL?.trim() || environment.DEEPSEEK_MODEL?.trim() || environment.VITE_DEFAULT_AGENT_MODEL?.trim() || DEFAULT_MODEL,
     base_url: environment.DEEPSEEK_BASE_URL?.trim() || DEFAULT_BASE_URL,
-    ...(environment.DEEPSEEK_REASONING_EFFORT ? { reasoning_effort: reasoningEffortSchema.parse(environment.DEEPSEEK_REASONING_EFFORT) } : {}),
   };
+  const environmentEffort = environment.DEEPSEEK_REASONING_EFFORT ? reasoningEffortSchema.parse(environment.DEEPSEEK_REASONING_EFFORT) : undefined;
 
   async function resolve(): Promise<ResolvedModelSettings> {
     const config = await readConfig(configPath, defaults);
     const auth = await readAuth(authPath);
     const environmentKey = environment.TYPEDANCE_LLM_API_KEY?.trim() || environment.DEEPSEEK_API_KEY?.trim();
+    const effort = config.reasoning_effort ?? environmentEffort;
     return {
       provider: "deepseek",
       model: config.model,
       baseUrl: config.base_url,
       apiKey: environmentKey || auth?.api_key,
-      ...(config.reasoning_effort ? { reasoningEffort: config.reasoning_effort } : {}),
+      ...(effort !== undefined ? { reasoningEffort: effort } : {}),
     };
   }
 
@@ -131,8 +132,9 @@ async function readConfig(path: string, defaults: ModelConfigFile): Promise<Mode
   if (record.provider !== "deepseek" || typeof record.model !== "string" || typeof record.base_url !== "string") {
     throw new Error("Invalid model config file");
   }
+  const effort = record.reasoning_effort === undefined ? undefined : reasoningEffortSchema.parse(record.reasoning_effort);
   return { provider: "deepseek", model: record.model, base_url: record.base_url,
-    ...(record.reasoning_effort !== undefined ? { reasoning_effort: reasoningEffortSchema.parse(record.reasoning_effort) } : {}) };
+    ...(effort !== undefined ? { reasoning_effort: effort } : {}) };
 }
 
 async function readAuth(path: string): Promise<ModelAuthFile | undefined> {

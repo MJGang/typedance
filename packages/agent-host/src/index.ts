@@ -939,7 +939,7 @@ async function route(context: RouteContext): Promise<boolean> {
       {
         packId: optionalString(body.pack_id),
         message: parseMessageBody(body.message),
-        model: optionalString(body.model) ?? selection?.model,
+        model: selection?.model ?? optionalString(body.model),
         reasoningEffort: selection?.reasoning_effort,
         mutationMode: body.mutation_mode === undefined ? undefined : canvasMutationModeSchema.parse(body.mutation_mode),
         resumeFromRunId: optionalString(body.resume_from_run_id),

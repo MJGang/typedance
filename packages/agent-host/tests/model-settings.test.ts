@@ -12,6 +12,26 @@ afterEach(async () => {
 });
 
 describe("file model settings", () => {
+  it("applies the environment reasoning default to an existing config until an explicit choice is saved", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "typedance-reasoning-default-"));
+    tempDirectories.push(dataDir);
+    await createFileModelSettings(dataDir, {}).update({ model: "deepseek-flash", base_url: "https://api.deepseek.com" });
+    const settings = createFileModelSettings(dataDir, { DEEPSEEK_REASONING_EFFORT: "low" });
+    expect(await settings.getSelection()).toMatchObject({ reasoning_effort: "low" });
+    expect(await settings.resolve()).toMatchObject({ reasoningEffort: "low" });
+    await settings.update({ model: "deepseek-flash", base_url: "https://api.deepseek.com" });
+    expect(JSON.parse(await readFile(join(dataDir, "agent-host", "config.json"), "utf8"))).not.toHaveProperty("reasoning_effort");
+    expect(await createFileModelSettings(dataDir, { DEEPSEEK_REASONING_EFFORT: "high" }).getSelection()).toMatchObject({ reasoning_effort: "high" });
+    await settings.updateSelection({ model: "deepseek-flash", reasoning_effort: "max" });
+    expect(await settings.resolve()).toMatchObject({ reasoningEffort: "max" });
+  });
+  it("keeps the environment reasoning default when migrating an environment-only retired model", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "typedance-migrated-default-"));
+    tempDirectories.push(dataDir);
+    const environment = { AGENT_MODEL: "deepseek-v4-flash", DEEPSEEK_REASONING_EFFORT: "low" };
+    await migrateRetiredModelId(dataDir, environment);
+    expect(await createFileModelSettings(dataDir, environment).getSelection()).toMatchObject({ model: "deepseek-flash", reasoning_effort: "low" });
+  });
   it("migrates retired IDs once while preserving endpoint and credentials", async () => {
     const dataDir = await mkdtemp(join(tmpdir(), "typedance-model-migrate-"));
     tempDirectories.push(dataDir);
