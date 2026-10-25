@@ -135,11 +135,17 @@ export function applyEditorTransaction(editor: Editor, documentId: string, sessi
   return applyDocumentChange(editor, transaction.before_doc_json, transaction.doc_json, transaction.id, transaction.node_origins, transaction.text_origins)
 }
 
+// ProseMirror steps join adjacent text with equal markup. JSON decoding preserves
+// those boundaries, so normalize the target using the same native invariant.
+function normalizeTextFragments(node: ProseMirrorNode): ProseMirrorNode {
+  return node.isLeaf ? node : node.copy(Fragment.fromArray(node.content.content.map(normalizeTextFragments)))
+}
+
 export function applyDocumentChange(editor: Editor, beforeJson: Record<string, unknown>, afterJson: Record<string, unknown>, transactionId: string, nodeOrigins: EditorNodeOrigin[], textOrigins: EditorTextOrigin[]): boolean {
   if (editor.isDestroyed || !editor.isEditable) throw new Error("编辑器不可用")
   const before = editor.state.doc
   if (!editor.schema.nodeFromJSON(beforeJson).eq(before)) throw new Error("原文已变化，已阻止覆盖你的编辑")
-  const after = editor.schema.nodeFromJSON(afterJson)
+  const after = normalizeTextFragments(editor.schema.nodeFromJSON(afterJson))
   after.check()
   if (before.eq(after)) return false
   const tr = closeHistory(editor.state.tr)

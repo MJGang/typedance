@@ -54,6 +54,22 @@ function transaction(editor: Editor, mutate: (doc: TestDocument) => void): Edito
 afterEach(() => { editors.splice(0).forEach((editor) => editor.destroy()) })
 
 describe("document editing transaction", () => {
+  it.each([false, true])("applies a Sidecar replacement inside one text node and preserves surrounding references and undo; bold=%s", (bold) => {
+    const editor = setup({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "张测试 | 前端工程师。熟悉 React 和 TypeScript。", ...(bold ? { marks: [{ type: "bold" }] } : {}) }] }] })
+    const reference = track(editor, "熟悉 React 和 TypeScript。")
+    const prepared = prepareWithSidecar(editor.getJSON(), [{ capability: "text.replace", parameters: { path: [0], text: "前端工程师", replacement: "AI 应用开发工程师" } }])
+    expect(applyEditorTransaction(editor, "doc", "session", { ...transaction(editor, () => {}), ...prepared })).toBe(true)
+    expect(editor.getText()).toBe("张测试 | AI 应用开发工程师。熟悉 React 和 TypeScript。")
+    expect(editor.state.doc.firstChild?.childCount).toBe(1)
+    expect(editor.state.doc.firstChild?.firstChild?.marks.map((mark) => mark.type.name)).toEqual(bold ? ["bold"] : [])
+    expectTracked(editor, reference.text)
+    editor.commands.undo()
+    expect(editor.getText()).toContain("前端工程师")
+    expectTracked(editor, reference.text)
+    editor.commands.redo()
+    expect(editor.getText()).toContain("AI 应用开发工程师")
+    expectTracked(editor, reference.text)
+  })
   it.each([0, 1])("tracks exact original text when deleting one of two identical inline occurrences; quote=%s", (occurrence) => {
     const editor = setup(paragraphs("引用😀与引用😀"))
     const reference = track(editor, "引用😀", occurrence)

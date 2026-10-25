@@ -11,6 +11,8 @@ export class EditorSession {
   #pending = new Map<string, Pending>();
   #signal: AbortSignal;
   #emit: Emit;
+  #decisions: Array<{ status: EditorResponse["status"]; persisted?: boolean; revision?: number }> = [];
+  #auditedDecisions = 0;
 
   constructor(input: { snapshot: EditorSnapshot; mode: CanvasMutationMode; signal: AbortSignal; emit: Emit }) {
     this.snapshot = input.snapshot;
@@ -39,6 +41,8 @@ export class EditorSession {
     item.cleanup();
     this.#pending.delete(requestId);
     if (snapshot) this.snapshot = snapshot;
+    if (item.request.kind === "transaction") this.#decisions.push({ status: response.status,
+      ...(response.status === "applied" ? { persisted: response.persisted === true } : {}), revision: snapshot?.content_revision });
     this.#emit("editor_response", { request_id: requestId, status: response.status, error: response.error,
       ...(response.persisted !== undefined ? { persisted: response.persisted } : {}),
       ...(snapshot ? { content_revision: snapshot.content_revision, page_count: snapshot.print_snapshot?.page_tops.length } : {}) });
@@ -54,6 +58,14 @@ export class EditorSession {
   async apply(transaction: EditorTransaction): Promise<EditorResponse> {
     if (this.mode === "suggest") throw new Error("建议模式不能修改文档，请切换手动应用或自动修改模式");
     return this.#request("transaction", transaction);
+  }
+
+  async auditCompletion() {
+    if (this.#auditedDecisions === this.#decisions.length) return undefined;
+    const decisions = this.#decisions.slice(this.#auditedDecisions);
+    const snapshot = await this.refresh();
+    this.#auditedDecisions = this.#decisions.length;
+    return { snapshot, decisions };
   }
 
   #request(kind: EditorRequest["kind"], transaction?: EditorTransaction): Promise<EditorResponse> {

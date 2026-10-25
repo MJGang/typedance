@@ -13,6 +13,7 @@ import { ReferenceComposer, MessageReferences } from "./references/ReferenceComp
 import { MessageReferenceSelection } from "./references/MessageReferenceSelection"
 import { EditorRequestCard, editorRequests } from "./EditorRequestCard"
 import { ChatAttachments } from "./ChatAttachments"
+import { AgentInteraction, runtimeEvent } from "./AgentInteraction"
 import { attachmentAccept, readChatAttachment } from "./readChatAttachment"
 import { useVoiceInput } from "./useVoiceInput"
 import { ChatModelMenu } from "./ChatModelMenu"
@@ -453,8 +454,9 @@ function AgentChatContent({
     }
   }, [workspaceId, activeConversationId, loadMessages, subscribeRun])
 
-  const handleSend = useCallback(async () => {
-    const content = input.trim() || (editorReferences?.pending.length ? "请按每处引用的修改要求处理。" : attachments.length ? "请阅读这些附件。" : "")
+  const handleSend = useCallback(async (resumeFromRunId?: string) => {
+    const content = resumeFromRunId ? "继续未完成的任务。先检查当前状态，避免重复执行已生效的操作。" : input.trim() || (editorReferences?.pending.length ? "请按每处引用的修改要求处理。" : attachments.length ? "请阅读这些附件。" : "")
+    if (resumeFromRunId && runningRunId) return
     if (!content || pendingSendRef.current || attachmentLoading || voice.phase !== "idle") return
     const pending = { workspaceId, expectedConversationId: activeConversationId, createdConversationId: undefined as string | undefined, invalidated: false }
     pendingSendRef.current = pending
@@ -474,22 +476,25 @@ function AgentChatContent({
         workspaceId,
         conversationId,
         content,
-        mentions,
-        ...(attachments.length ? { attachments } : {}),
-        ...(editorPayload?.references.length ? { references: editorPayload.references } : {}),
+        mentions: resumeFromRunId ? [] : mentions,
+        ...(!resumeFromRunId && attachments.length ? { attachments } : {}),
+        ...(!resumeFromRunId && editorPayload?.references.length ? { references: editorPayload.references } : {}),
         mutationMode,
+        ...(resumeFromRunId ? { resumeFromRunId } : {}),
         context: { document_id: workspaceId, ...(editorPayload?.snapshot ? { editor_snapshot: editorPayload.snapshot } : {}) },
       }
       const result = runningRunId
         ? await sendAgentRunInput({ ...messageInput, runId: runningRunId })
         : await startConversationRun(messageInput)
       if (pending.invalidated) return
-      drafts.current.delete(`${workspaceId}:${activeConversationId ?? "new"}`)
-      editorReferences?.consume(editorPayload?.references.map((reference) => reference.id) ?? [])
-      setInput((current) => current === input ? "" : current)
-      setAttachments((current) => current.filter((attachment) => !attachments.some((sent) => sent.id === attachment.id)))
-      setMentions((current) => current.filter((mention) => !mentions.includes(mention)))
-      setMentionQuery(null)
+      if (!resumeFromRunId) {
+        drafts.current.delete(`${workspaceId}:${activeConversationId ?? "new"}`)
+        editorReferences?.consume(editorPayload?.references.map((reference) => reference.id) ?? [])
+        setInput((current) => current === input ? "" : current)
+        setAttachments((current) => current.filter((attachment) => !attachments.some((sent) => sent.id === attachment.id)))
+        setMentions((current) => current.filter((mention) => !mentions.includes(mention)))
+        setMentionQuery(null)
+      }
       if (runningRunId) {
         const message = result as AgentMessage
         setMessages((current) => current.some((known) => known.id === message.id) ? current : [...current, message])
@@ -576,6 +581,7 @@ function AgentChatContent({
               message={message}
               events={message.run_id ? runEvents[message.run_id] ?? [] : []}
               steeringMessages={messages.filter((item) => item.role === "user" && item.run_id === message.run_id)}
+              onResume={!runningRunId && !sending && message === visibleMessages[visibleMessages.length - 1] ? (runId) => void handleSend(runId) : undefined}
             />
           ))}
         </div>
@@ -742,10 +748,12 @@ function ChatMessage({
   message,
   events,
   steeringMessages = [],
+  onResume,
 }: {
   message: AgentMessage
   events: AgentRunEvent[]
   steeringMessages?: AgentMessage[]
+  onResume?: (runId: string) => void
 }) {
   const isAssistant = message.role === "assistant"
   const orderedEvents = useMemo(() => [...events].sort((a, b) => a.sequence - b.sequence), [events])
@@ -784,6 +792,11 @@ function ChatMessage({
             const request = requests.find((candidate) => candidate.id === item.requestId)
             return request && message.run_id ? <EditorRequestCard key={item.id} request={request} runId={message.run_id} events={orderedEvents} active={!terminal} /> : null
           }
+          if (item.kind === "runtime") {
+            const event = orderedEvents.find((event) => event.id === item.id)
+            const parsed = event && runtimeEvent(event)
+            return parsed && message.run_id ? <AgentInteraction key={item.id} event={parsed} events={orderedEvents} runId={message.run_id} active={!terminal} /> : null
+          }
           return <RunTraceItemView key={item.id} item={item} />
         })}
         {!hasSegments && message.content ? <AssistantSegment id={message.id} messageId={message.id} text={message.content} /> : null}
@@ -791,6 +804,7 @@ function ChatMessage({
           {!terminal ? <Loader2 className="size-3 animate-spin" /> : null}
           <span>{statusLabel}{duration ? ` ${duration}` : ""}</span>
         </div> : null}
+        {terminal?.payload.recoverable === true && onResume && message.run_id ? <Button variant="outline" size="sm" className="self-start" onClick={() => onResume(message.run_id!)}>继续任务</Button> : null}
       </>}
     </article>
   )
@@ -805,6 +819,7 @@ function AssistantSegment({ id, messageId, text }: { id: string; messageId: stri
 }
 
 type RunTraceItem =
+  | { id: string; kind: "runtime" }
   | { id: string; kind: "assistant"; messageId: unknown; text: string }
   | { id: string; kind: "user"; messageId: string }
   | { id: string; kind: "editor"; requestId: string }
@@ -918,6 +933,11 @@ function buildRunTraceItems(events: AgentRunEvent[], options: { includeRawThinki
   let thinkingItem: Extract<RunTraceItem, { kind: "thinking" }> | undefined
 
   for (const event of events) {
+    const runtime = runtimeEvent(event)
+    if (runtime && ["plan.updated", "permission.requested", "user.questions.requested", "context.compacted", "run.resumed", "completion.blocked", "model.retrying"].includes(runtime.type)) {
+      items.push({ id: event.id, kind: "runtime" })
+      continue
+    }
     if (event.type === "thinking_delta") {
       const text = String(event.payload.delta ?? "")
       if (text && options.includeRawThinking) {

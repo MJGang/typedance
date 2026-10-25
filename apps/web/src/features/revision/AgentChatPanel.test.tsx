@@ -133,6 +133,18 @@ describe("AgentChatPanel", () => {
     agentHostMocks.createAgentRunEventSource.mockReturnValue(eventSourceStub())
   })
 
+  it("resumes the latest recoverable run without sending or clearing the current draft", async () => {
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage("未完成", "failed-run")])
+    agentHostMocks.listAgentRunEvents.mockResolvedValue([{ id: "ended", run_id: "failed-run", sequence: 0, type: "run_cancelled", created_at: "2026-06-16T08:00:01.000Z", payload: { recoverable: true } }])
+    agentHostMocks.startConversationRun.mockResolvedValue({ id: "new-run", conversation_id: "conv_1", status: "running", mutation_mode: "review", started_at: "2026-06-16T08:00:02.000Z" })
+    render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
+    const resume = await screen.findByRole("button", { name: "继续任务" })
+    typeComposerText(screen.getByRole("textbox", { name: "AI 输入" }), "还没写完的草稿")
+    fireEvent.click(resume)
+    await waitFor(() => expect(agentHostMocks.startConversationRun).toHaveBeenCalledWith(expect.objectContaining({ resumeFromRunId: "failed-run", content: expect.stringContaining("继续未完成的任务"), mentions: [] })))
+    expect(screen.getByRole("textbox", { name: "AI 输入" })).toHaveTextContent("还没写完的草稿")
+  })
+
   it("pastes an image as a removable card, sends attachment-only input and keeps it on send failure", async () => {
     agentHostMocks.listConversationMessages.mockResolvedValue([])
     agentHostMocks.startConversationRun.mockRejectedValue(new Error("发送失败"))

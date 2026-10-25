@@ -9,6 +9,7 @@ import type {
 } from "@typedance/harness-core";
 import { renderAgentHostPromptSections } from "../prompt";
 import { reasoningEffortSchema } from "@typedance/contracts";
+import { HarnessModelError } from "@typedance/harness-core";
 
 export type DeepSeekModelAdapterOptions = {
   resolveSettings: () => DeepSeekRuntimeSettings | Promise<DeepSeekRuntimeSettings>;
@@ -135,11 +136,19 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
           thinking: { type: effort === "off" || options.thinking === false ? "disabled" : "enabled" },
           ...(effort ? { reasoning_effort: effort === "off" ? "none" : effort } : {}),
         }),
+      }).catch((error: unknown) => {
+        request.signal.throwIfAborted();
+        if (error instanceof TypeError) throw new HarnessModelError("DeepSeek connection failed", true);
+        throw error;
       });
 
       if (!response.ok) {
         const text = await response.text().catch(() => "");
-        throw new Error(`DeepSeek chat completion failed: ${response.status} ${text.slice(0, 500)}`.trim());
+        const retryAfter = response.headers.get("retry-after");
+        const retryAfterMs = retryAfter === null ? undefined : /^\d+(\.\d+)?$/.test(retryAfter)
+          ? Number(retryAfter) * 1000 : Math.max(0, Date.parse(retryAfter) - Date.now());
+        throw new HarnessModelError(`DeepSeek chat completion failed: ${response.status} ${text.replaceAll(apiKey, "[redacted]").slice(0, 500)}`.trim(),
+          response.status === 429 || [500, 502, 503, 504].includes(response.status), retryAfterMs);
       }
       if (!response.body) {
         throw new Error("DeepSeek chat completion response did not include a stream body");

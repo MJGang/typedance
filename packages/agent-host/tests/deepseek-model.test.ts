@@ -10,6 +10,13 @@ import {
 import { buildAgentHostPromptBundle } from "../src/prompt";
 
 describe("DeepSeek model adapter", () => {
+  it.each([401, 402, 429, 500, 503])("classifies HTTP %i without exposing the credential", async (status) => {
+    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test-secret-key", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-v4-flash" }),
+      fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response("test-secret-key upstream error", { status, headers: { "retry-after": "2" } })) });
+    await expect(drain(adapter.stream(makeRequest({ runId: "error", agentId: "a", messages: [] })))).rejects.toMatchObject({
+      retryable: [429, 500, 503].includes(status), retryAfterMs: 2000, message: `DeepSeek chat completion failed: ${status} [redacted] upstream error`,
+    });
+  });
   it("preserves user image parts and document text in provider requests", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(sse("data: [DONE]\n\n")));
     const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-flash" }), fetch: fetchMock });

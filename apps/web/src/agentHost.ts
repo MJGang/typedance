@@ -163,6 +163,7 @@ export async function startConversationRun(input: {
   references?: EditorReference[]
   attachments?: HarnessAttachment[]
   mutationMode?: CanvasMutationMode
+  resumeFromRunId?: string
   context?: Record<string, unknown>
 }): Promise<AgentRun> {
   const response = await agentHostFetch(
@@ -177,6 +178,7 @@ export async function startConversationRun(input: {
           ...(input.references?.length ? { references: input.references } : {}),
           ...(input.attachments?.length ? { attachments: input.attachments } : {}),
         },
+        resume_from_run_id: input.resumeFromRunId,
         mutation_mode: canvasMutationModeSchema.parse(input.mutationMode ?? "review"),
         context: input.context ?? {},
       }),
@@ -221,6 +223,13 @@ export async function cancelAgentRun(runId: string): Promise<void> {
     body: JSON.stringify({ reason: "User cancelled" }),
   })
   if (!response.ok) throw new Error(`Failed to cancel agent run: ${response.status}`)
+}
+
+export async function respondToAgentInteraction(runId: string, kind: "questions" | "permissions", requestId: string, body: { answers: Record<string, string> } | { status: "approved" | "denied" }): Promise<void> {
+  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/${kind}/${encodeURIComponent(requestId)}`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  })
+  if (!response.ok) throw new Error("请求已结束或提交失败，请刷新后重试")
 }
 
 export async function listAgentRunEvents(runId: string, afterSequence = -1): Promise<AgentRunEvent[]> {

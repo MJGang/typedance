@@ -63,6 +63,7 @@ export function createSidecarContextProvider(options: SidecarContextProviderOpti
           content: [
             "Current active resume canvas from the live editor (includes unsaved edits):",
             `  document_id: ${snapshot.document_id}`,
+            `  editor_session_id: ${snapshot.editor_session_id}`,
             `  canvas_version: ${snapshot.canvas_version}`,
             `  content_revision: ${snapshot.content_revision}`,
             `  page_count: ${snapshot.print_snapshot?.page_tops.length ?? "unavailable"}`,

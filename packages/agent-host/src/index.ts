@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createLocalAccess, HttpError, readJson, type LocalAccessOptions } from "./local-access";
 import type { AddressInfo } from "node:net";
 import type { HarnessRun, HarnessRunEvent } from "@typedance/harness-contracts";
-import { withRunSignal, type HarnessRuntime, type HarnessModelMessage } from "@typedance/harness-core";
+import { restoreCheckpointHistory, withRunSignal, type HarnessRuntime } from "@typedance/harness-core";
 import {
   canvasMutationModeSchema,
   contextMentionSchema,
@@ -25,7 +25,8 @@ import {
   type EditorReference,
   type EditorSnapshot,
 } from "@typedance/contracts";
-import { formatReferencedMessage } from "./editor-references";
+import { toModelMessage } from "./model-history";
+import { migrateModelHistory } from "./migrations/model-history";
 import { registerResumeTools, type ResumeToolServices } from "./resume-tools";
 import { EditorSession } from "./editor-session";
 import {
@@ -139,6 +140,7 @@ export class AgentHost {
       this.#packs.set(pack.id, pack);
     }
     this.#recoverInterruptedRuns();
+    migrateModelHistory(this.store, this.runtime);
   }
 
   listPacks(): AgentHostPackDefinition[] {
@@ -218,6 +220,31 @@ export class AgentHost {
     return this.store.listRunEvents(runId, afterSequence);
   }
 
+  respondToQuestions(runId: string, requestId: string, answers: unknown): void {
+    const runtimeId = this.#requireActiveRuntimeRun(runId);
+    try { this.runtime.answerQuestions(runtimeId, requestId, answers); }
+    catch (error) { throw new HttpError(409, error instanceof Error ? error.message : "question_request_ended"); }
+  }
+
+  respondToPermission(runId: string, requestId: string, status: "approved" | "denied"): void {
+    const runtimeId = this.#requireActiveRuntimeRun(runId);
+    try {
+      if (this.runtime.permissions.getRequest(requestId).run_id !== runtimeId) throw new Error("permission_run_mismatch");
+      this.runtime.resolvePermission({ requestId, status, remember: "never" });
+    } catch (error) { throw new HttpError(409, error instanceof Error ? error.message : "permission_request_ended"); }
+  }
+
+  #requireActiveRuntimeRun(runId: string): string {
+    const runtimeId = this.#runtimeRunIds.get(runId);
+    if (!runtimeId || this.getAgentRun(runId).status !== "running") throw new HttpError(409, "agent_run_ended");
+    return runtimeId;
+  }
+
+  #recoverable(runId: string): boolean {
+    const checkpoint = this.runtime.getCheckpoint(runId);
+    return !!checkpoint && checkpoint.phase !== "history";
+  }
+
   getEditorRequest(runId: string, requestId: string) {
     const session = this.#editorSessions.get(runId);
     if (!session) throw new HttpError(409, "editor_session_ended");
@@ -253,7 +280,8 @@ export class AgentHost {
     if (input.resumeFromRunId) {
       const source = this.store.getRun(input.resumeFromRunId);
       if (!source || source.conversation_id !== conversationId || source.status === "running" || source.status === "completed"
-        || !this.runtime.getCheckpoint(source.id)) throw new HttpError(409, "run_checkpoint_not_resumable");
+        || this.store.listRuns(conversationId).at(-1)?.id !== source.id
+        || !this.runtime.getCheckpoint(source.id) || this.runtime.getCheckpoint(source.id)?.phase === "history") throw new HttpError(409, "run_checkpoint_not_resumable");
     }
 
     const timestamp = this.#timestamp();
@@ -476,7 +504,7 @@ export class AgentHost {
         this.#resumeTools?.enter(signal, { session, model });
       }
       signal.throwIfAborted();
-      const { messages, contextItems, inputIds } = await withRunSignal(this.#buildModelMessages(conversationId, assistantMessageId, mentions, userMessage, context, signal), signal);
+      const { messages, contextItems, inputIds, historyInputIds } = await withRunSignal(this.#buildModelMessages(conversationId, assistantMessageId, mentions, userMessage, context, signal), signal);
       signal.throwIfAborted();
       const skillContext = await withRunSignal(this.runtime.buildAgentSkillContext({
         policy: {
@@ -498,6 +526,8 @@ export class AgentHost {
         messages,
         prompt,
         inputIds,
+        historyInputIds,
+        ...(editorSnapshot && this.#resumeTools ? { completionCheck: () => this.#resumeTools!.checkCompletion(signal) } : {}),
         ...(typeof context.resume_from_run_id === "string" ? { resumeFromRunId: context.resume_from_run_id } : {}),
       });
     } catch (error) {
@@ -531,11 +561,17 @@ export class AgentHost {
       return event.type === "harness_event" && runtimeEvent?.type === "model.input.consumed" && Array.isArray(runtimeEvent.input_ids) ? runtimeEvent.input_ids : [];
     }));
     const pendingInputs = storedMessages.filter((message) => message.role === "user" && message.id !== context.user_message_id && !consumedInputs.has(message.id));
-    const history = typeof context.resume_from_run_id === "string"
-      ? storedMessages.filter((message) => message.id === context.user_message_id).map(toModelMessage)
-      : buildConversationModelHistory(storedMessages.filter((message) => message.id !== assistantMessageId),
-        (runId) => eventsByRun.get(runId) ?? [], storedMessages);
-    const fallback = [{ role: "user" as const, content: userMessage }];
+    void userMessage;
+    const previousRuns = this.store.listRuns(conversationId).filter((run) => run.id !== context.agent_run_id);
+    const checkpoint = typeof context.resume_from_run_id === "string"
+      ? this.runtime.getCheckpoint(context.resume_from_run_id)
+      : previousRuns.map((run) => this.runtime.getCheckpoint(run.id)).filter((value) => value !== undefined).at(-1);
+    const restored = checkpoint ? restoreCheckpointHistory(checkpoint) : { messages: [], inputIds: [] };
+    const represented = new Set(restored.inputIds);
+    const newMessages = storedMessages.filter((message) => message.id !== assistantMessageId && !represented.has(message.id)
+      && !(message.role === "assistant" && message.run_id));
+    const history = [...(context.resume_from_run_id ? [] : restored.messages), ...newMessages.map(toModelMessage)];
+    const historyInputIds = [...restored.inputIds, ...newMessages.map((message) => message.id), assistantMessageId];
     const contextInput = {
       workspaceId: String(context.workspace_id ?? ""),
       mentions: [...mentions, ...pendingInputs.flatMap((message) => message.mentions)],
@@ -547,7 +583,7 @@ export class AgentHost {
       .filter((event) => event.type === "attachments_read").map((event) => event.payload.message_id));
     const inputIds = [...new Set([String(context.user_message_id), ...pendingInputs.map((message) => message.id), ...storedMessages
       .filter((message) => message.role === "user" && message.attachments?.length && !readMessages.has(message.id)).map((message) => message.id)])];
-    return { messages: history.length > 0 ? history : fallback, contextItems, inputIds };
+    return { messages: history, contextItems, inputIds, historyInputIds };
   }
 
   async #projectHarnessEvents(
@@ -647,12 +683,12 @@ export class AgentHost {
     }
     if (event.type === "run.failed") {
       this.#completeProjectedRun(runId, conversationId, "failed", timestamp);
-      this.#appendAgentRunEvent(runId, "run_failed", { error: event.error }, timestamp);
+      this.#appendAgentRunEvent(runId, "run_failed", { error: event.error, recoverable: this.#recoverable(runId) }, timestamp);
       return;
     }
     if (event.type === "run.canceled") {
       this.#completeProjectedRun(runId, conversationId, "cancelled", timestamp);
-      this.#appendAgentRunEvent(runId, "run_cancelled", { reason: event.reason }, timestamp);
+      this.#appendAgentRunEvent(runId, "run_cancelled", { reason: event.reason, recoverable: this.#recoverable(runId) }, timestamp);
       return;
     }
 
@@ -685,6 +721,7 @@ export class AgentHost {
     for (const run of runningRuns) {
       this.#completeProjectedRun(run.id, run.conversation_id, "failed", timestamp);
       this.#appendAgentRunEvent(run.id, "run_failed", {
+        recoverable: this.#recoverable(run.id),
         error: {
           code: "agent_host_restarted",
           message: "Agent Host restarted before the run finished.",
@@ -950,6 +987,17 @@ async function route(context: RouteContext): Promise<boolean> {
     return true;
   }
 
+  const interactionMatch = /^\/agent-runs\/([^/]+)\/(questions|permissions)\/([^/]+)$/.exec(pathname);
+  if (request.method === "POST" && interactionMatch) {
+    const body = await readJson(request);
+    const runId = decodeURIComponent(interactionMatch[1]!);
+    const requestId = decodeURIComponent(interactionMatch[3]!);
+    if (interactionMatch[2] === "questions") host.respondToQuestions(runId, requestId, body.answers);
+    else host.respondToPermission(runId, requestId, parsePermissionStatus(body.status));
+    writeJson(response, 200, { status: "accepted" });
+    return true;
+  }
+
   const editorRequestMatch = /^\/agent-runs\/([^/]+)\/editor-requests\/([^/]+)$/.exec(pathname);
   if (editorRequestMatch) {
     const runId = decodeURIComponent(editorRequestMatch[1]!);
@@ -1036,18 +1084,6 @@ async function route(context: RouteContext): Promise<boolean> {
     const body = await readJson(request);
     const event = host.runtime.cancelRun(decodeURIComponent(cancelMatch[1] ?? ""), optionalString(body.reason));
     writeJson(response, 200, event);
-    return true;
-  }
-
-  const permissionMatch = /^\/permissions\/([^/]+)\/resolve$/.exec(pathname);
-  if (request.method === "POST" && permissionMatch) {
-    const body = await readJson(request);
-    const decision = host.runtime.resolvePermission({
-      requestId: decodeURIComponent(permissionMatch[1] ?? ""),
-      status: parsePermissionStatus(body.status),
-      remember: parsePermissionRemember(body.remember),
-    });
-    writeJson(response, 200, decision);
     return true;
   }
 
@@ -1180,46 +1216,6 @@ function prepareConversationInput(workspaceId: string, input: Pick<AgentHostStar
   return { content, mentions, references, attachments, editorSnapshot };
 }
 
-function toModelMessage(message: AgentMessage): HarnessModelMessage {
-  const text = formatReferencedMessage(message.content, message.references);
-  return message.role === "user" && message.attachments?.length
-    ? { role: "user", content: [{ type: "text", text }, ...message.attachments.map((attachment) => attachment.content.type === "image"
-      ? attachment.content : { type: "text" as const, text: `附件：${attachment.name}\n${attachment.content.text}` })] }
-    : { role: message.role, content: text };
-}
-
-/** Replay response boundaries and consumed steering in the same order the model saw them. */
-function buildConversationModelHistory(messages: AgentMessage[], eventsForRun: (runId: string) => AgentRunEvent[], allMessages: AgentMessage[]): HarnessModelMessage[] {
-  const byId = new Map(allMessages.map((message) => [message.id, message]));
-  return messages.flatMap((message): HarnessModelMessage[] => {
-    if (message.role === "user" && message.run_id) return [];
-    if (message.role !== "assistant" || !message.run_id) return [toModelMessage(message)];
-    const history: HarnessModelMessage[] = [];
-    const applied = new Set<string>();
-    let responseId: unknown;
-    for (const event of eventsForRun(message.run_id)) {
-      if (event.type === "assistant_delta") {
-        const last = history[history.length - 1];
-        const delta = String(event.payload.delta ?? "");
-        if (last?.role === "assistant" && responseId === event.payload.message_id) last.content += delta;
-        else history.push({ role: "assistant", content: delta });
-        responseId = event.payload.message_id;
-      } else if (event.type === "user_input_applied") {
-        const id = String(event.payload.message_id);
-        const steering = byId.get(id);
-        if (steering) history.push(toModelMessage(steering));
-        applied.add(id);
-        responseId = undefined;
-      }
-    }
-    // Accepted input remains conversation history even if the run was stopped before consuming it.
-    for (const steering of allMessages) {
-      if (steering.role === "user" && steering.run_id === message.run_id && !applied.has(steering.id)) history.push(toModelMessage(steering));
-    }
-    return history;
-  });
-}
-
 function parseMessageBody(value: unknown): AgentHostStartConversationRunInput["message"] {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("message must be an object");
@@ -1267,14 +1263,4 @@ function parsePermissionStatus(value: unknown): "approved" | "denied" {
     return value;
   }
   throw new Error("Permission status must be approved or denied");
-}
-
-function parsePermissionRemember(value: unknown): "never" | "run" | "context" | "always" | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (value === "never" || value === "run" || value === "context" || value === "always") {
-    return value;
-  }
-  throw new Error("Permission remember must be never, run, context, or always");
 }

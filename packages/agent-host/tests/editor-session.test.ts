@@ -68,6 +68,7 @@ describe("live editor execution lifecycle", () => {
       const request = await test.nextRequest();
       test.host.respondToEditorRequest(test.run.id, request.id, { status: "unchanged", snapshot });
       await test.answerSnapshot();
+      await test.answerSnapshot();
       await test.host.waitForRun(test.run.id);
       const result = JSON.parse(String(test.requests[3]?.prompt.conversation.find((message) => message.role === "tool" && message.toolName === "resume.edit")?.content)).output;
       expect(result).toMatchObject({ status: "unchanged", content_revision: 2, current: { text: "当前原文" } });
@@ -87,10 +88,14 @@ describe("live editor execution lifecycle", () => {
       expect(test.pageReader).not.toHaveBeenCalled();
       test.host.respondToEditorRequest(test.run.id, request.id, { status: "applied", snapshot: updated });
       await test.answerSnapshot(updated);
+      await test.answerSnapshot(updated);
       await test.host.waitForRun(test.run.id);
       expect(test.host.getAgentRun(test.run.id).status).toBe("completed");
       expect(test.pageReader).toHaveBeenCalledWith(expect.objectContaining({ snapshot: updated }));
       expect(JSON.stringify(test.requests[3]?.prompt.conversation)).toContain("更新后的原文");
+      expect(JSON.stringify(test.requests[5]?.prompt.conversation)).toContain("Final editor evidence");
+      const audit = test.requests[5]?.prompt.conversation.find((message) => message.role === "user" && message.internal === "completion");
+      expect(String(audit?.content)).toContain('"status":"applied","persisted":false');
       expect(test.host.listAgentRunEvents(test.run.id)).toContainEqual(expect.objectContaining({ type: "editor_response", payload: expect.objectContaining({ status: "applied", content_revision: 3 }) }));
       expect(() => test.host.respondToEditorRequest(test.run.id, request.id, { status: "applied", snapshot: updated })).not.toThrow();
       expect(test.host.listAgentRunEvents(test.run.id).filter((event) => event.type === "editor_response" && event.payload.request_id === request.id)).toHaveLength(1);
@@ -120,6 +125,7 @@ describe("live editor execution lifecycle", () => {
       await test.answerSnapshot();
       const request = await test.nextRequest();
       test.host.respondToEditorRequest(test.run.id, request.id, { status: "rejected" });
+      await test.answerSnapshot();
       await test.answerSnapshot();
       await test.host.waitForRun(test.run.id);
       expect(test.pageReader).toHaveBeenCalledWith(expect.objectContaining({ snapshot }));

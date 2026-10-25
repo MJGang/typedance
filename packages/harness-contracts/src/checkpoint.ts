@@ -46,7 +46,7 @@ export const harnessCheckpointSchema = z.object({
   last_input_tokens: z.number().nonnegative().optional(),
   last_input_estimate: z.number().nonnegative().optional(),
   compactions: z.number().int().nonnegative(),
-  phase: z.enum(["ready", "model", "tools", "completed"]),
+  phase: z.enum(["history", "ready", "model", "tools", "completed"]),
   pending_tool_calls: z.array(harnessToolCallSchema),
   in_flight_tool_call_id: z.string().optional(),
   pending_inputs: z.array(harnessPendingInputSchema),

@@ -4,6 +4,7 @@ import { harnessPermissionDecisionSchema, harnessPermissionRequestSchema } from 
 import { harnessCapabilityPolicySchema } from "./run";
 import { harnessToolCallSchema, harnessToolResultSchema } from "./tool";
 import { harnessPlanItemSchema } from "./checkpoint";
+import { harnessUserQuestionSchema, harnessUserAnswersSchema } from "./user-input";
 
 const harnessRunEventBaseSchema = z.object({
   id: z.string().min(1),
@@ -166,6 +167,10 @@ export const harnessRunEventSchema = z.discriminatedUnion("type", [
       cacheMissInputTokens: z.number().nonnegative().optional(), reasoningOutputTokens: z.number().nonnegative().optional(),
     }).optional(),
   }),
+  harnessRunEventBaseSchema.extend({ type: z.literal("interaction.superseded"), request_id: z.string(), kind: z.enum(["questions", "permissions"]) }),
+  harnessRunEventBaseSchema.extend({ type: z.literal("model.retrying"), attempt: z.number().int(), max_retries: z.number().int(), delay_ms: z.number() }),
+  harnessRunEventBaseSchema.extend({ type: z.literal("user.questions.requested"), request_id: z.string(), questions: z.array(harnessUserQuestionSchema) }),
+  harnessRunEventBaseSchema.extend({ type: z.literal("user.questions.answered"), request_id: z.string(), answers: harnessUserAnswersSchema }),
   harnessRunEventBaseSchema.extend({ type: z.literal("context.compacted"), before_tokens: z.number(), after_tokens: z.number(), compaction: z.number().int() }),
   harnessRunEventBaseSchema.extend({ type: z.literal("run.resumed"), source_run_id: z.string() }),
   harnessRunEventBaseSchema.extend({ type: z.literal("completion.blocked"), message: z.string() }),
