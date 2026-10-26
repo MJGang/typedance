@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react"
-import { Circle, Database, Gauge } from "lucide-react"
+import { Database, Gauge } from "lucide-react"
 import type { ConversationStatistics } from "@typedance/contracts"
 import { Button } from "@/components/ui/button"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
@@ -29,6 +29,15 @@ function StatPill({ label, title, children, icon }: { label: string; title: stri
 
 function Reading({ label, value }: { label: string; value: ReactNode }) {
   return <div className="flex items-center justify-between gap-4 py-1 text-xs"><span className="text-muted-foreground">{label}</span><span className="tabular-nums">{value}</span></div>
+}
+
+function ContextUsageRing({ percent }: { percent: number | null }) {
+  const value = Math.min(100, Math.max(0, percent ?? 0))
+  return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" data-icon="inline-start">
+    <circle cx="8" cy="8" r="6" strokeOpacity="0.25" />
+    {value > 0 ? <circle cx="8" cy="8" r="6" pathLength="100" strokeDasharray="100" strokeDashoffset={100 - value}
+      strokeLinecap="round" transform="rotate(-90 8 8)" /> : null}
+  </svg>
 }
 
 export function ChatStatusBar({ statistics, failed }: { statistics: ConversationStatistics | null; failed: boolean }) {
@@ -61,7 +70,7 @@ export function ChatStatusBar({ statistics, failed }: { statistics: Conversation
       {generating ? <p className="mt-1 text-[11px] text-muted-foreground">本次调用用量待模型回报，以上为已完成调用的累计用量。</p> : null}
       {usage?.unmeasured_calls ? <p className="mt-1 text-[11px] text-muted-foreground">{usage.unmeasured_calls} 次调用未返回完整用量，未计入合计。</p> : null}
     </StatPill>
-    <StatPill icon={<Circle />} title="上下文占用" label={percentText}>
+    <StatPill icon={<ContextUsageRing percent={percent} />} title="上下文占用" label={percentText}>
       {context ? <>
         <Reading label={`上下文已用 ${percentText}`} value={`${context.estimated ? "~" : ""}${tokens(context.input_tokens + context.output_tokens)} / ${context.limit_tokens ? tokens(context.limit_tokens) : "未知"}`} />
         <Progress value={Math.min(100, percent ?? 0)} className="my-2 h-1" aria-label="上下文占用比例" />
