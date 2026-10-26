@@ -70,7 +70,7 @@
 ## 自动检查
 
 - Core 80 项、Harness Contracts 3 项通过；Host 完整 135 项通过，后续新增决策来源断言的定向 11 项通过。
-- Sidecar 编辑/API 两个文件 65 项通过；基准脚本的 2 项 keyless 行为测试通过。
+- Sidecar 编辑/API 两个文件 65 项通过；基准脚本的 2 项 keyless 行为测试通过，并已接入根 `pnpm test`，后续 CI 和发布验证自动执行。
 - 全量 `corepack pnpm verify:change --base origin/main` 最终通过：完整构建、986 项应用测试（Web 425、Sidecar 264、Host 135、Core 80 等）、6 项验证脚本测试和 16 项发布规则测试。首轮由于误带浏览器验收专用 VITE 地址，13 项 API 断言指向不同端口，另有已有 ColumnsNodeView 的 5 秒超时；清除专用地址、停止验收服务后重跑通过，没有修改断言或放宽超时。
 
 ## 复现与原始结果
