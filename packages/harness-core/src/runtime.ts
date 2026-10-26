@@ -55,6 +55,14 @@ export type HarnessRuntimeOptions = {
   modelRetry?: { maxRetries?: number; initialDelayMs?: number };
 };
 
+/** 宿主在每次模型循环前解析的运行配置；解析回调不会写入检查点。 */
+export type HarnessModelConfiguration = {
+  modelOptions?: Record<string, unknown>;
+  modelConfigurationKey?: string;
+  contextWindow?: HarnessContextWindowOptions;
+};
+export type HarnessModelConfigurationResolver = () => HarnessModelConfiguration | Promise<HarnessModelConfiguration>;
+
 export type HarnessRuntimeToolResult =
   | { status: "completed"; result: HarnessToolResult }
   | { status: "failed"; result: HarnessToolResult }
@@ -475,6 +483,7 @@ export class HarnessRuntime {
     modelConfigurationKey?: string;
     contextWindow?: HarnessContextWindowOptions;
     inputMeasurement?: HarnessInputMeasurement;
+    resolveModelConfiguration?: HarnessModelConfigurationResolver;
     messages: HarnessModelMessage[];
     prompt?: HarnessPromptBundle;
     inputIds?: string[];
@@ -500,7 +509,7 @@ export class HarnessRuntime {
   }
 
   async #executeAgentTurn(input: {
-    runId: string; agentId: string; model?: string; modelOptions?: Record<string, unknown>; modelConfigurationKey?: string; contextWindow?: HarnessContextWindowOptions; inputMeasurement?: HarnessInputMeasurement; messages: HarnessModelMessage[]; prompt?: HarnessPromptBundle; inputIds?: string[]; historyInputIds?: string[]; resumeFromRunId?: string; completionCheck?: HarnessCompletionCheck;
+    runId: string; agentId: string; model?: string; modelOptions?: Record<string, unknown>; modelConfigurationKey?: string; contextWindow?: HarnessContextWindowOptions; inputMeasurement?: HarnessInputMeasurement; resolveModelConfiguration?: HarnessModelConfigurationResolver; messages: HarnessModelMessage[]; prompt?: HarnessPromptBundle; inputIds?: string[]; historyInputIds?: string[]; resumeFromRunId?: string; completionCheck?: HarnessCompletionCheck;
   }): Promise<Record<string, unknown>> {
     const signal = this.getRunSignal(input.runId);
     if (!this.#model) {
@@ -567,6 +576,20 @@ export class HarnessRuntime {
         this.#appendEvent(input.runId, { type: "user.input.applied", input_id: pending.id });
       }
       this.#saveCheckpoint(state);
+      if (input.resolveModelConfiguration) {
+        const configuration = await withRunSignal(Promise.resolve().then(input.resolveModelConfiguration), signal);
+        this.#assertActive(input.runId);
+        const candidate = { ...state,
+          model_options: structuredClone(configuration.modelOptions ?? state.model_options),
+          model_configuration_key: configuration.modelConfigurationKey ?? state.model_configuration_key,
+          context_window: resolveContextWindow({ ...this.#window(state), ...configuration.contextWindow }),
+        };
+        if (JSON.stringify([candidate.model_options, candidate.model_configuration_key, candidate.context_window])
+          !== JSON.stringify([state.model_options, state.model_configuration_key, state.context_window])) {
+          this.#saveCheckpoint(candidate);
+          Object.assign(state, candidate);
+        }
+      }
       await this.#compactIfNeeded(state, availableTools, skillContext.policy, signal);
       // Steering received during compaction belongs after the compacted prefix.
       if (this.#pendingInputs.get(input.runId)?.length) continue;
