@@ -149,6 +149,31 @@ describe("DeepSeek model adapter", () => {
     expect(events.some((event) => event.type === "final")).toBe(false);
   });
 
+  it.each([false, true])("classifies a terminated stream safely, with partial output=%s", async (partial) => {
+    let sent = false;
+    const stream = new ReadableStream<Uint8Array>({ pull(controller) {
+      if (partial && !sent) {
+        sent = true;
+        controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'));
+      } else controller.error(new TypeError("terminated test-secret-key", { cause: { code: "UND_ERR_SOCKET", address: "private" } }));
+    } }, { highWaterMark: 0 });
+    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test-secret-key", defaultModel: "deepseek-flash", baseUrl: undefined }),
+      fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response(stream)) });
+    const events = [];
+    const collect = async () => { for await (const event of adapter.stream(makeRequest({ runId: "transport", agentId: "a", messages: [] }))) events.push(event); };
+    await expect(collect()).rejects.toMatchObject({ retryable: true, message: "DeepSeek 响应连接中断（UND_ERR_SOCKET），请检查网络后继续任务。" });
+    expect(events.some((event) => event.type === "assistant_delta")).toBe(partial);
+    expect(events.some((event) => event.type === "final")).toBe(false);
+  });
+
+  it("preserves stream cancellation as cancellation", async () => {
+    const abort = new DOMException("canceled", "AbortError");
+    const stream = new ReadableStream<Uint8Array>({ start(controller) { controller.error(abort); } });
+    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test", defaultModel: "deepseek-flash", baseUrl: undefined }),
+      fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response(stream)) });
+    await expect(drain(adapter.stream(makeRequest({ runId: "cancel", agentId: "a", messages: [] })))).rejects.toBe(abort);
+  });
+
   it("sets the summary output budget and identifies a truncated provider response", async () => {
     const fetchMock = vi.fn(async () => new Response(sse([
       'data: {"choices":[{"delta":{"content":"partial handoff"},"finish_reason":"length"}]}',
@@ -253,6 +278,7 @@ describe("DeepSeek model adapter", () => {
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
     expect(body.tools[0].function.name).toBe("typedance_context_read");
+    expect(events).toContainEqual({ type: "tool_call_delta", callId: "call_1", delta: 'typedance_context_read{"context_id":"ctx_1"}' });
     expect(events).toContainEqual({
       type: "tool_call",
       call: {

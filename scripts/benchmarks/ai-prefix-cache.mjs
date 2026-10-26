@@ -17,14 +17,14 @@ if (!apiKey) {
 }
 assert(apiKey, "DEEPSEEK_API_KEY or stdin is required");
 const { createHarnessRuntime } = await import(pathToFileURL(resolve(root, "packages/harness-core/src/index.ts")));
-const { createAgentHost, createJsonFileAgentHostStore, JsonFileHarnessCheckpointStore } = await import(pathToFileURL(resolve(root, "packages/agent-host/src/index.ts")));
+const { createAgentHost, createSqliteAgentHostStore, JsonFileHarnessCheckpointStore } = await import(pathToFileURL(resolve(root, "packages/agent-host/src/index.ts")));
 const { createDeepSeekModelAdapter } = await import(pathToFileURL(resolve(root, "packages/agent-host/src/model/deepseek.ts")));
 
 const measurements = [];
 const dataDir = resolve(dirname(output), `${basename(output, ".json")}-data-${Date.now()}`);
 await mkdir(dataDir, { recursive: true });
 let checkpoints = new JsonFileHarnessCheckpointStore(resolve(dataDir, "checkpoints"));
-let store = createJsonFileAgentHostStore(resolve(dataDir, "host.json"));
+let store = createSqliteAgentHostStore(resolve(dataDir, "host.sqlite"));
 let role = "前端工程师";
 let revision = 1;
 let currentTurn = 1;
@@ -70,7 +70,8 @@ try {
     // 最后一轮重新创建 Host/Runtime，检查权威历史和缓存是否跨实例保留。
     if (currentTurn === 3) {
       checkpoints = new JsonFileHarnessCheckpointStore(resolve(dataDir, "checkpoints"));
-      store = createJsonFileAgentHostStore(resolve(dataDir, "host.json"));
+      store.close();
+      store = createSqliteAgentHostStore(resolve(dataDir, "host.sqlite"));
       host = createAgentHost(options());
     }
     const content = currentTurn === 1
@@ -88,6 +89,7 @@ try {
     answers.push({ turn: currentTurn, role, revision, answer, historyMessages: checkpoint.prompt.conversation.length });
   }
 } finally {
+  store.close();
   await mkdir(dirname(output), { recursive: true });
   const sum = (field, records) => records.reduce((total, item) => total + (item.usage?.[field] ?? 0), 0);
   const summary = (records) => ({ calls: records.length, input: sum("inputTokens", records), hit: sum("cacheReadInputTokens", records), miss: sum("cacheMissInputTokens", records),

@@ -1,7 +1,7 @@
 import { appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHarnessRuntime } from "@typedance/harness-core";
-import { createAgentHost, createAgentHostServer, createJsonFileAgentHostStore, JsonFileHarnessCheckpointStore } from "../../src";
+import { createAgentHost, createAgentHostServer, createSqliteAgentHostStore, JsonFileHarnessCheckpointStore } from "../../src";
 
 const directory = process.argv[2]!;
 const mode = process.argv[3]!;
@@ -27,7 +27,7 @@ runtime.registerTool({ name: "test.work", origin: "plugin", handler: async (inpu
   if (input.id === "uncertain") { process.send?.({ type: "in-flight" }); return new Promise(() => {}); }
   return { evidence: "saved-evidence" };
 } });
-const host = createAgentHost({ runtime, store: createJsonFileAgentHostStore(join(directory, "store.json")),
+const host = createAgentHost({ runtime, store: createSqliteAgentHostStore(join(directory, "store.sqlite")),
   packs: [{ id: "test", primaryAgentId: "test.agent", capabilityPolicy: { scopeIds: ["test"] } }] });
 const server = createAgentHostServer({ host, authToken: "checkpoint-integration-token-0123456789" });
 server.listen(0, "127.0.0.1");

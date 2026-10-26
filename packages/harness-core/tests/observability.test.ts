@@ -18,7 +18,7 @@ describe("runtime observability isolation", () => {
     const { runtime, run, execute } = runtimeWith({ onRunEvent: fail, onModelStart: () => ({ onEvent: fail, end: fail }) });
     await expect(execute()).resolves.toEqual({ ok: true });
     expect(runtime.getRun(run.id).status).toBe("completed");
-    expect(runtime.getEvents(run.id).map((event) => event.type)).toEqual(["run.started", "model.call.started", "assistant.delta", "model.call.completed", "run.completed"]);
+    expect(runtime.getEvents(run.id).map((event) => event.type)).toEqual(["run.started", "model.call.started", "model.call.progress", "assistant.delta", "model.call.completed", "run.completed"]);
     const failingStart = runtimeWith({ onModelStart: fail });
     await expect(failingStart.execute()).resolves.toEqual({ ok: true });
   });

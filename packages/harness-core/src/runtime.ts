@@ -597,7 +597,7 @@ export class HarnessRuntime {
           this.#appendEvent(input.runId, { type: "model.input.consumed", input_ids: [...state.unconfirmed_input_ids] });
           state.unconfirmed_input_ids = [];
         }
-        if (event.type === "first_token") continue;
+        if (event.type === "first_token" || event.type === "tool_call_delta") continue;
         if (event.type === "reasoning_summary_delta") {
           assistantReasoning += event.delta;
           this.appendReasoningSummaryDelta(input.runId, `${pass}:${event.summaryId}`, event.delta);
@@ -817,9 +817,30 @@ export class HarnessRuntime {
     let usage: HarnessModelUsage | undefined;
     let model = request.model;
     let completed = false;
+    let outputText = "";
+    let outputCharacters = 0;
+    const appendOutput = (text: string) => { outputText += text; for (const _char of text) outputCharacters += 1; };
+    const streamedToolCalls = new Set<string>();
+    let lastProgressAt = -Infinity;
+    let lastOutputTokens = -1;
+    const reportProgress = (now: number, force = false) => {
+      if (ttftMs === undefined || isTerminalRunStatus(this.getRun(request.runId).status)) return;
+      if (!force && now - lastProgressAt < 1000) return;
+      const outputTokens = estimateTextTokens(outputText);
+      if (force && outputTokens === lastOutputTokens) return;
+      this.#appendEvent(request.runId, { type: "model.call.progress", call_id: callId, ttft_ms: ttftMs, output_tokens: outputTokens, output_characters: outputCharacters });
+      lastProgressAt = now; lastOutputTokens = outputTokens;
+    };
     try {
       for await (const event of cancellableStream(this.#model!.stream(request), request.signal)) {
-        if (event.type !== "final" && ttftMs === undefined) ttftMs = performance.now() - started;
+        if (event.type !== "final") {
+          const now = performance.now();
+          if (ttftMs === undefined) ttftMs = now - started;
+          if (event.type === "assistant_delta" || event.type === "reasoning_summary_delta") appendOutput(event.delta);
+          if (event.type === "tool_call_delta") { streamedToolCalls.add(event.callId); appendOutput(event.delta); }
+          if (event.type === "tool_call" && !streamedToolCalls.has(event.call.id)) appendOutput(JSON.stringify({ name: event.call.name, arguments: event.call.input }));
+          reportProgress(now);
+        }
         if (event.type === "final") {
           completed = true; usage = event.usage;
           if (typeof event.output.model === "string") model = event.output.model;
@@ -831,6 +852,7 @@ export class HarnessRuntime {
       error = caught;
       throw caught;
     } finally {
+      reportProgress(performance.now(), true);
       // 取消可能已关闭事件流，终态后不得追加事件。
       if (!isTerminalRunStatus(this.getRun(request.runId).status)) this.#appendEvent(request.runId, {
         type: "model.call.completed", call_id: callId, model,

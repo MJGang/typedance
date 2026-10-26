@@ -7,7 +7,8 @@ import {
   createAgentHost,
   createAgentHostServer,
   createFileModelSettings,
-  createJsonFileAgentHostStore,
+  createSqliteAgentHostStore,
+  migrateJsonStoreToSqlite,
 } from "./index";
 import { loadExplicitEnvironment } from "./environment";
 import {
@@ -41,9 +42,10 @@ async function main(): Promise<void> {
   const port = numberEnv(env.AGENT_HOST_PORT, 4327);
   const hostname = env.AGENT_HOST_HOST ?? "127.0.0.1";
   const dataDir = env.TYPEDANCE_DATA_DIR || join(homedir(), ".typedance");
-  const storeFile = env.AGENT_HOST_STORE_FILE || join(dataDir, "agent-host", "store.json");
+  const storeFile = env.AGENT_HOST_DATABASE_FILE || join(dataDir, "agent-host", "store.sqlite");
   const sidecarUrl = env.TYPEDANCE_SIDECAR_URL || "http://127.0.0.1:4317";
   await migrateRetiredModelId(dataDir, env);
+  migrateJsonStoreToSqlite(env.AGENT_HOST_STORE_FILE || join(dataDir, "agent-host", "store.json"), storeFile);
   const modelSettings = createFileModelSettings(dataDir, env);
   const pluginLoader = env.TYPEDANCE_PLUGIN_ROOT
     ? createResumePluginLoader(env.TYPEDANCE_PLUGIN_ROOT)
@@ -76,7 +78,7 @@ async function main(): Promise<void> {
       pageReader: createSidecarPageReader(sidecarUrl),
       supportsImages: async (requestedModel) => (requestedModel || (await modelSettings.resolve()).model) === "deepseek-flash",
     },
-    store: createJsonFileAgentHostStore(storeFile),
+    store: createSqliteAgentHostStore(storeFile),
     packs: [
       {
         id: "resume",
@@ -109,6 +111,7 @@ async function main(): Promise<void> {
       console.warn("Langfuse 退出上报失败。");
     }
     await closed;
+    host.store.close();
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown());

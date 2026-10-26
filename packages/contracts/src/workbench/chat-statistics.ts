@@ -18,6 +18,8 @@ export type ModelSelection = z.infer<typeof modelSelectionSchema>;
 
 const count = z.number().nonnegative();
 export const conversationStatisticsSchema = z.object({
+  sampled_at: z.string().datetime(),
+  activity: z.object({ runs: count, model_calls: count, tool_calls: count, output_characters: count }),
   turns: count, steps: count, model_ms: count, tool_ms: count,
   ttft_ms: count.nullable(), tokens_per_second: count.nullable(),
   usage: z.object({

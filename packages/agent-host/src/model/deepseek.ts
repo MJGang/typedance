@@ -211,6 +211,8 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
           if (toolCallDelta.function?.name) current.function.name += toolCallDelta.function.name;
           if (toolCallDelta.function?.arguments) current.function.arguments += toolCallDelta.function.arguments;
           toolCalls.set(index, current);
+          const fragment = (toolCallDelta.function?.name ?? "") + (toolCallDelta.function?.arguments ?? "");
+          if (fragment) yield { type: "tool_call_delta", callId: current.id, delta: fragment };
         }
       }
 
@@ -348,7 +350,13 @@ async function* parseDeepSeekSse(stream: ReadableStream<Uint8Array>): AsyncItera
 
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await reader.read().catch((error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") throw error;
+        // 底层报错可能包含请求信息，只公开固定文案和已知网络错误码。
+        const code = error instanceof Error ? (error.cause as { code?: unknown } | undefined)?.code : undefined;
+        const safeCode = typeof code === "string" && /^(UND_ERR_(SOCKET|CONNECT_TIMEOUT|HEADERS_TIMEOUT|BODY_TIMEOUT)|ECONNRESET|ETIMEDOUT)$/.test(code) ? `（${code}）` : "";
+        throw new HarnessModelError(`DeepSeek 响应连接中断${safeCode}，请检查网络后继续任务。`, true);
+      });
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split(/\r?\n/);

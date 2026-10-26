@@ -127,7 +127,8 @@ describe("AgentChatPanel", () => {
     agentHostMocks.getModelSelection.mockResolvedValue({ model: "deepseek-flash", reasoning_effort: "high", models: [
       { id: "deepseek-flash", name: "DeepSeek-V4.1-Flash", context_window: 1_000_000, reasoning_efforts: ["off", "low", "high", "max"] },
     ] })
-    agentHostMocks.getConversationStatistics.mockResolvedValue({ turns: 0, steps: 0, model_ms: 0, tool_ms: 0, ttft_ms: null, tokens_per_second: null,
+    agentHostMocks.getConversationStatistics.mockResolvedValue({ sampled_at: new Date().toISOString(), activity: { runs: 0, model_calls: 0, tool_calls: 0, output_characters: 0 },
+      turns: 0, steps: 0, model_ms: 0, tool_ms: 0, ttft_ms: null, tokens_per_second: null,
       usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0, cache_read_tokens: 0, cache_miss_tokens: 0, cache_hit_percent: null, measured_calls: 0, unmeasured_calls: 0 }, context: null })
     agentHostMocks.getConversationActiveRun.mockResolvedValue(null)
     agentHostMocks.listAgentRunEvents.mockResolvedValue([])
@@ -875,10 +876,19 @@ describe("AgentChatPanel", () => {
     expect(screen.getByText("Reading the resume and job context.")).toBeInTheDocument()
 
     act(() => {
+      eventSource.dispatch("harness_event", { id: "evt_progress", run_id: "run_thinking", sequence: 1, type: "harness_event",
+        created_at: "2026-06-16T08:00:01.100Z", payload: { event: { id: "hevt_progress", run_id: "run_thinking", sequence: 1, created_at: "2026-06-16T08:00:01.100Z", type: "model.call.progress", call_id: "call", ttft_ms: 100, output_tokens: 20, output_characters: 40 } } })
+      eventSource.dispatch("thinking_delta", { id: "evt_thinking_2", run_id: "run_thinking", sequence: 2, type: "thinking_delta",
+        created_at: "2026-06-16T08:00:01.200Z", payload: { delta: " Still checking." } })
+    })
+    expect(screen.getAllByRole("button", { name: "思考过程" })).toHaveLength(1)
+    expect(screen.getByText("Reading the resume and job context. Still checking.")).toBeInTheDocument()
+
+    act(() => {
       eventSource.dispatch("harness_event", {
         id: "evt_plan_1",
         run_id: "run_thinking",
-        sequence: 1,
+        sequence: 3,
         type: "harness_event",
         created_at: "2026-06-16T08:00:02.000Z",
         payload: { event: { type: "plan.updated" } },
@@ -888,7 +898,7 @@ describe("AgentChatPanel", () => {
     await waitFor(() => {
       expect(screen.queryByText(/正在思考/)).not.toBeInTheDocument()
     })
-    expect(screen.getByText("Reading the resume and job context.")).toBeInTheDocument()
+    expect(screen.getByText("Reading the resume and job context. Still checking.")).toBeInTheDocument()
   })
 
   it("hides the in-progress status after assistant output starts", async () => {

@@ -34,26 +34,32 @@ function Reading({ label, value }: { label: string; value: ReactNode }) {
 export function ChatStatusBar({ statistics, failed }: { statistics: ConversationStatistics | null; failed: boolean }) {
   const usage = statistics?.usage
   const context = statistics?.context
-  const speed = statistics?.tokens_per_second == null ? "— tok/s" : `${Math.round(statistics.tokens_per_second)} tok/s`
+  const generating = !!statistics?.activity.model_calls
+  const hasUsage = !!usage?.measured_calls
+  const speed = statistics?.tokens_per_second == null ? generating ? "生成中" : "— tok/s"
+    : `${Number(statistics.tokens_per_second.toFixed(1))} tok/s`
   const percent = context?.limit_tokens ? (context.input_tokens + context.output_tokens) / context.limit_tokens * 100 : null
-  const percentText = percent === null ? "—" : `${percent > 0 && percent < 1 ? "<1" : Math.round(percent)}%`
+  const percentText = percent === null ? "—" : `${context?.estimated ? "~" : ""}${percent > 0 && percent < 0.01 ? "<0.01" : Number(percent.toFixed(2))}%`
   const cache = usage?.cache_hit_percent
-  const cacheText = cache == null ? "缓存 —" : `缓存 ${Math.floor(cache)}%`
+  const cacheText = generating ? "缓存待回报" : cache == null ? "缓存 —" : `缓存 ${Math.floor(cache)}%`
   return <div className="flex min-h-7 min-w-0 flex-wrap items-center justify-end gap-x-0.5 px-1 pt-0.5" aria-label="会话状态栏">
-    {failed ? <span className="mr-auto text-[11px] text-muted-foreground">统计暂不可用</span> : null}
+    {failed ? <span className="mr-auto text-[11px] text-muted-foreground">统计连接中断{statistics ? "，显示上次结果" : "，正在重试"}</span> : null}
     <StatPill icon={<Gauge />} title="会话统计" label={`${statistics?.turns ?? 0}轮${statistics?.steps ?? 0}步 · ${speed}`}>
-      <Reading label="模型用时" value={duration(statistics?.model_ms ?? null)} />
-      <Reading label="工具调用用时" value={duration(statistics?.tool_ms ?? null)} />
+      <Reading label={`模型用时${generating ? "（进行中）" : ""}`} value={duration(statistics?.model_ms ?? null)} />
+      <Reading label={`工具调用用时${statistics?.activity.tool_calls ? "（进行中）" : ""}`} value={duration(statistics?.tool_ms ?? null)} />
       <Reading label="首 token 平均（TTFT）" value={duration(statistics?.ttft_ms ?? null)} />
-      <Reading label="输出速度（TPS）" value={speed} />
+      <Reading label="已完成调用平均速度（TPS）" value={speed} />
+      {generating ? <Reading label="当前调用已接收" value={`${exact(statistics!.activity.output_characters)} 字符`} /> : null}
+      <p className="mt-1 text-[11px] text-muted-foreground">耗时与接收量每秒刷新。TPS 使用模型回报的输出 Token（含思考）计算，调用结束后更新。</p>
     </StatPill>
-    <StatPill icon={<Database />} title="Token 用量" label={`${usage?.measured_calls ? tokens(usage.total_tokens) : "—"} tok · ${cacheText}`}>
-      <Reading label="总用量" value={usage?.measured_calls ? `${exact(usage.total_tokens)} tok` : "尚无用量回报"} />
+    <StatPill icon={<Database />} title="Token 用量" label={`${hasUsage ? tokens(usage!.total_tokens) : "—"} tok · ${cacheText}`}>
+      <Reading label="已回报总用量" value={hasUsage ? `${exact(usage!.total_tokens)} tok` : "等待模型回报"} />
       <Reading label="缓存命中" value={cache == null ? "—" : `${Math.floor(cache * 10) / 10}%`} />
       <Reading label="未缓存输入" value={cache == null ? "—" : `${exact(usage!.cache_miss_tokens)} tok`} />
       <Reading label="缓存读取" value={cache == null ? "—" : `${exact(usage!.cache_read_tokens)} tok`} />
-      <Reading label="输出" value={usage?.measured_calls ? `${exact(usage.output_tokens)} tok` : "—"} />
-      {usage?.unmeasured_calls ? <p className="mt-1 text-[11px] text-muted-foreground">{usage.unmeasured_calls} 次调用未返回用量，未计入合计。</p> : null}
+      <Reading label="输出（含思考）" value={hasUsage ? `${exact(usage!.output_tokens)} tok` : "—"} />
+      {generating ? <p className="mt-1 text-[11px] text-muted-foreground">本次调用用量待模型回报，以上为已完成调用的累计用量。</p> : null}
+      {usage?.unmeasured_calls ? <p className="mt-1 text-[11px] text-muted-foreground">{usage.unmeasured_calls} 次调用未返回完整用量，未计入合计。</p> : null}
     </StatPill>
     <StatPill icon={<Circle />} title="上下文占用" label={percentText}>
       {context ? <>

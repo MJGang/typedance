@@ -124,12 +124,15 @@ describe("harness agent loop", () => {
     expect(runtime.getEvents(run.id).map((event) => event.type)).toEqual([
       "run.started",
       "model.call.started",
+      "model.call.progress",
       "reasoning.summary.delta",
       "assistant.delta",
+      "model.call.progress",
       "model.call.completed",
       "tool.call.started",
       "tool.call.completed",
       "model.call.started",
+      "model.call.progress",
       "assistant.delta",
       "model.call.completed",
       "run.completed",
@@ -391,6 +394,7 @@ describe("harness agent loop", () => {
     expect(runtime.getEvents(run.id).map((event) => event.type)).toEqual([
       "run.started",
       "model.call.started",
+      "model.call.progress",
       "model.call.completed",
       "permission.requested",
       "permission.resolved",

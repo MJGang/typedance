@@ -1,5 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { renameSync } from "node:fs";
 import {
   agentConversationSchema,
   agentMessageSchema,
@@ -40,6 +39,8 @@ export type AppendRunEventInput = {
 };
 
 export type AgentHostStore = {
+  close(): void;
+  snapshot(): AgentHostStoreSnapshot;
   listConversations(workspaceId: string): AgentConversation[];
   getConversation(conversationId: string): AgentConversation | undefined;
   createConversation(input: CreateConversationInput): AgentConversation;
@@ -57,6 +58,13 @@ export type AgentHostStore = {
   appendRunEvent(input: AppendRunEventInput): AgentRunEvent;
 };
 
+export type AgentHostStoreChange =
+  | { kind: "conversation"; value: AgentConversation }
+  | { kind: "message"; value: AgentMessage }
+  | { kind: "run"; value: AgentRun }
+  | { kind: "event"; value: AgentRunEvent }
+  | { kind: "delete_conversation"; conversationId: string; runIds: string[] };
+
 type MutableSnapshot = {
   conversations: AgentConversation[];
   messages: AgentMessage[];
@@ -70,6 +78,7 @@ type MutableSnapshot = {
 
 export class MemoryAgentHostStore implements AgentHostStore {
   protected data: MutableSnapshot;
+  #eventsByRun = new Map<string, AgentRunEvent[]>();
 
   constructor(snapshot?: Partial<AgentHostStoreSnapshot>) {
     this.data = {
@@ -82,7 +91,14 @@ export class MemoryAgentHostStore implements AgentHostStore {
       nextRunId: nextNumericId(snapshot?.runs?.map((item) => item.id) ?? [], "arun_"),
       nextEventId: nextNumericId(snapshot?.events?.map((item) => item.id) ?? [], "aevt_"),
     };
+    for (const event of this.data.events) {
+      const events = this.#eventsByRun.get(event.run_id) ?? [];
+      events.push(event); this.#eventsByRun.set(event.run_id, events);
+    }
+    for (const events of this.#eventsByRun.values()) events.sort((left, right) => left.sequence - right.sequence);
   }
+
+  close(): void { /* No resources are held by the memory store. */ }
 
   listConversations(workspaceId: string): AgentConversation[] {
     return this.data.conversations
@@ -108,8 +124,8 @@ export class MemoryAgentHostStore implements AgentHostStore {
       created_at: input.timestamp,
       updated_at: input.timestamp,
     });
+    this.persist({ kind: "conversation", value: conversation });
     this.data.conversations.push(conversation);
-    this.persist();
     return conversation;
   }
 
@@ -124,8 +140,8 @@ export class MemoryAgentHostStore implements AgentHostStore {
       ...patch,
       ...(patch.name !== undefined ? { name: normalizeConversationName(patch.name) } : {}),
     });
+    this.persist({ kind: "conversation", value: updated });
     this.data.conversations[index] = updated;
-    this.persist();
     return updated;
   }
 
@@ -141,12 +157,14 @@ export class MemoryAgentHostStore implements AgentHostStore {
         .filter((run) => run.conversation_id === conversationId || (run.assistant_message_id && messageIds.has(run.assistant_message_id)))
         .map((run) => run.id)
     );
+    if (!this.data.conversations.some((conversation) => conversation.id === conversationId)) return false;
+    this.persist({ kind: "delete_conversation", conversationId, runIds: [...runIds] });
     this.data.conversations = this.data.conversations.filter((conversation) => conversation.id !== conversationId);
     this.data.messages = this.data.messages.filter((message) => message.conversation_id !== conversationId);
     this.data.runs = this.data.runs.filter((run) => !runIds.has(run.id));
     this.data.events = this.data.events.filter((event) => !runIds.has(event.run_id));
     const deleted = this.data.conversations.length !== before;
-    if (deleted) this.persist();
+    for (const runId of runIds) this.#eventsByRun.delete(runId);
     return deleted;
   }
 
@@ -165,8 +183,8 @@ export class MemoryAgentHostStore implements AgentHostStore {
       ...input.message,
       id: input.message.id || `msg_${this.data.nextMessageId++}`,
     });
+    this.persist({ kind: "message", value: message });
     this.data.messages.push(message);
-    this.persist();
     return message;
   }
 
@@ -177,8 +195,8 @@ export class MemoryAgentHostStore implements AgentHostStore {
       ...this.data.messages[index],
       ...patch,
     });
+    this.persist({ kind: "message", value: updated });
     this.data.messages[index] = updated;
-    this.persist();
     return updated;
   }
 
@@ -191,8 +209,8 @@ export class MemoryAgentHostStore implements AgentHostStore {
       ...input.run,
       id,
     });
+    this.persist({ kind: "run", value: run });
     this.data.runs.push(run);
-    this.persist();
     return run;
   }
 
@@ -213,14 +231,14 @@ export class MemoryAgentHostStore implements AgentHostStore {
       ...this.data.runs[index],
       ...patch,
     });
+    this.persist({ kind: "run", value: updated });
     this.data.runs[index] = updated;
-    this.persist();
     return updated;
   }
 
   listRunEvents(runId: string, afterSequence = -1): AgentRunEvent[] {
-    return this.data.events
-      .filter((event) => event.run_id === runId && event.sequence > afterSequence)
+    return (this.#eventsByRun.get(runId) ?? [])
+      .filter((event) => event.sequence > afterSequence)
       .sort((left, right) => left.sequence - right.sequence);
   }
 
@@ -233,16 +251,19 @@ export class MemoryAgentHostStore implements AgentHostStore {
       payload: input.payload ?? {},
       created_at: input.timestamp,
     });
+    this.persist({ kind: "event", value: event });
     this.data.events.push(event);
-    this.persist();
+    const events = this.#eventsByRun.get(input.runId) ?? [];
+    events.push(event); this.#eventsByRun.set(input.runId, events);
     return event;
   }
 
   protected nextRunEventSequence(runId: string): number {
-    return this.data.events.filter((event) => event.run_id === runId).length;
+    const events = this.#eventsByRun.get(runId);
+    return events?.length ? Math.max(events.at(-1)!.sequence + 1, events.length) : 0;
   }
 
-  protected persist(): void {
+  protected persist(_change: AgentHostStoreChange): void {
     // Memory store intentionally does not persist.
   }
 
@@ -256,57 +277,18 @@ export class MemoryAgentHostStore implements AgentHostStore {
   }
 }
 
-export class JsonFileAgentHostStore extends MemoryAgentHostStore {
-  readonly filePath: string;
-  #nextPersistId = 1;
-
-  constructor(filePath: string) {
-    super(loadSnapshot(filePath));
-    this.filePath = filePath;
-  }
-
-  protected override persist(): void {
-    mkdirSync(dirname(this.filePath), { recursive: true });
-    const temporaryPath = `${this.filePath}.${process.pid}.${this.#nextPersistId++}.tmp`;
-    writeFileSync(temporaryPath, JSON.stringify(this.snapshot(), null, 2), "utf8");
-    try {
-      renameWithWindowsRetry(temporaryPath, this.filePath);
-    } catch (error) {
-      try {
-        unlinkSync(temporaryPath);
-      } catch {
-        // Best effort cleanup after a failed atomic replace.
-      }
-      throw error;
-    }
-  }
-}
-
 export function createMemoryAgentHostStore(snapshot?: Partial<AgentHostStoreSnapshot>): AgentHostStore {
   return new MemoryAgentHostStore(snapshot);
 }
 
-export function createJsonFileAgentHostStore(filePath: string): AgentHostStore {
-  return new JsonFileAgentHostStore(filePath);
-}
-
-function loadSnapshot(filePath: string): AgentHostStoreSnapshot | undefined {
-  if (!existsSync(filePath)) return undefined;
-  const parsed = JSON.parse(readFileSync(filePath, "utf8"));
-  return {
-    conversations: agentConversationSchema.array().parse(parsed.conversations ?? []),
-    messages: agentMessageSchema.array().parse(parsed.messages ?? []),
-    runs: agentRunSchema.array().parse(parsed.runs ?? []),
-    events: agentRunEventSchema.array().parse(parsed.events ?? []),
-  };
-}
-
 function nextNumericId(ids: string[], prefix: string): number {
-  const used = ids
-    .filter((id) => id.startsWith(prefix))
-    .map((id) => Number(id.slice(prefix.length)))
-    .filter(Number.isFinite);
-  return used.length === 0 ? 1 : Math.max(...used) + 1;
+  let maximum = -Infinity;
+  for (const id of ids) {
+    if (!id.startsWith(prefix)) continue;
+    const value = Number(id.slice(prefix.length));
+    if (Number.isFinite(value)) maximum = Math.max(maximum, value);
+  }
+  return maximum === -Infinity ? 1 : maximum + 1;
 }
 
 function timestampValue(value: string): number {
