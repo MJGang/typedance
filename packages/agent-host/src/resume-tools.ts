@@ -59,11 +59,11 @@ export function registerResumeTools(runtime: HarnessRuntime, services: ResumeToo
   };
   runtime.registerTool({
     name: READ_RESUME_TOOL_NAME, origin: "plugin",
-    description: "Read the current turn's live resume text, including unsaved edits. Use offset/length to read content omitted from the initial context. This does not modify the document.",
+    description: "Read CURRENT live resume text, including unsaved edits. The initial context only identifies the document; call this to read its content. Follow next_offset or choose offset/length for more text. This does not modify the document.",
     inputSchema: { type: "object", properties: { offset: { type: "integer", minimum: 0 }, length: { type: "integer", minimum: 1, maximum: 12000 } }, additionalProperties: false },
     handler: async (input, _call, { signal }) => {
       const snapshot = await current(signal).session.refresh();
-      const { offset, length } = z.object({ offset: z.number().int().nonnegative().default(0), length: z.number().int().min(1).max(12000).default(12000) }).strict().parse(input);
+      const { offset, length } = z.object({ offset: z.number().int().nonnegative().default(0), length: z.number().int().min(1).max(12000).default(4000) }).strict().parse(input);
       return { kind: "resume_text", ...snapshotIdentity(snapshot),
         page_count: snapshot.print_snapshot?.page_tops.length, offset, total_characters: snapshot.plain_text.length,
         text: snapshot.plain_text.slice(offset, offset + length),
@@ -98,16 +98,21 @@ export function registerResumeTools(runtime: HarnessRuntime, services: ResumeToo
   });
   runtime.registerTool({
     name: "resume.capabilities", origin: "plugin",
-    description: "Discover the current authoritative editing capabilities, exact parameter schemas, template properties, units and constraints. Query before editing; added, changed and removed features are reflected here. Operations affect only the current document.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
-    handler: async (_input, _call, { signal }) => ({ ...await services.editor.catalog(signal), mutation_mode: current(signal).session.mode }),
+    description: "List current editing capabilities and catalog revision. Supply operation_ids to fetch only the chosen operations' exact parameter schemas; template.style also includes the template schema. Fetch schemas before using an operation; do not guess parameters. Reuse schemas while the catalog revision is unchanged. Operations affect only the current document.",
+    inputSchema: { type: "object", properties: { operation_ids: { type: "array", minItems: 1, maxItems: 100, uniqueItems: true, items: { type: "string", minLength: 1 } } }, additionalProperties: false },
+    handler: async (input, _call, { signal }) => {
+      const { operation_ids } = z.object({ operation_ids: z.array(z.string().min(1)).min(1).max(100).optional() }).strict().parse(input);
+      return { ...await services.editor.catalog(signal, operation_ids), mutation_mode: current(signal).session.mode };
+    },
   });
   runtime.registerTool({
     name: "resume.inspect", origin: "plugin",
-    description: "Read the CURRENT live editor structure, node paths, text, formatting, columns, page margins and template style, including unsaved edits. Refreshes the snapshot. Follow next_offset to paginate; increase text_limit for truncated blocks. Locate semantic targets without requiring selection. Inspect again after structural edits before reusing paths.",
-    inputSchema: { type: "object", properties: { offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 200 }, text_limit: { type: "integer", minimum: 1, maximum: 12000 } }, additionalProperties: false },
+    description: "Read CURRENT live editor state, including unsaved edits. Default outline returns node paths and short text. Use view=detail with paths for exact text/marks/template style, or view=layout for structure/styles without text. Follow next_offset; increase text_limit for truncated text. Inspect again after structural edits before reusing paths. Marks offsets count UTF-16 code units.",
+    inputSchema: { type: "object", properties: { offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 200 }, text_limit: { type: "integer", minimum: 1, maximum: 12000 },
+      view: { type: "string", enum: ["outline", "detail", "layout"] }, paths: { type: "array", minItems: 1, maxItems: 100, items: { type: "array", maxItems: 32, items: { type: "integer", minimum: 0 } } } }, additionalProperties: false },
     handler: async (input, _call, { signal }) => {
-      const options = z.object({ offset: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(200).optional(), text_limit: z.number().int().min(1).max(12000).optional() }).strict().parse(input);
+      const options = z.object({ offset: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(200).optional(), text_limit: z.number().int().min(1).max(12000).optional(),
+        view: z.enum(["outline", "detail", "layout"]).optional(), paths: z.array(z.array(z.number().int().nonnegative()).max(32)).min(1).max(100).optional() }).strict().parse(input);
       const turn = current(signal);
       const snapshot = await turn.session.refresh();
       turn.pageCache.clear();
@@ -139,8 +144,7 @@ export function registerResumeTools(runtime: HarnessRuntime, services: ResumeToo
       return { status: response.status, summary: transaction.summary, effects: transaction.effects,
         ...(response.status === "applied" ? { persisted: response.persisted === true } : {}),
         ...(response.error ? { observation_error: response.error } : {}),
-        ...snapshotIdentity(turn.session.snapshot), page_count: turn.session.snapshot.print_snapshot?.page_tops.length,
-        ...(response.status === "applied" || response.status === "unchanged" ? { current: await services.editor.inspect(turn.session.snapshot, signal) } : {}) };
+        ...snapshotIdentity(turn.session.snapshot), page_count: turn.session.snapshot.print_snapshot?.page_tops.length };
     },
   });
   return {
@@ -150,9 +154,9 @@ export function registerResumeTools(runtime: HarnessRuntime, services: ResumeToo
       const turn = current(signal);
       const audit = await turn.session.auditCompletion();
       if (!audit) return { complete: true };
-      const currentState = await services.editor.inspect(audit.snapshot, signal);
       return { complete: false, message: `Final editor evidence (actual decisions and a fresh authoritative snapshot):\n${JSON.stringify({ decisions: audit.decisions,
-        ...snapshotIdentity(audit.snapshot), page_count: audit.snapshot.print_snapshot?.page_tops.length, current: currentState })}\nReport only what this evidence establishes. Denied/failed actions were not completed; persisted:false is not a confirmed save. Do not repeat denied actions. Describe outcomes to the user in plain language, keeping internal metadata in tool arguments. If the user's requirement is satisfied, give the final answer; otherwise continue inspecting or editing within the current grant.` };
+        ...snapshotIdentity(audit.snapshot), page_count: audit.snapshot.print_snapshot?.page_tops.length,
+        text_characters: audit.snapshot.plain_text.length, text_sha256: createHash("sha256").update(audit.snapshot.plain_text).digest("hex") })}\nThis receipt verifies decisions and the latest observed revision, not the user's requested text or visual layout. Use resume.read or targeted resume.inspect for required content verification and resume.view_pages for required visual verification, unless already verified at this exact document/session/revision. Denied/failed actions were not completed; persisted:false is not a confirmed save. Do not repeat denied actions. Describe outcomes to the user in plain language, keeping internal metadata in tool arguments. If the user's requirement is satisfied, give the final answer; otherwise continue inspecting or editing within the current grant.` };
     },
   };
 }

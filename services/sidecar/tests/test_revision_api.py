@@ -32,6 +32,28 @@ def repo_for(tmp_path) -> RevisionRepository:
     return RevisionRepository(connect(tmp_path / "typedance.sqlite"))
 
 
+def test_editor_capability_projection_and_targeted_inspection_round_trip(revision_client):
+    client, _ = revision_client
+    outline = client.get("/editor/capabilities").json()
+    selected = client.get("/editor/capabilities", params=[("operation_ids", "text.replace"), ("operation_ids", "page.margins")]).json()
+    assert selected["revision"] == outline["revision"]
+    assert all("parameters" not in operation for operation in outline["operations"])
+    assert {operation["id"] for operation in selected["operations"]} == {"text.replace", "page.margins"}
+    assert all(operation["parameters"]["additionalProperties"] is False for operation in selected["operations"])
+    assert client.get("/editor/capabilities", params={"operation_ids": "removed.operation"}).status_code == 400
+    source = {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "原文"}]}, {"type": "paragraph", "content": [{"type": "text", "text": "另一个段落"}]}]}
+    response = client.post("/editor/inspect", json={"doc_json": source, "options": {"view": "detail", "paths": [[1]], "text_limit": 12000}})
+    assert response.status_code == 200
+    assert response.json()["nodes"][0]["text"] == "另一个段落"
+    assert response.json()["total_nodes"] == 1
+    assert client.post("/editor/inspect", json={"doc_json": source, "options": {"paths": [[99]]}}).status_code == 400
+    prepared = client.post("/editor/prepare", json={"doc_json": source, "catalog_revision": selected["revision"],
+        "operations": [{"capability": "text.replace", "parameters": {"path": [1], "text": "另一个段落", "replacement": "最新段落"}}]})
+    assert prepared.status_code == 200
+    inspected = client.post("/editor/inspect", json={"doc_json": prepared.json()["doc_json"], "options": {"view": "detail", "paths": [[1]]}}).json()
+    assert inspected["nodes"][0]["text"] == "最新段落"
+
+
 def test_editor_prepare_is_stateless_and_layout_styles_survive_save_reload_and_copy(revision_client):
     client, _ = revision_client
     document_id = client.post("/documents", json={"title": "排版验证", "initial_mode": "blank"}).json()["id"]

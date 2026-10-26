@@ -12,10 +12,10 @@ export const editorCapabilityCatalogSchema = z.object({
   revision: z.string().min(1),
   scope: z.literal("current_document"),
   units: z.record(z.string()),
-  template_schema: z.record(z.unknown()),
+  template_schema: z.record(z.unknown()).optional(),
   operations: z.array(z.object({
     id: z.string(), title: z.string(), description: z.string(),
-    effect: z.enum(["content", "format", "layout"]), parameters: z.record(z.unknown()),
+    effect: z.enum(["content", "format", "layout"]), parameters: z.record(z.unknown()).optional(),
   })),
 });
 

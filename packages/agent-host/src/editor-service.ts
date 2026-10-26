@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { editorCapabilityCatalogSchema, editorTransactionSchema, type EditorCapabilityCatalog, type EditorOperation, type EditorSnapshot, type EditorTransaction } from "@typedance/contracts";
 
 export interface EditorService {
-  catalog(signal: AbortSignal): Promise<EditorCapabilityCatalog>;
-  inspect(snapshot: EditorSnapshot, signal: AbortSignal, options?: { offset?: number; limit?: number; text_limit?: number }): Promise<Record<string, unknown>>;
+  catalog(signal: AbortSignal, operationIds?: string[]): Promise<EditorCapabilityCatalog>;
+  inspect(snapshot: EditorSnapshot, signal: AbortSignal, options?: { offset?: number; limit?: number; text_limit?: number; view?: "outline" | "detail" | "layout"; paths?: number[][] }): Promise<Record<string, unknown>>;
   prepare(input: { snapshot: EditorSnapshot; operations: EditorOperation[]; catalogRevision: string; summary: string; signal: AbortSignal }): Promise<EditorTransaction>;
 }
 
@@ -18,7 +18,11 @@ export function createSidecarEditorService(baseUrl: string, fetchImpl: typeof fe
     return data;
   }
   return {
-    async catalog(signal) { return editorCapabilityCatalogSchema.parse(await request("/editor/capabilities", signal)); },
+    async catalog(signal, operationIds) {
+      const query = new URLSearchParams();
+      for (const id of operationIds ?? []) query.append("operation_ids", id);
+      return editorCapabilityCatalogSchema.parse(await request(`/editor/capabilities${query.size ? `?${query}` : ""}`, signal));
+    },
     async inspect(snapshot, signal, options) { return request("/editor/inspect", signal, { doc_json: snapshot.doc_json, template_style: snapshot.template_style, options }); },
     async prepare({ snapshot, operations, catalogRevision, summary, signal }) {
       const result = await request("/editor/prepare", signal,

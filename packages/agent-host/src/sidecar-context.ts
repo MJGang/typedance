@@ -61,17 +61,15 @@ export function createSidecarContextProvider(options: SidecarContextProviderOpti
         return [{
           id: "workspace.current", kind: "workspace", sourceId: input.workspaceId,
           content: [
-            "Current active resume canvas from the live editor (includes unsaved edits):",
+            "Current active resume canvas reference observed when this user message was sent:",
             `  document_id: ${snapshot.document_id}`,
             `  editor_session_id: ${snapshot.editor_session_id}`,
             `  canvas_version: ${snapshot.canvas_version}`,
             `  content_revision: ${snapshot.content_revision}`,
             `  page_count: ${snapshot.print_snapshot?.page_tops.length ?? "unavailable"}`,
-            "  tools: resume.capabilities discovers current editing features; resume.inspect refreshes the live structure; resume.edit executes authorized transactions; resume.read reads omitted text; resume.view_pages returns actual images of the latest acknowledged snapshot. Applied edits return a fresh revision. Never claim to have seen pages without returned images.",
-            "  priority: This editor snapshot is the current source of truth. Quoted references in user messages identify exact selections.",
-            "  content:",
-            indent(snapshot.plain_text.slice(0, maxCharactersPerSource)),
-            ...(snapshot.plain_text.length > maxCharactersPerSource ? ["[truncated by Agent Host]"] : []),
+            `  text_characters_at_send: ${snapshot.plain_text.length}`,
+            "  tools: resume.read reads current text; resume.inspect reads current structure; resume.capabilities lists operations and fetches selected exact schemas; resume.edit executes authorized transactions; resume.view_pages returns current page images.",
+            "  freshness: This reference is not document content or proof of the latest state. Tool edits and manual changes may advance the revision. Read the live editor before relying on text, paths or formatting, including after compaction or recovery. Quoted user references identify selections. Never claim to have read text or seen pages without returned evidence.",
           ].join("\n"),
         }];
       }

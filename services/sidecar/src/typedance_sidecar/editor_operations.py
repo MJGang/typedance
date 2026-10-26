@@ -200,27 +200,47 @@ def node_text(node: dict) -> str:
 
 class InspectOptions(Parameters):
     offset: int = Field(default=0, ge=0)
-    limit: int = Field(default=60, ge=1, le=200)
-    text_limit: int = Field(default=1200, ge=1, le=12000)
+    limit: int = Field(default=30, ge=1, le=200)
+    text_limit: int = Field(default=160, ge=1, le=12000)
+    view: Literal["outline", "detail", "layout"] = "outline"
+    paths: list[list[int]] | None = Field(default=None, min_length=1, max_length=100)
 
 
 def inspect_document(doc: dict, options: InspectOptions | None = None, template_style: dict | None = None) -> dict:
     validate_document(doc)
     options = options or InspectOptions()
+    requested_paths = {tuple(path) for path in options.paths} if options.paths is not None else None
+    if options.paths is not None:
+        if len(requested_paths) != len(options.paths) or any(len(path) > 32 or any(index < 0 for index in path) for path in options.paths):
+            raise ValueError("读取位置必须唯一且为最多 32 层的非负索引")
+        for path in options.paths:
+            node_at(doc, path)
     nodes = []
 
     def visit(node, path):
-        if node.get("type") not in {"text", "hardBreak"}:
+        if node.get("type") not in {"text", "hardBreak"} and (requested_paths is None or tuple(path) in requested_paths):
             text = node_text(node) if node.get("type") in {"paragraph", "heading", "codeBlock"} else ""
-            nodes.append({"path": path, "type": node.get("type"),
+            item = {"path": path, "type": node.get("type"),
                           "attributes": {key: value for key, value in node.get("attrs", {}).items() if key not in {"templateStyle", "pageMargins"}},
-                          "text": text[:options.text_limit], "text_length": len(text), "child_count": len(node.get("content", [])),
-                          "marks": [child for child in node.get("content", []) if child.get("marks")] if len(text) <= options.text_limit else []})
+                          "text_length": len(text), "child_count": len(node.get("content", []))}
+            if options.view != "layout":
+                item["text"] = text[:options.text_limit]
+                item["text_truncated"] = len(text) > options.text_limit
+            if options.view == "detail":
+                offset, marks = 0, []
+                visible_end = utf16_length(text[:options.text_limit])
+                for child in node.get("content", []):
+                    end = offset + utf16_length(node_text(child))
+                    if child.get("marks") and offset < visible_end:
+                        marks.append({"from": offset, "to": min(end, visible_end), "marks": child["marks"]})
+                    offset = end
+                item["marks"] = marks
+            nodes.append(item)
         for index, child in enumerate(node.get("content", [])):
             visit(child, [*path, index])
 
     visit(doc, [])
-    selected, budget = [], 30000
+    selected, budget = [], 16000 if options.view == "detail" else 8000
     for node in nodes[options.offset:options.offset + options.limit]:
         size = len(json.dumps(node, ensure_ascii=False))
         if selected and size > budget:
@@ -228,9 +248,9 @@ def inspect_document(doc: dict, options: InspectOptions | None = None, template_
         selected.append(node)
         budget -= size
     end = options.offset + len(selected)
-    return {"nodes": selected, "total_nodes": len(nodes), "next_offset": end if end < len(nodes) else None,
+    return {"view": options.view, "nodes": selected, "total_nodes": len(nodes), "next_offset": end if end < len(nodes) else None,
             "page_margins": doc.get("attrs", {}).get("pageMargins") or DEFAULT_MARGINS,
-            "template_style": template_style or doc.get("attrs", {}).get("templateStyle")}
+            **({"template_style": template_style or doc.get("attrs", {}).get("templateStyle")} if options.view != "outline" else {})}
 
 
 def utf16_length(text):
@@ -676,12 +696,20 @@ CAPABILITIES = {
 }
 
 
-def capability_catalog() -> dict:
+def capability_catalog(operation_ids: list[str] | None = None) -> dict:
     operations = [{"id": key, "title": capability.title, "description": capability.description,
                    "effect": capability.effect, "parameters": capability.parameters.model_json_schema()} for key, capability in CAPABILITIES.items()]
     body = {"operations": operations, "template_schema": TemplateStyleConfig.model_json_schema(by_alias=True),
             "scope": "current_document", "units": {"page_margins": "px", "column_widths": "percent"}}
-    return {"revision": sha256(json.dumps(body, sort_keys=True).encode()).hexdigest(), **body}
+    revision = sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+    selected = set(operation_ids or [])
+    if selected - CAPABILITIES.keys():
+        raise ValueError("编辑能力不存在或已被删除")
+    return {"revision": revision, "scope": body["scope"], "units": body["units"],
+            "operations": [operation if operation["id"] in selected else
+                           {key: value for key, value in operation.items() if key != "parameters"}
+                           for operation in operations if not selected or operation["id"] in selected],
+            **({"template_schema": body["template_schema"]} if "template.style" in selected else {})}
 
 
 def validate_document(doc: dict) -> None:
