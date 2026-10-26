@@ -38,13 +38,12 @@ import type { ModelSettingsService } from "./model-settings";
 import { conversationStatistics } from "./conversation-statistics";
 import type { LocalSpeechService } from "./speech";
 export {
-  JsonFileAgentHostStore,
   MemoryAgentHostStore,
-  createJsonFileAgentHostStore,
   createMemoryAgentHostStore,
   type AgentHostStore,
   type AgentHostStoreSnapshot,
 } from "./store";
+export { SqliteAgentHostStore, createSqliteAgentHostStore, migrateJsonStoreToSqlite } from "./sqlite-store";
 export {
   createFileModelSettings,
   type ModelSettingsService,

@@ -158,6 +158,10 @@ export const harnessRunEventSchema = z.discriminatedUnion("type", [
     tool_tokens: z.number().nonnegative(), conversation_tokens: z.number().nonnegative(),
   }),
   harnessRunEventBaseSchema.extend({
+    type: z.literal("model.call.progress"), call_id: z.string(),
+    ttft_ms: z.number().nonnegative(), output_tokens: z.number().nonnegative(), output_characters: z.number().nonnegative(),
+  }),
+  harnessRunEventBaseSchema.extend({
     type: z.literal("model.call.completed"), call_id: z.string(), model: z.string().optional(),
     duration_ms: z.number().nonnegative(), ttft_ms: z.number().nonnegative().optional(),
     status: z.enum(["completed", "failed", "canceled"]),

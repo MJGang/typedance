@@ -45,8 +45,8 @@ export async function updateModelSelection(input: Pick<ModelSelection, "model" |
   notifyModelSettingsChanged()
   return value
 }
-export async function getConversationStatistics(conversationId: string): Promise<ConversationStatistics> {
-  return parseAgentHostResponse(await agentHostFetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}/statistics`), (value) => conversationStatisticsSchema.parse(value), "会话统计加载失败")
+export async function getConversationStatistics(conversationId: string, signal?: AbortSignal): Promise<ConversationStatistics> {
+  return parseAgentHostResponse(await agentHostFetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}/statistics`, { signal, cache: "no-store" }), (value) => conversationStatisticsSchema.parse(value), "会话统计加载失败")
 }
 
 export async function getSpeechStatus(): Promise<SpeechStatus> {

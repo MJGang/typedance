@@ -34,7 +34,7 @@ describe("conversation statistics", () => {
       usage: { input_tokens: 300, output_tokens: 300, total_tokens: 600, cache_read_tokens: 240, cache_miss_tokens: 60,
         cache_hit_percent: 80, measured_calls: 2, unmeasured_calls: 0 },
       context: { input_tokens: 100, output_tokens: 200, limit_tokens: 1_000_000, system_tokens: 20, tool_tokens: 30, conversation_tokens: 250, estimated: false } });
-    expect(conversationStatistics(store, conversation.id)).toEqual(result);
+    expect(conversationStatistics(store, conversation.id, Date.parse(result.sampled_at))).toEqual(result);
   });
 
   it("keeps missing usage unknown, closes interrupted timings, and isolates other conversations", () => {
@@ -53,5 +53,41 @@ describe("conversation statistics", () => {
     start("compact", 2, "compaction");
     emit("model.call.completed", { call_id: "compact", duration_ms: 1000, status: "completed", usage: { inputTokens: 900, outputTokens: 90 } }, 3);
     expect(conversationStatistics(store, conversation.id)).toMatchObject({ steps: 2, usage: { total_tokens: 1100, cache_hit_percent: null }, context: { input_tokens: 100, output_tokens: 10 } });
+  });
+
+  it("updates elapsed time, receipts and TTFT during a call and uses reported tokens for TPS", () => {
+    const { store, conversation, run, start, emit } = fixture();
+    store.updateRun(run.id, { status: "running", completed_at: undefined });
+    start("a");
+    const sample = (seconds: number) => conversationStatistics(store, conversation.id, Date.UTC(2026, 9, 24, 0, 0, seconds));
+    expect(sample(2)).toMatchObject({ model_ms: 2000, tokens_per_second: null, activity: { runs: 1, model_calls: 1 }, usage: { total_tokens: 0 } });
+    emit("model.call.progress", { call_id: "a", ttft_ms: 1000, output_tokens: 40, output_characters: 20 }, 3);
+    expect(sample(3)).toMatchObject({ model_ms: 3000, ttft_ms: 1000, tokens_per_second: null,
+      activity: { output_characters: 20 }, usage: { total_tokens: 0, output_tokens: 0 }, context: { output_tokens: 40, estimated: true } });
+    expect(sample(5)).toMatchObject({ model_ms: 5000, tokens_per_second: null });
+    emit("model.call.progress", { call_id: "a", ttft_ms: 1000, output_tokens: 80, output_characters: 40 }, 5);
+    expect(sample(5)).toMatchObject({ tokens_per_second: null, activity: { output_characters: 40 }, usage: { total_tokens: 0 }, context: { output_tokens: 80 } });
+    emit("model.call.completed", { call_id: "a", duration_ms: 6000, ttft_ms: 1000, status: "completed",
+      usage: { inputTokens: 120, outputTokens: 100, cacheReadInputTokens: 60 } }, 6);
+    expect(sample(7)).toMatchObject({ model_ms: 6000, tokens_per_second: 20,
+      activity: { model_calls: 0 }, usage: { total_tokens: 220, output_tokens: 100, cache_hit_percent: 50 }, context: { estimated: false } });
+    start("next", 8);
+    expect(sample(9)).toMatchObject({ steps: 2, model_ms: 7000, tokens_per_second: 20, context: { output_tokens: 0, estimated: true } });
+  });
+
+  it("updates active tools, freezes failed runs and preserves received estimates across reloads", () => {
+    const { store, conversation, run, start, emit } = fixture();
+    store.updateRun(run.id, { status: "running", completed_at: undefined });
+    start("a");
+    emit("model.call.progress", { call_id: "a", ttft_ms: 1000, output_tokens: 20, output_characters: 10 }, 2);
+    emit("model.call.completed", { call_id: "a", duration_ms: 3000, ttft_ms: 1000, status: "failed" }, 3);
+    store.appendRunEvent({ runId: run.id, type: "tool_call_started", timestamp: "2026-10-24T00:00:03Z", payload: { tool_call: { id: "t" } } });
+    expect(conversationStatistics(store, conversation.id, Date.UTC(2026, 9, 24, 0, 0, 7))).toMatchObject({ tool_ms: 4000, activity: { tool_calls: 1 } });
+    store.updateRun(run.id, { status: "failed", completed_at: "2026-10-24T00:00:10Z" });
+    const result = conversationStatistics(store, conversation.id, Date.UTC(2026, 9, 24, 0, 1));
+    expect(result).toMatchObject({ model_ms: 3000, tool_ms: 7000, activity: { runs: 0, model_calls: 0, tool_calls: 0 },
+      usage: { total_tokens: 0, unmeasured_calls: 1 } });
+    const restored = createMemoryAgentHostStore(store.snapshot());
+    expect(conversationStatistics(restored, conversation.id, Date.parse(result.sampled_at))).toEqual(result);
   });
 });

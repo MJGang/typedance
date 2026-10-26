@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHarnessRuntime, type HarnessModelRequest } from "@typedance/harness-core";
 import type { EditorReference, EditorSnapshot } from "@typedance/contracts";
-import { createAgentHost, createJsonFileAgentHostStore } from "../src";
+import { createAgentHost, createSqliteAgentHostStore } from "../src";
 import { createResumePluginLoader, registerResumeWorkbenchPlugin } from "../src/resume-plugin";
 import { createSidecarContextProvider } from "../src/sidecar-context";
 import { createSidecarEditorService } from "../src/editor-service";
@@ -32,11 +32,13 @@ describe("editor references", () => {
     } });
     await registerResumeWorkbenchPlugin(runtime, loader);
     const directory = mkdtempSync(join(tmpdir(), "typedance-reference-test-"));
+    let store: ReturnType<typeof createSqliteAgentHostStore> | undefined;
     try {
-      const file = join(directory, "store.json");
+      const file = join(directory, "store.sqlite");
       const contextFetch = vi.fn<typeof fetch>();
+      store = createSqliteAgentHostStore(file);
       const host = createAgentHost({ runtime, packs: [{ id: "resume", capabilityPolicy: { scopeIds: ["pack:resume"] }, primaryAgentId: "resume.primary" }],
-        store: createJsonFileAgentHostStore(file), contextProvider: createSidecarContextProvider({ fetch: contextFetch }) });
+        store, contextProvider: createSidecarContextProvider({ fetch: contextFetch }) });
       const conversation = host.createConversation("doc_1");
       const run = host.startConversationRun("doc_1", conversation.id, { message: { content: "请处理引用", references: [reference] }, context: { editor_snapshot: snapshot } });
       await host.waitForRun(run.id);
@@ -44,9 +46,10 @@ describe("editor references", () => {
       expect(contextFetch).not.toHaveBeenCalled();
       expect(JSON.stringify(requests[0]?.prompt.conversation)).toContain(snapshot.plain_text);
       expect(requests[0]?.prompt.conversation[0]?.content).toContain(reference.comment);
-      const restored = createJsonFileAgentHostStore(file);
-      expect(restored.listMessages(conversation.id)[0]?.references).toEqual([reference]);
-    } finally { rmSync(directory, { recursive: true, force: true }); }
+      const restored = createSqliteAgentHostStore(file);
+      try { expect(restored.listMessages(conversation.id)[0]?.references).toEqual([reference]); }
+      finally { restored.close(); }
+    } finally { store?.close(); rmSync(directory, { recursive: true, force: true }); }
   });
 
   it("rejects a cross-document or stale-session reference before creating any messages", async () => {

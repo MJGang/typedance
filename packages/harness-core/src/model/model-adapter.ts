@@ -30,6 +30,7 @@ export type HarnessModelTool = {
 
 export type HarnessModelStreamEvent =
   | { type: "first_token" }
+  | { type: "tool_call_delta"; callId: string; delta: string }
   | {
       type: "assistant_delta";
       messageId: string;

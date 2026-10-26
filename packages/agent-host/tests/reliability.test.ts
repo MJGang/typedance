@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHarnessRuntime, type HarnessModelAdapter, type HarnessModelRequest } from "@typedance/harness-core";
 import { createAgentHost, createAgentHostServer, type AgentHostContextProvider, type AgentHostHttpServer } from "../src";
 
@@ -17,6 +17,28 @@ function setup(model: HarnessModelAdapter, contextProvider?: AgentHostContextPro
 }
 
 describe("host execution reliability", () => {
+  it("serves live statistics over HTTP for parallel conversations and calibrates only the completed call", async () => {
+    const gates = [deferred(), deferred()]; let calls = 0;
+    const { host, conversation, start } = setup({ async *stream() {
+      const index = calls++;
+      yield { type: "reasoning_summary_delta", summaryId: "s", delta: index ? "思考另一个问题" : "思考" };
+      await gates[index].promise;
+      yield { type: "final", output: {}, usage: { inputTokens: 100, outputTokens: 10, cacheReadInputTokens: 80 } };
+    } });
+    const server = createAgentHostServer({ host, authToken: token }); servers.push(server); server.listen(); await once(server.nodeServer, "listening");
+    const run = start();
+    const other = host.createConversation("ws");
+    const otherRun = host.startConversationRun("ws", other.id, { message: { content: "other" } });
+    const read = async (id: string) => fetch(`${server.url}/conversations/${id}/statistics`, { headers: { authorization: `Bearer ${token}` } }).then((response) => response.json());
+    try {
+      await vi.waitFor(() => expect(calls).toBe(2));
+      expect(await read(conversation.id)).toMatchObject({ turns: 1, steps: 1, activity: { runs: 1, model_calls: 1, output_characters: 2 }, usage: { output_tokens: 0, measured_calls: 0 }, context: { estimated: true } });
+      expect(await read(other.id)).toMatchObject({ turns: 1, steps: 1, activity: { output_characters: 7 }, usage: { output_tokens: 0, measured_calls: 0 } });
+      gates[0].resolve(); await host.waitForRun(run.id);
+      expect(await read(conversation.id)).toMatchObject({ activity: { runs: 0, model_calls: 0 }, usage: { total_tokens: 110, output_tokens: 10, measured_calls: 1, cache_hit_percent: 80 }, context: { estimated: false } });
+      expect(await read(other.id)).toMatchObject({ activity: { runs: 1, model_calls: 1, output_characters: 7 }, usage: { output_tokens: 0, measured_calls: 0 } });
+    } finally { gates.forEach((gate) => gate.resolve()); await host.waitForRun(otherRun.id); }
+  });
   it("releases a canceled conversation even when its tool ignores the signal", async () => {
     const entered = deferred(); const release = deferred(); let passes = 0;
     const { runtime, host, start } = setup({ async *stream() {

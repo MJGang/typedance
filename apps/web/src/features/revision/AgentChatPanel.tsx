@@ -17,9 +17,9 @@ import { AgentInteraction, runtimeEvent } from "./AgentInteraction"
 import { attachmentAccept, readChatAttachment } from "./readChatAttachment"
 import { useVoiceInput } from "./useVoiceInput"
 import { ChatModelMenu } from "./ChatModelMenu"
-import { ChatStatusBar } from "./ChatStatusBar"
+import { LiveChatStatusBar } from "./LiveChatStatusBar"
 import { HoverScrollText } from "@/components/HoverScrollText"
-import { statisticsRevision, useChatStatistics } from "./useChatStatistics"
+import { statisticsRevision } from "./useChatStatistics"
 import { harnessAttachmentsSchema, type HarnessAttachment } from "@typedance/contracts"
 import {
   cancelAgentRun,
@@ -110,7 +110,7 @@ function getRunStatusLabel(terminal: AgentRunEvent, message: AgentMessage): stri
 }
 
 function getInProgressRunStatusLabel(events: AgentRunEvent[]): string | null {
-  const latest = [...events].reverse().find((event) => event.type !== "user_input_received" && event.type !== "user_input_applied")
+  const latest = [...events].reverse().find((event) => event.type !== "user_input_received" && event.type !== "user_input_applied" && runtimeEvent(event)?.type !== "model.call.progress")
   if (latest?.type === "thinking_delta") return RUN_TRACE_COPY.thinkingStatus
   if (latest?.type === "assistant_delta") return "正在回复"
   if (latest?.type === "tool_call_started" || latest?.type === "tool_call_delta" || latest?.type === "editor_request") return "正在执行"
@@ -217,7 +217,6 @@ function AgentChatContent({
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mutationMode, setMutationMode] = useState<CanvasMutationMode>("review")
   const statisticsKey = useMemo(() => historyIsCurrent ? statisticsRevision(runEvents) : "", [historyIsCurrent, runEvents])
-  const chatStatistics = useChatStatistics(scope, activeConversationId, statisticsKey)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const composerRef = useRef<HTMLDivElement>(null)
   useEffect(() => registerComposer?.(() => composerRef.current?.focus()), [registerComposer])
@@ -760,7 +759,7 @@ function AgentChatContent({
             </div>
           </div>
         </div>
-        <ChatStatusBar statistics={chatStatistics.statistics} failed={chatStatistics.failed} />
+        <LiveChatStatusBar scope={scope} conversationId={activeConversationId} revision={statisticsKey} running={historyIsCurrent && !!runningRunId} />
       </div>
     </aside>
   )
@@ -989,6 +988,7 @@ function buildRunTraceItems(events: AgentRunEvent[], options: { includeRawThinki
 
   for (const event of events) {
     const runtime = runtimeEvent(event)
+    if (runtime?.type === "model.call.progress") continue
     if (runtime && ["plan.updated", "permission.requested", "user.questions.requested", "context.compacted", "run.resumed", "completion.blocked", "model.retrying"].includes(runtime.type)) {
       items.push({ id: event.id, kind: "runtime" })
       continue

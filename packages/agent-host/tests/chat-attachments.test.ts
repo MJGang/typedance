@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { createHarnessRuntime, type HarnessModelRequest } from "@typedance/harness-core";
-import { createAgentHost, createJsonFileAgentHostStore } from "../src";
+import { createAgentHost, createSqliteAgentHostStore } from "../src";
 import { createResumePluginLoader, registerResumeWorkbenchPlugin } from "../src/resume-plugin";
 import type { HarnessAttachment } from "@typedance/contracts";
 
@@ -18,16 +18,20 @@ describe("chat attachments", () => {
       requests.push(request); yield { type: "assistant_delta", messageId: "answer", delta: "已读取" }; yield { type: "final", output: {} };
     } } });
     await registerResumeWorkbenchPlugin(runtime, loader);
+    let store: ReturnType<typeof createSqliteAgentHostStore> | undefined;
     try {
-      const file = join(directory, "store.json");
-      const host = createAgentHost({ runtime, store: createJsonFileAgentHostStore(file), packs: [{ id: "resume", capabilityPolicy: { scopeIds: ["pack:resume"] }, primaryAgentId: "resume.primary" }] });
+      const file = join(directory, "store.sqlite");
+      store = createSqliteAgentHostStore(file);
+      const host = createAgentHost({ runtime, store, packs: [{ id: "resume", capabilityPolicy: { scopeIds: ["pack:resume"] }, primaryAgentId: "resume.primary" }] });
       const conversation = host.createConversation("doc_1");
       await host.waitForRun(host.startConversationRun("doc_1", conversation.id, { message: { content: "阅读附件", attachments: [attachment] } }).id);
       expect(requests[0].prompt.conversation[0].content).toEqual([{ type: "text", text: "阅读附件" }, { type: "text", text: "附件：提示词.md\n项目使用 PostgreSQL" }]);
-      expect(createJsonFileAgentHostStore(file).listMessages(conversation.id)[0].attachments).toEqual([attachment]);
+      const restored = createSqliteAgentHostStore(file);
+      try { expect(restored.listMessages(conversation.id)[0].attachments).toEqual([attachment]); }
+      finally { restored.close(); }
       await host.waitForRun(host.startConversationRun("doc_1", conversation.id, { message: { content: "附件中提到了什么数据库？" } }).id);
       expect(JSON.stringify(requests[1].prompt.conversation)).toContain("PostgreSQL");
-    } finally { rmSync(directory, { recursive: true, force: true }); }
+    } finally { store?.close(); rmSync(directory, { recursive: true, force: true }); }
   });
   it("rejects malformed images and attachment overflow before recording messages", () => {
     const host = createAgentHost({ runtime: createHarnessRuntime(), packs: [{ id: "resume", capabilityPolicy: {}, primaryAgentId: "resume.primary" }] });
