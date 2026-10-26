@@ -1,9 +1,10 @@
-import type { HarnessCheckpoint, HarnessModelMessage } from "@typedance/harness-contracts";
+import type { HarnessCheckpoint, HarnessInputMeasurement, HarnessModelMessage } from "@typedance/harness-contracts";
 
 /** Restore model evidence, never replay an interrupted invocation. */
 export function restoreCheckpointHistory(checkpoint: HarnessCheckpoint): {
   messages: HarnessModelMessage[];
   inputIds: string[];
+  inputMeasurement?: HarnessInputMeasurement;
 } {
   const messages = structuredClone(checkpoint.prompt.conversation);
   const results = new Set(messages.filter((message) => message.role === "tool").map((message) => message.toolCallId));
@@ -14,5 +15,6 @@ export function restoreCheckpointHistory(checkpoint: HarnessCheckpoint): {
       : "This tool was not started before interruption. Reconsider it using current instructions and state." });
   }
   for (const pending of checkpoint.pending_inputs) messages.push(...pending.messages);
-  return { messages, inputIds: [...new Set([...checkpoint.input_ids, ...checkpoint.pending_inputs.map((pending) => pending.id)])] };
+  return { messages, inputIds: [...new Set([...checkpoint.input_ids, ...checkpoint.pending_inputs.map((pending) => pending.id)])],
+    ...(checkpoint.input_measurement ? { inputMeasurement: structuredClone(checkpoint.input_measurement) } : {}) };
 }

@@ -8,13 +8,13 @@ import type {
   HarnessToolCall,
   HarnessToolResult,
 } from "@typedance/harness-contracts";
-import { harnessCheckpointSchema, harnessPlanItemSchema, type HarnessCheckpoint, type HarnessPendingInput } from "@typedance/harness-contracts";
+import { harnessCheckpointSchema, harnessPlanItemSchema, type HarnessCheckpoint, type HarnessInputMeasurement, type HarnessPendingInput } from "@typedance/harness-contracts";
 import { MemoryHarnessCheckpointStore, HarnessExecutionError, type HarnessCheckpointStore, type HarnessCompletionCheck, type HarnessExecutionLimits } from "./run/checkpoint-store";
 import { restoreCheckpointHistory } from "./run/history";
 import { projectContextSnapshots } from "./model/context-projection";
 import { HarnessModelError, waitForModelRetry } from "./model/model-error";
 import { harnessUserQuestionsSchema, harnessUserAnswersSchema, type HarnessUserQuestion } from "@typedance/harness-contracts";
-import { DEFAULT_CONTEXT_WINDOW, TASK_INSTRUCTIONS, COMPACTION_PROMPT, estimatePromptTokens, estimateTextTokens, retainUserMessages, boundToolContent, type HarnessContextWindowOptions } from "./model/context-window";
+import { TASK_INSTRUCTIONS, COMPACTION_PROMPT, estimatePromptTokens, estimateTextTokens, retainUserMessages, boundToolContent, resolveContextWindow, contextBudget, predictInputTokens, measureInputTokens, type HarnessContextWindowOptions, type HarnessResolvedContextWindow } from "./model/context-window";
 import { HarnessEventLog } from "./event/event-log";
 import { HarnessMemoryStore, type HarnessMemoryRecord, type HarnessMemoryScope } from "./memory/memory-store";
 import { HarnessMcpManager, type HarnessMcpServerRegistration } from "./mcp/mcp-manager";
@@ -83,7 +83,7 @@ export class HarnessRuntime {
   #states = new Map<string, HarnessCheckpoint>();
   #objectives = new Map<string, string>();
   #checkpoints: HarnessCheckpointStore;
-  #contextWindow: typeof DEFAULT_CONTEXT_WINDOW;
+  #contextWindow: HarnessResolvedContextWindow;
   #limits: HarnessExecutionLimits;
   #completionCheck?: HarnessCompletionCheck;
   #modelRetry: { maxRetries: number; initialDelayMs: number };
@@ -96,16 +96,15 @@ export class HarnessRuntime {
     this.#model = options.model;
     this.#observer = options.observer;
     this.#checkpoints = options.checkpointStore ?? new MemoryHarnessCheckpointStore();
-    this.#contextWindow = { ...DEFAULT_CONTEXT_WINDOW, ...options.contextWindow };
+    this.#contextWindow = resolveContextWindow(options.contextWindow);
     this.#limits = options.limits ?? {};
     this.#completionCheck = options.completionCheck;
     this.#modelRetry = { maxRetries: options.modelRetry?.maxRetries ?? 3, initialDelayMs: options.modelRetry?.initialDelayMs ?? 500 };
     if (!Number.isInteger(this.#modelRetry.maxRetries) || this.#modelRetry.maxRetries < 0 || this.#modelRetry.maxRetries > 10
       || !Number.isFinite(this.#modelRetry.initialDelayMs) || this.#modelRetry.initialDelayMs <= 0) throw new Error("Invalid model retry budget");
-    for (const [name, value] of Object.entries({ ...this.#contextWindow, ...this.#limits })) {
+    for (const [name, value] of Object.entries(this.#limits)) {
       if (!Number.isFinite(value) || value <= 0 || (name !== "compactAtRatio" && !Number.isInteger(value))) throw new Error(`Invalid execution budget: ${name}`);
     }
-    if (this.#contextWindow.compactAtRatio >= 1) throw new Error("compactAtRatio must be less than 1");
     this.events = new HarnessEventLog();
     this.memory = new HarnessMemoryStore(this.#now);
     this.permissions = new HarnessPermissionEngine(this.#now);
@@ -473,6 +472,9 @@ export class HarnessRuntime {
     agentId: string;
     model?: string;
     modelOptions?: Record<string, unknown>;
+    modelConfigurationKey?: string;
+    contextWindow?: HarnessContextWindowOptions;
+    inputMeasurement?: HarnessInputMeasurement;
     messages: HarnessModelMessage[];
     prompt?: HarnessPromptBundle;
     inputIds?: string[];
@@ -498,7 +500,7 @@ export class HarnessRuntime {
   }
 
   async #executeAgentTurn(input: {
-    runId: string; agentId: string; model?: string; modelOptions?: Record<string, unknown>; messages: HarnessModelMessage[]; prompt?: HarnessPromptBundle; inputIds?: string[]; historyInputIds?: string[]; resumeFromRunId?: string; completionCheck?: HarnessCompletionCheck;
+    runId: string; agentId: string; model?: string; modelOptions?: Record<string, unknown>; modelConfigurationKey?: string; contextWindow?: HarnessContextWindowOptions; inputMeasurement?: HarnessInputMeasurement; messages: HarnessModelMessage[]; prompt?: HarnessPromptBundle; inputIds?: string[]; historyInputIds?: string[]; resumeFromRunId?: string; completionCheck?: HarnessCompletionCheck;
   }): Promise<Record<string, unknown>> {
     const signal = this.getRunSignal(input.runId);
     if (!this.#model) {
@@ -525,8 +527,11 @@ export class HarnessRuntime {
       throw new Error("Checkpoint must resume into a new run with the same agent and capability policy");
     }
     const state: HarnessCheckpoint = {
-      run: this.getRun(input.runId), agent_id: input.agentId, model: input.model,
+      run: this.getRun(input.runId), agent_id: input.agentId, model: input.model ?? recovered?.model,
       model_options: input.modelOptions ?? recovered?.model_options,
+      model_configuration_key: input.modelConfigurationKey ?? recovered?.model_configuration_key,
+      input_measurement: structuredClone(input.inputMeasurement ?? recovered?.input_measurement),
+      context_window: resolveContextWindow({ ...this.#contextWindow, ...(input.contextWindow ?? recovered?.context_window) }),
       objective: recovered?.objective ?? this.#objectives.get(input.runId)!,
       prompt: basePrompt, plan: recovered?.plan ?? [], step: recovered?.step ?? 0,
       tokens_used: recovered?.tokens_used ?? 0, compactions: recovered?.compactions ?? 0,
@@ -583,12 +588,13 @@ export class HarnessRuntime {
         runId: input.runId,
         capabilityPolicy: skillContext.policy,
         agentId: input.agentId,
-        model: input.model,
+        model: state.model,
         modelOptions: state.model_options,
         prompt,
         availableToolNames,
         availableTools,
         purpose: "response",
+        ...(this.#window(state).reservedOutputTokens > 0 ? { maxOutputTokens: this.#window(state).reservedOutputTokens } : {}),
       });
 
       for await (const event of stream) {
@@ -620,8 +626,9 @@ export class HarnessRuntime {
         measuredUsage = event.usage?.totalTokens ?? (event.usage
           ? (event.usage.inputTokens ?? estimatedInput) + (event.usage.outputTokens ?? estimateTextTokens(assistantContent + assistantReasoning + JSON.stringify(toolCalls)))
           : undefined);
-        state.last_input_tokens = event.usage?.inputTokens;
-        state.last_input_estimate = estimatedInput;
+        state.input_measurement = event.usage?.inputTokens === undefined ? undefined : measureInputTokens({
+          model: state.model, modelOptions: state.model_options, modelConfigurationKey: state.model_configuration_key, prompt, tools: availableTools,
+        }, event.usage.inputTokens);
       }
       state.tokens_used += measuredUsage ?? estimatedInput + estimateTextTokens(assistantContent + assistantReasoning + JSON.stringify(toolCalls));
       state.phase = "ready";
@@ -677,7 +684,7 @@ export class HarnessRuntime {
             role: "tool",
             toolCallId: call.id,
             toolName: call.name,
-            content: boundToolContent(serializeToolResultForModel(result), this.#contextWindow.toolOutputTokens),
+            content: boundToolContent(serializeToolResultForModel(result), this.#window(state).toolOutputTokens),
           });
           state.in_flight_tool_call_id = undefined;
           state.pending_tool_calls = state.pending_tool_calls.filter((pending) => pending.id !== call.id);
@@ -740,20 +747,21 @@ export class HarnessRuntime {
 
   async #compactIfNeeded(state: HarnessCheckpoint, tools: HarnessModelTool[], policy: HarnessResolvedCapabilityPolicy, signal: AbortSignal): Promise<void> {
     const prompt = this.#buildTaskPrompt(state);
-    const estimated = estimatePromptTokens(prompt, tools);
-    const before = Math.max(estimated, (state.last_input_tokens ?? 0) + estimated - (state.last_input_estimate ?? estimated));
-    if (before < this.#contextWindow.maxInputTokens * this.#contextWindow.compactAtRatio) return;
+    const window = this.#window(state);
+    const prediction = this.#predictInput(state, prompt, tools);
+    const before = prediction.tokens;
+    if (before < contextBudget(window).softTokens) return;
     this.#checkBudget(state);
     const compactPrompt = { ...prompt, conversation: [...prompt.conversation, { role: "user" as const, content: COMPACTION_PROMPT }] };
-    if (estimatePromptTokens(compactPrompt, tools) > this.#contextWindow.maxInputTokens) {
+    if (this.#predictInput(state, compactPrompt, tools).tokens > contextBudget(window, window.summaryTokens).hardTokens) {
       throw new HarnessExecutionError("context_budget_exceeded", "Context exceeds the configured input budget; the original history was preserved.");
     }
-    const retained = retainUserMessages(state.prompt.conversation, this.#contextWindow.retainedUserTokens);
+    const retained = retainUserMessages(state.prompt.conversation, window.retainedUserTokens);
     let summary = ""; let complete = false; let usage: number | undefined;
     state.step += 1;
     this.#saveCheckpoint(state);
     for await (const event of this.#streamModel({ signal, runId: state.run.id, agentId: state.agent_id, model: state.model, modelOptions: state.model_options,
-      capabilityPolicy: policy, prompt: compactPrompt, availableToolNames: tools.map((tool) => tool.name), availableTools: tools, purpose: "compaction", maxOutputTokens: this.#contextWindow.summaryTokens })) {
+      capabilityPolicy: policy, prompt: compactPrompt, availableToolNames: tools.map((tool) => tool.name), availableTools: tools, purpose: "compaction", maxOutputTokens: window.summaryTokens })) {
       if (event.type === "tool_call") throw new HarnessExecutionError("context_compaction_failed", "Compaction attempted to call a tool; original history was preserved.");
       if (event.type === "assistant_delta") summary += event.delta;
       if (event.type === "final") {
@@ -767,18 +775,25 @@ export class HarnessRuntime {
     state.tokens_used += usage ?? estimatePromptTokens(compactPrompt, tools) + estimateTextTokens(summary);
     if (!complete || !summary.trim()) throw new HarnessExecutionError("context_compaction_failed", "Compaction returned no complete handoff summary; original history was preserved.");
     const conversation: HarnessModelMessage[] = [...retained, { role: "user", internal: "compaction", content: `Context checkpoint from prior work. Continue from this evidence and avoid duplicate actions:\n${summary}` }];
-    const candidate = { ...state, prompt: { ...state.prompt, conversation } };
-    const after = estimatePromptTokens(this.#buildTaskPrompt(candidate), tools);
-    if (after >= estimated || after >= this.#contextWindow.maxInputTokens * this.#contextWindow.compactAtRatio) {
+    const candidate = { ...state, input_measurement: undefined, prompt: { ...state.prompt, conversation } };
+    const after = this.#predictInput(candidate, this.#buildTaskPrompt(candidate), tools).tokens;
+    if (after >= prediction.estimatedTokens || after >= contextBudget(window).softTokens) {
       throw new HarnessExecutionError("context_compaction_failed", "Compaction did not free enough context; original history was preserved.");
     }
     // Persist the replacement before publishing it; failed I/O leaves the live prefix intact.
     candidate.compactions += 1;
-    candidate.last_input_tokens = undefined;
-    candidate.last_input_estimate = undefined;
     this.#saveCheckpoint(candidate);
     Object.assign(state, candidate);
     this.#appendEvent(state.run.id, { type: "context.compacted", before_tokens: before, after_tokens: after, compaction: state.compactions });
+  }
+
+  #window(state?: HarnessCheckpoint): HarnessResolvedContextWindow {
+    return resolveContextWindow(state?.context_window ?? this.#contextWindow);
+  }
+
+  #predictInput(state: HarnessCheckpoint, prompt: HarnessPromptBundle, tools: HarnessModelTool[]) {
+    return predictInputTokens({ model: state.model, modelOptions: state.model_options,
+      modelConfigurationKey: state.model_configuration_key, prompt, tools }, state.input_measurement);
   }
 
   async *#streamModel(request: HarnessModelRequest): AsyncIterable<HarnessModelStreamEvent> {
@@ -803,12 +818,15 @@ export class HarnessRuntime {
     const callId = randomUUID();
     const started = performance.now();
     const inputTokens = estimatePromptTokens(request.prompt, request.availableTools);
+    const state = this.#states.get(request.runId);
+    const prediction = state ? this.#predictInput(state, request.prompt, request.availableTools) : { tokens: inputTokens, calibrated: false };
     const systemTokens = 32 + [...request.prompt.developer, ...request.prompt.contextual]
       .reduce((sum, section) => sum + estimateTextTokens(section.source + section.content) + 16, 0);
     const toolTokens = estimateTextTokens(JSON.stringify(request.availableTools));
     this.#appendEvent(request.runId, {
       type: "model.call.started", call_id: callId, model: request.model, purpose: request.purpose ?? "response",
-      input_tokens: inputTokens, budget_tokens: this.#contextWindow.maxInputTokens,
+      input_tokens: inputTokens, predicted_input_tokens: prediction.tokens, input_calibrated: prediction.calibrated,
+      budget_tokens: contextBudget(this.#window(state), request.maxOutputTokens).hardTokens,
       system_tokens: systemTokens, tool_tokens: toolTokens, conversation_tokens: Math.max(0, inputTokens - systemTokens - toolTokens),
     });
     const observation = observeSafely(() => this.#observer?.onModelStart?.(request));

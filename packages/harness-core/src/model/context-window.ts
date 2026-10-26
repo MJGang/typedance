@@ -1,18 +1,61 @@
-import type { HarnessModelContent, HarnessModelMessage, HarnessPromptBundle } from "@typedance/harness-contracts";
+import { createHash } from "node:crypto";
+import type { HarnessContextWindowOptions, HarnessInputMeasurement, HarnessModelContent, HarnessModelMessage, HarnessPromptBundle } from "@typedance/harness-contracts";
 import type { HarnessModelTool } from "./model-adapter";
 import { HarnessExecutionError } from "../run/checkpoint-store";
 
-export type HarnessContextWindowOptions = {
-  maxInputTokens?: number;
-  compactAtRatio?: number;
-  summaryTokens?: number;
-  retainedUserTokens?: number;
-  toolOutputTokens?: number;
-};
+export type { HarnessContextWindowOptions, HarnessInputMeasurement } from "@typedance/harness-contracts";
 export const DEFAULT_CONTEXT_WINDOW = {
   maxInputTokens: 64_000, compactAtRatio: 0.75, summaryTokens: 4_096,
   retainedUserTokens: 16_000, toolOutputTokens: 8_000,
+  reservedOutputTokens: 0, growthHeadroomTokens: 0,
 };
+export type HarnessResolvedContextWindow = typeof DEFAULT_CONTEXT_WINDOW & { modelContextTokens?: number };
+
+export function resolveContextWindow(options: HarnessContextWindowOptions = {}): HarnessResolvedContextWindow {
+  const resolved = { ...DEFAULT_CONTEXT_WINDOW, ...options };
+  for (const [name, value] of Object.entries(resolved)) {
+    const zeroAllowed = name === "reservedOutputTokens" || name === "growthHeadroomTokens";
+    if (!Number.isFinite(value) || value < 0 || (!zeroAllowed && value === 0) || (name !== "compactAtRatio" && !Number.isInteger(value))) {
+      throw new Error(`Invalid execution budget: ${name}`);
+    }
+  }
+  if (resolved.compactAtRatio >= 1) throw new Error("compactAtRatio must be less than 1");
+  const budget = contextBudget(resolved);
+  if (budget.softTokens <= 0) throw new Error("Context reserves must leave a positive input budget");
+  return resolved;
+}
+
+export function contextBudget(window: HarnessResolvedContextWindow, outputTokens = window.reservedOutputTokens): { hardTokens: number; softTokens: number } {
+  const hardTokens = Math.min(window.maxInputTokens, window.modelContextTokens === undefined ? window.maxInputTokens : window.modelContextTokens - outputTokens);
+  return { hardTokens, softTokens: Math.min(window.maxInputTokens * window.compactAtRatio, hardTokens - window.growthHeadroomTokens) };
+}
+
+type MeasurementRequest = { model?: string; modelOptions?: Record<string, unknown>; modelConfigurationKey?: string; prompt: HarnessPromptBundle; tools: HarnessModelTool[] };
+const hash = (value: unknown): string => createHash("sha256").update(JSON.stringify(value, (_key, item: unknown) => item && typeof item === "object" && !Array.isArray(item)
+  ? Object.fromEntries(Object.entries(item).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)) : item) ?? "null").digest("hex");
+function configurationHash(request: MeasurementRequest): string {
+  return hash([request.model, JSON.stringify(request.modelOptions), request.modelConfigurationKey, request.prompt.developer, request.prompt.contextual,
+    request.tools.map((tool) => ({ ...tool, inputSchema: JSON.stringify(tool.inputSchema) }))]);
+}
+function conversationHash(messages: HarnessModelMessage[]): string {
+  // 检查点字段顺序可以变化；工具参数作为模型中的 JSON 字符串，其键顺序仍须保持。
+  return hash(messages.map((message) => message.role === "assistant" && message.toolCalls
+    ? { ...message, toolCalls: message.toolCalls.map((call) => ({ ...call, input: JSON.stringify(call.input) })) } : message));
+}
+
+/** 对已测前缀只计一次实际输入；新增消息仍采用保守估算，图片不套文本缩放比例。 */
+export function predictInputTokens(request: MeasurementRequest, measurement?: HarnessInputMeasurement): { tokens: number; estimatedTokens: number; calibrated: boolean } {
+  const estimatedTokens = estimatePromptTokens(request.prompt, request.tools);
+  const calibrated = !!measurement && measurement.configuration_hash === configurationHash(request)
+    && request.prompt.conversation.length >= measurement.message_count
+    && conversationHash(request.prompt.conversation.slice(0, measurement.message_count)) === measurement.prefix_hash;
+  return { tokens: calibrated ? Math.max(0, measurement.input_tokens + estimatedTokens - measurement.estimated_tokens) : estimatedTokens, estimatedTokens, calibrated };
+}
+
+export function measureInputTokens(request: MeasurementRequest, inputTokens: number): HarnessInputMeasurement {
+  return { input_tokens: inputTokens, estimated_tokens: estimatePromptTokens(request.prompt, request.tools),
+    message_count: request.prompt.conversation.length, prefix_hash: conversationHash(request.prompt.conversation), configuration_hash: configurationHash(request) };
+}
 
 export const COMPACTION_PROMPT = `Create a context checkpoint for another agent continuing this task.
 Include current progress and key decisions; constraints and user preferences; unfinished work and clear next actions; and critical evidence, identifiers and references needed to continue.
