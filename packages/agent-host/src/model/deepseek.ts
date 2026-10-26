@@ -111,7 +111,12 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
       if (!apiKey) {
         throw new Error("请先在 AI 设置中配置 API Key");
       }
+      const pinnedBaseUrl = request.modelOptions?.providerBaseUrl;
+      if (pinnedBaseUrl !== undefined && typeof pinnedBaseUrl !== "string") throw new Error("Invalid provider base URL in model configuration");
       const baseUrl = (settings.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+      if (pinnedBaseUrl !== undefined && pinnedBaseUrl.replace(/\/+$/, "") !== baseUrl) {
+        throw new Error("模型服务地址已改变，请重新开始本轮任务");
+      }
       const defaultModel = settings.defaultModel?.trim();
       const model = resolveModelName(request, defaultModel);
       const requestedEffort = request.modelOptions?.reasoningEffort;

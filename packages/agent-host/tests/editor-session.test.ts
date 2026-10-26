@@ -96,13 +96,15 @@ describe("live editor execution lifecycle", () => {
       expect(test.host.getAgentRun(test.run.id).status).toBe("completed");
       expect(test.pageReader).toHaveBeenCalledWith(expect.objectContaining({ snapshot: updated }));
       const editReceipt = JSON.parse(String(test.requests[3]?.prompt.conversation.find((message) => message.role === "tool" && message.toolName === "resume.edit")?.content)).output;
-      expect(editReceipt).toMatchObject({ status: "applied", content_revision: 3, persisted: false });
+      expect(editReceipt).toMatchObject({ status: "applied", content_revision: 3, persisted: false,
+        mutation_mode: mode, decision_source: mode === "review" ? "user" : "document_grant" });
       expect(editReceipt).not.toHaveProperty("current");
       expect(test.inspect).toHaveBeenCalledOnce();
       expect(JSON.stringify(test.requests[5]?.prompt.conversation)).toContain("Final editor evidence");
       const audit = test.requests[5]?.prompt.conversation.find((message) => message.role === "user" && message.internal === "completion");
       expect(String(audit?.content)).toContain('"status":"applied","persisted":false');
       expect(String(audit?.content)).toContain('"text_characters":6');
+      expect(String(audit?.content)).toContain(`"mutation_mode":"${mode}"`);
       expect(String(audit?.content)).not.toContain("更新后的原文");
       expect(String(audit?.content)).toContain("not the user's requested text or visual layout");
       expect(test.host.listAgentRunEvents(test.run.id)).toContainEqual(expect.objectContaining({ type: "editor_response", payload: expect.objectContaining({ status: "applied", content_revision: 3 }) }));

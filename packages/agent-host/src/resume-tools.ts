@@ -137,11 +137,12 @@ export function registerResumeTools(runtime: HarnessRuntime, services: ResumeToo
       const snapshot = await turn.session.refresh();
       if (snapshot.content_revision !== parsed.content_revision) throw new Error("用户已修改画布，请重新 inspect 并根据当前内容规划操作");
       const transaction = await services.editor.prepare({ snapshot, operations: parsed.operations, catalogRevision: parsed.catalog_revision, summary: parsed.summary, signal });
-      if (turn.session.mode === "suggest") return { status: "suggested", summary: transaction.summary, effects: transaction.effects, applied: false };
+      if (turn.session.mode === "suggest") return { status: "suggested", mutation_mode: turn.session.mode, summary: transaction.summary, effects: transaction.effects, applied: false };
       const response = await turn.session.apply(transaction);
       turn.pageCache.clear();
       if (response.status === "failed") throw new Error(response.error || "编辑器未能应用修改");
-      return { status: response.status, summary: transaction.summary, effects: transaction.effects,
+      return { status: response.status, mutation_mode: turn.session.mode, decision_source: turn.session.mode === "review" ? "user" : "document_grant",
+        summary: transaction.summary, effects: transaction.effects,
         ...(response.status === "applied" ? { persisted: response.persisted === true } : {}),
         ...(response.error ? { observation_error: response.error } : {}),
         ...snapshotIdentity(turn.session.snapshot), page_count: turn.session.snapshot.print_snapshot?.page_tops.length };
@@ -154,9 +155,9 @@ export function registerResumeTools(runtime: HarnessRuntime, services: ResumeToo
       const turn = current(signal);
       const audit = await turn.session.auditCompletion();
       if (!audit) return { complete: true };
-      return { complete: false, message: `Final editor evidence (actual decisions and a fresh authoritative snapshot):\n${JSON.stringify({ decisions: audit.decisions,
+      return { complete: false, message: `Final editor evidence (actual decisions and a fresh authoritative snapshot):\n${JSON.stringify({ mutation_mode: turn.session.mode, decisions: audit.decisions,
         ...snapshotIdentity(audit.snapshot), page_count: audit.snapshot.print_snapshot?.page_tops.length,
-        text_characters: audit.snapshot.plain_text.length, text_sha256: createHash("sha256").update(audit.snapshot.plain_text).digest("hex") })}\nThis receipt verifies decisions and the latest observed revision, not the user's requested text or visual layout. Use resume.read or targeted resume.inspect for required content verification and resume.view_pages for required visual verification, unless already verified at this exact document/session/revision. Denied/failed actions were not completed; persisted:false is not a confirmed save. Do not repeat denied actions. Describe outcomes to the user in plain language, keeping internal metadata in tool arguments. If the user's requirement is satisfied, give the final answer; otherwise continue inspecting or editing within the current grant.` };
+        text_characters: audit.snapshot.plain_text.length, text_sha256: createHash("sha256").update(audit.snapshot.plain_text).digest("hex") })}\nIn review mode, edit results follow the user's editor decision; an applied result is not evidence that approval was bypassed. This receipt verifies decisions and the latest observed revision, not the user's requested text or visual layout. Use resume.read or targeted resume.inspect for required content verification and resume.view_pages for required visual verification, unless already verified at this exact document/session/revision. Denied/failed actions were not completed; persisted:false is not a confirmed save. Do not repeat denied actions. Describe outcomes to the user in plain language, keeping internal metadata in tool arguments. If the user's requirement is satisfied, give the final answer; otherwise continue inspecting or editing within the current grant.` };
     },
   };
 }

@@ -29,6 +29,7 @@ import { isSea } from "node:sea";
 import { dirname } from "node:path";
 import { JsonFileHarnessCheckpointStore } from "./checkpoint-store";
 import { migrateRetiredModelId } from "./migrations/model-id";
+import { modelRuntimeConfiguration } from "./model-catalog";
 
 async function main(): Promise<void> {
   if (process.argv.includes("--speech-worker")) { runSpeechWorker(); return; }
@@ -72,6 +73,10 @@ async function main(): Promise<void> {
   await registerResumeWorkbenchPlugin(runtime, pluginLoader);
   const host = createAgentHost({
     runtime,
+    resolveModelRuntimeConfiguration: async (requestedModel) => {
+      const settings = await modelSettings.resolve();
+      return modelRuntimeConfiguration(requestedModel ?? settings.model, settings.reasoningEffort, settings.baseUrl);
+    },
     contextProvider: createSidecarContextProvider({ baseUrl: sidecarUrl }),
     resumeTools: {
       editor: createSidecarEditorService(sidecarUrl),

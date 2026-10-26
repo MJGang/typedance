@@ -10,6 +10,23 @@ import {
 import { buildAgentHostPromptBundle } from "../src/prompt";
 
 describe("DeepSeek model adapter", () => {
+  it("keeps the run model and reasoning mode pinned when saved selections change", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => new Response(sse("data: [DONE]\n\n")));
+    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "current-test-key", baseUrl: "https://original.example/v1/", defaultModel: "deepseek-v4-pro", reasoningEffort: "high" }), fetch: fetchMock });
+    await drain(adapter.stream({ ...makeRequest({ runId: "pinned", agentId: "a", model: "deepseek-flash", messages: [] }),
+      modelOptions: { providerBaseUrl: "https://original.example/v1", reasoningEffort: "low" }, maxOutputTokens: 8192 }));
+    expect(fetchMock.mock.calls[0][0]).toBe("https://original.example/v1/chat/completions");
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({ model: "deepseek-flash", reasoning_effort: "low", max_tokens: 8192 });
+  });
+
+  it("stops before sending a newly configured credential to a previous run endpoint", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "new-service-test-key", baseUrl: "https://new.example/v1", defaultModel: "deepseek-flash" }), fetch: fetchMock });
+    await expect(drain(adapter.stream({ ...makeRequest({ runId: "changed-endpoint", agentId: "a", messages: [] }),
+      modelOptions: { providerBaseUrl: "https://original.example/v1" } }))).rejects.toThrow("模型服务地址已改变");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("keeps tool schemas, choices and collision mappings stable for compaction and registration order", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => new Response(sse("data: [DONE]\n\n")));
     const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test", baseUrl: undefined, defaultModel: "deepseek-flash" }), fetch: fetchMock });
