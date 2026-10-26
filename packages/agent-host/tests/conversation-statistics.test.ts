@@ -13,9 +13,9 @@ function fixture() {
     store.appendRunEvent({ runId: run.id, type: "harness_event", timestamp,
       payload: { event: { id: `event_${sequence}`, run_id: run.id, sequence: sequence++, created_at: timestamp, type, ...data } } });
   };
-  const start = (call: string, seconds = 0, purpose = "response") => emit("model.call.started", {
+  const start = (call: string, seconds = 0, purpose = "response", overrides: Record<string, unknown> = {}) => emit("model.call.started", {
     call_id: call, model: "deepseek-flash", purpose, input_tokens: 100, budget_tokens: 64_000,
-    system_tokens: 20, tool_tokens: 30, conversation_tokens: 50,
+    system_tokens: 20, tool_tokens: 30, conversation_tokens: 50, ...overrides,
   }, seconds);
   return { store, conversation, run, emit, start };
 }
@@ -53,6 +53,71 @@ describe("conversation statistics", () => {
     start("compact", 2, "compaction");
     emit("model.call.completed", { call_id: "compact", duration_ms: 1000, status: "completed", usage: { inputTokens: 900, outputTokens: 90 } }, 3);
     expect(conversationStatistics(store, conversation.id)).toMatchObject({ steps: 2, usage: { total_tokens: 1100, cache_hit_percent: null }, context: { input_tokens: 100, output_tokens: 10 } });
+  });
+
+  it("anchors new requests to reported input instead of re-estimating the entire history", () => {
+    const { store, conversation, run, start, emit } = fixture();
+    store.updateRun(run.id, { status: "running", completed_at: undefined });
+    start("first", 0, "response", { input_tokens: 45_000 });
+    emit("model.call.progress", { call_id: "first", ttft_ms: 100, output_tokens: 800, output_characters: 400 }, 1);
+    emit("model.call.completed", { call_id: "first", duration_ms: 1000, status: "completed",
+      usage: { inputTokens: 29_000, outputTokens: 400 } }, 1);
+    start("next", 2, "response", { input_tokens: 45_600 });
+    emit("model.call.progress", { call_id: "next", ttft_ms: 100, output_tokens: 300, output_characters: 150 }, 3);
+    const result = conversationStatistics(store, conversation.id);
+    expect(result).toMatchObject({ usage: { total_tokens: 29_400 },
+      context: { input_tokens: 29_387, output_tokens: 150, estimated: true } });
+    expect(conversationStatistics(createMemoryAgentHostStore(store.snapshot()), conversation.id).context).toEqual(result.context);
+    emit("model.call.completed", { call_id: "next", duration_ms: 2000, status: "completed",
+      usage: { inputTokens: 29_620, outputTokens: 160 } }, 4);
+    expect(conversationStatistics(store, conversation.id)).toMatchObject({ usage: { total_tokens: 59_180 },
+      context: { input_tokens: 29_620, output_tokens: 160, estimated: false } });
+  });
+
+  it("retains the last measured baseline through calls with missing usage and signed input changes", () => {
+    const { store, conversation, start, emit } = fixture();
+    start("measured", 0, "response", { input_tokens: 3000 });
+    emit("model.call.completed", { call_id: "measured", duration_ms: 1000, status: "completed",
+      usage: { inputTokens: 1500, outputTokens: 20 } }, 1);
+    start("missing", 2, "response", { input_tokens: 3300 });
+    emit("model.call.completed", { call_id: "missing", duration_ms: 1000, status: "failed" }, 3);
+    start("smaller", 4, "response", { input_tokens: 500 });
+    expect(conversationStatistics(store, conversation.id)).toMatchObject({ usage: { total_tokens: 1520 },
+      context: { input_tokens: 250, estimated: true } });
+  });
+
+  it("starts a fresh estimate after compaction and does not calibrate against compaction billing", () => {
+    const { store, conversation, start, emit } = fixture();
+    start("large", 0, "response", { input_tokens: 50_000 });
+    emit("model.call.completed", { call_id: "large", duration_ms: 1000, status: "completed",
+      usage: { inputTokens: 30_000, outputTokens: 100 } }, 1);
+    start("compact", 2, "compaction", { input_tokens: 51_000 });
+    emit("model.call.completed", { call_id: "compact", duration_ms: 1000, status: "completed",
+      usage: { inputTokens: 31_000, outputTokens: 1000 } }, 3);
+    emit("context.compacted", { before_tokens: 51_000, after_tokens: 4000, compaction: 1 }, 4);
+    start("short", 5, "response", { input_tokens: 4000 });
+    expect(conversationStatistics(store, conversation.id)).toMatchObject({ usage: { total_tokens: 62_100 },
+      context: { input_tokens: 4000, output_tokens: 0, estimated: true } });
+  });
+
+  it("reuses calibration across turns but resets it when the model changes", () => {
+    const { store, conversation, start, emit } = fixture();
+    start("previous", 0, "response", { input_tokens: 3000 });
+    emit("model.call.completed", { call_id: "previous", duration_ms: 1000, status: "completed",
+      usage: { inputTokens: 1500, outputTokens: 20 } }, 1);
+    const run = store.createRun({ run: { conversation_id: conversation.id, status: "running", mutation_mode: "review",
+      started_at: "2026-10-24T00:00:20Z" } });
+    const next = (model: string, callId: string, sequence: number) => {
+      const timestamp = `2026-10-24T00:00:${20 + sequence}Z`;
+      store.appendRunEvent({ runId: run.id, type: "harness_event", timestamp, payload: { event: {
+        id: callId, run_id: run.id, sequence, created_at: timestamp, type: "model.call.started", call_id: callId,
+        model, purpose: "response", input_tokens: 3500, budget_tokens: 64_000, system_tokens: 20, tool_tokens: 30, conversation_tokens: 3450,
+      } } });
+    };
+    next("deepseek-flash", "same", 0);
+    expect(conversationStatistics(store, conversation.id).context).toMatchObject({ input_tokens: 1750, estimated: true });
+    next("deepseek-pro", "different", 1);
+    expect(conversationStatistics(store, conversation.id).context).toMatchObject({ model: "deepseek-pro", input_tokens: 3500, estimated: true });
   });
 
   it("updates elapsed time, receipts and TTFT during a call and uses reported tokens for TPS", () => {

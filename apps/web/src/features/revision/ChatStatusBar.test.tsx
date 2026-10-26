@@ -22,7 +22,7 @@ describe("ChatStatusBar", () => {
     expect(screen.getByRole("button", { name: "上下文占用" })).toHaveTextContent("21.6%")
     fireEvent.click(screen.getByRole("button", { name: "上下文占用" }))
     expect(await screen.findByText("216K / 1M")).toBeInTheDocument()
-    expect(screen.getByText("总量来自最近一次模型回报；拆分为估算。")).toBeInTheDocument()
+    expect(screen.getByText(/总量来自最近一次模型回报；拆分为估算。/)).toBeInTheDocument()
   })
   it("shows reported TPS without approximation and keeps current receipts and pending usage explicit", async () => {
     const statistics: ConversationStatistics = { sampled_at: new Date().toISOString(), activity: { runs: 1, model_calls: 1, tool_calls: 0, output_characters: 200 },

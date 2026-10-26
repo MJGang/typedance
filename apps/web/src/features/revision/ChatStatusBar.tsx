@@ -68,7 +68,7 @@ export function ChatStatusBar({ statistics, failed }: { statistics: Conversation
         <Reading label="系统提示词" value={`~${tokens(context.system_tokens)}`} />
         <Reading label="工具定义" value={`~${tokens(context.tool_tokens)}`} />
         <Reading label="对话消息" value={`~${tokens(context.conversation_tokens)}`} />
-        <p className="mt-2 text-[11px] text-muted-foreground">{context.estimated ? "总量与拆分均为估算。" : "总量来自最近一次模型回报；拆分为估算。"}</p>
+        <p className="mt-2 text-[11px] text-muted-foreground">{context.estimated ? "总量以已有模型回报为基准估算增减；首次回报前为完整估算。" : "总量来自最近一次模型回报；拆分为估算。"} 历史压缩或资料减少时，占用可能下降。</p>
       </> : <p className="text-xs text-muted-foreground">发送消息后显示上下文占用。</p>}
     </StatPill>
   </div>
