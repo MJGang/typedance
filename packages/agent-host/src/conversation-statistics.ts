@@ -7,6 +7,7 @@ type Started = Extract<HarnessRunEvent, { type: "model.call.started" }>;
 type Progress = Extract<HarnessRunEvent, { type: "model.call.progress" }>;
 type Completed = Extract<HarnessRunEvent, { type: "model.call.completed" }>;
 type Call = { started: Started; progress?: Progress; completed?: Completed };
+type ContextSample = { at: string; sequence: number } & ({ type: "call"; call: Call } | { type: "compacted" });
 
 /** 耗时和接收量按当前时刻更新；计费和 TPS 只使用服务端回报的完整用量。 */
 export function conversationStatistics(store: AgentHostStore, conversationId: string, now = Date.now()): ConversationStatistics {
@@ -19,7 +20,7 @@ export function conversationStatistics(store: AgentHostStore, conversationId: st
     context: null,
   };
   let ttftMs = 0; let ttftCalls = 0; let decodeMs = 0; let decodeTokens = 0; let cacheInput = 0;
-  let contextTime = -Infinity;
+  const contextSamples: ContextSample[] = [];
   for (const run of runs) {
     const terminal = run.status === "completed" || run.status === "failed" || run.status === "cancelled";
     if (!terminal) statistics.activity.runs += 1;
@@ -43,9 +44,13 @@ export function conversationStatistics(store: AgentHostStore, conversationId: st
       }
       if (event.type !== "harness_event") continue;
       const raw = event.payload.event as { type?: string } | undefined;
-      if (raw?.type !== "model.call.started" && raw?.type !== "model.call.progress" && raw?.type !== "model.call.completed") continue;
+      if (raw?.type !== "model.call.started" && raw?.type !== "model.call.progress" && raw?.type !== "model.call.completed" && raw?.type !== "context.compacted") continue;
       const parsed = harnessRunEventSchema.safeParse(raw);
       if (!parsed.success) continue;
+      if (parsed.data.type === "context.compacted") {
+        contextSamples.push({ type: "compacted", at: parsed.data.created_at, sequence: parsed.data.sequence });
+        continue;
+      }
       const modelEvent = parsed.data as Started | Progress | Completed;
       if (modelEvent.type === "model.call.started") {
         if (!calls.has(modelEvent.call_id)) calls.set(modelEvent.call_id, { started: modelEvent });
@@ -56,7 +61,8 @@ export function conversationStatistics(store: AgentHostStore, conversationId: st
         else call.completed = modelEvent;
       }
     }
-    for (const { started, progress, completed } of calls.values()) {
+    for (const call of calls.values()) {
+      const { started, progress, completed } = call;
       statistics.steps += 1;
       const active = !terminal && !completed;
       if (active) statistics.activity.model_calls += 1;
@@ -86,10 +92,7 @@ export function conversationStatistics(store: AgentHostStore, conversationId: st
       if (decoding > 0 && measured) {
         decodeMs += decoding; decodeTokens += output;
       }
-      if (started.purpose === "response" && Date.parse(started.created_at) >= contextTime) {
-        contextTime = Date.parse(started.created_at);
-        statistics.context = contextReading(started, input, output, !measured, completed?.model);
-      }
+      if (started.purpose === "response") contextSamples.push({ type: "call", at: started.created_at, sequence: started.sequence, call });
     }
     for (const started of tools.values()) statistics.tool_ms += Math.max(0, ended - started);
     if (!terminal) statistics.activity.tool_calls += tools.size;
@@ -97,6 +100,24 @@ export function conversationStatistics(store: AgentHostStore, conversationId: st
   statistics.ttft_ms = ttftCalls ? ttftMs / ttftCalls : null;
   statistics.tokens_per_second = decodeMs > 0 ? decodeTokens / (decodeMs / 1000) : null;
   statistics.usage.cache_hit_percent = cacheInput > 0 ? statistics.usage.cache_read_tokens / cacheInput * 100 : null;
+  let anchor: { model?: string; input: number; estimate: number; outputScale?: number } | undefined;
+  contextSamples.sort((left, right) => Date.parse(left.at) - Date.parse(right.at) || left.sequence - right.sequence);
+  for (const sample of contextSamples) {
+    if (sample.type === "compacted") { anchor = undefined; continue; }
+    const { started, progress, completed } = sample.call;
+    const model = completed?.model ?? started.model;
+    if (anchor?.model !== model) anchor = undefined;
+    const usage = completed?.usage;
+    // 以真实回报校准增量密度，避免中文估算误差反复计入整份历史或把缩短后的输入扣成零。
+    const inputScale = anchor && anchor.estimate > 0 ? anchor.input / anchor.estimate : 1;
+    const input = usage?.inputTokens ?? Math.max(0, Math.round(anchor
+      ? anchor.input + (started.input_tokens - anchor.estimate) * inputScale : started.input_tokens));
+    const output = usage?.outputTokens ?? Math.round((progress?.output_tokens ?? 0) * (anchor?.outputScale ?? inputScale));
+    const measured = usage?.inputTokens !== undefined && usage.outputTokens !== undefined;
+    statistics.context = contextReading(started, input, output, !measured, model);
+    if (usage?.inputTokens !== undefined) anchor = { model, input: usage.inputTokens, estimate: started.input_tokens,
+      outputScale: usage.outputTokens !== undefined && progress && progress.output_tokens > 0 ? usage.outputTokens / progress.output_tokens : undefined };
+  }
   return statistics;
 }
 

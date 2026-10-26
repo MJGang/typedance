@@ -66,7 +66,6 @@ export function EditorRequestCard({ runId, request, events, active }: { runId: s
       <p className="text-sm leading-6">{transaction.summary}</p>
     </CardHeader>
     <CardContent className="flex flex-col gap-3">
-      <ul className="list-disc pl-5 text-sm text-muted-foreground">{transaction.effects.map((effect, index) => <li key={index}>{effect.title}</li>)}</ul>
       <p className="text-xs text-muted-foreground">仅修改当前简历，模板样式调整不会影响其他简历。</p>
       <Button type="button" variant="outline" size="sm" onClick={() => setPreviewOpen((open) => !open)}>{previewOpen ? "收起预览" : "查看修改预览"}</Button>
       {previewOpen ? <Suspense fallback={<p className="text-xs text-muted-foreground">正在准备预览…</p>}><TransactionPreview transaction={transaction} /></Suspense> : null}
