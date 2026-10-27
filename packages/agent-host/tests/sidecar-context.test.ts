@@ -2,6 +2,20 @@ import { describe, expect, it, vi } from "vitest";
 import { createSidecarContextProvider } from "../src/sidecar-context";
 
 describe("sidecar context provider", () => {
+  it("keeps long editor contents out of replayed workspace references across revisions", async () => {
+    const provider = createSidecarContextProvider({ fetch: vi.fn() });
+    const base = { document_id: "doc", editor_session_id: "session", canvas_version: 1,
+      doc_json: { type: "doc", content: [] }, plain_text: "旧正文".repeat(10000) };
+    const before = await provider.loadContext({ workspaceId: "doc", mentions: [], editorSnapshot: { ...base, content_revision: 1 } });
+    const after = await provider.loadContext({ workspaceId: "doc", mentions: [], editorSnapshot: { ...base, plain_text: "最新正文", content_revision: 2 } });
+    expect(before[0].content.length).toBeLessThan(1500);
+    expect(before[0].content).not.toContain("旧正文");
+    expect(after[0].content).not.toContain("最新正文");
+    expect(after[0].content).toContain("content_revision: 2");
+    expect(before[0].content).toContain("after compaction or recovery");
+    expect(before[0].content).not.toContain("current source of truth");
+  });
+
   it("identifies the current editor session so local revision resets are not confused with saved document rollback", async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const provider = createSidecarContextProvider({ fetch: fetchMock });
@@ -13,7 +27,9 @@ describe("sidecar context provider", () => {
     expect(context[0].content).toContain("editor_session_id: new-editor-session");
     expect(context[0].content).toContain("canvas_version: 3");
     expect(context[0].content).toContain("content_revision: 0");
-    expect(context[0].content).toContain("已保存的最新正文");
+    expect(context[0].content).not.toContain("已保存的最新正文");
+    expect(context[0].content).toContain("text_characters_at_send: 8");
+    expect(context[0].content).toContain("not document content or proof of the latest state");
   });
   it("formats the current workspace canvas as primary model context", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({

@@ -264,8 +264,11 @@ def create_revision_router(
         return document
 
     @router.get("/editor/capabilities")
-    def get_editor_capabilities() -> dict:
-        return capability_catalog()
+    def get_editor_capabilities(operation_ids: list[str] | None = Query(default=None, max_length=100)) -> dict:
+        try:
+            return capability_catalog(operation_ids)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @router.post("/editor/inspect")
     def inspect_editor_document(payload: InspectEditorRequest) -> dict:

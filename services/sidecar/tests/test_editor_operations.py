@@ -138,11 +138,42 @@ def test_invalid_node_ranges_and_arbitrary_attributes_are_rejected():
 
 
 def test_catalog_contains_real_template_model_and_each_parameter_schema():
-    catalog = capability_catalog()
+    catalog = capability_catalog(list(CAPABILITIES))
     assert catalog["scope"] == "current_document"
     assert "TemplateBlocks" in catalog["template_schema"]["$defs"]
     assert {item["id"] for item in catalog["operations"]} == set(CAPABILITIES)
     assert all(item["parameters"]["additionalProperties"] is False for item in catalog["operations"])
+
+
+def test_catalog_outline_and_selected_schemas_share_the_same_authoritative_revision():
+    outline = capability_catalog()
+    selected = capability_catalog(["text.replace"])
+    assert "template_schema" not in outline
+    assert all("parameters" not in operation for operation in outline["operations"])
+    assert [operation["id"] for operation in selected["operations"]] == ["text.replace"]
+    assert selected["operations"][0]["parameters"]["additionalProperties"] is False
+    assert selected["revision"] == outline["revision"] == capability_catalog(["template.style"])["revision"]
+    with pytest.raises(ValueError, match="不存在或已被删除"):
+        capability_catalog(["removed.operation"])
+
+
+def test_targeted_detail_inspection_preserves_text_and_utf16_marks_without_repeating_text_in_marks():
+    source = doc(paragraph("other"), {"type": "paragraph", "content": [
+        {"type": "text", "text": "😀正文", "marks": [{"type": "bold"}]},
+        {"type": "text", "text": "保留"},
+    ]})
+    outline = inspect_document(source)
+    assert "marks" not in outline["nodes"][2]
+    assert "template_style" not in outline
+    detail = inspect_document(source, InspectOptions(view="detail", paths=[[1]], text_limit=12000))
+    assert len(detail["nodes"]) == 1
+    assert detail["nodes"][0]["text"] == "😀正文保留"
+    assert detail["nodes"][0]["marks"] == [{"from": 0, "to": 4, "marks": [{"type": "bold"}]}]
+    layout = inspect_document(source, InspectOptions(view="layout", paths=[[1]]))
+    assert "text" not in layout["nodes"][0]
+    assert layout["nodes"][0]["text_length"] == 5
+    with pytest.raises(ValueError):
+        inspect_document(source, InspectOptions(paths=[[100]]))
 
 
 def test_structure_inspection_paginates_and_reports_truncation_without_duplicated_container_text():

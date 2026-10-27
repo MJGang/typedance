@@ -154,6 +154,7 @@ export const harnessRunEventSchema = z.discriminatedUnion("type", [
   harnessRunEventBaseSchema.extend({
     type: z.literal("model.call.started"), call_id: z.string(), model: z.string().optional(),
     purpose: z.enum(["response", "compaction"]), input_tokens: z.number().nonnegative(),
+    predicted_input_tokens: z.number().nonnegative().optional(), input_calibrated: z.boolean().optional(),
     budget_tokens: z.number().positive(), system_tokens: z.number().nonnegative(),
     tool_tokens: z.number().nonnegative(), conversation_tokens: z.number().nonnegative(),
   }),

@@ -33,7 +33,7 @@ describe("conversation statistics", () => {
     expect(result).toMatchObject({ turns: 1, steps: 2, model_ms: 9000, ttft_ms: 1500, tokens_per_second: 50,
       usage: { input_tokens: 300, output_tokens: 300, total_tokens: 600, cache_read_tokens: 240, cache_miss_tokens: 60,
         cache_hit_percent: 80, measured_calls: 2, unmeasured_calls: 0 },
-      context: { input_tokens: 100, output_tokens: 200, limit_tokens: 1_000_000, system_tokens: 20, tool_tokens: 30, conversation_tokens: 250, estimated: false } });
+      context: { input_tokens: 100, output_tokens: 200, limit_tokens: 1_048_576, system_tokens: 20, tool_tokens: 30, conversation_tokens: 250, estimated: false } });
     expect(conversationStatistics(store, conversation.id, Date.parse(result.sampled_at))).toEqual(result);
   });
 

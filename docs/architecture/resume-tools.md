@@ -4,9 +4,11 @@
 
 当前工具：
 
-- `resume.read`：分段读取本轮最新正文，便于读取初始上下文因预算截断的部分。
+- `resume.read`：分段读取最新正文，包括未保存的编辑内容；初始资料引用不附正文。
 - `resume.view_pages`：按需查看指定页截图，每次最多 6 页。
-- `resume.propose_text_edit`：为显式引用生成文字修改预览；应用与撤销沿用编辑器现有链路。
+- `resume.capabilities`：先读取能力目录，再按 `operation_ids` 取得所选操作的准确参数与约束。
+- `resume.inspect`：按 outline、detail 或 layout 视图读取实时结构，支持指定节点路径和分页。
+- `resume.edit`：准备并执行授权事务，手动应用等待用户确认；返回紧凑执行与保存回执。
 
 ## 页面图与文字的一致性
 
@@ -14,7 +16,7 @@
 
 只有模型调用取图工具时，Host 才请求 Sidecar 的 `POST /documents/{document_id}/source-resume-canvas/pages`。Sidecar 按画布已经测量的分页位置生成 PNG，不重做分页，也不保存文档或导出记录。每个请求独立启动无脚本、无网络的浏览器上下文。
 
-图片与正文都属于该轮 `content_revision`。用户随后继续编辑时，本轮图像不会冒充新版本；重新发送会建立新的快照和缓存。相同页码请求在本轮复用结果，取消会中止 Sidecar 请求。
+每次读取文字、结构或页面前，Host 都向活动编辑器请求最新快照。图片与正文均带 document/editor_session/content_revision，不能把不同修订混为同一证据。页面缓存按实际排版快照与页码复用；文档编辑或结构检查会清空缓存。取消会中止 Sidecar 请求。
 
 Host 工具通过 `HarnessToolOutput` 分别返回可记录的元数据和模型专用内容块。Core 将真实图片内容传到下一次模型调用，事件和聊天历史仅保留页码等摘要。DeepSeek 适配器将通用图片块转换为 API 的 `image_url` 内容块。当前启用取图的模型名称为 `deepseek-flash`，现有用户可在 AI 设置中选择该模型。
 
@@ -25,4 +27,4 @@ Host 工具通过 `HarnessToolOutput` 分别返回可记录的元数据和模型
 3. 在 `plugins/resume/plugin.json` 的技能与 Agent 工具列表中声明能力。
 4. 写入工具应先返回可审阅的变更，应用时校验编辑器版本并沿用画布应用、撤销和自动保存，不能直接覆盖用户的未保存内容。
 
-增加普通业务工具无需修改 Core。新的通用媒体类型才扩展 Harness 内容协议及模型适配器；协议中不得引入简历业务字段。当前未新增直接写样式或直接保存文档的工具。
+增加普通业务工具无需修改 Core。新的通用媒体类型才扩展 Harness 内容协议及模型适配器；协议中不得引入简历业务字段。所有修改继续经过唯一的 Sidecar 能力执行器和活动编辑器确认链路，不从 Host 直接覆盖文档或共享模板。

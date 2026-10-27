@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createLocalAccess, HttpError, readJson, type LocalAccessOptions } from "./local-access";
 import type { AddressInfo } from "node:net";
 import type { HarnessRun, HarnessRunEvent } from "@typedance/harness-contracts";
-import { restoreCheckpointHistory, withRunSignal, type HarnessRuntime } from "@typedance/harness-core";
+import { restoreCheckpointHistory, withRunSignal, type HarnessRuntime, type HarnessModelConfiguration } from "@typedance/harness-core";
 import {
   canvasMutationModeSchema,
   contextMentionSchema,
@@ -105,7 +105,12 @@ export type AgentHostOptions = {
   defaultModel?: string;
   contextProvider?: AgentHostContextProvider;
   resumeTools?: ResumeToolServices;
+  resolveModelRuntimeConfiguration?: (model?: string) => AgentHostModelRuntimeConfiguration | Promise<AgentHostModelRuntimeConfiguration>;
   now?: () => Date;
+};
+
+export type AgentHostModelRuntimeConfiguration = HarnessModelConfiguration & {
+  refresh?: () => HarnessModelConfiguration | Promise<HarnessModelConfiguration>;
 };
 
 export class AgentHost {
@@ -121,6 +126,7 @@ export class AgentHost {
   #contextProvider?: AgentHostContextProvider;
   #now: () => Date;
   #resumeTools?: ReturnType<typeof registerResumeTools>;
+  #resolveModelRuntimeConfiguration?: AgentHostOptions["resolveModelRuntimeConfiguration"];
   #editorSessions = new Map<string, EditorSession>();
 
   constructor(options: AgentHostOptions) {
@@ -128,6 +134,7 @@ export class AgentHost {
     this.store = options.store ?? createMemoryAgentHostStore();
     this.#defaultModel = options.defaultModel;
     this.#contextProvider = options.contextProvider;
+    this.#resolveModelRuntimeConfiguration = options.resolveModelRuntimeConfiguration;
     this.#now = options.now ?? (() => new Date());
     if (options.resumeTools) this.#resumeTools = registerResumeTools(this.runtime, options.resumeTools);
     for (const pack of options.packs) {
@@ -497,7 +504,9 @@ export class AgentHost {
         this.#resumeTools?.enter(signal, { session, model });
       }
       signal.throwIfAborted();
-      const { messages, contextItems, inputIds, historyInputIds } = await withRunSignal(this.#buildModelMessages(conversationId, assistantMessageId, mentions, userMessage, context, signal), signal);
+      const { messages, contextItems, inputIds, historyInputIds, inputMeasurement } = await withRunSignal(this.#buildModelMessages(conversationId, assistantMessageId, mentions, userMessage, context, signal), signal);
+      const resolvedConfiguration: AgentHostModelRuntimeConfiguration = await withRunSignal(Promise.resolve(this.#resolveModelRuntimeConfiguration?.(model) ?? {}), signal);
+      const { refresh, ...modelConfiguration } = resolvedConfiguration;
       signal.throwIfAborted();
       const skillContext = await withRunSignal(this.runtime.buildAgentSkillContext({
         policy: {
@@ -519,6 +528,9 @@ export class AgentHost {
         prompt,
         inputIds,
         historyInputIds,
+        inputMeasurement,
+        ...modelConfiguration,
+        resolveModelConfiguration: refresh,
         ...(editorSnapshot && this.#resumeTools ? { completionCheck: () => this.#resumeTools!.checkCompletion(signal) } : {}),
         ...(typeof context.resume_from_run_id === "string" ? { resumeFromRunId: context.resume_from_run_id } : {}),
       });
@@ -558,7 +570,7 @@ export class AgentHost {
     const checkpoint = typeof context.resume_from_run_id === "string"
       ? this.runtime.getCheckpoint(context.resume_from_run_id)
       : previousRuns.map((run) => this.runtime.getCheckpoint(run.id)).filter((value) => value !== undefined).at(-1);
-    const restored = checkpoint ? restoreCheckpointHistory(checkpoint) : { messages: [], inputIds: [] };
+    const restored = checkpoint ? restoreCheckpointHistory(checkpoint) : { messages: [], inputIds: [], inputMeasurement: undefined };
     const represented = new Set(restored.inputIds);
     const newMessages = storedMessages.filter((message) => message.id !== assistantMessageId && !represented.has(message.id)
       && !(message.role === "assistant" && message.run_id));
@@ -575,7 +587,7 @@ export class AgentHost {
       .filter((event) => event.type === "attachments_read").map((event) => event.payload.message_id));
     const inputIds = [...new Set([String(context.user_message_id), ...pendingInputs.map((message) => message.id), ...storedMessages
       .filter((message) => message.role === "user" && message.attachments?.length && !readMessages.has(message.id)).map((message) => message.id)])];
-    return { messages: history, contextItems, inputIds, historyInputIds };
+    return { messages: history, contextItems, inputIds, historyInputIds, inputMeasurement: restored.inputMeasurement };
   }
 
   async #projectHarnessEvents(

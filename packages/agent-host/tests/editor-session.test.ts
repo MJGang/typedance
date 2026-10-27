@@ -31,10 +31,11 @@ async function setup(mode: CanvasMutationMode) {
   const prepare = vi.fn(async () => ({ id: "transaction", document_id: "doc_1", editor_session_id: "editor_1", content_revision: 2,
     before_doc_json: snapshot.doc_json, doc_json: updated.doc_json, summary: "改写原文", effects: [{ capability: "text.replace", title: "改写文字", effect: "content" }], catalog_revision: "current", node_origins: [], text_origins: [] }));
   const pageReader = vi.fn(async () => ({ page_count: 1, pages: [{ page: 1, width: 794, height: 1123, image_url: "data:image/png;base64,aGVsbG8=" }] }));
+  const inspect = vi.fn(async (value: EditorSnapshot) => ({ text: value.plain_text }));
   const host = createAgentHost({ runtime, packs: [{ id: "resume", capabilityPolicy: { scopeIds: ["pack:resume"] }, primaryAgentId: "resume.primary" }], resumeTools: {
     pageReader, supportsImages: () => true, editor: {
       catalog: async () => ({ revision: "current", scope: "current_document", units: {}, template_schema: {}, operations: [] }),
-      inspect: async (value) => ({ text: value.plain_text }), prepare,
+      inspect, prepare,
     },
   } });
   const conversation = host.createConversation("doc_1");
@@ -56,11 +57,11 @@ async function setup(mode: CanvasMutationMode) {
     host.respondToEditorRequest(run.id, request.id, { status: "snapshot", snapshot: value });
     return request;
   }
-  return { host, run, requests, prepare, pageReader, nextRequest, answerSnapshot };
+  return { host, run, requests, prepare, inspect, pageReader, nextRequest, answerSnapshot };
 }
 
 describe("live editor execution lifecycle", () => {
-  it("returns unchanged decisions and the current snapshot to the model without claiming a write", async () => {
+  it("returns unchanged decisions and a fresh revision without replaying the entire document or claiming a write", async () => {
     const test = await setup("review");
     try {
       await test.answerSnapshot();
@@ -71,8 +72,10 @@ describe("live editor execution lifecycle", () => {
       await test.answerSnapshot();
       await test.host.waitForRun(test.run.id);
       const result = JSON.parse(String(test.requests[3]?.prompt.conversation.find((message) => message.role === "tool" && message.toolName === "resume.edit")?.content)).output;
-      expect(result).toMatchObject({ status: "unchanged", content_revision: 2, current: { text: "当前原文" } });
+      expect(result).toMatchObject({ status: "unchanged", content_revision: 2, editor_session_id: "editor_1" });
+      expect(result).not.toHaveProperty("current");
       expect(result).not.toHaveProperty("persisted");
+      expect(test.inspect).toHaveBeenCalledOnce();
     } finally { if (test.host.getAgentRun(test.run.id).status === "running") test.host.cancelAgentRun(test.run.id); }
   });
 
@@ -92,10 +95,18 @@ describe("live editor execution lifecycle", () => {
       await test.host.waitForRun(test.run.id);
       expect(test.host.getAgentRun(test.run.id).status).toBe("completed");
       expect(test.pageReader).toHaveBeenCalledWith(expect.objectContaining({ snapshot: updated }));
-      expect(JSON.stringify(test.requests[3]?.prompt.conversation)).toContain("更新后的原文");
+      const editReceipt = JSON.parse(String(test.requests[3]?.prompt.conversation.find((message) => message.role === "tool" && message.toolName === "resume.edit")?.content)).output;
+      expect(editReceipt).toMatchObject({ status: "applied", content_revision: 3, persisted: false,
+        mutation_mode: mode, decision_source: mode === "review" ? "user" : "document_grant" });
+      expect(editReceipt).not.toHaveProperty("current");
+      expect(test.inspect).toHaveBeenCalledOnce();
       expect(JSON.stringify(test.requests[5]?.prompt.conversation)).toContain("Final editor evidence");
       const audit = test.requests[5]?.prompt.conversation.find((message) => message.role === "user" && message.internal === "completion");
       expect(String(audit?.content)).toContain('"status":"applied","persisted":false');
+      expect(String(audit?.content)).toContain('"text_characters":6');
+      expect(String(audit?.content)).toContain(`"mutation_mode":"${mode}"`);
+      expect(String(audit?.content)).not.toContain("更新后的原文");
+      expect(String(audit?.content)).toContain("not the user's requested text or visual layout");
       expect(test.host.listAgentRunEvents(test.run.id)).toContainEqual(expect.objectContaining({ type: "editor_response", payload: expect.objectContaining({ status: "applied", content_revision: 3 }) }));
       expect(() => test.host.respondToEditorRequest(test.run.id, request.id, { status: "applied", snapshot: updated })).not.toThrow();
       expect(test.host.listAgentRunEvents(test.run.id).filter((event) => event.type === "editor_response" && event.payload.request_id === request.id)).toHaveLength(1);
