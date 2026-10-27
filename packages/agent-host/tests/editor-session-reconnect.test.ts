@@ -38,6 +38,7 @@ describe("editor session reconnect", () => {
     session.respond(requests[0].id, { status: "snapshot", snapshot });
     await reading;
     const writing = session.apply(transaction);
+    session.beginExecution(requests[1].id);
     expect(() => session.respond(requests[1].id, { status: "applied", snapshot: { ...snapshot, editor_session_id: "new" } })).toThrow("授权文档");
     session.respond(requests[1].id, { status: "rejected" });
     await writing;

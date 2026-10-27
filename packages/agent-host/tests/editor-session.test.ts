@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { once } from "node:events";
 import { createHarnessRuntime, type HarnessModelRequest } from "@typedance/harness-core";
 import type { CanvasMutationMode, EditorRequest, EditorSnapshot } from "@typedance/contracts";
-import { createAgentHost } from "../src";
+import { createAgentHost, createAgentHostServer } from "../src";
 import { createResumePluginLoader, registerResumeWorkbenchPlugin } from "../src/resume-plugin";
 
 const snapshot: EditorSnapshot = {
@@ -61,12 +62,85 @@ async function setup(mode: CanvasMutationMode) {
 }
 
 describe("live editor execution lifecycle", () => {
+  it("releases manual waiting when a follow-up supersedes the proposal and consumes the new requirement", async () => {
+    const test = await setup("review");
+    try {
+      await test.answerSnapshot();
+      await test.answerSnapshot();
+      const request = await test.nextRequest();
+      await test.host.steerAgentRun(test.run.id, { message: { content: "先不要应用，先核对当前内容" } });
+      expect(() => test.host.beginEditorRequest(test.run.id, request.id)).toThrow("已结束");
+      await test.answerSnapshot();
+      await test.answerSnapshot();
+      await test.host.waitForRun(test.run.id);
+      expect(test.host.getAgentRun(test.run.id).status).toBe("completed");
+      expect(JSON.stringify(test.requests[3].prompt.conversation)).toContain("先不要应用，先核对当前内容");
+      expect(test.host.listAgentRunEvents(test.run.id).filter((event) => event.type === "editor_execution_started")).toHaveLength(0);
+    } finally { if (test.host.getAgentRun(test.run.id).status === "running") test.host.cancelAgentRun(test.run.id); }
+  });
+
+  it("starts manual execution over HTTP once and refuses ended or foreign requests", async () => {
+    const test = await setup("review");
+    const token = "editor-execution-test-token-0123456789";
+    const server = createAgentHostServer({ host: test.host, authToken: token });
+    server.listen();
+    await once(server.nodeServer, "listening");
+    try {
+      await test.answerSnapshot();
+      await test.answerSnapshot();
+      const request = await test.nextRequest();
+      const begin = (runId: string, requestId: string) => fetch(`${server.url}/agent-runs/${runId}/editor-requests/${requestId}/execute`, { method: "POST", headers: { authorization: `Bearer ${token}` } });
+      expect((await begin("other-run", request.id)).status).toBe(409);
+      const result = await begin(test.run.id, request.id);
+      expect(result.status).toBe(200);
+      expect(await result.json()).toMatchObject({ id: request.id, mode: "review" });
+      expect((await begin(test.run.id, request.id)).status).toBe(200);
+      expect(test.host.listAgentRunEvents(test.run.id).filter((event) => event.type === "editor_execution_started")).toHaveLength(1);
+      test.host.respondToEditorRequest(test.run.id, request.id, { status: "unchanged", snapshot });
+      expect((await begin(test.run.id, request.id)).status).toBe(409);
+      await test.answerSnapshot();
+      await test.answerSnapshot();
+      await test.host.waitForRun(test.run.id);
+    } finally {
+      if (test.host.getAgentRun(test.run.id).status === "running") test.host.cancelAgentRun(test.run.id);
+      await server.close();
+    }
+  });
+
+  it("does not call the model again while awaiting an old manual decision, then resumes after approval", async () => {
+    const test = await setup("review");
+    try {
+      await test.answerSnapshot();
+      await test.answerSnapshot();
+      const request = await test.nextRequest();
+      const modelCalls = test.requests.length;
+      vi.useFakeTimers();
+      await vi.advanceTimersByTimeAsync(12 * 60 * 60_000);
+      expect(test.host.getEditorRequest(test.run.id, request.id)).toEqual(request);
+      expect(test.host.getAgentRun(test.run.id).status).toBe("running");
+      expect(test.requests).toHaveLength(modelCalls);
+      expect(test.host.listAgentRunEvents(test.run.id).filter((event) => event.type === "editor_request" && (event.payload.request as EditorRequest).kind === "transaction")).toHaveLength(1);
+      vi.useRealTimers();
+      test.host.beginEditorRequest(test.run.id, request.id);
+      test.host.respondToEditorRequest(test.run.id, request.id, { status: "applied", snapshot: updated, persisted: true });
+      await test.answerSnapshot(updated);
+      await test.answerSnapshot(updated);
+      await test.host.waitForRun(test.run.id);
+      expect(test.host.getAgentRun(test.run.id).status).toBe("completed");
+      expect(test.requests.length).toBeGreaterThan(modelCalls);
+    } finally {
+      vi.useRealTimers();
+      if (test.host.getAgentRun(test.run.id).status === "running") test.host.cancelAgentRun(test.run.id);
+    }
+  });
+
   it("returns unchanged decisions and a fresh revision without replaying the entire document or claiming a write", async () => {
     const test = await setup("review");
     try {
       await test.answerSnapshot();
       await test.answerSnapshot();
       const request = await test.nextRequest();
+      test.host.beginEditorRequest(test.run.id, request.id);
       test.host.respondToEditorRequest(test.run.id, request.id, { status: "unchanged", snapshot });
       await test.answerSnapshot();
       await test.answerSnapshot();
@@ -89,6 +163,7 @@ describe("live editor execution lifecycle", () => {
       expect(request.mode).toBe(mode);
       expect(test.host.getAgentRun(test.run.id).status).toBe("running");
       expect(test.pageReader).not.toHaveBeenCalled();
+      if (mode === "review") test.host.beginEditorRequest(test.run.id, request.id);
       test.host.respondToEditorRequest(test.run.id, request.id, { status: "applied", snapshot: updated });
       await test.answerSnapshot(updated);
       await test.answerSnapshot(updated);

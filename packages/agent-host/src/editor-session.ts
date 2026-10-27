@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { editorResponseSchema, type CanvasMutationMode, type EditorRequest, type EditorResponse, type EditorSnapshot, type EditorTransaction } from "@typedance/contracts";
 
-type Pending = { request: EditorRequest; resolve: (response: EditorResponse) => void; reject: (error: Error) => void; cleanup: () => void };
-type Emit = (type: "editor_request" | "editor_response", payload: Record<string, unknown>) => void;
+type Pending = { request: EditorRequest; resolve: (response: EditorResponse) => void; cleanup: () => void; startExecution: () => void; executing: boolean };
+type Emit = (type: "editor_request" | "editor_execution_started" | "editor_response", payload: Record<string, unknown>) => void;
 
 /** 活动编辑器的请求/确认通道。Host 不执行文档变换，也不假定事件已被前端执行。 */
 export class EditorSession {
@@ -45,10 +45,36 @@ export class EditorSession {
     return item.request;
   }
 
+  beginExecution(requestId: string): EditorRequest {
+    const request = this.pending(requestId);
+    const item = this.#pending.get(requestId)!;
+    if (request.kind !== "transaction" || request.mode !== "review") throw new Error("此请求无需人工确认");
+    if (!item.executing) {
+      item.executing = true;
+      item.startExecution();
+      this.#emit("editor_execution_started", { request_id: requestId });
+    }
+    return request;
+  }
+
+  supersedeApproval(): void {
+    for (const [id, item] of this.#pending) {
+      if (item.request.kind !== "transaction" || item.request.mode !== "review" || item.executing) continue;
+      item.cleanup();
+      this.#pending.delete(id);
+      const error = "用户已补充新的要求，此预览已结束；请先处理最新输入，再核对当前画布并生成待确认修改";
+      this.#decisions.push({ status: "failed" });
+      this.#emit("editor_response", { request_id: id, status: "failed", error });
+      item.resolve({ status: "failed", error });
+    }
+  }
+
   respond(requestId: string, value: unknown): void {
     const item = this.#pending.get(requestId);
     if (!item || this.#signal.aborted) throw new Error("编辑请求已结束");
     const response = editorResponseSchema.parse(value);
+    if (item.request.kind === "transaction" && item.request.mode === "review"
+      && (response.status === "applied" || response.status === "unchanged") && !item.executing) throw new Error("请先确认应用修改");
     const snapshot = response.snapshot;
     if (snapshot && (snapshot.document_id !== this.snapshot.document_id || (item.request.kind !== "snapshot" && snapshot.editor_session_id !== this.snapshot.editor_session_id)
       || JSON.stringify(snapshot.doc_json).length > 500_000)) throw new Error("编辑器快照不属于本次授权文档或编辑会话");
@@ -93,15 +119,22 @@ export class EditorSession {
       editor_session_id: this.snapshot.editor_session_id, kind, mode: this.mode === "solo" ? "solo" : "review", ...(transaction ? { transaction } : {}) };
     return new Promise((resolve, reject) => {
       const abort = () => finish(new Error("编辑请求已取消"));
-      const timeout = setTimeout(() => finish(new Error("等待编辑器响应超时，请重新发送任务")), 300_000);
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const startExecution = () => {
+        timeout = setTimeout(() => finish(new Error(kind === "transaction"
+          ? "编辑执行结果回传超时，修改可能已生效；请先核对当前画布，勿直接重复修改"
+          : "读取编辑器超时，请检查当前画布连接后重试")), 300_000);
+      };
       const cleanup = () => { clearTimeout(timeout); this.#signal.removeEventListener("abort", abort); };
       const finish = (error: Error) => {
         cleanup(); this.#pending.delete(request.id);
         this.#emit("editor_response", { request_id: request.id, status: "failed", error: error.message });
         reject(error);
       };
-      this.#pending.set(request.id, { request, resolve, reject, cleanup });
+      const waitingForApproval = kind === "transaction" && request.mode === "review";
+      this.#pending.set(request.id, { request, resolve, cleanup, startExecution, executing: !waitingForApproval });
       this.#signal.addEventListener("abort", abort, { once: true });
+      if (!waitingForApproval) startExecution();
       this.#emit("editor_request", { request });
     });
   }
