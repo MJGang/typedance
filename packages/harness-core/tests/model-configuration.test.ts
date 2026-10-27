@@ -64,6 +64,51 @@ describe("model configuration refresh", () => {
     expect(runtime.getRun(run.id).status).toBe("failed");
   });
 
+  it.each([false, true])("refreshes settings changed during a compaction stream and rechecks the next request budget; tightened=%s", async (tightened) => {
+    let effort: "low" | "high" = "low";
+    let entered!: () => void; const waiting = new Promise<void>((resolve) => { entered = resolve; });
+    let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
+    const requests: HarnessModelRequest[] = [];
+    let refreshes = 0;
+    const runtime = createHarnessRuntime({ model: { async *stream(request) {
+      requests.push(request);
+      if (request.purpose === "compaction") {
+        entered(); await gate;
+        yield { type: "assistant_delta", messageId: "summary", delta: "资料已核验，继续完成用户要求。" };
+        yield { type: "final", output: {} }; return;
+      }
+      if (requests.length === 1) yield { type: "tool_call", call: { id: "read", name: "test.wait", origin: "plugin", input: {} } };
+      yield { type: "final", output: {}, usage: { inputTokens: 600, outputTokens: 10 } };
+    } } });
+    register(runtime);
+    runtime.registerTool({ name: "test.wait", origin: "plugin", handler: () => ({ text: "a".repeat(10_000) }) });
+    const run = runtime.createRun({ user_message: "verify", capability_policy: policy });
+    const work = runtime.runAgentTurn({ runId: run.id, agentId: "agent", model: "model", messages: [{ role: "user", content: "verify" }],
+      resolveModelConfiguration: () => {
+        refreshes += 1;
+        const current = configuration(effort);
+        return { ...current, contextWindow: { ...current.contextWindow, maxInputTokens: tightened && effort === "high" ? 256 : 5_000,
+          compactAtRatio: 0.6, growthHeadroomTokens: 0, retainedUserTokens: 500, summaryTokens: 300 } };
+      } });
+    await waiting;
+    effort = "high";
+    release();
+    if (tightened) {
+      await expect(work).rejects.toThrow("Context exceeds the configured input budget");
+      expect(requests.map((request) => request.purpose)).toEqual(["response", "compaction"]);
+      expect(runtime.getCheckpoint(run.id)?.compactions).toBe(1);
+      expect(runtime.getCheckpoint(run.id)?.prompt.conversation).toContainEqual(expect.objectContaining({ internal: "compaction" }));
+      return;
+    }
+    await work;
+    expect(requests.map((request) => request.purpose)).toEqual(["response", "compaction", "response"]);
+    expect(requests[1]).toMatchObject({ modelOptions: { reasoningEffort: "low" }, maxOutputTokens: 300 });
+    expect(requests[2]).toMatchObject({ modelOptions: { reasoningEffort: "high" }, maxOutputTokens: 4_000 });
+    expect(refreshes).toBe(3);
+    expect(runtime.getCheckpoint(run.id)?.compactions).toBe(1);
+    expect(runtime.getEvents(run.id).filter((event) => event.type === "model.call.started").at(-1)).toMatchObject({ input_calibrated: false });
+  });
+
   it("cancels a configuration resolver that ignores cancellation and does not issue a model request", async () => {
     let entered!: () => void; const waiting = new Promise<void>((resolve) => { entered = resolve; });
     let release!: (value: HarnessModelConfiguration) => void;

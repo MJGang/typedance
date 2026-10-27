@@ -590,7 +590,10 @@ export class HarnessRuntime {
           Object.assign(state, candidate);
         }
       }
+      const compactions = state.compactions;
       await this.#compactIfNeeded(state, availableTools, skillContext.policy, signal);
+      // 摘要请求结束后，下一次模型调用必须重新读取生成选项并检查当前预算。
+      if (state.compactions !== compactions) continue;
       // Steering received during compaction belongs after the compacted prefix.
       if (this.#pendingInputs.get(input.runId)?.length) continue;
       this.#checkBudget(state);

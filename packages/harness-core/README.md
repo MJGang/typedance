@@ -2,7 +2,7 @@
 
 Runtime 只负责通用的模型循环、工具、权限、历史和上下文预算。宿主通过 `runAgentTurn.contextWindow` 为本次运行提供模型容量与产品预算；配置写入检查点，互相并行的运行不会共享可变预算。
 
-宿主需要在运行中调整生成选项时，提供可选 `runAgentTurn.resolveModelConfiguration`。Runtime 在每个模型循环步的压缩判断前等待它，按当前配置更新 `modelOptions`、`modelConfigurationKey` 和 `contextWindow`，再决定预算与输出上限；回调没有返回的字段保留本次运行的值，部分 `contextWindow` 覆盖当前运行预算。配置改变会使旧测量按指纹失效，配置不变则继续复用前缀测量。回调不进入检查点；取消会立即停止等待，解析或持久化失败时保留已有历史和已生效配置。
+宿主需要在运行中调整生成选项时，提供可选 `runAgentTurn.resolveModelConfiguration`。Runtime 在每个模型循环步的压缩判断前等待它，按当前配置更新 `modelOptions`、`modelConfigurationKey` 和 `contextWindow`，再决定预算与输出上限；成功压缩后重新进入循环，保证摘要等待期间的设置变化在下一次普通请求前生效，并重新检查预算。回调没有返回的字段保留本次运行的值，部分 `contextWindow` 覆盖当前运行预算。配置改变会使旧测量按指纹失效，配置不变则继续复用前缀测量。回调不进入检查点；取消会立即停止等待，解析或持久化失败时保留已有历史和已生效配置。
 
 - `maxInputTokens` 是产品输入上限，`modelContextTokens` 是模型的输入加输出总容量。
 - `reservedOutputTokens` 同时限制普通模型请求的 `maxOutputTokens`；摘要请求单独使用 `summaryTokens`。
