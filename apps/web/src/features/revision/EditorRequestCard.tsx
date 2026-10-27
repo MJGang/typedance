@@ -81,7 +81,7 @@ export function EditorRequestCard({ runId, request, events, active }: { runId: s
         <Button type="button" variant="outline" size="sm" disabled={busy || !!error} onClick={() => { void submit(false) }}>保留原文</Button>
       </> : null}
       {state === "applied" ? <Button type="button" variant="outline" size="sm" onClick={() => { if (context?.undo(transaction.id)) setUndone(true) }}><Undo2 data-icon="inline-start" />撤销修改</Button> : null}
-      {error && active ? <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { void submit(true) }}>重试回传结果</Button> : null}
+      {active && (error || (state === "applying" && !busy)) ? <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { void submit(true) }}>重试回传结果</Button> : null}
     </CardFooter>
   </Card>
 }
