@@ -3,12 +3,12 @@ import { useEffect } from "react"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { EditorRequest, EditorSnapshot } from "@typedance/contracts"
-import { getEditorRequest, respondToEditorRequest } from "@/agentHost"
+import { beginEditorRequest, getEditorRequest, respondToEditorRequest } from "@/agentHost"
 import { EditorRequestCard } from "./EditorRequestCard"
 import { flushSourceCanvasSaves } from "./useSourceCanvasAutosave"
 import { EditorReferencesProvider, useEditorReferences, type CanvasReferenceBridge } from "./references/EditorReferences"
 
-vi.mock("@/agentHost", () => ({ getEditorRequest: vi.fn(), respondToEditorRequest: vi.fn() }))
+vi.mock("@/agentHost", () => ({ beginEditorRequest: vi.fn(), getEditorRequest: vi.fn(), respondToEditorRequest: vi.fn() }))
 vi.mock("./useSourceCanvasAutosave", () => ({ flushSourceCanvasSaves: vi.fn() }))
 vi.mock("./EditorTransactionPreview", () => ({ default: () => <div>真实文档预览入口</div> }))
 
@@ -28,6 +28,7 @@ function setup(value = request, active = true, changed = true) {
   const bridge: CanvasReferenceBridge = { getSnapshot: vi.fn(async () => snapshot), getRevision: () => 3,
     apply: vi.fn(() => changed), undo: vi.fn(() => true), track: vi.fn(), untrack: vi.fn(), setOrdinals: vi.fn(), locate: () => false }
   vi.mocked(getEditorRequest).mockResolvedValue(value)
+  vi.mocked(beginEditorRequest).mockResolvedValue(value)
   vi.mocked(respondToEditorRequest).mockResolvedValue(undefined)
   render(<EditorReferencesProvider documentId="doc"><Bridge bridge={bridge} /><EditorRequestCard runId="run" request={value} events={[]} active={active} /></EditorReferencesProvider>)
   return bridge
@@ -58,13 +59,33 @@ describe("editor request decisions", () => {
   it("review waits for approval and applies one undoable transaction", async () => {
     const bridge = setup()
     expect(bridge.apply).not.toHaveBeenCalled()
+    expect(screen.getByText("等待你应用修改")).toBeInTheDocument()
+    expect(beginEditorRequest).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole("button", { name: "应用修改" }))
     await screen.findByText("已应用")
     expect(bridge.apply).toHaveBeenCalledExactlyOnceWith(request.transaction)
+    expect(beginEditorRequest).toHaveBeenCalledExactlyOnceWith("run", "request")
     expect(respondToEditorRequest).toHaveBeenCalledWith("run", "request", { status: "applied", snapshot, persisted: true })
     fireEvent.click(screen.getByRole("button", { name: "撤销修改" }))
     expect(bridge.undo).toHaveBeenCalledOnce()
     expect(screen.getByText("已撤销")).toBeInTheDocument()
+  })
+
+  it("does not edit if the Host refuses to begin an ended request", async () => {
+    const bridge = setup()
+    vi.mocked(beginEditorRequest).mockRejectedValueOnce(new Error("编辑请求已结束"))
+    fireEvent.click(screen.getByRole("button", { name: "应用修改" }))
+    await screen.findByText("编辑请求已结束")
+    expect(bridge.apply).not.toHaveBeenCalled()
+    expect(respondToEditorRequest).not.toHaveBeenCalled()
+  })
+
+  it("does not start execution for a rejection", async () => {
+    const bridge = setup()
+    fireEvent.click(screen.getByRole("button", { name: "保留原文" }))
+    await waitFor(() => expect(respondToEditorRequest).toHaveBeenCalledWith("run", "request", { status: "rejected" }))
+    expect(beginEditorRequest).not.toHaveBeenCalled()
+    expect(bridge.apply).not.toHaveBeenCalled()
   })
 
   it("retries only the acknowledgement after a transport failure", async () => {
@@ -75,7 +96,7 @@ describe("editor request decisions", () => {
     fireEvent.click(screen.getByRole("button", { name: "重试回传结果" }))
     await screen.findByText("已应用")
     expect(bridge.apply).toHaveBeenCalledOnce()
-    expect(getEditorRequest).toHaveBeenCalledOnce()
+    expect(beginEditorRequest).toHaveBeenCalledOnce()
     expect(respondToEditorRequest).toHaveBeenCalledTimes(2)
   })
 

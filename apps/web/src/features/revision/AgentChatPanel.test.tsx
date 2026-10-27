@@ -141,10 +141,35 @@ describe("AgentChatPanel", () => {
     agentHostMocks.startConversationRun.mockResolvedValue({ id: "new-run", conversation_id: "conv_1", status: "running", mutation_mode: "review", started_at: "2026-06-16T08:00:02.000Z" })
     render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
     const resume = await screen.findByRole("button", { name: "继续任务" })
+    fireEvent.keyDown(screen.getByRole("button", { name: "手动应用" }), { key: "Enter" })
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true)
+    fireEvent.click(await screen.findByRole("menuitem", { name: /自动修改/ }))
+    confirm.mockRestore()
+    expect(screen.getByRole("button", { name: "自动修改" })).toBeInTheDocument()
     typeComposerText(screen.getByRole("textbox", { name: "AI 输入" }), "还没写完的草稿")
     fireEvent.click(resume)
     await waitFor(() => expect(agentHostMocks.startConversationRun).toHaveBeenCalledWith(expect.objectContaining({ resumeFromRunId: "failed-run", content: expect.stringContaining("继续未完成的任务"), mentions: [] })))
     expect(screen.getByRole("textbox", { name: "AI 输入" })).toHaveTextContent("还没写完的草稿")
+    await screen.findByRole("button", { name: "手动应用" })
+  })
+
+  it("shows manual approval as waiting and switches to execution only after the explicit start event", async () => {
+    const source = controllableEventSource()
+    const runId = "approval-run"
+    const request = { id: "approval", kind: "transaction", mode: "review", document_id: "doc_1", editor_session_id: "editor", transaction: {
+      id: "tx", document_id: "doc_1", editor_session_id: "editor", content_revision: 0, summary: "改写合成内容", before_doc_json: {}, doc_json: {}, catalog_revision: "catalog", effects: [], node_origins: [], text_origins: [],
+    } }
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage("", runId)])
+    agentHostMocks.getConversationActiveRun.mockResolvedValue({ id: runId, conversation_id: "conv_1", status: "running", mutation_mode: "review", started_at: "2026-06-16T08:00:00.000Z" })
+    agentHostMocks.listAgentRunEvents.mockResolvedValue([{ id: "request-event", run_id: runId, sequence: 1, type: "editor_request", payload: { request }, created_at: "2026-06-16T08:00:01.000Z" }])
+    agentHostMocks.createAgentRunEventSource.mockReturnValue(source.source)
+    render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
+    await screen.findByRole("button", { name: "应用修改" })
+    expect(screen.getAllByText(/等待你应用修改/).length).toBeGreaterThanOrEqual(2)
+    await act(async () => source.dispatch("editor_execution_started", { id: "start-event", run_id: runId, sequence: 2, type: "editor_execution_started", payload: { request_id: "approval" }, created_at: "2026-06-16T08:00:02.000Z" }))
+    await screen.findByText("正在应用")
+    expect(screen.queryByRole("button", { name: "应用修改" })).not.toBeInTheDocument()
+    expect(screen.queryByText(/等待你应用修改/)).not.toBeInTheDocument()
   })
 
   it("pastes an image as a removable card, sends attachment-only input and keeps it on send failure", async () => {

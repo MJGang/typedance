@@ -20,7 +20,7 @@ import { ChatModelMenu } from "./ChatModelMenu"
 import { LiveChatStatusBar } from "./LiveChatStatusBar"
 import { HoverScrollText } from "@/components/HoverScrollText"
 import { statisticsRevision } from "./useChatStatistics"
-import { harnessAttachmentsSchema, type HarnessAttachment } from "@typedance/contracts"
+import { editorRequestSchema, harnessAttachmentsSchema, type HarnessAttachment } from "@typedance/contracts"
 import {
   cancelAgentRun,
   createWorkspaceConversation,
@@ -75,6 +75,7 @@ const streamedEventTypes: AgentRunEvent["type"][] = [
   "canvas_patch_applied",
   "text_edit_decision",
   "editor_request",
+  "editor_execution_started",
   "editor_response",
   "run_completed",
   "run_failed",
@@ -110,10 +111,18 @@ function getRunStatusLabel(terminal: AgentRunEvent, message: AgentMessage): stri
 }
 
 function getInProgressRunStatusLabel(events: AgentRunEvent[]): string | null {
+  const endedRequests = new Set<unknown>()
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index]
+    if (event.type === "editor_response" || event.type === "editor_execution_started") endedRequests.add(event.payload.request_id)
+    if (event.type !== "editor_request") continue
+    const parsed = editorRequestSchema.safeParse(event.payload.request)
+    if (parsed.success && parsed.data.kind === "transaction" && parsed.data.mode === "review" && !endedRequests.has(parsed.data.id)) return "等待你应用修改"
+  }
   const latest = [...events].reverse().find((event) => event.type !== "user_input_received" && event.type !== "user_input_applied" && runtimeEvent(event)?.type !== "model.call.progress")
   if (latest?.type === "thinking_delta") return RUN_TRACE_COPY.thinkingStatus
   if (latest?.type === "assistant_delta") return "正在回复"
-  if (latest?.type === "tool_call_started" || latest?.type === "tool_call_delta" || latest?.type === "editor_request") return "正在执行"
+  if (latest?.type === "tool_call_started" || latest?.type === "tool_call_delta" || latest?.type === "editor_request" || latest?.type === "editor_execution_started") return "正在执行"
   return "正在处理"
 }
 
@@ -543,6 +552,7 @@ function AgentChatContent({
         return
       }
       const run = result as AgentRun
+      if (resumeFromRunId) setMutationMode(run.mutation_mode)
       setRunningRunId(run.id)
       await loadMessages(conversationId)
       if (pending.invalidated) return

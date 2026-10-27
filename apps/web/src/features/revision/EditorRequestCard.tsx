@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { Undo2 } from "lucide-react"
 import { editorRequestSchema, type AgentRunEvent, type EditorRequest, type EditorResponse } from "@typedance/contracts"
-import { getEditorRequest, respondToEditorRequest } from "@/agentHost"
+import { beginEditorRequest, getEditorRequest, respondToEditorRequest } from "@/agentHost"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -40,7 +40,8 @@ export function EditorRequestCard({ runId, request, events, active }: { runId: s
     try {
       // 先确认 Host 仍在等待。历史事件、已取消任务和重连回放不能再次写入。
       if (!resultRef.current) {
-        const current = await getEditorRequest(runId, request.id)
+        const current = approved && request.kind === "transaction" && request.mode === "review"
+          ? await beginEditorRequest(runId, request.id) : await getEditorRequest(runId, request.id)
         resultRef.current = mounted.current && handleRequest ? await handleRequest(current, approved) : { status: "failed", error: "当前编辑器不可用" }
       }
       await respondToEditorRequest(runId, request.id, resultRef.current)
@@ -53,13 +54,14 @@ export function EditorRequestCard({ runId, request, events, active }: { runId: s
       inFlight.current = false
       if (mounted.current) setBusy(false)
     }
-  }, [runId, request.id, handleRequest, completeRequest])
+  }, [runId, request.id, request.kind, request.mode, handleRequest, completeRequest])
 
   if (request.kind === "snapshot") return error ? <div><p role="alert" className="text-sm text-destructive">{error}</p>{active ? <Button variant="outline" size="sm" disabled={busy} onClick={() => { void submit(true) }}>重试读取画布</Button> : null}</div> : null
   const transaction = request.transaction
   if (!transaction) return null
-  const state = undone ? "undone" : String(resolved?.payload.status ?? status ?? (active ? "pending" : "ended"))
-  const label = { pending: request.mode === "solo" ? "正在应用" : "等待确认", applied: "已应用", unchanged: "已符合要求", rejected: "保留原文", failed: "未能应用", undone: "已撤销", ended: "请求已结束" }[state] ?? state
+  const executing = events.some((event) => event.type === "editor_execution_started" && event.payload.request_id === request.id)
+  const state = undone ? "undone" : String(resolved?.payload.status ?? status ?? (active ? executing ? "applying" : "pending" : "ended"))
+  const label = { pending: request.mode === "solo" ? "正在应用" : "等待你应用修改", applying: "正在应用", applied: "已应用", unchanged: "已符合要求", rejected: "保留原文", failed: "未能应用", undone: "已撤销", ended: "请求已结束" }[state] ?? state
   return <Card className="my-3 gap-3" data-testid="editor-transaction">
     <CardHeader className="gap-2">
       <div className="flex items-center justify-between gap-2"><CardTitle>编辑简历</CardTitle><Badge variant="secondary">{label}</Badge></div>
@@ -67,6 +69,7 @@ export function EditorRequestCard({ runId, request, events, active }: { runId: s
     </CardHeader>
     <CardContent className="flex flex-col gap-3">
       <p className="text-xs text-muted-foreground">仅修改当前简历，模板样式调整不会影响其他简历。</p>
+      {state === "pending" && request.mode === "review" ? <p className="text-xs text-muted-foreground">可以稍后再确认，等待期间不会自动应用或重复提交修改。</p> : null}
       <Button type="button" variant="outline" size="sm" onClick={() => setPreviewOpen((open) => !open)}>{previewOpen ? "收起预览" : "查看修改预览"}</Button>
       {previewOpen ? <Suspense fallback={<p className="text-xs text-muted-foreground">正在准备预览…</p>}><TransactionPreview transaction={transaction} /></Suspense> : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}

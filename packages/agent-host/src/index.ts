@@ -8,6 +8,7 @@ import {
   contextMentionSchema,
   editorReferencesSchema,
   editorSnapshotSchema,
+  editorRequestSchema,
   editorResponseSchema,
   modelSettingsUpdateSchema,
   modelSelectionUpdateSchema,
@@ -256,6 +257,13 @@ export class AgentHost {
     catch (error) { throw new HttpError(409, error instanceof Error ? error.message : "editor_request_ended"); }
   }
 
+  beginEditorRequest(runId: string, requestId: string) {
+    const session = this.#editorSessions.get(runId);
+    if (!session) throw new HttpError(409, "editor_session_ended");
+    try { return session.beginExecution(requestId); }
+    catch (error) { throw new HttpError(409, error instanceof Error ? error.message : "editor_request_ended"); }
+  }
+
   respondToEditorRequest(runId: string, requestId: string, response: unknown): void {
     // 确认包可能在服务端成功后丢失；同一个请求只确认一次，重试不能再次触发编辑。
     const previous = this.store.listRunEvents(runId).find((event) => event.type === "editor_response" && event.payload.request_id === requestId);
@@ -290,7 +298,8 @@ export class AgentHost {
 
     const timestamp = this.#timestamp();
     const { content, mentions, references, attachments, editorSnapshot } = prepareConversationInput(workspaceId, input);
-    const mutationMode = canvasMutationModeSchema.parse(input.mutationMode ?? "review");
+    const mutationMode = canvasMutationModeSchema.parse(input.resumeFromRunId
+      ? this.getAgentRun(input.resumeFromRunId).mutation_mode : input.mutationMode ?? "review");
     const userMessage = this.store.appendMessage({
       message: {
         id: this.#messageId(),
@@ -423,6 +432,7 @@ export class AgentHost {
     this.runtime.enqueueUserInput(runtimeRunId, { id: message.id, messages: [toModelMessage(message)], contextual });
     this.store.appendMessage({ message });
     if (session && prepared.editorSnapshot) session.updateSnapshot(prepared.editorSnapshot);
+    session?.supersedeApproval();
     this.store.updateConversation(run.conversation_id, { last_message_at: message.created_at, updated_at: message.created_at });
     return message;
   }
@@ -723,12 +733,29 @@ export class AgentHost {
     const timestamp = this.#timestamp();
     const runningRuns = this.store.listRuns().filter((run) => run.status === "running");
     for (const run of runningRuns) {
+      const events = this.store.listRunEvents(run.id);
+      const resolved = new Set(events.filter((event) => event.type === "editor_response").map((event) => event.payload.request_id));
+      const executing = new Set(events.filter((event) => event.type === "editor_execution_started").map((event) => event.payload.request_id));
+      const pending = events.flatMap((event) => {
+        if (event.type !== "editor_request") return [];
+        const parsed = editorRequestSchema.safeParse(event.payload.request);
+        return parsed.success && !resolved.has(parsed.data.id) ? [parsed.data] : [];
+      });
+      for (const request of pending) {
+        const error = request.kind === "snapshot" ? "客户端已重启，读取请求已结束；请继续任务重新读取当前画布。"
+          : request.mode === "review" && !executing.has(request.id) ? "客户端已重启，此预览已结束。请点击继续任务，核对当前画布后重新生成待确认修改。"
+          : "客户端已重启，修改可能已生效；请继续任务先核对当前画布，勿直接重复修改。";
+        this.#appendAgentRunEvent(run.id, "editor_response", { request_id: request.id, status: "failed",
+          error }, timestamp);
+      }
       this.#completeProjectedRun(run.id, run.conversation_id, "failed", timestamp);
       this.#appendAgentRunEvent(run.id, "run_failed", {
         recoverable: this.#recoverable(run.id),
         error: {
           code: "agent_host_restarted",
-          message: "Agent Host restarted before the run finished.",
+          message: pending.some((request) => request.kind === "transaction" && request.mode === "review" && !executing.has(request.id))
+            ? "客户端已重启。待确认修改保留在对话中，请继续任务并重新核对预览。"
+            : "Agent Host restarted before the run finished.",
         },
       }, timestamp);
     }
@@ -998,6 +1025,12 @@ async function route(context: RouteContext): Promise<boolean> {
     if (interactionMatch[2] === "questions") host.respondToQuestions(runId, requestId, body.answers);
     else host.respondToPermission(runId, requestId, parsePermissionStatus(body.status));
     writeJson(response, 200, { status: "accepted" });
+    return true;
+  }
+
+  const editorExecutionMatch = /^\/agent-runs\/([^/]+)\/editor-requests\/([^/]+)\/execute$/.exec(pathname);
+  if (request.method === "POST" && editorExecutionMatch) {
+    writeJson(response, 200, host.beginEditorRequest(decodeURIComponent(editorExecutionMatch[1]!), decodeURIComponent(editorExecutionMatch[2]!)));
     return true;
   }
 

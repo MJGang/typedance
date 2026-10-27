@@ -28,6 +28,7 @@ import {
   type CanvasMutationMode,
   type ContextMention,
   type EditorReference,
+  type EditorRequest,
   type EditorResponse,
   type ModelSettingsResponse,
   type ModelSettingsUpdate,
@@ -77,6 +78,11 @@ export async function respondToEditorRequest(runId: string, requestId: string, r
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(result),
   })
   await parseAgentHostResponse(response, (value) => value, "编辑结果未回传")
+}
+
+export async function beginEditorRequest(runId: string, requestId: string): Promise<EditorRequest> {
+  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/editor-requests/${encodeURIComponent(requestId)}/execute`, { method: "POST", signal: AbortSignal.timeout(30_000) })
+  return parseAgentHostResponse(response, (value) => editorRequestSchema.parse(value), "当前修改已无法应用")
 }
 let sessionToken: Promise<string> | undefined
 
