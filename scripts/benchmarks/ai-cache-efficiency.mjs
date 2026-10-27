@@ -164,7 +164,7 @@ async function makeHost() {
   });
   await registerResumeWorkbenchPlugin(runtime, loader);
   return createAgentHost({ runtime, store,
-    ...(profile === "optimized" ? { resolveModelRuntimeConfiguration: () => runtimeConfiguration } : {}),
+    ...(profile === "optimized" ? { resolveModelRuntimeConfiguration: () => ({ ...runtimeConfiguration, refresh: () => runtimeConfiguration }) } : {}),
     contextProvider: createSidecarContextProvider({ baseUrl: sidecarUrl }),
     resumeTools: { editor: editorService, supportsImages: () => false,
       pageReader: () => { throw new Error("This text-only benchmark does not validate image rendering"); } },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { modelRuntimeConfiguration } from "../src/model-catalog";
+import { createModelRuntimeConfiguration, modelRuntimeConfiguration } from "../src/model-catalog";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,18 @@ import { createHarnessRuntime, type HarnessModelRequest } from "@typedance/harne
 import { createAgentHost, createSqliteAgentHostStore, JsonFileHarnessCheckpointStore } from "../src/index";
 
 describe("run model configuration", () => {
+  it("refreshes the saved effort for the next call while preserving the run model and endpoint", async () => {
+    const settings = { model: "deepseek-flash", baseUrl: "https://api.deepseek.com/", reasoningEffort: "off" as "off" | "high" };
+    const configuration = await createModelRuntimeConfiguration(undefined, () => settings);
+    expect(configuration.modelOptions).toMatchObject({ reasoningEffort: "off" });
+    settings.model = "deepseek-v4-pro";
+    settings.reasoningEffort = "high";
+    const refreshed = await configuration.refresh!();
+    expect(refreshed).toEqual(modelRuntimeConfiguration("deepseek-flash", "high"));
+    expect(refreshed.modelConfigurationKey).not.toBe(configuration.modelConfigurationKey);
+    settings.baseUrl = "https://new.example/v1";
+    await expect(configuration.refresh!()).rejects.toThrow("模型服务地址已改变");
+  });
   it("separates the known model capacity from the product budget and reserves the effective output", () => {
     expect(modelRuntimeConfiguration("deepseek-flash", "off").contextWindow).toEqual({
       maxInputTokens: 160_000, compactAtRatio: 0.8, modelContextTokens: 1_048_576,
@@ -27,6 +39,36 @@ describe("run model configuration", () => {
       modelRuntimeConfiguration("deepseek-flash", "low", "https://gateway.example/v1"),
     ]) expect(changed.modelConfigurationKey).not.toBe(original.modelConfigurationKey);
     expect(original.modelOptions).toEqual({ reasoningEffort: "low", providerBaseUrl: "https://api.deepseek.com" });
+  });
+
+  it("applies a saved effort change after a running tool and invalidates the previous measurement", async () => {
+    const settings = { model: "deepseek-flash", baseUrl: "https://api.deepseek.com", reasoningEffort: "off" as "off" | "high" };
+    const requests: HarnessModelRequest[] = [];
+    const runtime = createHarnessRuntime({ model: { async *stream(request) {
+      requests.push(request);
+      if (requests.length === 1) yield { type: "tool_call", call: { id: "switch", name: "test.wait", origin: "plugin", input: {} } };
+      else yield { type: "assistant_delta", messageId: "answer", delta: "完成" };
+      yield { type: "final", output: {}, usage: { inputTokens: 100, outputTokens: 2 } };
+    } } });
+    runtime.registerPlugin({ id: "test", name: "Test", version: "1", module_format: "esm", scopes: ["test"],
+      agents: [{ id: "test.agent", name: "Test", role: "primary", allowed_tool_names: ["test.wait"] }] });
+    runtime.registerTool({ name: "test.wait", origin: "plugin", handler: () => { settings.reasoningEffort = "high"; return { observed: true }; } });
+    const host = createAgentHost({ runtime, defaultModel: "deepseek-flash",
+      resolveModelRuntimeConfiguration: (model) => createModelRuntimeConfiguration(model, () => settings),
+      packs: [{ id: "resume", primaryAgentId: "test.agent", capabilityPolicy: { pluginIds: ["test"] } }],
+    });
+    const conversation = host.createConversation("ws");
+    const run = host.startConversationRun("ws", conversation.id, { message: { content: "继续" } });
+    await host.waitForRun(run.id);
+    expect(host.getAgentRun(run.id).status).toBe("completed");
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toMatchObject({ modelOptions: { reasoningEffort: "off" }, maxOutputTokens: 8192 });
+    expect(requests[1]).toMatchObject({ modelOptions: { reasoningEffort: "high" }, maxOutputTokens: 65_536 });
+    const started = host.listAgentRunEvents(run.id).flatMap((event) => {
+      const raw = event.payload.event as { type?: string } | undefined;
+      return raw?.type === "model.call.started" ? [raw] : [];
+    });
+    expect(started[1]).toMatchObject({ input_calibrated: false });
   });
 
   it("restores a measured prefix through a disk restart and invalidates it when the saved run mode changes", async () => {

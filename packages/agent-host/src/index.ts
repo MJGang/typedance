@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createLocalAccess, HttpError, readJson, type LocalAccessOptions } from "./local-access";
 import type { AddressInfo } from "node:net";
 import type { HarnessRun, HarnessRunEvent } from "@typedance/harness-contracts";
-import { restoreCheckpointHistory, withRunSignal, type HarnessRuntime, type HarnessContextWindowOptions } from "@typedance/harness-core";
+import { restoreCheckpointHistory, withRunSignal, type HarnessRuntime, type HarnessModelConfiguration } from "@typedance/harness-core";
 import {
   canvasMutationModeSchema,
   contextMentionSchema,
@@ -109,10 +109,8 @@ export type AgentHostOptions = {
   now?: () => Date;
 };
 
-export type AgentHostModelRuntimeConfiguration = {
-  contextWindow?: HarnessContextWindowOptions;
-  modelConfigurationKey?: string;
-  modelOptions?: Record<string, unknown>;
+export type AgentHostModelRuntimeConfiguration = HarnessModelConfiguration & {
+  refresh?: () => HarnessModelConfiguration | Promise<HarnessModelConfiguration>;
 };
 
 export class AgentHost {
@@ -507,7 +505,8 @@ export class AgentHost {
       }
       signal.throwIfAborted();
       const { messages, contextItems, inputIds, historyInputIds, inputMeasurement } = await withRunSignal(this.#buildModelMessages(conversationId, assistantMessageId, mentions, userMessage, context, signal), signal);
-      const modelConfiguration = await withRunSignal(Promise.resolve(this.#resolveModelRuntimeConfiguration?.(model) ?? {}), signal);
+      const resolvedConfiguration: AgentHostModelRuntimeConfiguration = await withRunSignal(Promise.resolve(this.#resolveModelRuntimeConfiguration?.(model) ?? {}), signal);
+      const { refresh, ...modelConfiguration } = resolvedConfiguration;
       signal.throwIfAborted();
       const skillContext = await withRunSignal(this.runtime.buildAgentSkillContext({
         policy: {
@@ -531,6 +530,7 @@ export class AgentHost {
         historyInputIds,
         inputMeasurement,
         ...modelConfiguration,
+        resolveModelConfiguration: refresh,
         ...(editorSnapshot && this.#resumeTools ? { completionCheck: () => this.#resumeTools!.checkCompletion(signal) } : {}),
         ...(typeof context.resume_from_run_id === "string" ? { resumeFromRunId: context.resume_from_run_id } : {}),
       });
