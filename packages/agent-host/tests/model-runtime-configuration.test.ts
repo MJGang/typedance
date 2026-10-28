@@ -22,6 +22,7 @@ describe("run model configuration", () => {
   it("separates the known model capacity from the product budget and reserves the effective output", () => {
     expect(modelRuntimeConfiguration("deepseek-flash", "off").contextWindow).toEqual({
       maxInputTokens: 160_000, compactAtRatio: 0.8, modelContextTokens: 1_048_576,
+      toolOutputTokens: 32_000,
       reservedOutputTokens: 8_192, growthHeadroomTokens: 8_192,
     });
     expect(modelRuntimeConfiguration("deepseek-v4-pro", "high").contextWindow?.reservedOutputTokens).toBe(65_536);

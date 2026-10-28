@@ -31,6 +31,7 @@ from .models import (
 )
 from .revision_models import DEFAULT_TEMPLATE_ID
 from .pdf import render_and_export_pdf, render_resume_html, cleanup_browser
+from .canvas_pages import cleanup_canvas_pages
 from .revision_api import create_revision_router
 from .revision_repository import RevisionRepository
 from .attachment_text import extract_attachment_text
@@ -39,8 +40,13 @@ from .import_resume_file_text import ImportResumeFileError
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    yield
-    cleanup_browser()
+    try:
+        yield
+    finally:
+        try:
+            cleanup_canvas_pages()
+        finally:
+            cleanup_browser()
 
 
 def with_cors(application: ASGIApp) -> CORSMiddleware:

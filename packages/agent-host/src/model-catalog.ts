@@ -21,6 +21,8 @@ export function modelRuntimeConfiguration(
     contextWindow: {
       maxInputTokens: capacity ? 160_000 : 64_000,
       compactAtRatio: 0.8,
+      // 覆盖工具允许的 12000 字中文正文与结构元数据，避免进入模型历史时再次截断。
+      toolOutputTokens: 32_000,
       ...(capacity ? { modelContextTokens: capacity } : {}),
       reservedOutputTokens: effectiveEffort === "off" ? 8_192 : effectiveEffort === "max" ? 131_072 : 65_536,
       growthHeadroomTokens: 8_192,
