@@ -135,6 +135,14 @@ describe("AgentChatPanel", () => {
     agentHostMocks.createAgentRunEventSource.mockReturnValue(eventSourceStub())
   })
 
+  it("renders a historical answer without a run ID without an active status or process toggle", async () => {
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage("普通历史回答")])
+    render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
+    expect(await screen.findByText("普通历史回答")).toBeVisible()
+    expect(screen.queryByText("正在处理")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /^(已处理|已完成|深度思考)/ })).not.toBeInTheDocument()
+  })
+
   it("resumes the latest recoverable run without sending or clearing the current draft", async () => {
     agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage("未完成", "failed-run")])
     agentHostMocks.listAgentRunEvents.mockResolvedValue([{ id: "ended", run_id: "failed-run", sequence: 0, type: "run_cancelled", created_at: "2026-06-16T08:00:01.000Z", payload: { recoverable: true } }])
@@ -165,7 +173,9 @@ describe("AgentChatPanel", () => {
     agentHostMocks.createAgentRunEventSource.mockReturnValue(source.source)
     render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
     await screen.findByRole("button", { name: "应用修改" })
-    expect(screen.getAllByText(/等待你应用修改/).length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText(/等待你应用修改/).length).toBeGreaterThanOrEqual(1)
+    fireEvent.click(screen.getByRole("button", { name: /^已处理/ }))
+    expect(screen.getByRole("button", { name: "应用修改" })).toBeVisible()
     await act(async () => source.dispatch("editor_execution_started", { id: "start-event", run_id: runId, sequence: 2, type: "editor_execution_started", payload: { request_id: "approval" }, created_at: "2026-06-16T08:00:02.000Z" }))
     await screen.findByText("正在应用")
     expect(screen.queryByRole("button", { name: "应用修改" })).not.toBeInTheDocument()
@@ -892,12 +902,11 @@ describe("AgentChatPanel", () => {
     })
 
     expect(await screen.findByText(/正在思考/)).toBeInTheDocument()
-    const toggle = screen.getByRole("button", { name: "思考过程" })
+    const toggle = screen.getByRole("button", { name: "深度思考" })
     expect(screen.queryByText("Reading the resume and job context.")).not.toBeInTheDocument()
 
     fireEvent.click(toggle)
 
-    expect(screen.getByText("思考内容")).toBeInTheDocument()
     expect(screen.getByText("Reading the resume and job context.")).toBeInTheDocument()
 
     act(() => {
@@ -906,7 +915,7 @@ describe("AgentChatPanel", () => {
       eventSource.dispatch("thinking_delta", { id: "evt_thinking_2", run_id: "run_thinking", sequence: 2, type: "thinking_delta",
         created_at: "2026-06-16T08:00:01.200Z", payload: { delta: " Still checking." } })
     })
-    expect(screen.getAllByRole("button", { name: "思考过程" })).toHaveLength(1)
+    expect(screen.getAllByRole("button", { name: "深度思考" })).toHaveLength(1)
     expect(screen.getByText("Reading the resume and job context. Still checking.")).toBeInTheDocument()
 
     act(() => {
@@ -990,7 +999,7 @@ describe("AgentChatPanel", () => {
     expect(screen.getByText(/正在回复/)).toBeInTheDocument()
   })
 
-  it("shows completed processing traces without exposing raw thinking", async () => {
+  it("collapses completed processing while keeping the answer visible and thinking available on demand", async () => {
     agentHostMocks.listConversationMessages.mockResolvedValue([
       assistantMessage("可以优化专业技能。", "run_trace"),
     ])
@@ -1058,10 +1067,15 @@ describe("AgentChatPanel", () => {
       />,
     )
 
-    await screen.findByText(/已处理 5s/)
+    const process = await screen.findByRole("button", { name: "已完成 5s" })
+    expect(process).toHaveAttribute("aria-expanded", "false")
     expect(screen.queryByText("结论")).not.toBeInTheDocument()
     expect(screen.getByText("可以优化专业技能。")).toBeInTheDocument()
     expect(screen.queryByText("我会先读取上下文。")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /已运行 alpha.readContext/ })).not.toBeInTheDocument()
+
+    fireEvent.click(process)
+    expect(screen.getByRole("button", { name: "深度思考" })).toHaveAttribute("aria-expanded", "false")
 
     fireEvent.click(screen.getByRole("button", { name: /已运行 alpha.readContext/ }))
 
@@ -1069,6 +1083,122 @@ describe("AgentChatPanel", () => {
     expect(screen.queryByText("我会先读取上下文。")).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: /已运行 alpha.readContext/ })).toBeInTheDocument()
     expect(screen.getByText(/已持续 3s/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "深度思考" }))
+    expect(screen.getByText("我会先读取上下文。")).toBeVisible()
+  })
+
+  it.each([undefined, true, false])("uses the completion default only until the user chooses an outer expansion state: %s", async (manualOpen) => {
+    const source = controllableEventSource()
+    const runId = "process-transition"
+    agentHostMocks.createAgentRunEventSource.mockReturnValue(source.source)
+    agentHostMocks.getConversationActiveRun.mockResolvedValue({ id: runId, conversation_id: "conv_1", status: "running" })
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage("", runId)])
+    const thinkingEvents = [
+      { id: "thinking", run_id: runId, sequence: 0, type: "thinking_delta", payload: { delta: "保留展开的思考内容" }, created_at: "2026-06-16T08:00:00.000Z" },
+    ]
+    agentHostMocks.listAgentRunEvents.mockResolvedValue(thinkingEvents)
+    render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
+    const thinking = await screen.findByRole("button", { name: "深度思考" })
+    expect(thinking).toHaveAttribute("aria-expanded", "false")
+    fireEvent.click(thinking)
+    const process = screen.getByRole("button", { name: /^已处理/ })
+    expect(process).toHaveAttribute("aria-expanded", "true")
+    if (manualOpen !== undefined) {
+      fireEvent.click(process)
+      if (manualOpen) fireEvent.click(process)
+    }
+    const answer = { id: "answer", run_id: runId, sequence: 1, type: "assistant_delta", payload: { delta: "最终回答保持可见" }, created_at: "2026-06-16T08:00:04.000Z" }
+    const completedEvent = { id: "completed", run_id: runId, sequence: 2, type: "run_completed", payload: {}, created_at: "2026-06-16T08:00:05.000Z" }
+    agentHostMocks.getConversationActiveRun.mockResolvedValue(null)
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage("最终回答保持可见", runId)])
+    agentHostMocks.listAgentRunEvents.mockResolvedValue([...thinkingEvents, answer, completedEvent])
+    await act(async () => {
+      source.dispatch("assistant_delta", answer)
+      source.dispatch("run_completed", completedEvent)
+    })
+    const completed = await screen.findByRole("button", { name: "已完成 5s" })
+    expect(completed).toHaveAttribute("aria-expanded", manualOpen ? "true" : "false")
+    expect(screen.getByText("最终回答保持可见")).toBeVisible()
+    if (!manualOpen) {
+      expect(screen.queryByRole("button", { name: "深度思考" })).not.toBeInTheDocument()
+      fireEvent.click(completed)
+    }
+    expect(screen.getByRole("button", { name: "深度思考" })).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByText("保留展开的思考内容")).toBeVisible()
+  })
+
+  it.each([
+    { type: "run_failed", label: "处理失败", toolLabel: "运行失败", payload: { error: { message: "网络连接失败" } } },
+    { type: "run_cancelled", label: "已停止", toolLabel: "已停止", payload: {} },
+  ])("freezes $type elapsed time at the terminal event and preserves inspectable traces", async ({ type, label, toolLabel, payload }) => {
+    const source = controllableEventSource()
+    const runId = "stopped-process"
+    agentHostMocks.createAgentRunEventSource.mockReturnValue(source.source)
+    agentHostMocks.getConversationActiveRun.mockResolvedValue({ id: runId, conversation_id: "conv_1", status: "running" })
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage("", runId)])
+    const toolEvents = [
+      { id: "tool", run_id: runId, sequence: 0, type: "tool_call_started", payload: { tool_call: { id: "read", name: "resume.inspect", input: { target: "当前画布" } } }, created_at: "2026-06-16T08:00:00.000Z" },
+    ]
+    agentHostMocks.listAgentRunEvents.mockResolvedValue(toolEvents)
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] })
+    vi.setSystemTime(new Date("2026-06-16T08:00:00.000Z"))
+    const props = { workspaceId: "doc_1", activeConversationId: "conv_1", contextSources: [], onConversationCreated: () => {} }
+    const view = render(<AgentChatPanel {...props} />)
+    try {
+      await screen.findByRole("button", { name: "正在运行 读取当前画布结构" })
+      act(() => vi.advanceTimersByTime(2_000))
+      expect(screen.getByRole("button", { name: "已处理 2s" })).toBeVisible()
+      const terminalEvent = { id: "terminal", run_id: runId, sequence: 1, type, payload, created_at: "2026-06-16T08:00:05.000Z" }
+      agentHostMocks.getConversationActiveRun.mockResolvedValue(null)
+      agentHostMocks.listAgentRunEvents.mockResolvedValue([...toolEvents, terminalEvent])
+      await act(async () => source.dispatch(type, terminalEvent))
+      const process = await screen.findByRole("button", { name: `${label} 5s` })
+      expect(process).toHaveAttribute("aria-expanded", "false")
+      expect(screen.queryByRole("button", { name: /^已完成/ })).not.toBeInTheDocument()
+      if (type === "run_failed") expect(screen.getByRole("alert")).toHaveTextContent("网络连接失败")
+      fireEvent.click(process)
+      expect(screen.getByRole("button", { name: `${toolLabel} 读取当前画布结构` })).toBeVisible()
+      act(() => vi.advanceTimersByTime(60_000))
+      expect(screen.getByRole("button", { name: `${label} 5s` })).toBeVisible()
+    } finally {
+      view.unmount()
+      vi.useRealTimers()
+    }
+  })
+
+  it("keeps steering, editor approval and questions visible in place while all process sections are collapsed", async () => {
+    const runId = "visible-interactions"
+    const steering = { ...userMessage("请先等我确认"), id: "steering", conversation_id: "conv_1", run_id: runId }
+    const request = { id: "approval", kind: "transaction", mode: "review", document_id: "doc_1", editor_session_id: "editor", transaction: {
+      id: "tx", document_id: "doc_1", editor_session_id: "editor", content_revision: 0, summary: "改写待确认的内容", before_doc_json: {}, doc_json: {}, catalog_revision: "catalog", effects: [], node_origins: [], text_origins: [],
+    } }
+    agentHostMocks.getConversationActiveRun.mockResolvedValue({ id: runId, conversation_id: "conv_1", status: "running" })
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage("阶段说明最终回答", runId), steering])
+    agentHostMocks.listAgentRunEvents.mockResolvedValue([
+      { type: "assistant_delta", payload: { message_id: "0:answer", delta: "阶段说明" } },
+      { type: "thinking_delta", payload: { delta: "中间思考" } },
+      { type: "user_input_received", payload: { message_id: steering.id } },
+      { type: "tool_call_started", payload: { tool_call: { id: "read", name: "resume.inspect", input: {} } } },
+      { type: "editor_request", payload: { request } },
+      { type: "harness_event", payload: { event: { id: "question", run_id: runId, sequence: 5, type: "user.questions.requested", request_id: "question", created_at: "2026-06-16T08:00:05.000Z", questions: [{ id: "layout", header: "页面布局", question: "希望使用几栏布局？" }] } } },
+      { type: "assistant_delta", payload: { message_id: "1:answer", delta: "最终回答" } },
+    ].map((event, sequence) => ({ ...event, id: `visible-${sequence}`, run_id: runId, sequence, created_at: `2026-06-16T08:00:0${sequence}.000Z` })))
+    render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
+    await screen.findByRole("button", { name: "应用修改" })
+    fireEvent.click(screen.getByRole("button", { name: /^已处理/ }))
+    expect(screen.queryByRole("button", { name: "深度思考" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /读取当前画布结构/ })).not.toBeInTheDocument()
+    expect(screen.getByText("阶段说明")).not.toBeVisible()
+    expect(screen.getByText("请先等我确认")).toBeVisible()
+    expect(screen.getByRole("button", { name: "应用修改" })).toBeVisible()
+    expect(screen.getByText("希望使用几栏布局？")).toBeVisible()
+    expect(screen.getByRole("button", { name: "提交回答" })).toBeVisible()
+    expect(screen.getByText("最终回答")).toBeVisible()
+    const list = screen.getByTestId("agent-chat-messages")
+    const content = list.textContent!
+    expect(content.indexOf("请先等我确认")).toBeLessThan(content.indexOf("改写待确认的内容"))
+    expect(content.indexOf("改写待确认的内容")).toBeLessThan(content.indexOf("希望使用几栏布局？"))
+    expect(content.indexOf("希望使用几栏布局？")).toBeLessThan(content.indexOf("最终回答"))
   })
 
   it("keeps streaming text, tools, steering and subsequent replies in chronological segments after reload", async () => {
@@ -1087,6 +1217,9 @@ describe("AgentChatPanel", () => {
     ].map((event, sequence) => ({ ...event, id: `segment-${sequence}`, run_id: runId, sequence, created_at: `2026-06-16T08:00:0${sequence}.000Z` })))
     render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
     await screen.findByText("最终答复")
+    expect(screen.getByText("只调整边距，不改文字")).toBeVisible()
+    expect(screen.queryByRole("button", { name: /已运行/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: /^已完成/ }))
     const list = screen.getByTestId("agent-chat-messages")
     expect(list.querySelectorAll("[data-agent-segment-id]")).toHaveLength(2)
     const content = list.textContent!
@@ -1146,7 +1279,7 @@ describe("AgentChatPanel", () => {
     expect(screen.getByRole("textbox")).toHaveTextContent("保留这条补充")
   })
 
-  it("updates inline grouped tool statuses without closing expanded details", async () => {
+  it("keeps tools independently expandable and preserves their state through status and outer collapse changes", async () => {
     const eventSource = controllableEventSource()
     agentHostMocks.createAgentRunEventSource.mockReturnValue(eventSource.source)
     agentHostMocks.getConversationActiveRun.mockResolvedValue({ id: "tools", conversation_id: "conv_1", status: "running" })
@@ -1154,16 +1287,28 @@ describe("AgentChatPanel", () => {
     agentHostMocks.listAgentRunEvents.mockResolvedValue([
       { type: "assistant_delta", payload: { message_id: "0:answer", delta: "我先检查当前画布。" } },
       { type: "tool_call_started", payload: { tool_call: { id: "read", name: "resume.inspect", input: { target: "当前画布" } } } },
-      { type: "tool_call_completed", payload: { result: { tool_call_id: "read", status: "completed", output: { ok: true } } } },
+      { type: "tool_call_completed", payload: { result: { tool_call_id: "read", status: "completed", output: { result: "读取完成结果" } } } },
       { type: "tool_call_started", payload: { tool_call: { id: "edit", name: "resume.edit", input: { task: "调整边距" } } } },
     ].map((event, sequence) => ({ ...event, id: `tool-${sequence}`, run_id: "tools", sequence, created_at: "2026-06-16T08:00:00.000Z" })))
     render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
-    const group = await screen.findByRole("button", { name: "正在执行 2 项操作" })
-    expect(group).toHaveAttribute("aria-expanded", "false")
-    fireEvent.click(group)
-    expect(screen.getByText(/正在运行 编辑简历/)).toBeInTheDocument()
+    const read = await screen.findByRole("button", { name: "已运行 读取当前画布结构" })
+    const edit = screen.getByRole("button", { name: "正在运行 编辑简历" })
+    expect(read).toHaveAttribute("aria-expanded", "false")
+    expect(edit).toHaveAttribute("aria-expanded", "false")
+    fireEvent.click(read)
+    expect(read).toHaveAttribute("aria-expanded", "true")
+    expect(edit).toHaveAttribute("aria-expanded", "false")
+    expect(screen.getByText(/读取完成结果/)).toBeVisible()
+    fireEvent.click(edit)
+    expect(edit).toHaveAttribute("aria-expanded", "true")
+    const process = screen.getByRole("button", { name: /^已处理/ })
+    fireEvent.click(process)
+    expect(screen.queryByRole("button", { name: "已运行 读取当前画布结构" })).not.toBeInTheDocument()
+    fireEvent.click(process)
+    expect(screen.getByRole("button", { name: "已运行 读取当前画布结构" })).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByRole("button", { name: "正在运行 编辑简历" })).toHaveAttribute("aria-expanded", "true")
     act(() => eventSource.dispatch("tool_call_failed", { id: "failed", run_id: "tools", sequence: 4, type: "tool_call_failed", created_at: "2026-06-16T08:00:03.000Z", payload: { result: { tool_call_id: "edit", status: "failed", error: { message: "编辑器拒绝修改" } } } }))
-    expect(screen.getByRole("button", { name: "已执行 2 项操作，1 项失败" })).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByRole("button", { name: "运行失败 编辑简历" })).toHaveAttribute("aria-expanded", "true")
     expect(screen.getByText(/运行失败 编辑简历/)).toBeInTheDocument()
     expect(screen.getByText(/编辑器拒绝修改/)).toBeInTheDocument()
   })
