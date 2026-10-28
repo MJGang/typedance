@@ -72,6 +72,7 @@ function Assert-NoForbiddenReleaseInputs {
     )
     $forbidden = Get-ChildItem $roots -Recurse -Force -File | Where-Object {
         $_.Name -match '^\.env(?:\.|$)' -or
+        $_.Name -eq 'langfuse.env' -or
         $_.Extension -match '^\.(pem|pfx|p12|key)$' -or
         $_.Name -eq 'typedance.sqlite' -or
         $_.FullName -match '[\\/]\.git[\\/]'
