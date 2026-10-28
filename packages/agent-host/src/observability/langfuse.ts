@@ -1,6 +1,7 @@
 import { ROOT_CONTEXT, SpanStatusCode, trace, type Span, type Tracer } from "@opentelemetry/api";
 import { BasicTracerProvider, type SpanExporter } from "@opentelemetry/sdk-trace-base";
 import { LangfuseSpanProcessor } from "@langfuse/otel";
+import { createHash } from "node:crypto";
 import {
   createObservationAttributes,
   LangfuseOtelSpanAttributes as Attr,
@@ -20,6 +21,7 @@ type RunTrace = {
   generations: Set<(result?: { error?: unknown; canceled: boolean }) => void>;
   text: string;
   modelPasses: number;
+  progressEvents: number;
 };
 
 export type LangfuseTelemetry = {
@@ -103,6 +105,12 @@ class LangfuseAgentObserver implements HarnessRuntimeObserver {
   #sanitize(value: unknown, depth = 0): unknown {
     if (depth > 8) return "[TRUNCATED]";
     if (typeof value === "string") {
+      const media = /^data:(image\/[A-Za-z0-9.+-]+);base64,/.exec(value);
+      if (media) {
+        const bytes = Buffer.from(value.slice(media[0].length), "base64");
+        return { kind: "inline_image", mime_type: media[1], bytes: bytes.length,
+          sha256: createHash("sha256").update(bytes).digest("hex") };
+      }
       let text = value;
       for (const secret of this.secrets) text = text.replaceAll(secret, REDACTED);
       text = text.replace(/\bBearer\s+[^\s"',}]+/gi, `Bearer ${REDACTED}`)
@@ -153,13 +161,17 @@ class LangfuseAgentObserver implements HarnessRuntimeObserver {
           ...(typeof context?.conversation_id === "string" ? { [Attr.TRACE_SESSION_ID]: context.conversation_id } : {}),
         },
       }, ROOT_CONTEXT);
-      const run: RunTrace = { root, children: new Map(), generations: new Set(), text: "", modelPasses: 0 };
+      const run: RunTrace = { root, children: new Map(), generations: new Set(), text: "", modelPasses: 0, progressEvents: 0 };
       this.#runs.set(event.run_id, run);
       run.preparation = this.#start(run, "agent.prepare", "chain", {}, event.created_at);
       return;
     }
     const run = this.#runs.get(event.run_id);
     if (!run) return;
+    if (event.type === "model.call.progress") {
+      run.progressEvents++;
+      return;
+    }
     if (event.type === "assistant.delta") {
       if (this.captureContent) run.text = (run.text + event.delta).slice(0, MAX_TEXT);
       return;
@@ -171,7 +183,7 @@ class LangfuseAgentObserver implements HarnessRuntimeObserver {
       if (run.preparation) this.#end(run.preparation, "chain", status, undefined, undefined, event.created_at);
       for (const child of run.children.values()) this.#end(child.span, child.type, status === "completed" ? "canceled" : status, undefined, undefined, event.created_at);
       const output = event.type === "run.completed" ? { text: run.text, ...event.output } : event;
-      run.root.setAttributes(this.#attributes("agent", { metadata: { model_passes: run.modelPasses } }));
+      run.root.setAttributes(this.#attributes("agent", { metadata: { model_passes: run.modelPasses, progress_events: run.progressEvents } }));
       this.#end(run.root, "agent", status, output, event.type === "run.failed" ? event.error.message : event.type === "run.canceled" ? event.reason : undefined, event.created_at);
       this.#runs.delete(event.run_id);
       this.flush();

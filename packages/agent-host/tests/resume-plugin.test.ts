@@ -72,6 +72,8 @@ describe("resume plugin registration", () => {
     expect(developerContent).toContain("# Resume Review Skill");
     expect(developerContent).toContain("# 简历编辑");
     expect(developerContent).toContain("current workspace/canvas content is not supplied");
+    expect(developerContent).toContain("unless the harness supplies an explicit tool result");
+    expect(developerContent).not.toContain("[Prompt section truncated");
     expect(developerContent).not.toContain("Use MCP tools");
     expect(developerContent).not.toContain("Python MCP tools");
     expect(developerContent).toContain("`resume.capabilities`");

@@ -35,7 +35,7 @@ def test_education_one_paragraph_splits_into_four_columns_without_inventing_text
     result = prepare(original, "columns.layout", widths=[40, 15, 15, 30], alignments=["left", "left", "left", "right"],
                      rows=[{"paths": [[0]], "cells": [["某学院"], ["本科"], ["全日制"], ["2011.09-2015.07"]]}])
     assert [node_text(column) for column in result["content"][0]["content"]] == ["某学院", "本科", "全日制", "2011.09-2015.07"]
-    identities = [node["attributes"].get("canvasNodeId") for node in inspect_document(result)["nodes"] if node["type"] == "paragraph"]
+    identities = [node["attributes"].get("canvasNodeId") for node in inspect_document(result, InspectOptions(view="layout"))["nodes"] if node["type"] == "paragraph"]
     assert len(identities) == len(set(identities))
 
 
@@ -163,7 +163,8 @@ def test_targeted_detail_inspection_preserves_text_and_utf16_marks_without_repea
         {"type": "text", "text": "保留"},
     ]})
     outline = inspect_document(source)
-    assert "marks" not in outline["nodes"][2]
+    assert [node["path"] for node in outline["nodes"]] == [[0], [1]]
+    assert "marks" not in outline["nodes"][1]
     assert "template_style" not in outline
     detail = inspect_document(source, InspectOptions(view="detail", paths=[[1]], text_limit=12000))
     assert len(detail["nodes"]) == 1
@@ -179,13 +180,42 @@ def test_targeted_detail_inspection_preserves_text_and_utf16_marks_without_repea
 def test_structure_inspection_paginates_and_reports_truncation_without_duplicated_container_text():
     source = doc(*(paragraph("内容" * 1000) for _ in range(80)))
     first = inspect_document(source, InspectOptions(limit=20, text_limit=100))
-    assert first["nodes"][0]["text"] == ""
+    assert first["nodes"][0]["path"] == [0]
+    assert first["nodes"][0]["text_truncated"] is True
     assert first["nodes"][1]["text_length"] == 2000
     assert len(first["nodes"][1]["text"]) == 100
     assert first["next_offset"] == 20
     second = inspect_document(source, InspectOptions(offset=20, limit=1, text_limit=12000))
-    assert second["nodes"][0]["path"] == [19]
+    assert first["truncation_reasons"] == ["node_limit"]
+    assert second["nodes"][0]["path"] == [20]
     assert second["nodes"][0]["text"] == "内容" * 1000
+
+
+def test_default_outline_covers_text_blocks_without_container_attributes():
+    source = doc({"type": "bulletList", "content": [
+        {"type": "listItem", "content": [paragraph(f"第{index}段", canvasNodeId=f"node_{index}")]}
+        for index in range(76)
+    ]})
+    outline = inspect_document(source)
+    assert outline["scope"] == "text_blocks"
+    assert outline["total_nodes"] == outline["returned_nodes"] == 76
+    assert outline["next_offset"] is None
+    assert outline["truncated"] is False
+    assert outline["truncation_reasons"] == []
+    assert outline["nodes"][-1]["path"] == [0, 75, 0]
+    assert all("attributes" not in node and "child_count" not in node for node in outline["nodes"])
+    detail = inspect_document(source, InspectOptions(view="detail", paths=[[0, 75, 0]]))
+    assert detail["nodes"][0]["attributes"]["canvasNodeId"] == "node_75"
+    with pytest.raises(ValueError, match="paths"):
+        inspect_document(source, InspectOptions(view="detail"))
+
+
+def test_inspect_response_budget_explicitly_reports_omitted_nodes():
+    result = inspect_document(doc(*(paragraph("长" * 1000) for _ in range(100))), InspectOptions(text_limit=1000))
+    assert 0 < result["returned_nodes"] < 100
+    assert result["next_offset"] == result["returned_nodes"]
+    assert result["truncated"] is True
+    assert "response_budget" in result["truncation_reasons"]
 
 
 def test_template_changes_use_effective_selected_template_instead_of_obsolete_document_override():

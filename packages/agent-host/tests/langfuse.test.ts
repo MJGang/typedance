@@ -1,10 +1,11 @@
 import { once } from "node:events";
 import { createServer } from "node:http";
 import { gunzipSync } from "node:zlib";
+import { createHash } from "node:crypto";
 import { InMemorySpanExporter, type ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import { LangfuseOtelSpanAttributes as Attr } from "@langfuse/tracing";
 import { ExportResultCode } from "@opentelemetry/core";
-import { createHarnessRuntime, type HarnessModelAdapter } from "@typedance/harness-core";
+import { createHarnessRuntime, HarnessToolOutput, type HarnessModelAdapter } from "@typedance/harness-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentHost, createDeepSeekModelAdapter, createLangfuseTelemetry, type LangfuseTelemetry } from "../src";
 
@@ -35,6 +36,34 @@ function metadata(span: ReadableSpan, key: string) {
 function sse(chunks: unknown[]) { return new Response(chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n"); }
 
 describe("Langfuse agent tracing", () => {
+  it("aggregates progress while retaining runtime events and summarizes images only in exported inputs", async () => {
+    const instance = telemetry();
+    const bytes = Buffer.alloc(18000, 97);
+    const image = `data:image/png;base64,${bytes.toString("base64")}`;
+    let pass = 0;
+    const { runtime, host, start } = setup(instance, { async *stream(request) {
+      if (++pass === 1) yield { type: "tool_call", call: { id: "image", name: "test.tool", origin: "plugin", input: {} } };
+      else {
+        expect(JSON.stringify(request.prompt)).toContain(image);
+        yield { type: "assistant_delta", messageId: "done", delta: "看到了页面" };
+      }
+      yield { type: "final", output: {} };
+    } });
+    runtime.registerTool({ name: "test.tool", origin: "plugin", handler: () => new HarnessToolOutput({}, [{ type: "image", image_url: image, detail: "high" }]) });
+    const { run } = start();
+    await host.waitForRun(run.id); await instance.flush();
+    const spans = instance.exporter.getFinishedSpans();
+    const progress = host.listAgentRunEvents(run.id).filter(event => event.type === "harness_event" && (event.payload.event as { type: string }).type === "model.call.progress");
+    expect(progress.length).toBeGreaterThan(0);
+    expect(spans.some(span => span.name === "model.call.progress")).toBe(false);
+    expect(metadata(spans.find(span => span.name === "agent.run")!, "progress_events")).toBe(progress.length);
+    const input = spans.filter(span => span.name === "model.generate")[1].attributes[Attr.OBSERVATION_INPUT];
+    expect(String(input)).not.toContain("data:image/");
+    expect(String(input)).toContain("inline_image");
+    expect(String(input)).toContain(createHash("sha256").update(bytes).digest("hex"));
+    expect(String(input)).toContain('"bytes":18000');
+  });
+
   it("exports a host run, each model pass with real usage, and a recoverable tool failure in one trace", async () => {
     const instance = telemetry();
     let pass = 0;

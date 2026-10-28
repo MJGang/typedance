@@ -200,7 +200,7 @@ def node_text(node: dict) -> str:
 
 class InspectOptions(Parameters):
     offset: int = Field(default=0, ge=0)
-    limit: int = Field(default=30, ge=1, le=200)
+    limit: int = Field(default=200, ge=1, le=200)
     text_limit: int = Field(default=160, ge=1, le=12000)
     view: Literal["outline", "detail", "layout"] = "outline"
     paths: list[list[int]] | None = Field(default=None, min_length=1, max_length=100)
@@ -209,6 +209,8 @@ class InspectOptions(Parameters):
 def inspect_document(doc: dict, options: InspectOptions | None = None, template_style: dict | None = None) -> dict:
     validate_document(doc)
     options = options or InspectOptions()
+    if options.view == "detail" and not options.paths:
+        raise ValueError("view=detail 必须提供 paths；先用 outline 定位目标。")
     requested_paths = {tuple(path) for path in options.paths} if options.paths is not None else None
     if options.paths is not None:
         if len(requested_paths) != len(options.paths) or any(len(path) > 32 or any(index < 0 for index in path) for path in options.paths):
@@ -218,11 +220,14 @@ def inspect_document(doc: dict, options: InspectOptions | None = None, template_
     nodes = []
 
     def visit(node, path):
-        if node.get("type") not in {"text", "hardBreak"} and (requested_paths is None or tuple(path) in requested_paths):
+        text_block = node.get("type") in {"paragraph", "heading", "codeBlock"}
+        visible = text_block if options.view == "outline" else node.get("type") not in {"text", "hardBreak"}
+        if visible and (requested_paths is None or tuple(path) in requested_paths):
             text = node_text(node) if node.get("type") in {"paragraph", "heading", "codeBlock"} else ""
-            item = {"path": path, "type": node.get("type"),
-                          "attributes": {key: value for key, value in node.get("attrs", {}).items() if key not in {"templateStyle", "pageMargins"}},
-                          "text_length": len(text), "child_count": len(node.get("content", []))}
+            item = {"path": path, "type": node.get("type"), "text_length": len(text)}
+            if options.view != "outline":
+                item["attributes"] = {key: value for key, value in node.get("attrs", {}).items() if key not in {"templateStyle", "pageMargins"}}
+                item["child_count"] = len(node.get("content", []))
             if options.view != "layout":
                 item["text"] = text[:options.text_limit]
                 item["text_truncated"] = len(text) > options.text_limit
@@ -240,15 +245,21 @@ def inspect_document(doc: dict, options: InspectOptions | None = None, template_
             visit(child, [*path, index])
 
     visit(doc, [])
-    selected, budget = [], 16000 if options.view == "detail" else 8000
+    selected, budget = [], {"outline": 12000, "detail": 16000, "layout": 8000}[options.view]
+    budget_exhausted = False
     for node in nodes[options.offset:options.offset + options.limit]:
         size = len(json.dumps(node, ensure_ascii=False))
         if selected and size > budget:
+            budget_exhausted = True
             break
         selected.append(node)
         budget -= size
     end = options.offset + len(selected)
-    return {"view": options.view, "nodes": selected, "total_nodes": len(nodes), "next_offset": end if end < len(nodes) else None,
+    more = end < len(nodes)
+    return {"view": options.view, "scope": "text_blocks" if options.view == "outline" else "nodes",
+            "nodes": selected, "offset": options.offset, "returned_nodes": len(selected), "total_nodes": len(nodes),
+            "next_offset": end if more else None, "truncated": more,
+            "truncation_reasons": (["response_budget" if budget_exhausted else "node_limit"] if more else []),
             "page_margins": doc.get("attrs", {}).get("pageMargins") or DEFAULT_MARGINS,
             **({"template_style": template_style or doc.get("attrs", {}).get("templateStyle")} if options.view != "outline" else {})}
 
