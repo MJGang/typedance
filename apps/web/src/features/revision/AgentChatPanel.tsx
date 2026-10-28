@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { AssistantRuntimeProvider, useLocalRuntime, type ChatModelAdapter } from "@assistant-ui/react"
 import { ArrowUp, ChevronDown, ChevronRight, FileText, ImageIcon, Loader2, Mic, MoreHorizontal, PanelRight, Pin, Plus, ShieldCheck, Square, SquarePen, WandSparkles, X } from "lucide-react"
 import ReactMarkdown, { type Components } from "react-markdown"
@@ -85,7 +85,6 @@ const streamedEventTypes: AgentRunEvent["type"][] = [
 
 const RUN_TRACE_COPY = {
   thinkingStatus: "正在思考",
-  thinkingHeading: "思考内容",
 }
 
 const CHAT_BOTTOM_THRESHOLD_PX = 24
@@ -104,7 +103,7 @@ function getRunStatusLabel(terminal: AgentRunEvent, message: AgentMessage): stri
     const output = terminal.payload.output
     const isEmptyOutput = typeof output === "object" && output !== null && "empty" in output && (output as { empty?: unknown }).empty === true
     if (isEmptyOutput || message.content.trim().length === 0) return "未生成回复"
-    return "已处理"
+    return "已完成"
   }
 
   return "状态未知"
@@ -819,18 +818,42 @@ const ChatMessage = memo(function ChatMessage({
   steeringMessages?: AgentMessage[]
   onResume?: (runId: string) => void
 }) {
-  const isAssistant = message.role === "assistant"
   const orderedEvents = useMemo(() => [...events].sort((a, b) => a.sequence - b.sequence), [events])
   const terminal = orderedEvents.find((event) => terminalEvents.has(event.type))
   const startedAt = orderedEvents[0]?.created_at ?? message.created_at
-  const elapsedMs = useElapsedMs(startedAt, isAssistant && message.run_id ? terminal?.created_at : message.created_at)
-  const duration = formatDuration(elapsedMs)
-  const statusLabel = terminal ? getRunStatusLabel(terminal, message) : getInProgressRunStatusLabel(orderedEvents)
-  const traceItems = useMemo(() => buildRunTraceItems(orderedEvents, { includeRawThinking: !terminal }), [orderedEvents, terminal])
+  const statusLabel = terminal ? getRunStatusLabel(terminal, message) : "已处理"
+  const activity = !terminal ? getInProgressRunStatusLabel(orderedEvents) : null
+  const traceItems = useMemo(() => buildRunTraceItems(orderedEvents), [orderedEvents])
+  const groups = useMemo(() => groupRunTimeline(traceItems), [traceItems])
+  const [processOpen, setProcessOpen] = useState<boolean>()
+  const expanded = processOpen ?? !terminal
+  const processId = useId()
   const failure = terminal?.type === "run_failed" ? getRecordString(terminal.payload.error, "message") : undefined
   const requests = useMemo(() => editorRequests(orderedEvents), [orderedEvents])
   const appliedInputs = new Set(orderedEvents.filter((event) => event.type === "user_input_applied").map((event) => event.payload.message_id))
   const hasSegments = traceItems.some((item) => item.kind === "assistant")
+
+  const renderItem = (item: RunTraceItem) => {
+    if (item.kind === "tool") return <ToolTraceItemView key={item.id} tool={item} />
+    if (item.kind === "assistant") return <AssistantSegment key={item.id} id={item.id} messageId={message.id} text={item.text} />
+    if (item.kind === "user") {
+      const steering = steeringMessages.find((candidate) => candidate.id === item.messageId)
+      return steering ? <div key={item.id} className="flex flex-col gap-1">
+        <ChatMessage message={steering} events={NO_EVENTS} />
+        {!appliedInputs.has(steering.id) ? <span className="px-3 text-xs text-muted-foreground">{terminal ? "本次未处理" : "将在下一步处理"}</span> : null}
+      </div> : null
+    }
+    if (item.kind === "editor") {
+      const request = requests.find((candidate) => candidate.id === item.requestId)
+      return request && message.run_id ? <EditorRequestCard key={item.id} request={request} runId={message.run_id} events={orderedEvents} active={!terminal} /> : null
+    }
+    if (item.kind === "runtime") {
+      const event = orderedEvents.find((event) => event.id === item.id)
+      const parsed = event && runtimeEvent(event)
+      return parsed && message.run_id ? <AgentInteraction key={item.id} event={parsed} events={orderedEvents} runId={message.run_id} active={!terminal} /> : null
+    }
+    return <RunTraceItemView key={item.id} item={item} />
+  }
 
   return (
     <article data-agent-message-id={message.id} className={cn("flex flex-col gap-4", message.role === "user" && "rounded-lg bg-muted/60 p-3")}>
@@ -842,37 +865,43 @@ const ChatMessage = memo(function ChatMessage({
             <HighlightedMessageText text={message.content} mentions={message.mentions} />
           </p>
       ) : <>
-        {groupToolItems(traceItems).map((item) => {
-          if (item.kind === "tool_group") return <ToolTraceGroup key={item.id} tools={item.tools} />
-          if (item.kind === "assistant") return <AssistantSegment key={item.id} id={item.id} messageId={message.id} text={item.text} />
-          if (item.kind === "user") {
-            const steering = steeringMessages.find((candidate) => candidate.id === item.messageId)
-            return steering ? <div key={item.id} className="flex flex-col gap-1">
-              <ChatMessage message={steering} events={[]} />
-              {!appliedInputs.has(steering.id) ? <span className="px-3 text-xs text-muted-foreground">{terminal ? "本次未处理" : "将在下一步处理"}</span> : null}
-            </div> : null
-          }
-          if (item.kind === "editor") {
-            const request = requests.find((candidate) => candidate.id === item.requestId)
-            return request && message.run_id ? <EditorRequestCard key={item.id} request={request} runId={message.run_id} events={orderedEvents} active={!terminal} /> : null
-          }
-          if (item.kind === "runtime") {
-            const event = orderedEvents.find((event) => event.id === item.id)
-            const parsed = event && runtimeEvent(event)
-            return parsed && message.run_id ? <AgentInteraction key={item.id} event={parsed} events={orderedEvents} runId={message.run_id} active={!terminal} /> : null
-          }
-          return <RunTraceItemView key={item.id} item={item} />
-        })}
+        {message.run_id ? <RunProcessHeader
+          label={statusLabel}
+          startedAt={startedAt}
+          completedAt={terminal?.created_at}
+          expanded={expanded}
+          controls={groups.filter((group) => group.kind === "process").map((group) => `${processId}-${group.id}`).join(" ") || undefined}
+          onToggle={() => setProcessOpen(!expanded)}
+        /> : null}
+        {message.run_id && !terminal && activity ? <p role="status" className="m-0 text-xs text-muted-foreground">{activity}</p> : null}
+        {groups.map((group) => group.kind === "visible" ? renderItem(group.item) : (
+          <Collapsible key={group.id} open={expanded} hidden={!expanded} className="min-w-0">
+            <CollapsibleContent id={`${processId}-${group.id}`} forceMount className="flex flex-col gap-3 data-[state=closed]:hidden">
+              {group.items.map(renderItem)}
+            </CollapsibleContent>
+          </Collapsible>
+        ))}
         {!hasSegments && message.content ? <AssistantSegment id={message.id} messageId={message.id} text={message.content} /> : null}
-        {message.run_id ? <div role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
-          {!terminal ? <Loader2 className="size-3 animate-spin" /> : null}
-          <span>{statusLabel}{duration ? ` ${duration}` : ""}</span>
-        </div> : null}
         {terminal?.payload.recoverable === true && onResume && message.run_id ? <Button variant="outline" size="sm" className="self-start" onClick={() => onResume(message.run_id!)}>继续任务</Button> : null}
       </>}
     </article>
   )
 })
+
+function RunProcessHeader({ label, startedAt, completedAt, expanded, controls, onToggle }: {
+  label: string
+  startedAt: string
+  completedAt?: string
+  expanded: boolean
+  controls?: string
+  onToggle: () => void
+}) {
+  const duration = formatDuration(useElapsedMs(startedAt, completedAt))
+  return <Button variant="ghost" size="sm" className="h-auto justify-start self-start px-0" aria-label={`${label} ${duration}`} aria-expanded={expanded} aria-controls={controls} onClick={onToggle}>
+    <span role="status" className="text-xs text-muted-foreground">{label} {duration}</span>
+    {expanded ? <ChevronDown data-icon="inline-end" /> : <ChevronRight data-icon="inline-end" />}
+  </Button>
+}
 
 const AssistantSegment = memo(function AssistantSegment({ id, messageId, text }: { id: string; messageId: string; text: string }) {
   return <div data-agent-segment-id={id} className="min-w-0 max-w-none">
@@ -910,15 +939,26 @@ type RunTraceItem =
     };
 
 type ToolTraceItem = Extract<RunTraceItem, { kind: "tool" }>
-type GroupedTraceItem = Exclude<RunTraceItem, { kind: "tool" }> | { id: string; kind: "tool_group"; tools: ToolTraceItem[] }
+type RunTimelineGroup = { id: string; kind: "process"; items: RunTraceItem[] } | { id: string; kind: "visible"; item: RunTraceItem }
 
-function groupToolItems(items: RunTraceItem[]): GroupedTraceItem[] {
-  const grouped: GroupedTraceItem[] = []
+function groupRunTimeline(items: RunTraceItem[]): RunTimelineGroup[] {
+  // Keep the trailing response outside the process, and preserve interaction positions.
+  let finalResponse: RunTraceItem | undefined
+  for (let index = items.length - 1; index >= 0; index--) {
+    const item = items[index]
+    if (item.kind === "user" || item.kind === "runtime" || item.kind === "event") continue
+    if (item.kind === "assistant") finalResponse = item
+    break
+  }
+  const grouped: RunTimelineGroup[] = []
   for (const item of items) {
-    if (item.kind !== "tool") { grouped.push(item); continue }
+    if (item === finalResponse || item.kind === "user" || item.kind === "editor" || item.kind === "runtime") {
+      grouped.push({ id: item.id, kind: "visible", item })
+      continue
+    }
     const last = grouped[grouped.length - 1]
-    if (last?.kind === "tool_group") last.tools.push(item)
-    else grouped.push({ id: item.id, kind: "tool_group", tools: [item] })
+    if (last?.kind === "process") last.items.push(item)
+    else grouped.push({ id: item.id, kind: "process", items: [item] })
   }
   return grouped
 }
@@ -927,30 +967,21 @@ function toolStatusLabel(status: ToolTraceItem["status"]): string {
   return status === "running" ? "正在运行" : status === "failed" ? "运行失败" : status === "cancelled" ? "已停止" : "已运行"
 }
 
-function ToolTraceGroup({ tools }: { tools: ToolTraceItem[] }) {
+function ToolTraceItemView({ tool }: { tool: ToolTraceItem }) {
   const [expanded, setExpanded] = useState(false)
-  const running = tools.some((tool) => tool.status === "running")
-  const failed = tools.filter((tool) => tool.status === "failed").length
-  const stopped = tools.some((tool) => tool.status === "cancelled")
-  const label = tools.length === 1
-    ? `${toolStatusLabel(tools[0].status)} ${tools[0].label}`
-    : `${running ? "正在执行" : stopped ? "已停止" : "已执行"} ${tools.length} 项操作${failed ? `，${failed} 项失败` : ""}`
   return <Collapsible open={expanded} onOpenChange={setExpanded} className="min-w-0">
     <CollapsibleTrigger asChild>
       <Button variant="ghost" size="sm" className="h-auto max-w-full justify-start px-0">
-        {running ? <Loader2 className="animate-spin" /> : <SquarePen />}
-        <span className={cn("truncate text-xs text-muted-foreground", failed > 0 && "text-destructive")}>{label}</span>
-        {expanded ? <ChevronDown /> : <ChevronRight />}
+        {tool.status === "running" ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <SquarePen data-icon="inline-start" />}
+        <span className={cn("truncate text-xs text-muted-foreground", tool.status === "failed" && "text-destructive")}>{toolStatusLabel(tool.status)} {tool.label}</span>
+        {expanded ? <ChevronDown data-icon="inline-end" /> : <ChevronRight data-icon="inline-end" />}
       </Button>
     </CollapsibleTrigger>
     <CollapsibleContent className="max-h-64 overflow-y-auto">
-      <div className="mt-2 flex flex-col gap-3 border-l border-border pl-3 text-muted-foreground">
-        {tools.map((tool) => <div key={tool.id} className="flex min-w-0 flex-col gap-1">
-          {tools.length > 1 ? <p className="break-words text-xs">{toolStatusLabel(tool.status)} {tool.label}</p> : null}
-          {tool.durationMs !== undefined ? <p className="text-xs">已持续 {formatDuration(tool.durationMs)}</p> : null}
-          {tool.input ? <p className="whitespace-pre-wrap break-words text-xs leading-5">{tool.input}</p> : null}
-          {tool.detail ? <p className="whitespace-pre-wrap break-words text-xs leading-5">{tool.detail}</p> : null}
-        </div>)}
+      <div className="mt-2 flex min-w-0 flex-col gap-1 rounded-lg bg-muted/60 p-3 text-muted-foreground">
+        {tool.durationMs !== undefined ? <p className="text-xs">已持续 {formatDuration(tool.durationMs)}</p> : null}
+        {tool.input ? <p className="whitespace-pre-wrap break-words text-xs leading-5">{tool.input}</p> : null}
+        {tool.detail ? <p className="whitespace-pre-wrap break-words text-xs leading-5">{tool.detail}</p> : null}
       </div>
     </CollapsibleContent>
   </Collapsible>
@@ -960,12 +991,17 @@ function RunTraceItemView({ item }: { item: Extract<RunTraceItem, { kind: "think
   const [expanded, setExpanded] = useState(false)
   if (item.kind === "thinking") {
     return (
-      <div className="flex flex-col gap-2">
-        <Button variant="ghost" size="sm" className="h-auto justify-start self-start px-0" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
-          {expanded ? <ChevronDown /> : <ChevronRight />}<span className="text-xs text-muted-foreground">思考过程</span>
-        </Button>
-        {expanded ? <div className="flex flex-col gap-1"><p className="text-xs text-muted-foreground">{RUN_TRACE_COPY.thinkingHeading}</p><p className="whitespace-pre-wrap border-l border-border pl-3 text-sm leading-6 text-muted-foreground">{item.text}</p></div> : null}
-      </div>
+      <Collapsible open={expanded} onOpenChange={setExpanded} className="min-w-0">
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="sm" className="h-auto justify-start self-start px-0">
+            <span className="text-xs text-muted-foreground">深度思考</span>
+            {expanded ? <ChevronDown data-icon="inline-end" /> : <ChevronRight data-icon="inline-end" />}
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <p className="mt-2 whitespace-pre-wrap break-words border-l border-border pl-3 text-sm leading-6 text-muted-foreground">{item.text}</p>
+        </CollapsibleContent>
+      </Collapsible>
     )
   }
 
@@ -991,7 +1027,7 @@ function useElapsedMs(startedAt: string, completedAt?: string): number {
   return Math.max(0, end - start)
 }
 
-function buildRunTraceItems(events: AgentRunEvent[], options: { includeRawThinking: boolean }): RunTraceItem[] {
+function buildRunTraceItems(events: AgentRunEvent[]): RunTraceItem[] {
   const items: RunTraceItem[] = []
   const toolStarts = new Map<string, AgentRunEvent>()
   let thinkingItem: Extract<RunTraceItem, { kind: "thinking" }> | undefined
@@ -1005,7 +1041,7 @@ function buildRunTraceItems(events: AgentRunEvent[], options: { includeRawThinki
     }
     if (event.type === "thinking_delta") {
       const text = String(event.payload.delta ?? "")
-      if (text && options.includeRawThinking) {
+      if (text) {
         if (thinkingItem) {
           thinkingItem.text += text
         } else {
