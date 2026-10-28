@@ -4,7 +4,28 @@ Agent Host 支持将完整 Agent 运行链路上报到 Langfuse Cloud 或自建�
 
 ## 配置
 
-准备实例和项目的 API Keys 后，在启动 TypeDance 的 PowerShell 中设置：
+安装版从用户数据目录中的 `agent-host/langfuse.env` 自动读取监控配置。Windows 默认路径：
+
+```text
+%APPDATA%\app.typedance.desktop\agent-host\langfuse.env
+```
+
+创建该文件并填写自己的项目配置（下面以 Langfuse Cloud 美国区为例）：
+
+```dotenv
+LANGFUSE_ENABLED=true
+LANGFUSE_BASE_URL=https://us.cloud.langfuse.com
+LANGFUSE_PUBLIC_KEY=填写自己的PublicKey
+LANGFUSE_SECRET_KEY=填写自己的SecretKey
+LANGFUSE_TRACING_ENVIRONMENT=production
+LANGFUSE_CAPTURE_CONTENT=false
+```
+
+保存后从托盘完全退出 TypeDance，再正常打开客户端即可生效，不需要通过终端启动。配置放在用户数据目录，升级安装包时保留；不要写入安装目录、源码仓库或发布资源。
+
+该文件只允许七项 `LANGFUSE_*` 配置：上述六项和可选的 `LANGFUSE_RELEASE`。支持引号、空行和独立注释行。文件中不能修改模型凭据、服务端口或应用路径。启动环境变量优先于文件配置；缺少文件时保持现有开关，不可读取时记录不含秘密的提示并继续启动。
+
+开发环境也可以使用同一机制：默认文件为 `%USERPROFILE%\.typedance\agent-host\langfuse.env`，设置 `TYPEDANCE_DATA_DIR` 时从该目录下读取。需要临时覆盖配置时，在启动 TypeDance 的 PowerShell 中设置：
 
 ```powershell
 $env:LANGFUSE_ENABLED = 'true'
@@ -20,7 +41,7 @@ $env:LANGFUSE_RELEASE = 'local'
 
 开发环境在同一个终端执行 `corepack pnpm dev`。也可以把配置写到被 Git 忽略的本机 `.env`，通过绝对路径显式指定 `$env:TYPEDANCE_ENV_FILE = 'E:\workspaces\typedance\.env'`；Agent Host 不自动搜索 `.env`。
 
-桌面发布版需完全退出已有 TypeDance 进程，再从设置了环境变量的终端启动安装后的 `TypeDance.exe`。桌面启动器仅将上述 Langfuse 配置和 `LANGFUSE_CAPTURE_CONTENT` 传给 Agent Host；Python Sidecar 不接收这些凭据。发布版不读取开发环境文件，也不内置任何 Langfuse 项目或密钥。修改配置后需要重启。
+桌面启动器仍只向 Agent Host 传递明确允许的 Langfuse 启动变量。专用配置文件也仅由 Agent Host 读取，Python Sidecar 不接收这些凭据。发布版不搜索开发环境 `.env`，不内置任何 Langfuse 项目或密钥。修改配置后需要重启。
 
 Agent Host 日志会打印 `Langfuse: enabled` 或 `disabled`，不打印密钥。`LANGFUSE_ENABLED` 必须严格等于 `true`，且地址与两项密钥均有效才会启用。设为 `false` 或移除该变量即可关闭。
 

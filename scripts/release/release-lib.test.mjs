@@ -42,10 +42,11 @@ test("rejects secrets and development state from bundle inputs", () => {
     findForbiddenReleasePaths([
       "resources/plugins/resume/plugin.json",
       ".env",
+      "resources/plugins/resume/langfuse.env",
       "certs/app.pfx",
       "data/typedance.sqlite",
     ]),
-    [".env", "certs/app.pfx", "data/typedance.sqlite"],
+    [".env", "resources/plugins/resume/langfuse.env", "certs/app.pfx", "data/typedance.sqlite"],
   )
 })
 

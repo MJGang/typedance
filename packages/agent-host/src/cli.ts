@@ -10,7 +10,7 @@ import {
   createSqliteAgentHostStore,
   migrateJsonStoreToSqlite,
 } from "./index";
-import { loadExplicitEnvironment } from "./environment";
+import { loadExplicitEnvironment, loadLangfuseEnvironment } from "./environment";
 import {
   createDeepSeekModelAdapter,
 } from "./model/deepseek";
@@ -52,7 +52,11 @@ async function main(): Promise<void> {
     ? createResumePluginLoader(env.TYPEDANCE_PLUGIN_ROOT)
     : createResumePluginLoader();
 
-  const telemetry = createLangfuseTelemetry(env);
+  const telemetry = createLangfuseTelemetry(loadLangfuseEnvironment(
+    env,
+    join(dataDir, "agent-host", "langfuse.env"),
+    (path) => readFileSync(path, "utf8"),
+  ));
   const runtime = createHarnessRuntime({
     checkpointStore: new JsonFileHarnessCheckpointStore(join(dataDir, "agent-host", "checkpoints")),
     observer: telemetry?.observer,

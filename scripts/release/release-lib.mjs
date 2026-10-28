@@ -1,5 +1,6 @@
 const forbiddenReleasePatterns = [
   /(^|[/\\])\.env(?:\.|$)/i,
+  /(?:^|[/\\])langfuse\.env$/i,
   /\.(?:pem|pfx|p12|key)$/i,
   /(?:^|[/\\])typedance\.sqlite$/i,
   /(?:^|[/\\])\.git(?:[/\\]|$)/i,
