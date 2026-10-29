@@ -18,7 +18,7 @@ $ErrorActionPreference = "Stop"
 $tokens = $null; $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($Source, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw ($errors | Out-String) }
-foreach ($name in @("ConvertTo-WindowsArgument", "Start-IsolatedSmokeProcess", "Stop-SmokeProcess", "Read-SmokeOutput", "New-PrivateToken", "Get-FreeLoopbackPort", "Assert-Unauthorized", "Wait-ServiceHealth")) {
+foreach ($name in @("ConvertTo-WindowsArgument", "Start-IsolatedSmokeProcess", "Stop-SmokeProcessTree", "Stop-SmokeProcess", "Get-SmokeChildren", "Wait-SmokeChildrenExit", "Read-SmokeOutput", "New-PrivateToken", "Get-FreeLoopbackPort", "Assert-Unauthorized", "Wait-ServiceHealth")) {
   $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
   if (-not $definition) { throw "Missing smoke function" }
   Invoke-Expression $definition.Extent.Text
@@ -60,6 +60,30 @@ catch {
   $refused = $true
 } finally { $connection.Dispose() }
 if (-not $refused) { throw "Smoke probe leaked its listener" }
+Write-Output "Runtime probe: delayed descendant shutdown and real leak rejection"
+foreach ($lifetime in @(2500, 60000)) {
+  $parentCode = 'const {spawn}=require("node:child_process");const child=spawn(process.execPath,["--eval","setTimeout(()=>process.exit(0),"+process.env.TYPEDANCE_CHILD_LIFETIME+")"],{detached:true,stdio:"ignore",windowsHide:true});child.on("error",error=>{console.error(error);process.exitCode=1});child.unref();console.log(child.pid);'
+  $parent = Start-IsolatedSmokeProcess -FilePath $Node -Arguments @("--eval", $parentCode) -Environment @{ TYPEDANCE_CHILD_LIFETIME = $lifetime }
+  $ownedChild = $null
+  try {
+    if (-not $parent.Process.WaitForExit(10000)) { throw "Descendant probe parent did not exit" }
+    if ($parent.Process.ExitCode -ne 0) { throw "Descendant probe failed: $(Read-SmokeOutput $parent.Error)" }
+    $childId = [int](Read-SmokeOutput $parent.Output)
+    try { $ownedChild = [Diagnostics.Process]::GetProcessById($childId) }
+    catch [ArgumentException] { if ($lifetime -ne 2500) { throw } }
+    if ($lifetime -eq 2500) { Wait-SmokeChildrenExit -Parent $parent.Process -TimeoutSeconds 8 }
+    else {
+      $leakDetected = $false
+      try { Wait-SmokeChildrenExit -Parent $parent.Process -TimeoutSeconds 1 }
+      catch { if ($_.Exception.Message -notmatch "left child processes") { throw }; $leakDetected = $true }
+      if (-not $leakDetected) { throw "Smoke accepted a persistent descendant" }
+    }
+  } finally {
+    if ($null -ne $ownedChild) { Stop-SmokeProcessTree $ownedChild; $ownedChild.Dispose() }
+    Stop-SmokeProcess $parent
+  }
+  Wait-SmokeChildrenExit -Parent $parent.Process -TimeoutSeconds 5
+}
 Write-Output "Runtime probe passed"
 `, "utf8")
   const result = spawnSync(powershell, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", probe, "-Source", join(root, "scripts/release/smoke-release-runtime.ps1"), "-Node", process.execPath], { encoding: "utf8", windowsHide: true, timeout: 45_000 })

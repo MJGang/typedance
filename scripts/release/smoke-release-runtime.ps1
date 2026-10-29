@@ -39,13 +39,13 @@ function ConvertTo-WindowsArgument {
 }
 
 function Start-IsolatedSmokeProcess {
-    param([string]$FilePath, [string[]]$Arguments = @(), [hashtable]$Environment = @{})
+    param([string]$FilePath, [string[]]$Arguments = @(), [hashtable]$Environment = @{}, [switch]$ShowWindow)
     $info = [Diagnostics.ProcessStartInfo]::new()
     $info.FileName = $FilePath
     $info.Arguments = (($Arguments | ForEach-Object { ConvertTo-WindowsArgument $_ }) -join " ")
     $info.UseShellExecute = $false
     $info.CreateNoWindow = $true
-    $info.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+    $info.WindowStyle = if ($ShowWindow) { [Diagnostics.ProcessWindowStyle]::Normal } else { [Diagnostics.ProcessWindowStyle]::Hidden }
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true
     $info.EnvironmentVariables.Clear()
@@ -60,13 +60,44 @@ function Start-IsolatedSmokeProcess {
     return [PSCustomObject]@{ Process = $process; Output = $process.StandardOutput.ReadToEndAsync(); Error = $process.StandardError.ReadToEndAsync() }
 }
 
+function Stop-SmokeProcessTree {
+    param([Diagnostics.Process]$Target)
+    if ($Target.HasExited) { return }
+    # Capture taskkill's stderr through ProcessStartInfo. A descendant can exit
+    # between enumeration and taskkill; only a still-running target is a failure.
+    $killer = Start-IsolatedSmokeProcess -FilePath (Join-Path $env:SYSTEMROOT 'System32\taskkill.exe') -Arguments @('/PID', "$($Target.Id)", '/T', '/F')
+    try {
+        if (-not $killer.Process.WaitForExit(10000)) { throw "Smoke process tree cleanup timed out" }
+        if (-not $Target.WaitForExit(10000)) { throw "Smoke child process did not stop: $(Read-SmokeOutput $killer.Error)" }
+    } finally {
+        if (-not $killer.Process.HasExited) { $killer.Process.Kill() }
+        $killer.Process.Dispose()
+    }
+}
+
 function Stop-SmokeProcess {
     param($Handle)
-    if ($null -eq $Handle) { return }
-    if (-not $Handle.Process.HasExited) {
-        & taskkill.exe /PID $Handle.Process.Id /T /F 2>$null | Out-Null
-        if (-not $Handle.Process.WaitForExit(10000)) { throw "Smoke child process did not stop" }
-    }
+    if ($null -ne $Handle) { Stop-SmokeProcessTree $Handle.Process }
+}
+
+function Get-SmokeChildren {
+    param([Diagnostics.Process]$Parent)
+    Get-CimInstance Win32_Process -Filter "ParentProcessId = $($Parent.Id)" |
+        Where-Object { $_.CreationDate.ToUniversalTime() -ge $Parent.StartTime.ToUniversalTime() }
+}
+
+function Wait-SmokeChildrenExit {
+    param([Diagnostics.Process]$Parent, [ValidateRange(1, 20)][int]$TimeoutSeconds = 10)
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    do {
+        $left = @(Get-SmokeChildren $Parent)
+        if (-not $left.Count) { return }
+        if ($watch.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
+            $names = ($left | ForEach-Object { "$($_.Name) ($($_.ProcessId))" }) -join ', '
+            throw "Desktop left child processes after shutdown: $names"
+        }
+        Start-Sleep -Milliseconds 100
+    } while ($true)
 }
 
 function Read-SmokeOutput {
@@ -246,9 +277,10 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
 function Invoke-UnconfiguredDesktopSmoke {
     if ((Get-WindowsExecutableSubsystem $executablePath) -ne 2) { throw "Release desktop must use the Windows GUI subsystem (2)" }
     $desktop = $null
+    $desktopFailure = $null
     $desktopData = Join-Path $smokeRoot "unconfigured-account-data"
     try {
-        $desktop = Start-IsolatedSmokeProcess -FilePath $executablePath -Environment @{
+        $desktop = Start-IsolatedSmokeProcess -FilePath $executablePath -ShowWindow -Environment @{
             TYPEDANCE_ACCOUNT_DATA_DIR = $desktopData
             TYPEDANCE_RELEASE_SMOKE_EXIT_AFTER_MS = "12000"
             WEBVIEW2_USER_DATA_FOLDER = (Join-Path $smokeRoot "webview-data")
@@ -264,17 +296,33 @@ function Invoke-UnconfiguredDesktopSmoke {
         }
         if (-not $guiSeen) { throw "Unconfigured desktop did not create its GUI window" }
         if (-not $desktop.Process.HasExited -or $desktop.Process.ExitCode -ne 0) { throw "Unconfigured desktop did not complete clean automatic shutdown" }
-        $remaining = @(Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $desktop.Process.Id })
-        if ($remaining.Count) { throw "Desktop left child processes after shutdown" }
+        Write-Host "[smoke-runtime] desktop exited cleanly; waiting for WebView process shutdown"
+        Wait-SmokeChildrenExit $desktop.Process
         $diagnostics = Read-SmokeOutput $desktop.Error
         if (-not $diagnostics.Contains("Account startup gate: unconfigured")) { throw "Desktop did not confirm the real unconfigured account gate" }
         if (Test-Path -LiteralPath (Join-Path $desktopData "profiles")) { throw "Unconfigured desktop created account business storage" }
+    } catch {
+        $desktopFailure = $_
+        throw
     } finally {
-        Stop-SmokeProcess $desktop
-        if ($null -ne $desktop) {
-            # Clean only descendants of the process created by this smoke, even if its parent crashed.
-            $left = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $($desktop.Process.Id)" | Where-Object { $_.CreationDate -ge $desktop.Process.StartTime })
-            foreach ($child in $left) { & taskkill.exe /PID $child.ProcessId /T /F 2>$null | Out-Null }
+        try {
+            Stop-SmokeProcess $desktop
+            if ($null -ne $desktop) {
+                # Never terminate a reused PID or a process outside this smoke.
+                foreach ($child in @(Get-SmokeChildren $desktop.Process)) {
+                    $target = $null
+                    try {
+                        $target = [Diagnostics.Process]::GetProcessById($child.ProcessId)
+                        if ([Math]::Abs(($target.StartTime.ToUniversalTime() - $child.CreationDate.ToUniversalTime()).TotalMilliseconds) -ge 1) { throw "Smoke child identity changed before cleanup" }
+                        Stop-SmokeProcessTree $target
+                    } catch [ArgumentException] {
+                        # The enumerated child has already finished its natural shutdown.
+                    } finally { if ($null -ne $target) { $target.Dispose() } }
+                }
+            }
+        } catch {
+            if ($null -eq $desktopFailure) { throw }
+            Write-Warning "Desktop smoke cleanup also failed: $($_.Exception.Message)"
         }
     }
     Write-Host "[smoke-runtime] unconfigured GUI, login gate and clean managed shutdown passed"
