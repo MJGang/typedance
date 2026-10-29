@@ -93,7 +93,7 @@ gh workflow run release-windows.yml --ref main -f compare_compression=true
 pnpm release:smoke
 ```
 
-脚本会静默安装、启动应用、检查 Python Sidecar 与 Agent Host 健康状态、验证内置 Chromium、等待托管退出、静默卸载，并确认卸载不会删除用户数据。检测到已有安装时会直接中止，避免覆盖真实用户环境。
+脚本会静默安装、启动应用并验证未配置账号时的登录门禁；另外在临时目录中单独启动已安装的 Python Sidecar 与 Agent Host，验证健康状态、本机访问凭据、内置 Chromium 和语音运行时。随后静默卸载，并确认卸载不会删除用户数据。检测到已有安装时会直接中止，避免覆盖真实用户环境。
 
 也可以手动校验安装包哈希：
 
@@ -142,6 +142,6 @@ CI 需要在源码仓库的 Actions 配置以下内容：
 - 发布流程不会读取仓库 `.env`，也不会把 `.env`、私钥、证书、SQLite 数据库或 `.git` 内容加入安装包。
 - Agent Host 发布版不会向上搜索 `.env`；只有开发者显式设置 `TYPEDANCE_ENV_FILE` 时才会读取指定文件。
 - 桌面运行时只向子进程传递白名单环境变量，不转发构建机的模型密钥或 `.env` 路径。
-- API Key 应由安装后的“AI 设置”页面配置，保存在当前用户的应用数据目录，不写入安装包。
+- API Key 由登录后的“AI 设置”页面配置，按账号保存在 Windows 凭据管理器，不写入安装包。
 
 当前安装包未进行代码签名，Windows 首次运行时可能显示信誉或安全提示。这不影响本地验证；对外正式分发前应另行配置代码签名。
