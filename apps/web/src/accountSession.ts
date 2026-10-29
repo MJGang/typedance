@@ -28,10 +28,16 @@ let activityCell: { controller: AbortController } | null = null
 let epoch = 0
 let saveOnly = false
 const activityStopListeners = new Set<() => void>()
+const activityResumeListeners = new Set<() => void>()
 
 export function subscribeAccountActivitiesStopped(listener: () => void) {
   activityStopListeners.add(listener)
   return () => { activityStopListeners.delete(listener) }
+}
+
+export function subscribeAccountActivitiesResumed(listener: () => void) {
+  activityResumeListeners.add(listener)
+  return () => { activityResumeListeners.delete(listener) }
 }
 
 function stopAccountActivities() {
@@ -41,11 +47,13 @@ function stopAccountActivities() {
 
 export function setAccountSaveOnly(value: boolean) {
   if (value && !saveOnly) stopAccountActivities()
-  if (!value && saveOnly && active && activityCell) {
+  const resumed = !value && saveOnly && active !== null && activityCell !== null
+  if (resumed && activityCell) {
     activityController = new AbortController()
     activityCell.controller = activityController
   }
   saveOnly = value
+  if (resumed) for (const listener of activityResumeListeners) listener()
 }
 
 /** Only the verified desktop state may publish a business session. */
