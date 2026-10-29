@@ -21,3 +21,5 @@ services/sidecar/build/
 .gstack/
 .codegraph/
 .env
+.superpowers/
+output/
