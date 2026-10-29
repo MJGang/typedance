@@ -32,7 +32,7 @@ import { HoverScrollText } from "@/components/HoverScrollText"
 import { useWorkspaceConversations } from "./WorkspaceConversations"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { SettingsButton } from "@/features/settings/SettingsDialog"
+import { AccountMenu } from "@/features/account/AccountMenu"
 import {
   addDirectoryContextSource,
   addFileContextSource,
@@ -295,9 +295,7 @@ export function WorkbenchSidebar({
         </section>
       </div>
 
-      <div className="p-2">
-        <SettingsButton />
-      </div>
+      <AccountMenu />
 
       <Dialog open={webDialogOpen} onOpenChange={setWebDialogOpen}>
         <DialogContent>

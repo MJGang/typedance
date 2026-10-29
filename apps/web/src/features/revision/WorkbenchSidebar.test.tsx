@@ -2,9 +2,17 @@ import "@testing-library/jest-dom/vitest"
 import { act, fireEvent, render as renderBase, screen, waitFor, within } from "@testing-library/react"
 import type { ReactElement } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { installTestAccountSession } from "@/test/accountFixture"
+import { installTestAccountSession, testAccountSession } from "@/test/accountFixture"
+import { applyAccountState, getAccountView, setAccountAction } from "@/accountState"
 
-beforeEach(() => installTestAccountSession())
+beforeEach(async () => {
+  await installTestAccountSession()
+  setAccountAction("idle")
+  applyAccountState({
+    revision: getAccountView().state.revision + 1, status: "ready", configured: true, providers: [],
+    user: { id: "test-account", name: "测试账号" }, session: testAccountSession(), error: null, legacy: null,
+  })
+})
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { WorkbenchSidebar } from "./WorkbenchSidebar"
 import { WorkspaceConversationsProvider } from "./WorkspaceConversations"
@@ -106,7 +114,8 @@ describe("WorkbenchSidebar", () => {
     )
 
     await waitFor(() => expect(apiMocks.listContextSources).toHaveBeenCalledWith("doc_1"))
-    fireEvent.click(screen.getByRole("button", { name: "设置" }))
+    fireEvent.keyDown(screen.getByRole("button", { name: "账号菜单：测试账号" }), { key: "Enter" })
+    fireEvent.click(await screen.findByRole("menuitem", { name: "设置" }))
 
     expect(await screen.findByRole("heading", { name: "AI 设置" })).toBeInTheDocument()
     expect(await screen.findByDisplayValue("deepseek-v4-flash")).toBeInTheDocument()
@@ -139,7 +148,7 @@ describe("WorkbenchSidebar", () => {
     const sidebar = screen.getAllByRole("button", { name: "新对话" })[0].closest("aside")
     expect(sidebar).not.toHaveClass("border-y", "border-t", "border-b")
     expect(sidebar).not.toHaveClass("border-r")
-    expect(screen.getByRole("button", { name: "设置" }).parentElement).not.toHaveClass("border-t")
+    expect(screen.getByRole("button", { name: "账号菜单：测试账号" }).parentElement).not.toHaveClass("border-t")
   })
 
   it("starts a local draft from both conversation actions without creating a conversation", async () => {

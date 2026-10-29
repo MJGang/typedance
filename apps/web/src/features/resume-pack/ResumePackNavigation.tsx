@@ -47,6 +47,10 @@ export function ResumePackModeSwitch() {
   const mode = pathname.startsWith(resumePackPaths.templates) ? "templates" : "resume"
   return (
     <nav aria-label="简历与模板" className="shrink-0 px-3 pb-4">
+      <div className="flex items-center gap-2.5 px-1 pt-4 pb-5">
+        <img src="/images/typedance-icon.png" alt="" className="size-9 shrink-0" />
+        <span className="truncate text-lg font-semibold tracking-tight">TypeDance</span>
+      </div>
       <ToggleGroup type="single" variant="outline" spacing={0} value={mode} className="h-12 w-full overflow-hidden rounded-xl border border-border [&>[data-slot=toggle-group-item]]:h-full [&>[data-slot=toggle-group-item]]:border-0"
         onValueChange={(value) => {
           if (value === "resume" || value === "templates") navigate(destinations[value])

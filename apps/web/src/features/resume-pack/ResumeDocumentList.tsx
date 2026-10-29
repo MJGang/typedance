@@ -44,6 +44,7 @@ export function ResumeDocumentList({ activeDocumentId, activeDocument, onDocumen
   }, [locationKey])
   useEffect(() => {
     let cancelled = false
+    if (!openFirstDocument) initialSelectionPending.current = false
     setLoading(true)
     setError(false)
     void listRevisionDocuments().then((items) => {
@@ -60,7 +61,7 @@ export function ResumeDocumentList({ activeDocumentId, activeDocument, onDocumen
       if (!cancelled) setLoading(false)
     })
     return () => { cancelled = true }
-  }, [activeId, refresh, documentsVersion, navigate])
+  }, [activeId, refresh, documentsVersion, navigate, openFirstDocument])
 
   const handleDuplicate = async (item: DocumentListItem) => {
     if (actionInFlight.current) return
