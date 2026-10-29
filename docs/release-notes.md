@@ -1,4 +1,4 @@
-本版本新增强制登录。首次使用请先按[账号服务配置说明](https://github.com/MJGang/typedance/blob/v0.1.15/docs/account-setup.md)配置 Logto 租户与第三方连接器；未配置时停留在登录提示，不启动业务服务。
+本版本新增强制登录。首次使用请先按[账号服务配置说明](https://github.com/MJGang/typedance/blob/v0.1.16/docs/account-setup.md)配置 Logto 租户与第三方连接器；未配置时停留在登录提示，不启动业务服务。
 
 - 新增可配置的微信、Google、GitHub 登录，支持注册、退出和切换账号。
 - 登录页采用独立小窗口与项目原图标，微信为首选黑色按钮。
