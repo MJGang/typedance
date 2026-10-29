@@ -25,6 +25,7 @@ foreach ($name in @("ConvertTo-WindowsArgument", "Start-IsolatedSmokeProcess", "
 }
 $env:DEEPSEEK_API_KEY = "inherited-test-key-must-not-reach-child"
 $env:TYPEDANCE_LOGTO_ENDPOINT = "https://must-not-reach-child.invalid"
+Write-Output "Runtime probe: child arguments and isolated environment"
 $expected = @("path with spaces", 'literal"quote', 'C:\trailing\', '$() does not execute', ([string]::Join([char]10, @('first line', 'second line'))))
 $code = 'process.stdout.write(JSON.stringify({args:process.argv.slice(1),leaked:!!process.env.DEEPSEEK_API_KEY||!!process.env.TYPEDANCE_LOGTO_ENDPOINT,private:process.env.TYPEDANCE_TEST_MARKER}))'
 $child = Start-IsolatedSmokeProcess -FilePath $Node -Arguments (@("--eval", $code, "--") + $expected) -Environment @{ TYPEDANCE_TEST_MARKER = "present" }
@@ -36,6 +37,7 @@ try {
 } finally { Stop-SmokeProcess $child }
 $token = New-PrivateToken
 $port = Get-FreeLoopbackPort
+Write-Output "Runtime probe: private health and capability rejection"
 $serverCode = 'const http=require("node:http");const token=process.env.TYPEDANCE_LOCAL_TOKEN;const server=http.createServer((q,s)=>{s.setHeader("Content-Type","application/json");s.writeHead(q.headers.authorization==="Bearer "+token?200:401);s.end(JSON.stringify({status:"ok"}));});server.listen(Number(process.env.TYPEDANCE_TEST_PORT),"127.0.0.1");'
 $server = Start-IsolatedSmokeProcess -FilePath $Node -Arguments @("--eval", $serverCode) -Environment @{ TYPEDANCE_LOCAL_TOKEN = $token; TYPEDANCE_TEST_PORT = $port }
 try {
@@ -47,10 +49,20 @@ try {
   try { Assert-Unauthorized -Uri "$url/health" -Token $token } catch { $detected = $true }
   if (-not $detected) { throw "Unauthorized assertion accepted a successful request" }
 } finally { Stop-SmokeProcess $server }
-if (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) { throw "Smoke probe leaked its listener" }
+Write-Output "Runtime probe: listener cleanup"
+$connection = [Net.Sockets.TcpClient]::new()
+$refused = $false
+try { $connection.Connect([Net.IPAddress]::Loopback, $port) }
+catch {
+  $failure = $_.Exception.GetBaseException()
+  if ($failure -isnot [Net.Sockets.SocketException] -or $failure.SocketErrorCode -ne [Net.Sockets.SocketError]::ConnectionRefused) { throw }
+  $refused = $true
+} finally { $connection.Dispose() }
+if (-not $refused) { throw "Smoke probe leaked its listener" }
+Write-Output "Runtime probe passed"
 `, "utf8")
   const result = spawnSync(powershell, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", probe, "-Source", join(root, "scripts/release/smoke-release-runtime.ps1"), "-Node", process.execPath], { encoding: "utf8", windowsHide: true, timeout: 45_000 })
-  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  assert.equal(result.status, 0, `${result.error?.message ?? ""}\nSignal: ${result.signal ?? "none"}\n${result.stdout}\n${result.stderr}`)
 })
 
 test("Sidecar build health probe rejects an unauthenticated service and restores caller environment", { skip: process.platform !== "win32" }, t => {

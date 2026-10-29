@@ -9,7 +9,7 @@
     "test": "corepack pnpm --filter @typedance/harness-contracts test && corepack pnpm --filter @typedance/contracts test && corepack pnpm --filter @typedance/harness-core test && corepack pnpm --filter @typedance/harness-server test && corepack pnpm --filter @typedance/harness-speech test && corepack pnpm --filter @typedance/agent-host test && corepack pnpm --filter @typedance/resume-renderer test && corepack pnpm --filter @typedance/resume-markdown test && corepack pnpm --filter @typedance/web test && corepack pnpm --filter @typedance/sidecar test && node --test scripts/benchmarks/*.test.mjs",
     "lint": "corepack pnpm --filter @typedance/web lint",
     "verify:change": "node scripts/verify-change.mjs",
-    "release:test": "node --test scripts/release/*.test.mjs",
+    "release:test": "node --test --test-concurrency=1 scripts/release/*.test.mjs",
     "release:rust-test": "cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --release --lib --features tauri/custom-protocol",
     "release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-windows.ps1",
     "release:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release/smoke-installer.ps1",
