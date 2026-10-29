@@ -1,24 +1,37 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 export class HttpError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
 }
 
-export type LocalAccessOptions = { authToken?: string; allowedOrigins?: readonly string[] };
+export type LocalAccessOptions = { authToken: string; allowedOrigins?: readonly string[] };
 
-/** Browser bootstrap is restricted to the app's exact origins; API calls require a process-scoped token. */
+export function requireLocalToken(value: string | undefined): string {
+  if (!value || !/^[A-Za-z0-9_-]{32,512}$/.test(value)) throw new Error("A desktop-issued local service token is required");
+  return value;
+}
+
+export function isLoopbackHost(value: string): boolean {
+  return /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?$/i.test(value);
+}
+
+/** Only the desktop coordinator distributes this account process's capability. */
 export function createLocalAccess(options: LocalAccessOptions) {
-  const token = options.authToken ?? randomBytes(32).toString("hex");
-  if (token.length < 32) throw new Error("Agent Host auth token must contain at least 32 characters");
+  const token = requireLocalToken(options.authToken);
   const expected = Buffer.from(`Bearer ${token}`);
   const origins = new Set(options.allowedOrigins ?? [
     "http://tauri.localhost", "https://tauri.localhost", "tauri://localhost",
     "http://127.0.0.1:5173", "http://localhost:5173",
   ]);
   return (request: IncomingMessage, response: ServerResponse, pathname: string): boolean => {
-    const hostname = new URL(`http://${request.headers.host ?? "invalid"}`).hostname;
-    if (!["localhost", "127.0.0.1", "[::1]"].includes(hostname)) throw new HttpError(403, "invalid_host");
+    const counts = new Map<string, number>();
+    for (let index = 0; index < request.rawHeaders.length; index += 2) {
+      const name = request.rawHeaders[index]!.toLowerCase();
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    if (counts.get("host") !== 1 || !isLoopbackHost(request.headers.host ?? "")) throw new HttpError(403, "invalid_host");
+    if ((counts.get("origin") ?? 0) > 1) throw new HttpError(403, "untrusted_origin");
     const origin = request.headers.origin;
     if (origin && !origins.has(origin)) throw new HttpError(403, "untrusted_origin");
     if (origin) {
@@ -33,12 +46,7 @@ export function createLocalAccess(options: LocalAccessOptions) {
       response.writeHead(204).end();
       return true;
     }
-    if (request.method === "GET" && pathname === "/health") return false;
-    if (request.method === "GET" && pathname === "/session") {
-      if (!origin) throw new HttpError(403, "origin_required");
-      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ token }));
-      return true;
-    }
+    if (counts.get("authorization") !== 1) throw new HttpError(401, "unauthorized");
     const actual = Buffer.from(request.headers.authorization ?? "");
     if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) throw new HttpError(401, "unauthorized");
     return false;

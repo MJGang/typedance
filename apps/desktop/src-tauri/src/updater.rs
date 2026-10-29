@@ -287,7 +287,7 @@ pub(crate) async fn install_client_update(
     .await;
     #[cfg(not(debug_assertions))]
     if !matches!(&outcome, Ok((Ok(()), _))) {
-        if let Err(error) = crate::runtime::restore_release_services(&app) {
+        if let Err(error) = crate::runtime::restore_release_services(&app).await {
             eprintln!("Unable to restore services after failed update installation: {error}");
         }
     }

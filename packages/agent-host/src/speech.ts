@@ -16,6 +16,9 @@ export class LocalSpeechService {
   #provider?: SenseVoiceProvider;
   #disposed = false;
   #configuring = false;
+  #lifecycle = new AbortController();
+  #transcriptions = new Set<Promise<unknown>>();
+  #disposeTask?: Promise<void>;
   constructor(dataDir: string) {
     this.#directory = join(dataDir, "speech", "sensevoice-small-int8");
     this.#configPath = join(dataDir, "agent-host", "speech.json");
@@ -31,6 +34,7 @@ export class LocalSpeechService {
   async status(): Promise<SpeechStatus> { await this.#initial; return { ...this.#state }; }
   async configure(value: SpeechPreferences): Promise<SpeechStatus> {
     await this.#initial;
+    if (this.#disposed) throw new HttpError(409, "account_closing");
     if (this.#preparing) throw new HttpError(409, "请先取消模型下载再修改设置");
     if (this.#configuring) throw new HttpError(409, "语音设置正在保存，请稍后重试");
     const preferences = speechPreferencesSchema.parse(value);
@@ -73,8 +77,21 @@ export class LocalSpeechService {
       this.#provider = new SenseVoiceProvider({ directory: this.#directory, modulePath: resolveSpeechRuntime(isSea() ? join(dirname(process.execPath), "speech-runtime", "package.json") : undefined),
         workerCommand: { executable: process.execPath, args: isSea() ? ["--speech-worker"] : [...process.execArgv, fileURLToPath(new URL("./cli.ts", import.meta.url)), "--speech-worker"] } });
     }
-    try { return await this.#provider.transcribe({ samples, sampleRate: 16000, language: this.#state.language }, signal); }
+    const operation = this.#provider.transcribe({ samples, sampleRate: 16000, language: this.#state.language }, AbortSignal.any([signal, this.#lifecycle.signal]));
+    this.#transcriptions.add(operation);
+    try { return await operation; }
     catch (error) { if (error instanceof SpeechBusyError) throw new HttpError(409, error.message); throw error; }
+    finally { this.#transcriptions.delete(operation); }
   }
-  async dispose() { this.#disposed = true; await this.cancelPreparation(); await this.#provider?.dispose(); }
+  dispose(): Promise<void> {
+    if (this.#disposeTask) return this.#disposeTask;
+    this.#disposed = true;
+    this.#lifecycle.abort();
+    this.#disposeTask = (async () => {
+      await this.cancelPreparation();
+      await this.#provider?.dispose();
+      await Promise.allSettled([...this.#transcriptions]);
+    })();
+    return this.#disposeTask;
+  }
 }

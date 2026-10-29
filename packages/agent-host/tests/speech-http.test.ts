@@ -65,4 +65,22 @@ describe("speech HTTP ownership", () => {
     await admission; abort.abort(); await rejected;
     await vi.waitFor(() => expect(observed?.aborted).toBe(true));
   });
+  it("aborts native inference before acknowledging account closure and admits no new transcription", async () => {
+    const { url, headers } = await start();
+    let accepted!: () => void;
+    const admission = new Promise<void>((resolve) => { accepted = resolve; });
+    let observed: AbortSignal | undefined;
+    native.transcribe.mockImplementation((_input, signal: AbortSignal) => new Promise((_resolve, reject) => {
+      observed = signal; accepted(); signal.addEventListener("abort", () => reject(new Error("account closed")), { once: true });
+    }));
+    const pending = fetch(`${url}/speech/transcribe`, { method: "POST", headers, body: JSON.stringify({ audio: "AAAAAA==" }) }).catch(() => undefined);
+    await admission;
+    const closed = await fetch(`${url}/account/prepare-close`, { method: "POST", headers });
+    expect(closed.status).toBe(200);
+    expect(observed?.aborted).toBe(true);
+    expect(native.dispose).toHaveBeenCalledOnce();
+    await pending;
+    expect((await fetch(`${url}/speech/transcribe`, { method: "POST", headers, body: JSON.stringify({ audio: "AAAAAA==" }) })).status).toBe(409);
+    expect(native.transcribe).toHaveBeenCalledOnce();
+  });
 });

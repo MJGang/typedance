@@ -1,4 +1,5 @@
-﻿from pathlib import Path
+from conftest import authenticated_client
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -650,7 +651,7 @@ def test_save_generates_preview_pdf(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sidecar_main, "render_and_export_pdf", fake_render_and_export_pdf)
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
-    client = TestClient(app)
+    client = authenticated_client(app)
 
     response = client.post(
         "/resume-versions",
@@ -721,7 +722,7 @@ def test_save_preview_uses_saved_template_block_style(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sidecar_main, "render_and_export_pdf", fake_render_and_export_pdf)
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
-    client = TestClient(app)
+    client = authenticated_client(app)
 
     style_response = client.put(
         "/template-styles/classic-a4",
@@ -750,7 +751,7 @@ def test_export_pdf_returns_pdf_download(tmp_path, monkeypatch, mock_playwright)
     """POST /exports/pdf/{id} 返回 200 + PDF 附件下载"""
 
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
-    client = TestClient(app)
+    client = authenticated_client(app)
 
     created = client.post(
         "/resume-versions",
@@ -790,7 +791,7 @@ def test_export_pdf_uses_unique_output_path_per_request(tmp_path, monkeypatch, m
     """重复导出同一份简历时使用不同文件，避免 Windows 下已打开 PDF 锁住旧路径。"""
 
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
-    client = TestClient(app)
+    client = authenticated_client(app)
 
     created = client.post(
         "/resume-versions",
@@ -820,7 +821,7 @@ def test_export_pdf_uses_unique_output_path_per_request(tmp_path, monkeypatch, m
 def test_export_pdf_writes_to_requested_output_path(tmp_path, monkeypatch, mock_playwright):
     """桌面端传入保存路径时，导出文件和 X-Pdf-Path 都指向用户选择的位置。"""
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path / "data"))
-    client = TestClient(app)
+    client = authenticated_client(app)
 
     created = client.post(
         "/resume-versions",
@@ -854,7 +855,7 @@ def test_export_pdf_writes_to_requested_output_path(tmp_path, monkeypatch, mock_
 
 def test_export_html_returns_rendered_html_download(tmp_path, monkeypatch):
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
-    client = TestClient(app)
+    client = authenticated_client(app)
 
     created = client.post(
         "/resume-versions",
@@ -881,7 +882,7 @@ def test_export_html_returns_rendered_html_download(tmp_path, monkeypatch):
 
 def test_export_html_writes_to_requested_output_path(tmp_path, monkeypatch):
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path / "data"))
-    client = TestClient(app)
+    client = authenticated_client(app)
 
     created = client.post(
         "/resume-versions",
@@ -911,7 +912,7 @@ def test_export_pdf_header_supports_unicode_output_path(tmp_path, monkeypatch, m
     from pathlib import Path
 
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path / "data"))
-    client = TestClient(app)
+    client = authenticated_client(app)
 
     created = client.post(
         "/resume-versions",

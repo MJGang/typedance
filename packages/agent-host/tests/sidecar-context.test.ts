@@ -3,7 +3,7 @@ import { createSidecarContextProvider } from "../src/sidecar-context";
 
 describe("sidecar context provider", () => {
   it("keeps long editor contents out of replayed workspace references across revisions", async () => {
-    const provider = createSidecarContextProvider({ fetch: vi.fn() });
+    const provider = createSidecarContextProvider({ authToken: "test-sidecar-account-token-0123456789", fetch: vi.fn() });
     const base = { document_id: "doc", editor_session_id: "session", canvas_version: 1,
       doc_json: { type: "doc", content: [] }, plain_text: "旧正文".repeat(10000) };
     const before = await provider.loadContext({ workspaceId: "doc", mentions: [], editorSnapshot: { ...base, content_revision: 1 } });
@@ -18,7 +18,7 @@ describe("sidecar context provider", () => {
 
   it("identifies the current editor session so local revision resets are not confused with saved document rollback", async () => {
     const fetchMock = vi.fn<typeof fetch>();
-    const provider = createSidecarContextProvider({ fetch: fetchMock });
+    const provider = createSidecarContextProvider({ authToken: "test-sidecar-account-token-0123456789", fetch: fetchMock });
     const context = await provider.loadContext({ workspaceId: "doc_1", mentions: [], editorSnapshot: {
       document_id: "doc_1", editor_session_id: "new-editor-session", content_revision: 0, canvas_version: 3,
       doc_json: { type: "doc", content: [] }, plain_text: "已保存的最新正文",
@@ -74,14 +74,15 @@ describe("sidecar context provider", () => {
       },
       available_actions: [],
     }), { status: 200 }));
-    const provider = createSidecarContextProvider({
+    const provider = createSidecarContextProvider({ authToken: "test-sidecar-account-token-0123456789",
       baseUrl: "http://127.0.0.1:4317",
       fetch: fetchMock as unknown as typeof fetch,
     });
 
     const context = await provider.loadContext({ workspaceId: "doc_1", mentions: [] });
 
-    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:4317/documents/doc_1/workspace-view", { signal: undefined });
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:4317/documents/doc_1/workspace-view", expect.objectContaining({ signal: undefined, redirect: "error", cache: "no-store" }));
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("authorization")).toBe("Bearer test-sidecar-account-token-0123456789");
     expect(context[0]?.content).toContain("Current active resume canvas");
     expect(context[0]?.content).toContain("刚铭俊");
     expect(context[0]?.content).toContain("前端技术负责人 / 前端架构师 / AI 应用开发");
@@ -89,7 +90,7 @@ describe("sidecar context provider", () => {
 
   it("returns explicit no-canvas context instead of silently omitting current document evidence", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ detail: "Document not found" }), { status: 404 }));
-    const provider = createSidecarContextProvider({
+    const provider = createSidecarContextProvider({ authToken: "test-sidecar-account-token-0123456789",
       baseUrl: "http://127.0.0.1:4317",
       fetch: fetchMock as unknown as typeof fetch,
     });

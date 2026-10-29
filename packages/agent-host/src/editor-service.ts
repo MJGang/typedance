@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { createAuthenticatedSidecarFetch } from "./sidecar-fetch";
 import { editorCapabilityCatalogSchema, editorTransactionSchema, type EditorCapabilityCatalog, type EditorOperation, type EditorSnapshot, type EditorTransaction } from "@typedance/contracts";
 
 export interface EditorService {
@@ -7,10 +8,11 @@ export interface EditorService {
   prepare(input: { snapshot: EditorSnapshot; operations: EditorOperation[]; catalogRevision: string; summary: string; signal: AbortSignal }): Promise<EditorTransaction>;
 }
 
-export function createSidecarEditorService(baseUrl: string, fetchImpl: typeof fetch = fetch): EditorService {
+export function createSidecarEditorService(baseUrl: string, authToken: string, fetchImpl: typeof fetch = fetch): EditorService {
+  const authenticatedFetch = createAuthenticatedSidecarFetch(authToken, fetchImpl);
   const base = baseUrl.replace(/\/+$/, "");
   async function request(path: string, signal: AbortSignal, body?: unknown) {
-    const response = await fetchImpl(`${base}${path}`, { signal, ...(body === undefined ? {} : {
+    const response = await authenticatedFetch(`${base}${path}`, { signal, ...(body === undefined ? {} : {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
     }) });
     const data = await response.json();

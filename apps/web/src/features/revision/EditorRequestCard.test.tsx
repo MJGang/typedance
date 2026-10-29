@@ -1,12 +1,16 @@
 import "@testing-library/jest-dom/vitest"
 import { useEffect } from "react"
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { AgentRunEvent, EditorRequest, EditorSnapshot } from "@typedance/contracts"
 import { beginEditorRequest, getEditorRequest, respondToEditorRequest } from "@/agentHost"
 import { EditorRequestCard } from "./EditorRequestCard"
 import { flushSourceCanvasSaves } from "./useSourceCanvasAutosave"
 import { EditorReferencesProvider, useEditorReferences, type CanvasReferenceBridge } from "./references/EditorReferences"
+import { installTestAccountSession } from "@/test/accountFixture"
+import { setAccountSaveOnly } from "@/accountSession"
+
+beforeEach(() => installTestAccountSession())
 
 vi.mock("@/agentHost", () => ({ beginEditorRequest: vi.fn(), getEditorRequest: vi.fn(), respondToEditorRequest: vi.fn() }))
 vi.mock("./useSourceCanvasAutosave", () => ({ flushSourceCanvasSaves: vi.fn() }))
@@ -37,6 +41,19 @@ function setup(value = request, active = true, changed = true) {
 afterEach(() => { cleanup(); vi.resetAllMocks() })
 
 describe("editor request decisions", () => {
+  it("never applies an approval response from before a pause even after activities resume", async () => {
+    const { bridge } = setup()
+    let finishApproval!: (value: EditorRequest) => void
+    vi.mocked(beginEditorRequest).mockImplementation(() => new Promise((resolve) => { finishApproval = resolve }))
+    fireEvent.click(screen.getByRole("button", { name: "应用修改" }))
+    await waitFor(() => expect(beginEditorRequest).toHaveBeenCalled())
+    act(() => { setAccountSaveOnly(true); setAccountSaveOnly(false) })
+    await act(async () => { finishApproval(request) })
+    expect(await screen.findByRole("alert")).toHaveTextContent("账号活动已暂停")
+    expect(bridge.apply).not.toHaveBeenCalled()
+    expect(respondToEditorRequest).not.toHaveBeenCalled()
+  })
+
   it("does not undo another editor session even if its content revision has the same value", async () => {
     setup()
     fireEvent.click(screen.getByRole("button", { name: "应用修改" }))

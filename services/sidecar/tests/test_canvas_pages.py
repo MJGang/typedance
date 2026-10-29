@@ -1,3 +1,4 @@
+from conftest import authenticated_client
 import base64
 import re
 import struct
@@ -105,7 +106,7 @@ def test_real_page_images_differ_and_api_does_not_create_exports_or_save_canvas(
     repo = RevisionRepository(connect(tmp_path / "typedance.sqlite"))
     now = utc_now()
     repo.save_document(Document(id="doc_pages", pack_id="resume", title="页面截图", template_id="classic-a4", status="active", target_language="zh-CN", created_at=now, updated_at=now))
-    client = TestClient(app)
+    client = authenticated_client(app)
     payload = {"print_snapshot": snapshot().model_dump(), "pages": [2, 1]}
     response = client.post("/documents/doc_pages/source-resume-canvas/pages", json=payload)
     assert response.status_code == 200

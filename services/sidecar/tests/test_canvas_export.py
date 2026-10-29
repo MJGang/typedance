@@ -1,3 +1,4 @@
+from conftest import authenticated_client
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier, get_ident
@@ -209,7 +210,7 @@ def test_canvas_export_records_artifact_from_snapshot_without_database_canvas(tm
 def test_canvas_export_api_requires_snapshot_and_rejects_document_export_payload(tmp_path, monkeypatch, export_format):
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
     seed_document(tmp_path)
-    client = TestClient(app)
+    client = authenticated_client(app)
     url = f"/documents/doc_canvas_export/canvas-export/{export_format}"
 
     assert client.post(url).status_code == 422
@@ -229,7 +230,7 @@ def test_canvas_export_api_returns_snapshot_artifact(tmp_path, monkeypatch, expo
         return output_path
 
     monkeypatch.setattr("typedance_sidecar.canvas_export.render_canvas_snapshot_pdf", renderer)
-    response = TestClient(app).post(
+    response = authenticated_client(app).post(
         f"/documents/doc_canvas_export/canvas-export/{export_format}",
         json={"print_snapshot": snapshot_payload()},
         headers={"Origin": "http://127.0.0.1:5173"},

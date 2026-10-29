@@ -23,6 +23,8 @@ if (process.argv.includes("--help")) {
 --require-compaction       断言本次至少真正完成过一次压缩
 --verify-fixture           无 Key 的 Sidecar prepare/inspect/落盘闭环，不调用模型
 
+TYPEDANCE_LOCAL_TOKEN 必须由独立测试 Sidecar 的启动方注入，不从公开接口领取令牌。
+
 此脚本使用 headless EditorSession 客户端，验证真实 Sidecar 准备、版本/保存回执与模型工具链。
 它不证明浏览器 ProseMirror 应用、用户审批 UI、页面视觉或导出的正确性。`);
   process.exit(0);
@@ -38,6 +40,8 @@ const turns = Number(arg("--turns", "3"));
 assert(Number.isInteger(turns) && turns >= 3 && turns <= 12, "--turns must be 3..12");
 const sidecarUrl = arg("--sidecar-url");
 assert(sidecarUrl && /^https?:\/\//.test(sidecarUrl), "--sidecar-url is required");
+const sidecarToken = process.env.TYPEDANCE_LOCAL_TOKEN;
+assert(sidecarToken && /^[A-Za-z0-9_-]{32,512}$/.test(sidecarToken), "TYPEDANCE_LOCAL_TOKEN must match the isolated Sidecar account session");
 const model = process.env.DEEPSEEK_MODEL || "deepseek-flash";
 const trial = arg("--trial", "local");
 const trialId = randomUUID();
@@ -45,7 +49,7 @@ const dataDir = resolve(dirname(output), `${basename(output, ".json")}-data-${tr
 await mkdir(dataDir, { recursive: true });
 const importSource = (path) => import(pathToFileURL(resolve(root, path)).href);
 const { createSidecarEditorService } = await importSource("packages/agent-host/src/editor-service.ts");
-const editorService = createSidecarEditorService(sidecarUrl);
+const editorService = createSidecarEditorService(sidecarUrl, sidecarToken);
 let snapshot = createSyntheticSnapshot();
 const initial = structuredClone(snapshot);
 const persistedFile = resolve(dataDir, "synthetic-canvas.json");
@@ -165,7 +169,7 @@ async function makeHost() {
   await registerResumeWorkbenchPlugin(runtime, loader);
   return createAgentHost({ runtime, store,
     ...(profile === "optimized" ? { resolveModelRuntimeConfiguration: () => ({ ...runtimeConfiguration, refresh: () => runtimeConfiguration }) } : {}),
-    contextProvider: createSidecarContextProvider({ baseUrl: sidecarUrl }),
+    contextProvider: createSidecarContextProvider({ baseUrl: sidecarUrl, authToken: sidecarToken }),
     resumeTools: { editor: editorService, supportsImages: () => false,
       pageReader: () => { throw new Error("This text-only benchmark does not validate image rendering"); } },
     packs: [{ id: "resume", capabilityPolicy: { scopeIds: ["pack:resume"] }, primaryAgentId: "resume.primary" }],

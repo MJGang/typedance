@@ -21,14 +21,26 @@ function setup(options: { supported?: boolean; autoCheck?: string } = {}) {
   const invoke = vi.fn(async (command: string): Promise<unknown> => command === "get_client_update_state" ? initial : available)
   const storage = { getItem: vi.fn(() => options.autoCheck ?? null), setItem: vi.fn() }
   const listen = vi.fn(async (callback: (state: ClientUpdateSnapshot) => void) => { emit = callback; return vi.fn() })
+  const prepareInstall = vi.fn(async () => true)
   const updater = createClientUpdater({
-    supported: options.supported ?? true, storage, listen,
+    supported: options.supported ?? true, storage, listen, prepareInstall, finishInstall: async () => {},
     invoke: <T,>(command: string) => invoke(command) as Promise<T>,
   })
-  return { updater, invoke, storage, listen, emit: (state: ClientUpdateSnapshot) => emit(state) }
+  return { updater, invoke, storage, listen, prepareInstall, emit: (state: ClientUpdateSnapshot) => emit(state) }
 }
 
 describe("client updater lifecycle", () => {
+  it("never calls native installation when the final save gate fails", async () => {
+    const { updater, invoke, prepareInstall } = setup({ autoCheck: "false" })
+    prepareInstall.mockResolvedValue(false)
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      await updater.install()
+      expect(prepareInstall).toHaveBeenCalledTimes(1)
+      expect(invoke).not.toHaveBeenCalledWith("install_client_update")
+      expect(updater.getSnapshot()).toMatchObject({ phase: "error", error: "install" })
+    } finally { log.mockRestore() }
+  })
   it("initializes the native listener and automatic check once across repeated mounts", async () => {
     const { updater, invoke, listen } = setup()
     await Promise.all([updater.start(), updater.start()])

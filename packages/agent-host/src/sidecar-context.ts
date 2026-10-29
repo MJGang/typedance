@@ -1,4 +1,5 @@
 import { workspaceViewSchema, type ContextMention, type WorkspaceView, type EditorSnapshot } from "@typedance/contracts";
+import { createAuthenticatedSidecarFetch } from "./sidecar-fetch";
 
 export type AgentHostContextProviderInput = {
   workspaceId: string;
@@ -20,6 +21,7 @@ export type AgentHostContextProvider = {
 };
 
 export type SidecarContextProviderOptions = {
+  authToken: string;
   baseUrl?: string;
   fetch?: typeof fetch;
   maxSources?: number;
@@ -44,9 +46,9 @@ type ResumeDocNode = {
 
 const DEFAULT_SIDECAR_BASE_URL = "http://127.0.0.1:4317";
 
-export function createSidecarContextProvider(options: SidecarContextProviderOptions = {}): AgentHostContextProvider {
+export function createSidecarContextProvider(options: SidecarContextProviderOptions): AgentHostContextProvider {
   const baseUrl = (options.baseUrl ?? DEFAULT_SIDECAR_BASE_URL).replace(/\/+$/, "");
-  const fetchImpl = options.fetch ?? fetch;
+  const fetchImpl = createAuthenticatedSidecarFetch(options.authToken, options.fetch);
   const maxSources = options.maxSources ?? 6;
   const maxCharactersPerSource = options.maxCharactersPerSource ?? 16000;
 

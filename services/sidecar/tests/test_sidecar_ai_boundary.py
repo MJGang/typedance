@@ -1,3 +1,4 @@
+from conftest import authenticated_client
 from fastapi.testclient import TestClient
 
 from typedance_sidecar.main import app
@@ -5,7 +6,7 @@ from typedance_sidecar.main import app
 
 def test_sidecar_does_not_expose_ai_orchestration_routes(tmp_path, monkeypatch):
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
-    client = TestClient(app)
+    client = authenticated_client(app)
 
     created_document = client.post(
         "/documents",

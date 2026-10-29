@@ -62,6 +62,7 @@ export {
 } from "./model/deepseek";
 export { createLangfuseTelemetry, type LangfuseTelemetry } from "./observability/langfuse";
 export { JsonFileHarnessCheckpointStore } from "./checkpoint-store";
+export { createHttpModelCredentialStore, type ModelCredentialStore } from "./model-credentials";
 export {
   buildAgentHostPromptBundle,
   collectPromptFragments,
@@ -129,6 +130,11 @@ export class AgentHost {
   #resumeTools?: ReturnType<typeof registerResumeTools>;
   #resolveModelRuntimeConfiguration?: AgentHostOptions["resolveModelRuntimeConfiguration"];
   #editorSessions = new Map<string, EditorSession>();
+  #closing = false;
+  #closeTask?: Promise<void>;
+  #paused = false;
+  #pauseTask?: Promise<void>;
+  #pauseRevision = 0;
 
   constructor(options: AgentHostOptions) {
     this.runtime = options.runtime;
@@ -283,6 +289,8 @@ export class AgentHost {
     conversationId: string,
     input: AgentHostStartConversationRunInput
   ): AgentRun {
+    if (this.#closing) throw new HttpError(409, "account_closing");
+    if (this.#paused) throw new HttpError(409, "account_paused");
     const pack = this.getPack(input.packId ?? "resume");
     const conversation = this.store.getConversation(conversationId);
     if (!conversation || conversation.workspace_id !== workspaceId) {
@@ -396,6 +404,37 @@ export class AgentHost {
     return this.#runTasks.get(runId);
   }
 
+  pauseAccount(): Promise<void> {
+    if (this.#pauseTask) return this.#pauseTask;
+    this.#paused = true;
+    this.#pauseRevision++;
+    for (const runtimeRunId of this.#runtimeRunIds.values()) {
+      if (!isTerminalHarnessRunStatus(this.runtime.getRun(runtimeRunId).status)) this.runtime.cancelRun(runtimeRunId, "账号活动已暂停，正在保存资料");
+    }
+    this.#pauseTask = Promise.allSettled([...this.#runTasks.values()]).then(() => {});
+    return this.#pauseTask;
+  }
+
+  async resumeAccount(): Promise<void> {
+    if (this.#closing) throw new HttpError(409, "account_closing");
+    const pauseRevision = this.#pauseRevision;
+    await this.#pauseTask;
+    if (this.#closing) throw new HttpError(409, "account_closing");
+    if (pauseRevision !== this.#pauseRevision) throw new HttpError(409, "account_paused");
+    this.#paused = false;
+    this.#pauseTask = undefined;
+  }
+
+  prepareClose(): Promise<void> {
+    if (this.#closeTask) return this.#closeTask;
+    this.#closing = true;
+    this.#closeTask = this.pauseAccount().then(() => {
+      this.#editorSessions.clear();
+      this.#subscribers.clear();
+    });
+    return this.#closeTask;
+  }
+
   cancelAgentRun(runId: string, reason?: string): HarnessRunEvent {
     const run = this.getAgentRun(runId);
     const runtimeRunId = this.#runtimeRunIds.get(runId);
@@ -404,6 +443,8 @@ export class AgentHost {
   }
 
   async steerAgentRun(runId: string, input: Pick<AgentHostStartConversationRunInput, "message" | "context">): Promise<AgentMessage> {
+    if (this.#closing) throw new HttpError(409, "account_closing");
+    if (this.#paused) throw new HttpError(409, "account_paused");
     const run = this.getAgentRun(runId);
     const runtimeRunId = this.#runtimeRunIds.get(runId);
     if (!runtimeRunId || run.status !== "running") throw new HttpError(409, "agent_run_not_active");
@@ -428,6 +469,8 @@ export class AgentHost {
       ...(prepared.attachments.length ? { attachments: prepared.attachments } : {}),
     };
     // Admission and persistence have no await between them: an ended run cannot accept an orphan message.
+    if (this.#closing) throw new HttpError(409, "account_closing");
+    if (this.#paused) throw new HttpError(409, "account_paused");
     if (isTerminalHarnessRunStatus(this.runtime.getRun(runtimeRunId).status)) throw new HttpError(409, "agent_run_not_active");
     this.runtime.enqueueUserInput(runtimeRunId, { id: message.id, messages: [toModelMessage(message)], contextual });
     this.store.appendMessage({ message });
@@ -804,6 +847,7 @@ export type AgentHostHttpServer = {
   nodeServer: Server;
   get url(): string;
   listen(port?: number, hostname?: string): void;
+  prepareClose(): Promise<void>;
   close(): Promise<void>;
 };
 
@@ -815,20 +859,48 @@ type RouteContext = {
   response: ServerResponse;
   pathname: string;
   authorize: ReturnType<typeof createLocalAccess>;
+  prepareClose: () => Promise<void>;
+  isClosing: () => boolean;
 };
 
 export function createAgentHostServer(options: AgentHostServerOptions): AgentHostHttpServer {
   const authorize = createLocalAccess(options);
+  let closing = false;
+  let closeTask: Promise<void> | undefined;
+  const active = new Map<ServerResponse, { request: IncomingMessage; task: Promise<void>; closeRequest: boolean }>();
+  const prepareClose = (): Promise<void> => {
+    if (closeTask) return closeTask;
+    closing = true;
+    closeTask = (async () => {
+      await Promise.all([options.host.prepareClose(), options.speech?.dispose()]);
+      const pending: Promise<void>[] = [];
+      for (const [response, entry] of active) {
+        if (entry.closeRequest) continue;
+        entry.request.destroy();
+        response.destroy();
+        pending.push(entry.task);
+      }
+      await Promise.allSettled(pending);
+    })();
+    return closeTask;
+  };
   const nodeServer = createServer((request, response) => {
-    void handleRequest({
+    let pathname: string;
+    try { pathname = new URL(request.url ?? "/", "http://localhost").pathname; }
+    catch { writeJson(response, 400, { error: "invalid_request_target" }); return; }
+    const task = handleRequest({
       authorize,
+      prepareClose,
+      isClosing: () => closing,
       host: options.host,
       modelSettings: options.modelSettings,
       speech: options.speech,
       request,
       response,
-      pathname: new URL(request.url ?? "/", "http://localhost").pathname,
+      pathname,
     });
+    active.set(response, { request, task, closeRequest: request.method === "POST" && ["/account/prepare-close", "/account/pause", "/account/resume"].includes(pathname) });
+    void task.finally(() => active.delete(response));
   });
 
   return {
@@ -841,9 +913,13 @@ export function createAgentHostServer(options: AgentHostServerOptions): AgentHos
       return `http://${address.address}:${address.port}`;
     },
     listen(port = 0, hostname = "127.0.0.1") {
+      if (!["localhost", "127.0.0.1", "::1"].includes(hostname)) throw new Error("The local service must bind to a loopback address");
       nodeServer.listen(port, hostname);
     },
-    close() {
+    prepareClose,
+    async close() {
+      await prepareClose();
+      if (!nodeServer.listening) return;
       return new Promise<void>((resolve, reject) => {
         nodeServer.close((error) => {
           if (error) {
@@ -852,6 +928,7 @@ export function createAgentHostServer(options: AgentHostServerOptions): AgentHos
           }
           resolve();
         });
+        nodeServer.closeAllConnections();
       });
     },
   };
@@ -860,12 +937,14 @@ export function createAgentHostServer(options: AgentHostServerOptions): AgentHos
 async function handleRequest(context: RouteContext): Promise<void> {
   try {
     if (context.authorize(context.request, context.response, context.pathname)) return;
+    if (context.isClosing() && context.pathname !== "/health" && context.pathname !== "/account/prepare-close") throw new HttpError(409, "account_closing");
     const handled = await route(context);
     if (!handled) {
       writeJson(context.response, 404, { error: "not_found" });
     }
   } catch (error) {
     if (context.response.destroyed) return;
+    if (context.response.headersSent) { context.response.destroy(); return; }
     if (error instanceof HttpError) {
       if (error.status === 413) context.response.setHeader("connection", "close");
       writeJson(context.response, error.status, { error: error.code });
@@ -880,6 +959,24 @@ async function handleRequest(context: RouteContext): Promise<void> {
 
 async function route(context: RouteContext): Promise<boolean> {
   const { host, modelSettings, request, response, pathname } = context;
+
+  if (request.method === "POST" && pathname === "/account/prepare-close") {
+    await context.prepareClose();
+    writeJson(response, 200, { ok: true });
+    return true;
+  }
+
+  if (request.method === "POST" && pathname === "/account/pause") {
+    await host.pauseAccount();
+    writeJson(response, 200, { ok: true });
+    return true;
+  }
+
+  if (request.method === "POST" && pathname === "/account/resume") {
+    await host.resumeAccount();
+    writeJson(response, 200, { ok: true });
+    return true;
+  }
 
   if (context.speech && pathname.startsWith("/speech/")) {
     const speech = context.speech;

@@ -1,3 +1,4 @@
+from conftest import authenticated_client
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -16,7 +17,7 @@ def test_create_update_and_list_resume_versions(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sidecar_main, "render_and_export_pdf", _fake_render_and_export_pdf)
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
-    client = TestClient(app)
+    client = authenticated_client(app)
 
     response = client.post(
         "/resume-versions",

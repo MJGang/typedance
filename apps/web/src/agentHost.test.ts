@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { installTestAccountSession, testAccountSession } from "./test/accountFixture"
 
-beforeEach(() => { vi.resetModules() })
+beforeEach(async () => { vi.resetModules(); await installTestAccountSession() })
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe("authenticated Agent Host requests", () => {
@@ -31,13 +32,13 @@ describe("authenticated Agent Host requests", () => {
     const call = fetchMock.mock.calls.find(([url]) => url.endsWith("/runs"))
     expect(JSON.parse(String(call?.[1]?.body))).not.toHaveProperty("model")
   })
-  it("shares one bootstrap and sends bearer headers without putting tokens in URLs", async () => {
-    const token = "one-process-token-01234567890123456789"
-    const fetchMock = vi.fn(async (input: string) => input.endsWith("/session") ? Response.json({ token }) : Response.json([]))
+  it("uses the verified desktop capability without bootstrapping or putting tokens in URLs", async () => {
+    const token = testAccountSession().token
+    const fetchMock = vi.fn(async (_input: string) => Response.json([]))
     vi.stubGlobal("fetch", fetchMock)
     const { listWorkspaceConversations } = await import("./agentHost")
     await Promise.all([listWorkspaceConversations("one"), listWorkspaceConversations("two")])
-    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/session"))).toHaveLength(1)
+    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/session"))).toHaveLength(0)
     const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>
     for (const [url, init] of calls.filter(([url]) => !url.endsWith("/session"))) {
       expect(url).not.toContain(token)
@@ -45,7 +46,7 @@ describe("authenticated Agent Host requests", () => {
     }
   })
 
-  it("renews the session when the host restarts and rejects an old token", async () => {
+  it("rejects an expired capability without fetching or replaying with a new account token", async () => {
     let bootstraps = 0; let requests = 0
     const fetchMock = vi.fn(async (url: string) => {
       if (url.endsWith("/session")) return Response.json({ token: `process-${++bootstraps}-token-01234567890123456789` })
@@ -53,7 +54,7 @@ describe("authenticated Agent Host requests", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
     const { listWorkspaceConversations } = await import("./agentHost")
-    await expect(listWorkspaceConversations("one")).resolves.toEqual([])
-    expect(bootstraps).toBe(2); expect(requests).toBe(2)
+    await expect(listWorkspaceConversations("one")).rejects.toThrow("401")
+    expect(bootstraps).toBe(0); expect(requests).toBe(1)
   })
 });

@@ -1,6 +1,7 @@
 import { agentRunEventSchema, type AgentRun, type AgentRunEvent } from "@typedance/contracts"
 
 type StreamOptions = {
+  signal?: AbortSignal
   runId: string
   afterSequence: number
   fetchStream: (afterSequence: number, signal: AbortSignal) => Promise<Response>
@@ -18,15 +19,20 @@ export class AgentRunEventSource extends EventTarget {
   #timer: ReturnType<typeof setTimeout> | undefined
   #cursor: number
   #retryDelay = 500
+  #abortSession = () => this.close()
 
   constructor(private options: StreamOptions) {
     super()
     this.#cursor = options.afterSequence
+    options.signal?.addEventListener("abort", this.#abortSession, { once: true })
+    if (options.signal?.aborted) this.close()
     queueMicrotask(() => void this.#connect())
   }
 
   close() {
+    if (this.#closed) return
     this.#closed = true
+    this.options.signal?.removeEventListener("abort", this.#abortSession)
     this.#controller.abort()
     clearTimeout(this.#timer)
   }

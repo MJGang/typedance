@@ -12,8 +12,11 @@
     "windows": [
       {
         "title": "TypeDance",
-        "width": 1366,
-        "height": 900,
+        "width": 480,
+        "height": 640,
+        "center": true,
+        "resizable": false,
+        "maximizable": false,
         "decorations": false,
         "dragDropEnabled": false
       }

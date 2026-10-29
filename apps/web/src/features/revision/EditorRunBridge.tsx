@@ -2,12 +2,17 @@ import { useEffect, useState } from "react"
 import { editorRequestSchema, type AgentRunEvent } from "@typedance/contracts"
 import { toast } from "sonner"
 import { createAgentRunEventSource, getConversationActiveRun, getEditorRequest, listAgentRunEvents, respondToEditorRequest } from "@/agentHost"
+import { captureAccountSession } from "@/accountSession"
+import { useAccount } from "../account/useAccount"
 import { useEditorReferences } from "./references/EditorReferences"
 
 /** The document owns editor execution; choosing a different chat only changes its presentation. */
 export function EditorRunBridge({ conversationId, revision = 0, onCompleted }: { conversationId: string; revision?: number; onCompleted: () => void }) {
+  const { phase } = useAccount()
   const [active, setActive] = useState<{ conversationId: string; runId: string | null } | null>(null)
   useEffect(() => {
+    const activity = captureAccountSession().activitySignal
+    if (activity.aborted) return
     const abort = new AbortController()
     let retry: ReturnType<typeof setTimeout> | undefined
     let attempts = 0
@@ -21,19 +26,24 @@ export function EditorRunBridge({ conversationId, revision = 0, onCompleted }: {
         retry = setTimeout(() => { void connect() }, 1000)
       }
     }
+    const stop = () => { abort.abort(); clearTimeout(retry) }
+    activity.addEventListener("abort", stop, { once: true })
     void connect()
-    return () => { abort.abort(); clearTimeout(retry) }
-  }, [conversationId, revision])
+    return () => { stop(); activity.removeEventListener("abort", stop) }
+  }, [conversationId, revision, phase])
   return active?.conversationId === conversationId && active.runId
     ? <EditorRunSubscription key={active.runId} runId={active.runId} onCompleted={onCompleted} /> : null
 }
 
 function EditorRunSubscription({ runId, onCompleted }: { runId: string; onCompleted: () => void }) {
+  const { phase } = useAccount()
   const context = useEditorReferences()
   const handleRequest = context?.handleRequest
   const completeRequest = context?.completeRequest
   useEffect(() => {
     if (!handleRequest) return
+    const activity = captureAccountSession().activitySignal
+    if (activity.aborted) return
     let disposed = false
     let source: ReturnType<typeof createAgentRunEventSource> | undefined
     let initializationRetry: ReturnType<typeof setTimeout> | undefined
@@ -99,8 +109,13 @@ function EditorRunSubscription({ runId, onCompleted }: { runId: string; onComple
         }
       }
     }
+    const stop = () => {
+      if (disposed) return
+      disposed = true; abort.abort(); clearTimeout(initializationRetry); source?.close(); retries.forEach(clearTimeout)
+    }
+    activity.addEventListener("abort", stop, { once: true })
     void connect()
-    return () => { disposed = true; abort.abort(); clearTimeout(initializationRetry); source?.close(); retries.forEach(clearTimeout) }
-  }, [runId, handleRequest, completeRequest, onCompleted])
+    return () => { stop(); activity.removeEventListener("abort", stop) }
+  }, [runId, handleRequest, completeRequest, onCompleted, phase])
   return null
 }

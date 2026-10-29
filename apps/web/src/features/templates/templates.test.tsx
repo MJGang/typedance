@@ -3,7 +3,10 @@ import { transferableAbortController } from "node:util"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router-dom"
 import { SiteLayout } from "@/components/SiteLayout"
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { installTestAccountSession } from "@/test/accountFixture"
+
+beforeEach(() => installTestAccountSession())
 import { getRevisionWorkspaceView, listRevisionDocuments, saveTemplateStyle, updateRevisionDocument } from "@/api"
 import { TemplateWorkspacePage } from "./components/TemplateWorkspacePage"
 import { TemplateStatusText } from "./components/TemplateDetail"

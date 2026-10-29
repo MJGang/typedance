@@ -18,4 +18,4 @@ export const appRoutes = [
   },
 ]
 
-export const router = createBrowserRouter(appRoutes)
+export function createAppRouter() { return createBrowserRouter(appRoutes) }

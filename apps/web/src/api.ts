@@ -1,9 +1,10 @@
+import { AccountSessionEndedError, accountObjectUrl, assertAccountSession, captureAccountSession, sidecarFetch } from "./accountSession"
 import { z } from "zod";
 
 export async function extractAttachmentText(file: File, signal: AbortSignal): Promise<string> {
   const form = new FormData();
   form.append("file", file);
-  const response = await fetch(`${baseUrl}/files/extract-text`, { method: "POST", body: form, signal });
+  const response = await sidecarFetch(`/files/extract-text`, { method: "POST", body: form, signal });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(typeof error.detail === "string" ? error.detail : "文件读取失败");
@@ -48,23 +49,24 @@ import {
   type WorkspaceView,
 } from "@typedance/contracts";
 import { chooseHtmlSavePathInTauri, choosePdfSavePathInTauri, isTauri } from "./tauri";
-const baseUrl = import.meta.env.VITE_SIDECAR_URL ?? "http://127.0.0.1:4317";
 
 export async function getEditorCapabilities() {
-  const response = await fetch(`${baseUrl}/editor/capabilities`)
+  const response = await sidecarFetch(`/editor/capabilities`)
   return parseTemplateResponse(response, (value) => editorCapabilityCatalogSchema.parse(value), "无法读取编辑能力")
 }
 
 export async function migrateEditorPageMargins(documentId: string, margins: { top: number; bottom: number; left: number; right: number } | null, originalValue: string) {
-  const response = await fetch(`${baseUrl}/documents/${encodeURIComponent(documentId)}/editor/migrate-page-margins`, {
+  const response = await sidecarFetch(`/documents/${encodeURIComponent(documentId)}/editor/migrate-page-margins`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ margins, original_value: originalValue }),
   })
   return parseTemplateResponse(response, (value) => sourceResumeCanvasSchema.parse(value), "页面边距迁移失败，原始值已保留")
 }
 
 export async function prepareEditorOperations(docJson: Record<string, unknown>, operations: EditorOperation[], templateStyle?: TemplateStyleConfig) {
+  const session = captureAccountSession()
   const catalog = await getEditorCapabilities()
-  const response = await fetch(`${baseUrl}/editor/prepare`, { method: "POST", headers: { "content-type": "application/json" },
+  assertAccountSession(session)
+  const response = await sidecarFetch(`/editor/prepare`, { method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ doc_json: docJson, operations, catalog_revision: catalog.revision, template_style: templateStyle }) })
   return parseTemplateResponse(response, (value) => z.object({ doc_json: z.record(z.unknown()), catalog_revision: z.string(), node_origins: z.array(editorNodeOriginSchema).max(10000), text_origins: z.array(editorTextOriginSchema).max(10000),
     effects: z.array(z.object({ capability: z.string(), title: z.string(), effect: z.string() })) }).parse(value), "无法准备编辑操作")
@@ -105,7 +107,7 @@ export type CreateRevisionDocumentInput = {
 export async function createRevisionDocument(
   document: CreateRevisionDocumentInput,
 ): Promise<RevisionDocument> {
-  const response = await fetch(`${baseUrl}/documents`, {
+  const response = await sidecarFetch(`/documents`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(document),
@@ -118,7 +120,7 @@ export async function createRevisionDocument(
 }
 
 export async function listRevisionDocuments(): Promise<DocumentListItem[]> {
-  const response = await fetch(`${baseUrl}/documents`)
+  const response = await sidecarFetch(`/documents`)
   return parseTemplateResponse(
     response,
     (value) => z.array(documentListItemSchema).parse(value),
@@ -127,7 +129,7 @@ export async function listRevisionDocuments(): Promise<DocumentListItem[]> {
 }
 
 export async function duplicateRevisionDocument(documentId: string): Promise<RevisionDocument> {
-  const response = await fetch(`${baseUrl}/documents/${documentId}/duplicate`, { method: "POST" })
+  const response = await sidecarFetch(`/documents/${documentId}/duplicate`, { method: "POST" })
   return parseTemplateResponse(
     response,
     (value) => documentSchema.parse(value),
@@ -139,7 +141,7 @@ export async function updateRevisionDocument(
   documentId: string,
   data: Partial<Pick<RevisionDocument, "title" | "template_id">>,
 ): Promise<RevisionDocument> {
-  const response = await fetch(`${baseUrl}/documents/${documentId}`, {
+  const response = await sidecarFetch(`/documents/${documentId}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(data),
@@ -152,12 +154,12 @@ export async function updateRevisionDocument(
 }
 
 export async function deleteRevisionDocument(documentId: string): Promise<void> {
-  const response = await fetch(`${baseUrl}/documents/${documentId}`, { method: "DELETE" })
+  const response = await sidecarFetch(`/documents/${documentId}`, { method: "DELETE" })
   if (!response.ok) throw new Error(`Failed to delete revision document: ${response.status}`)
 }
 
 export async function getRevisionWorkspaceView(documentId: string): Promise<WorkspaceView> {
-  const response = await fetch(`${baseUrl}/documents/${documentId}/workspace-view`)
+  const response = await sidecarFetch(`/documents/${documentId}/workspace-view`)
   return parseTemplateResponse(
     response,
     (value) => workspaceViewSchema.parse(value),
@@ -166,7 +168,7 @@ export async function getRevisionWorkspaceView(documentId: string): Promise<Work
 }
 
 export async function listContextSources(workspaceId: string): Promise<ContextSource[]> {
-  const response = await fetch(`${baseUrl}/documents/${workspaceId}/context-sources`)
+  const response = await sidecarFetch(`/documents/${workspaceId}/context-sources`)
   return parseTemplateResponse(
     response,
     (value) => z.array(contextSourceSchema).parse(value),
@@ -175,7 +177,7 @@ export async function listContextSources(workspaceId: string): Promise<ContextSo
 }
 
 export async function addFileContextSource(workspaceId: string, path: string): Promise<ContextSource> {
-  const response = await fetch(`${baseUrl}/documents/${workspaceId}/context-sources/file`, {
+  const response = await sidecarFetch(`/documents/${workspaceId}/context-sources/file`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ path }),
@@ -188,7 +190,7 @@ export async function addFileContextSource(workspaceId: string, path: string): P
 }
 
 export async function addDirectoryContextSource(workspaceId: string, path: string): Promise<ContextSource> {
-  const response = await fetch(`${baseUrl}/documents/${workspaceId}/context-sources/directory`, {
+  const response = await sidecarFetch(`/documents/${workspaceId}/context-sources/directory`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ path }),
@@ -201,7 +203,7 @@ export async function addDirectoryContextSource(workspaceId: string, path: strin
 }
 
 export async function addWebpageContextSource(workspaceId: string, url: string): Promise<ContextSource> {
-  const response = await fetch(`${baseUrl}/documents/${workspaceId}/context-sources/webpage`, {
+  const response = await sidecarFetch(`/documents/${workspaceId}/context-sources/webpage`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ url }),
@@ -214,7 +216,7 @@ export async function addWebpageContextSource(workspaceId: string, url: string):
 }
 
 export async function updateContextSourceTitle(sourceId: string, title: string): Promise<ContextSource> {
-  const response = await fetch(`${baseUrl}/context-sources/${sourceId}`, {
+  const response = await sidecarFetch(`/context-sources/${sourceId}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ title }),
@@ -227,13 +229,13 @@ export async function updateContextSourceTitle(sourceId: string, title: string):
 }
 
 export async function removeContextSource(sourceId: string): Promise<void> {
-  const response = await fetch(`${baseUrl}/context-sources/${sourceId}`, { method: "DELETE" })
+  const response = await sidecarFetch(`/context-sources/${sourceId}`, { method: "DELETE" })
   if (!response.ok) throw new Error(`Failed to remove context source: ${response.status}`)
 }
 
 export async function listContextSourceChildren(sourceId: string, path = ""): Promise<ContextSourceChild[]> {
   const searchParams = new URLSearchParams({ path })
-  const response = await fetch(`${baseUrl}/context-sources/${sourceId}/children?${searchParams}`)
+  const response = await sidecarFetch(`/context-sources/${sourceId}/children?${searchParams}`)
   return parseTemplateResponse(
     response,
     (value) => z.array(contextSourceChildSchema).parse(value),
@@ -242,7 +244,7 @@ export async function listContextSourceChildren(sourceId: string, path = ""): Pr
 }
 
 export async function refreshContextSource(sourceId: string): Promise<ContextSource> {
-  const response = await fetch(`${baseUrl}/context-sources/${sourceId}/refresh`, { method: "POST" })
+  const response = await sidecarFetch(`/context-sources/${sourceId}/refresh`, { method: "POST" })
   return parseTemplateResponse(
     response,
     (value) => contextSourceSchema.parse(value),
@@ -251,24 +253,24 @@ export async function refreshContextSource(sourceId: string): Promise<ContextSou
 }
 
 export async function openContextSource(sourceId: string): Promise<void> {
-  const response = await fetch(`${baseUrl}/context-sources/${sourceId}/open`, { method: "POST" })
+  const response = await sidecarFetch(`/context-sources/${sourceId}/open`, { method: "POST" })
   if (!response.ok) throw new Error(`Failed to open context source: ${response.status}`)
 }
 
 export async function revealContextSource(sourceId: string): Promise<void> {
-  const response = await fetch(`${baseUrl}/context-sources/${sourceId}/reveal`, { method: "POST" })
+  const response = await sidecarFetch(`/context-sources/${sourceId}/reveal`, { method: "POST" })
   if (!response.ok) throw new Error(`Failed to reveal context source: ${response.status}`)
 }
 
 export async function openContextSourceChild(sourceId: string, path: string): Promise<void> {
   const searchParams = new URLSearchParams({ path })
-  const response = await fetch(`${baseUrl}/context-sources/${sourceId}/children/open?${searchParams}`, { method: "POST" })
+  const response = await sidecarFetch(`/context-sources/${sourceId}/children/open?${searchParams}`, { method: "POST" })
   if (!response.ok) throw new Error(`Failed to open context source child: ${response.status}`)
 }
 
 export async function revealContextSourceChild(sourceId: string, path: string): Promise<void> {
   const searchParams = new URLSearchParams({ path })
-  const response = await fetch(`${baseUrl}/context-sources/${sourceId}/children/reveal?${searchParams}`, { method: "POST" })
+  const response = await sidecarFetch(`/context-sources/${sourceId}/children/reveal?${searchParams}`, { method: "POST" })
   if (!response.ok) throw new Error(`Failed to reveal context source child: ${response.status}`)
 }
 
@@ -276,7 +278,7 @@ export async function saveSourceResumeCanvas(
   documentId: string,
   docJson: Record<string, unknown>,
 ): Promise<SourceResumeCanvas> {
-  const response = await fetch(`${baseUrl}/documents/${documentId}/source-resume-canvas`, {
+  const response = await sidecarFetch(`/documents/${documentId}/source-resume-canvas`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ doc_json: docJson }),
@@ -299,7 +301,7 @@ export async function createRevisionSource(
     mime_type?: string
   },
 ): Promise<SourceDocument> {
-  const response = await fetch(`${baseUrl}/documents/${documentId}/sources`, {
+  const response = await sidecarFetch(`/documents/${documentId}/sources`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(source),
@@ -317,7 +319,7 @@ export async function createRevisionUploadedSource(
 ): Promise<SourceDocument> {
   const formData = new FormData()
   formData.append("file", file)
-  const response = await fetch(`${baseUrl}/documents/${documentId}/sources/import-file`, {
+  const response = await sidecarFetch(`/documents/${documentId}/sources/import-file`, {
     method: "POST",
     body: formData,
   })
@@ -344,6 +346,7 @@ export async function importOldResume(
   input: ImportOldResumeInput,
   onProgress?: (step: ImportOldResumeProgressStep) => void,
 ): Promise<WorkspaceView> {
+  const session = captureAccountSession()
   const hasRawText = typeof input.raw_text === "string" && input.raw_text.trim().length > 0
   const hasFile = input.file instanceof File
   if (hasRawText === hasFile) {
@@ -351,6 +354,7 @@ export async function importOldResume(
   }
 
   onProgress?.("create_document")
+  assertAccountSession(session)
   const document = await createRevisionDocument({
     title: input.title,
     pack_id: "resume",
@@ -358,6 +362,7 @@ export async function importOldResume(
     initial_mode: "import_old_resume",
   })
   onProgress?.("save_source")
+  assertAccountSession(session)
   if (input.file) {
     await createRevisionUploadedSource(document.id, input.file)
   } else {
@@ -369,16 +374,19 @@ export async function importOldResume(
     })
   }
   onProgress?.("load_workspace")
+  assertAccountSession(session)
   return getRevisionWorkspaceView(document.id)
 }
 
 export async function createBlankResume(input: { title: string }): Promise<WorkspaceView> {
+  const session = captureAccountSession()
   const document = await createRevisionDocument({
     title: input.title,
     pack_id: "resume",
     target_language: "zh-CN",
     initial_mode: "blank",
   })
+  assertAccountSession(session)
   return getRevisionWorkspaceView(document.id)
 }
 
@@ -386,7 +394,7 @@ export async function renderRevisionDraft(
   draftId: string,
   renderProfile?: string,
 ): Promise<RenderProjection> {
-  const response = await fetch(`${baseUrl}/drafts/${draftId}/render`, {
+  const response = await sidecarFetch(`/drafts/${draftId}/render`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ render_profile: renderProfile }),
@@ -399,7 +407,7 @@ export async function renderRevisionDraft(
 }
 
 export async function acceptRevisionDraft(draftId: string): Promise<DraftVersion> {
-  const response = await fetch(`${baseUrl}/drafts/${draftId}/accept`, { method: "POST" })
+  const response = await sidecarFetch(`/drafts/${draftId}/accept`, { method: "POST" })
   return parseTemplateResponse(
     response,
     (value) => draftVersionSchema.parse(value),
@@ -408,7 +416,7 @@ export async function acceptRevisionDraft(draftId: string): Promise<DraftVersion
 }
 
 export async function dismissRevisionIssue(issueId: string): Promise<RevisionIssue> {
-  const response = await fetch(`${baseUrl}/issues/${issueId}/dismiss`, { method: "POST" })
+  const response = await sidecarFetch(`/issues/${issueId}/dismiss`, { method: "POST" })
   return parseTemplateResponse(
     response,
     (value) => revisionIssueSchema.parse(value),
@@ -417,7 +425,7 @@ export async function dismissRevisionIssue(issueId: string): Promise<RevisionIss
 }
 
 export async function acceptRevisionProposal(proposalId: string): Promise<RevisionProposal> {
-  const response = await fetch(`${baseUrl}/proposals/${proposalId}/accept`, { method: "POST" })
+  const response = await sidecarFetch(`/proposals/${proposalId}/accept`, { method: "POST" })
   return parseTemplateResponse(
     response,
     (value) => revisionProposalSchema.parse(value),
@@ -426,7 +434,7 @@ export async function acceptRevisionProposal(proposalId: string): Promise<Revisi
 }
 
 export async function rejectRevisionProposal(proposalId: string): Promise<RevisionProposal> {
-  const response = await fetch(`${baseUrl}/proposals/${proposalId}/reject`, { method: "POST" })
+  const response = await sidecarFetch(`/proposals/${proposalId}/reject`, { method: "POST" })
   return parseTemplateResponse(
     response,
     (value) => revisionProposalSchema.parse(value),
@@ -444,7 +452,7 @@ export async function confirmRevisionClaim(
     note?: string
   },
 ): Promise<UserConfirmation> {
-  const response = await fetch(`${baseUrl}/claims/${claimId}/confirm`, {
+  const response = await sidecarFetch(`/claims/${claimId}/confirm`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(confirmation),
@@ -457,7 +465,7 @@ export async function confirmRevisionClaim(
 }
 
 export async function confirmEvidenceLink(evidenceLinkId: string): Promise<EvidenceLink> {
-  const response = await fetch(`${baseUrl}/evidence-links/${evidenceLinkId}/confirm`, { method: "POST" })
+  const response = await sidecarFetch(`/evidence-links/${evidenceLinkId}/confirm`, { method: "POST" })
   return parseTemplateResponse(
     response,
     (value) => evidenceLinkSchema.parse(value),
@@ -516,6 +524,7 @@ export async function exportCanvasDocument(
   title: string,
   options: RevisionDocumentExportOptions,
 ): Promise<RevisionDocumentExportResult | null> {
+  const session = captureAccountSession()
   const config = REVISION_EXPORT_CONFIG[format]
   let fileHandle: FileSystemFileHandle | null = null
   let fileName = `resume-${safeExportTitle(title)}.${config.extension}`
@@ -553,11 +562,11 @@ export async function exportCanvasDocument(
   } = { print_snapshot: options.printSnapshot }
   if (outputPath) body.output_path = outputPath
 
-  const response = await fetch(`${baseUrl}/documents/${documentId}/canvas-export/${format}`, {
+  const response = await sidecarFetch(`/documents/${documentId}/canvas-export/${format}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
-  })
+  }, session)
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
@@ -580,6 +589,7 @@ export async function exportCanvasDocument(
   const blob = await response.blob()
   if (fileHandle) {
     const writable = await fileHandle.createWritable()
+    assertAccountSession(session)
     await writable.write(blob)
     await writable.close()
   } else {
@@ -614,6 +624,7 @@ export async function exportResumePdf(
   resumeId: string,
   title: string,
 ): Promise<{ fileName: string; previewUrl: string; filePath?: string } | null> {
+  const session = captureAccountSession()
   // 1. 让用户选择保存位置（File System Access API，仅 Chromium 支持）
   let fileHandle: FileSystemFileHandle | null = null
   let fileName = `resume-${title.replace(/[/\\?%*:|"<>]/g, "_")}.pdf`
@@ -653,27 +664,26 @@ export async function exportResumePdf(
       }
     : { method: "POST" }
 
-  const response = await fetch(`${baseUrl}/exports/pdf/${resumeId}`, requestInit)
+  const response = await sidecarFetch(`/exports/pdf/${resumeId}`, requestInit, session)
 
   if (!response.ok) {
     throw new Error(`Failed to export PDF: ${response.status}`)
   }
 
-  const previewUrl = `${baseUrl}/previews/${resumeId}.pdf`
   const filePath = decodeHeaderPath(response.headers.get("X-Pdf-Path"))
+  const blob = await response.blob()
+  const previewUrl = accountObjectUrl(blob, session)
 
   if (outputPath) {
-    await response.blob()
     const savedPath = filePath ?? outputPath
     const savedName = savedPath.split(/[/\\]/).pop() ?? fileName
     return { fileName: savedName, previewUrl, filePath: savedPath }
   }
 
-  const blob = await response.blob()
-
   // 3. 写入用户选择的位置，或触发浏览器下载
   if (fileHandle) {
     const writable = await fileHandle.createWritable()
+    assertAccountSession(session)
     await writable.write(blob)
     await writable.close()
     return { fileName, previewUrl }
@@ -693,6 +703,7 @@ export async function exportResumeHtml(
   resumeId: string,
   title: string,
 ): Promise<{ fileName: string; filePath?: string } | null> {
+  const session = captureAccountSession()
   let fileHandle: FileSystemFileHandle | null = null
   let fileName = `resume-${title.replace(/[/\\?%*:|"<>]/g, "_")}.html`
   let outputPath: string | null = null
@@ -728,7 +739,7 @@ export async function exportResumeHtml(
       }
     : { method: "POST" }
 
-  const response = await fetch(`${baseUrl}/exports/html/${resumeId}`, requestInit)
+  const response = await sidecarFetch(`/exports/html/${resumeId}`, requestInit, session)
 
   if (!response.ok) {
     throw new Error(`Failed to export HTML: ${response.status}`)
@@ -747,6 +758,7 @@ export async function exportResumeHtml(
 
   if (fileHandle) {
     const writable = await fileHandle.createWritable()
+    assertAccountSession(session)
     await writable.write(blob)
     await writable.close()
   } else {
@@ -779,7 +791,10 @@ async function parseTemplateResponse<T>(
   parser: (value: unknown) => T,
   fallbackMessage: string,
 ): Promise<T> {
-  const payload = await response.json().catch(() => null);
+  const payload = await response.json().catch((error: unknown) => {
+    if (error instanceof AccountSessionEndedError) throw error
+    return null
+  });
 
   if (!response.ok) {
     const details = typeof payload?.detail === "string"
@@ -796,7 +811,7 @@ async function parseTemplateResponse<T>(
 }
 
 export async function getTemplateSample(sampleId: string): Promise<TemplateSampleContent> {
-  const response = await fetch(`${baseUrl}/template-samples/${sampleId}`);
+  const response = await sidecarFetch(`/template-samples/${sampleId}`);
   return parseTemplateResponse(
     response,
     templateSampleContentSchema.parse,
@@ -805,7 +820,7 @@ export async function getTemplateSample(sampleId: string): Promise<TemplateSampl
 }
 
 export async function saveTemplateSample(sample: TemplateSampleContent): Promise<TemplateSampleContent> {
-  const response = await fetch(`${baseUrl}/template-samples/${sample.id}`, {
+  const response = await sidecarFetch(`/template-samples/${sample.id}`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(sample),
@@ -818,7 +833,7 @@ export async function saveTemplateSample(sample: TemplateSampleContent): Promise
 }
 
 export async function getTemplateStyle(templateId: string): Promise<TemplateStyleConfig> {
-  const response = await fetch(`${baseUrl}/template-styles/${templateId}`);
+  const response = await sidecarFetch(`/template-styles/${templateId}`);
   return parseTemplateResponse(
     response,
     templateStyleConfigSchema.parse,
@@ -827,7 +842,7 @@ export async function getTemplateStyle(templateId: string): Promise<TemplateStyl
 }
 
 export async function listTemplateStyles(): Promise<TemplateStyleConfig[]> {
-  const response = await fetch(`${baseUrl}/template-styles`);
+  const response = await sidecarFetch(`/template-styles`);
   return parseTemplateResponse(
     response,
     (value) => z.array(templateStyleConfigSchema).parse(value),
@@ -836,7 +851,7 @@ export async function listTemplateStyles(): Promise<TemplateStyleConfig[]> {
 }
 
 export async function saveTemplateStyle(style: TemplateStyleConfig): Promise<TemplateStyleConfig> {
-  const response = await fetch(`${baseUrl}/template-styles/${style.template_id}`, {
+  const response = await sidecarFetch(`/template-styles/${style.template_id}`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(style),
@@ -849,7 +864,7 @@ export async function saveTemplateStyle(style: TemplateStyleConfig): Promise<Tem
 }
 
 export async function deleteTemplateStyle(templateId: string): Promise<void> {
-  const response = await fetch(`${baseUrl}/template-styles/${templateId}`, { method: "DELETE" });
+  const response = await sidecarFetch(`/template-styles/${templateId}`, { method: "DELETE" });
   if (!response.ok) throw new Error(`Failed to delete template style: ${response.status}`);
 }
 

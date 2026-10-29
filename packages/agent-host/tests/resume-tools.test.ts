@@ -201,7 +201,7 @@ describe("host-owned resume tools", () => {
 
   it("passes only the current static snapshot to Sidecar and rejects mismatched page results", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(images)));
-    const read = createSidecarPageReader("http://127.0.0.1:5517", fetchMock);
+    const read = createSidecarPageReader("http://127.0.0.1:5517", "test-sidecar-account-token-0123456789", fetchMock);
     await read({ snapshot, pages: [2], signal: new AbortController().signal });
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({ print_snapshot: snapshot.print_snapshot, pages: [2] });
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ ...images, page_count: 9 })));

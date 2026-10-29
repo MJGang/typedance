@@ -20,7 +20,7 @@ function setup(model: HarnessModelAdapter, contextProvider?: AgentHostContextPro
 
 function contextFixture() {
   const reads = new Map<string, number>();
-  const provider = createSidecarContextProvider({ fetch: async (input) => {
+  const provider = createSidecarContextProvider({ authToken: "test-sidecar-account-token-0123456789", fetch: async (input) => {
     const url = new URL(String(input));
     if (!url.pathname.startsWith("/context-sources/")) return new Response("{}", { status: 404 });
     const id = decodeURIComponent(url.pathname.split("/")[2]);

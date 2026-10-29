@@ -2,6 +2,8 @@ import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
 import { readFile } from "node:fs/promises"
 import { createServer } from "node:net"
+import { createServer as createHttpServer } from "node:http"
+import { randomBytes } from "node:crypto"
 import { resolve } from "node:path"
 import { parseArgs } from "node:util"
 
@@ -11,8 +13,24 @@ const reservation = createServer()
 await new Promise((done) => reservation.listen(0, "127.0.0.1", done))
 const port = reservation.address().port
 await new Promise((done) => reservation.close(done))
+const localToken = randomBytes(32).toString("hex")
+const credentialToken = randomBytes(32).toString("hex")
+const broker = createHttpServer((request, response) => {
+  response.setHeader("cache-control", "no-store")
+  if (request.headers.authorization !== `Bearer ${credentialToken}`) {
+    response.writeHead(401).end(); return
+  }
+  if (request.method !== "GET" || request.url !== "/secrets/model-api-key") {
+    response.writeHead(404).end(); return
+  }
+  response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ value: null }))
+})
+await new Promise((done) => broker.listen(0, "127.0.0.1", done))
 const child = spawn(resolve(values.host), [], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"], env: {
   ...process.env, AGENT_HOST_PORT: String(port), TYPEDANCE_DATA_DIR: resolve(values["data-dir"]),
+  TYPEDANCE_LOCAL_TOKEN: localToken,
+  TYPEDANCE_CREDENTIAL_URL: `http://127.0.0.1:${broker.address().port}`,
+  TYPEDANCE_CREDENTIAL_TOKEN: credentialToken,
 } })
 let errors = ""
 child.stderr.on("data", (chunk) => { errors = (errors + chunk.toString()).slice(-2000) })
@@ -21,7 +39,7 @@ const exit = new Promise((done) => child.once("exit", () => { exited = true; don
 child.once("error", (error) => { errors = error.message; exited = true })
 const base = `http://127.0.0.1:${port}`
 const pause = (ms) => new Promise((done) => setTimeout(done, ms))
-let headers
+const headers = { "content-type": "application/json", authorization: `Bearer ${localToken}` }
 async function request(path, method = "GET", value) {
   const response = await fetch(`${base}${path}`, { method, headers, body: value === undefined ? undefined : JSON.stringify(value), signal: AbortSignal.timeout(100_000) })
   const result = await response.json()
@@ -51,12 +69,9 @@ function generatedSamples(make, count = 32000) {
 try {
   for (let attempt = 0; ; attempt++) {
     if (exited) throw new Error(`Packaged speech host exited: ${errors}`)
-    try { if ((await fetch(`${base}/health`, { signal: AbortSignal.timeout(1000) })).ok) break } catch {}
+    try { if ((await fetch(`${base}/health`, { headers, signal: AbortSignal.timeout(1000) })).ok) break } catch {}
     assert.ok(attempt < 100, "Packaged speech host startup timeout"); await pause(100)
   }
-  const session = await fetch(`${base}/session`, { headers: { origin: "http://tauri.localhost" } }).then((response) => response.json())
-  assert.ok(session.token)
-  headers = { "content-type": "application/json", authorization: `Bearer ${session.token}` }
   await request("/speech/settings", "PUT", { language: "zh", download_origin: "https://huggingface.co" })
   await request("/speech/prepare", "POST")
   const deadline = Date.now() + 5 * 60_000
@@ -86,14 +101,18 @@ try {
     ["isolated clicks", generatedSamples((i) => i % 8000 === 0 ? .9 : 0)],
   ]
   for (const [name, audio] of controls) { assert.equal(await transcribe(audio), "", name); console.log(`[speech-smoke] ${name} rejected`) }
-  assert.ok((await fetch(`${base}/health`)).ok)
+  assert.ok((await fetch(`${base}/health`, { headers })).ok)
   console.log("[speech-smoke] packaged native inference, short speech, repetition and noise controls passed")
 } finally {
-  if (!exited) {
-    child.kill()
-    let timer
-    try {
-      await Promise.race([exit, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Speech smoke host did not exit")), 10_000) })])
-    } finally { clearTimeout(timer) }
+  try {
+    if (!exited) {
+      child.kill()
+      let timer
+      try {
+        await Promise.race([exit, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Speech smoke host did not exit")), 10_000) })])
+      } finally { clearTimeout(timer) }
+    }
+  } finally {
+    await new Promise((done) => { broker.close(done); broker.closeAllConnections() })
   }
 }

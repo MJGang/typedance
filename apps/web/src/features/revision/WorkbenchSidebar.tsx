@@ -53,6 +53,7 @@ import {
   updateWorkspaceConversation,
 } from "@/agentHost"
 import { chooseContextDirectoryPathInTauri, chooseContextFilePathsInTauri, isTauri } from "@/tauri"
+import { assertAccountSession, captureAccountSession } from "@/accountSession"
 import type { AgentConversation, AgentPluginSummary, ContextSource, ContextSourceChild } from "@typedance/contracts"
 
 type WorkbenchSidebarProps = {
@@ -114,11 +115,13 @@ export function WorkbenchSidebar({
   }, [onStartNewConversation])
 
   const handleAddFiles = useCallback(async () => {
+    const session = captureAccountSession()
     const paths = isTauri()
       ? await chooseContextFilePathsInTauri()
       : window.prompt("输入本地文件绝对路径")?.split("\n").map((path) => path.trim()).filter(Boolean) ?? []
     if (paths.length === 0) return
     try {
+      assertAccountSession(session)
       await Promise.all(paths.map((path) => addFileContextSource(workspaceId, path)))
       await loadContextSources()
       toast.success("已添加本地文件")
@@ -128,9 +131,11 @@ export function WorkbenchSidebar({
   }, [loadContextSources, workspaceId])
 
   const handleAddDirectory = useCallback(async () => {
+    const session = captureAccountSession()
     const path = isTauri() ? await chooseContextDirectoryPathInTauri() : window.prompt("输入本地文件夹绝对路径")
     if (!path) return
     try {
+      assertAccountSession(session)
       await addDirectoryContextSource(workspaceId, path)
       await loadContextSources()
       toast.success("已添加本地文件夹")

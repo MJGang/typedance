@@ -1,3 +1,4 @@
+from conftest import authenticated_client
 from io import BytesIO
 
 import pytest
@@ -20,7 +21,7 @@ def test_rejects_unsupported_binary_empty_and_oversized_text(data, name):
 
 
 def test_upload_returns_extracted_text_and_rejects_size_and_unknown_types():
-    client = TestClient(app)
+    client = authenticated_client(app)
     response = client.post("/files/extract-text", files={"file": ("notes.txt", BytesIO("只读取文本".encode()), "text/plain")})
     assert response.status_code == 200
     assert response.json() == {"text": "只读取文本"}

@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { Undo2 } from "lucide-react"
 import { editorRequestSchema, type AgentRunEvent, type EditorRequest, type EditorResponse } from "@typedance/contracts"
 import { beginEditorRequest, getEditorRequest, respondToEditorRequest } from "@/agentHost"
+import { assertAccountSession, captureAccountSession } from "@/accountSession"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -38,10 +39,14 @@ export function EditorRequestCard({ runId, request, events, active }: { runId: s
     setBusy(true)
     setError("")
     try {
+      const session = captureAccountSession()
+      const activity = session.activitySignal
       // 先确认 Host 仍在等待。历史事件、已取消任务和重连回放不能再次写入。
       if (!resultRef.current) {
         const current = approved && request.kind === "transaction" && request.mode === "review"
           ? await beginEditorRequest(runId, request.id) : await getEditorRequest(runId, request.id)
+        assertAccountSession(session)
+        if (activity.aborted) throw new Error("账号活动已暂停，未应用画布修改。")
         resultRef.current = mounted.current && handleRequest ? await handleRequest(current, approved) : { status: "failed", error: "当前编辑器不可用" }
       }
       await respondToEditorRequest(runId, request.id, resultRef.current)

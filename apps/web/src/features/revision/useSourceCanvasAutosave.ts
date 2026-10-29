@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { SourceResumeCanvas } from "@typedance/contracts"
 import { saveSourceResumeCanvas } from "@/api"
+import { assertAccountSession, captureAccountSession, type CapturedAccountSession } from "@/accountSession"
 import { clearDuplicateCanvasNodeIds } from "../workspace/editor"
 import type { ResumeDocJson, ResumeEditorChange } from "../workspace/editor"
 import type { DraftCanvasSaveStatus } from "./DraftCanvas"
@@ -30,7 +31,7 @@ const emptySnapshot: AutosaveSnapshot = {
 const coordinatorRegistry = new Map<string, SourceCanvasAutosaveCoordinator>()
 
 export function __hasSourceCanvasAutosaveCoordinatorForTests(documentId: string) {
-  return coordinatorRegistry.has(documentId)
+  return coordinatorRegistry.has(`${captureAccountSession().epoch}:${documentId}`)
 }
 
 if (typeof window !== "undefined") {
@@ -42,6 +43,7 @@ if (typeof window !== "undefined") {
 }
 
 class SourceCanvasAutosaveCoordinator {
+  private disposed = false
   private debounceTimer: ReturnType<typeof setTimeout> | null = null
   private failed = false
   private inFlight: Promise<boolean> | null = null
@@ -53,7 +55,19 @@ class SourceCanvasAutosaveCoordinator {
   private saveError: string | null = null
   private saveStatus: DraftCanvasSaveStatus = "idle"
 
-  constructor(private readonly documentId: string) {}
+  constructor(private readonly documentId: string, private readonly session: CapturedAccountSession, private readonly registryKey: string) {
+    session.signal.addEventListener("abort", () => this.dispose(), { once: true })
+  }
+
+  private dispose() {
+    this.disposed = true
+    this.clearDebounceTimer()
+    this.pendingSave = null
+    this.latestLocalDocJson = null
+    this.latestSavedCanvas = null
+    this.listeners.clear()
+    coordinatorRegistry.delete(this.registryKey)
+  }
 
   getSnapshot(): AutosaveSnapshot {
     return {
@@ -79,6 +93,7 @@ class SourceCanvasAutosaveCoordinator {
   }
 
   enqueue(docJson: ResumeDocJson) {
+    if (this.disposed) return
     this.latestVersion += 1
     this.latestLocalDocJson = docJson
     this.pendingSave = { docJson, version: this.latestVersion }
@@ -93,8 +108,8 @@ class SourceCanvasAutosaveCoordinator {
     }, AUTOSAVE_DELAY_MS)
   }
 
-  flush() {
-    return this.drain()
+  flush(retryFailed = false) {
+    return retryFailed && this.failed ? this.retry() : this.drain()
   }
 
   hasUnsavedChanges() {
@@ -122,6 +137,7 @@ class SourceCanvasAutosaveCoordinator {
 
   private drain() {
     this.clearDebounceTimer()
+    if (this.disposed) return Promise.resolve(false)
     if (this.inFlight) return this.inFlight
     if (this.failed || !this.pendingSave) return Promise.resolve(!this.failed)
 
@@ -133,14 +149,17 @@ class SourceCanvasAutosaveCoordinator {
         this.notify()
 
         try {
+          assertAccountSession(this.session)
           const savedCanvas = await saveSourceResumeCanvas(
             this.documentId,
             saving.docJson as unknown as Record<string, unknown>,
           )
+          if (this.disposed) return false
           this.latestSavedCanvas = savedCanvas
           this.saveError = null
           this.notify()
         } catch (error) {
+          if (this.disposed) return false
           const queuedAfterFailure = this.pendingSave as PendingSave | null
           if (!queuedAfterFailure || queuedAfterFailure.version < saving.version) {
             this.pendingSave = saving
@@ -186,28 +205,36 @@ class SourceCanvasAutosaveCoordinator {
       && !this.inFlight
       && !this.failed
       && !this.latestLocalDocJson
-      && coordinatorRegistry.get(this.documentId) === this
+      && coordinatorRegistry.get(this.registryKey) === this
     ) {
-      coordinatorRegistry.delete(this.documentId)
+      coordinatorRegistry.delete(this.registryKey)
     }
   }
 }
 
 function getSourceCanvasAutosaveCoordinator(documentId: string) {
-  const existingCoordinator = coordinatorRegistry.get(documentId)
+  const session = captureAccountSession()
+  const registryKey = `${session.epoch}:${documentId}`
+  const existingCoordinator = coordinatorRegistry.get(registryKey)
   if (existingCoordinator) return existingCoordinator
-  const coordinator = new SourceCanvasAutosaveCoordinator(documentId)
-  coordinatorRegistry.set(documentId, coordinator)
+  const coordinator = new SourceCanvasAutosaveCoordinator(documentId, session, registryKey)
+  coordinatorRegistry.set(registryKey, coordinator)
   coordinator.scheduleInitialPrune()
   return coordinator
 }
 
 export function flushSourceCanvasSaves(documentId: string): Promise<boolean> {
-  return coordinatorRegistry.get(documentId)?.flush() ?? Promise.resolve(true)
+  return coordinatorRegistry.get(`${captureAccountSession().epoch}:${documentId}`)?.flush() ?? Promise.resolve(true)
 }
 
 export async function flushAllSourceCanvasSaves(): Promise<boolean> {
   const results = await Promise.all([...coordinatorRegistry.values()].map((coordinator) => coordinator.flush()))
+  return results.every(Boolean)
+}
+
+/** The locking screen owns retries while the editor and its retry control are hidden. */
+export async function retryAllSourceCanvasSaves(): Promise<boolean> {
+  const results = await Promise.all([...coordinatorRegistry.values()].map((coordinator) => coordinator.flush(true)))
   return results.every(Boolean)
 }
 

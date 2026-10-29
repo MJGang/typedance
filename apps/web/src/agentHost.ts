@@ -1,3 +1,4 @@
+import { AccountSessionEndedError, agentHostFetch, assertAccountSession, captureAccountSession } from "./accountSession"
 import { z } from "zod"
 import { AgentRunEventSource } from "./agentRunStream"
 import { notifyModelSettingsChanged } from "./modelSettingsEvents"
@@ -34,81 +35,57 @@ import {
   type ModelSettingsUpdate,
 } from "@typedance/contracts"
 
-const agentHostBaseUrl = import.meta.env.VITE_AGENT_HOST_URL ?? "http://127.0.0.1:4327"
 
 export async function getModelSelection(): Promise<ModelSelection> {
-  return parseAgentHostResponse(await agentHostFetch(`${agentHostBaseUrl}/settings/model/selection`), (value) => modelSelectionSchema.parse(value), "模型配置加载失败")
+  return parseAgentHostResponse(await agentHostFetch(`/settings/model/selection`), (value) => modelSelectionSchema.parse(value), "模型配置加载失败")
 }
 export async function updateModelSelection(input: Pick<ModelSelection, "model" | "reasoning_effort">): Promise<ModelSelection> {
-  const value = await parseAgentHostResponse(await agentHostFetch(`${agentHostBaseUrl}/settings/model/selection`, {
+  const value = await parseAgentHostResponse(await agentHostFetch(`/settings/model/selection`, {
     method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(modelSelectionUpdateSchema.parse(input)),
   }), (value) => modelSelectionSchema.parse(value), "模型选择保存失败")
   notifyModelSettingsChanged()
   return value
 }
 export async function getConversationStatistics(conversationId: string, signal?: AbortSignal): Promise<ConversationStatistics> {
-  return parseAgentHostResponse(await agentHostFetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}/statistics`, { signal, cache: "no-store" }), (value) => conversationStatisticsSchema.parse(value), "会话统计加载失败")
+  return parseAgentHostResponse(await agentHostFetch(`/conversations/${encodeURIComponent(conversationId)}/statistics`, { signal, cache: "no-store" }), (value) => conversationStatisticsSchema.parse(value), "会话统计加载失败")
 }
 
 export async function getSpeechStatus(): Promise<SpeechStatus> {
-  return parseAgentHostResponse(await agentHostFetch(`${agentHostBaseUrl}/speech/settings`), (value) => speechStatusSchema.parse(value), "语音设置加载失败")
+  return parseAgentHostResponse(await agentHostFetch(`/speech/settings`), (value) => speechStatusSchema.parse(value), "语音设置加载失败")
 }
 export async function configureSpeech(preferences: SpeechPreferences): Promise<SpeechStatus> {
-  return parseAgentHostResponse(await agentHostFetch(`${agentHostBaseUrl}/speech/settings`, {
+  return parseAgentHostResponse(await agentHostFetch(`/speech/settings`, {
     method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(preferences),
   }), (value) => speechStatusSchema.parse(value), "语音设置保存失败")
 }
 export async function prepareSpeech(cancel = false): Promise<SpeechStatus> {
-  return parseAgentHostResponse(await agentHostFetch(`${agentHostBaseUrl}/speech/prepare`, { method: cancel ? "DELETE" : "POST" }),
+  return parseAgentHostResponse(await agentHostFetch(`/speech/prepare`, { method: cancel ? "DELETE" : "POST" }),
     (value) => speechStatusSchema.parse(value), "本地模型准备失败")
 }
 export async function transcribeSpeech(audio: string, signal: AbortSignal): Promise<string> {
-  return parseAgentHostResponse(await agentHostFetch(`${agentHostBaseUrl}/speech/transcribe`, {
+  return parseAgentHostResponse(await agentHostFetch(`/speech/transcribe`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ audio }), signal,
   }), (value) => z.object({ text: z.string() }).parse(value).text, "语音转写失败")
 }
 
 export async function getEditorRequest(runId: string, requestId: string) {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/editor-requests/${encodeURIComponent(requestId)}`)
+  const response = await agentHostFetch(`/agent-runs/${encodeURIComponent(runId)}/editor-requests/${encodeURIComponent(requestId)}`)
   return parseAgentHostResponse(response, (value) => editorRequestSchema.parse(value), "编辑请求已结束")
 }
 
 export async function respondToEditorRequest(runId: string, requestId: string, result: EditorResponse): Promise<void> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/editor-requests/${encodeURIComponent(requestId)}`, {
+  const response = await agentHostFetch(`/agent-runs/${encodeURIComponent(runId)}/editor-requests/${encodeURIComponent(requestId)}`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(result),
   })
   await parseAgentHostResponse(response, (value) => value, "编辑结果未回传")
 }
 
 export async function beginEditorRequest(runId: string, requestId: string): Promise<EditorRequest> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/editor-requests/${encodeURIComponent(requestId)}/execute`, { method: "POST", signal: AbortSignal.timeout(30_000) })
+  const response = await agentHostFetch(`/agent-runs/${encodeURIComponent(runId)}/editor-requests/${encodeURIComponent(requestId)}/execute`, { method: "POST", signal: AbortSignal.timeout(30_000) })
   return parseAgentHostResponse(response, (value) => editorRequestSchema.parse(value), "当前修改已无法应用")
 }
-let sessionToken: Promise<string> | undefined
-
-async function getSessionToken(): Promise<string> {
-  sessionToken ??= fetch(`${agentHostBaseUrl}/session`, { cache: "no-store", signal: AbortSignal.timeout(5_000) })
-    .then(async (response) => {
-      if (!response.ok) throw new Error("Agent Host session unavailable")
-      return z.object({ token: z.string().min(32) }).parse(await response.json()).token
-    }).catch((error) => { sessionToken = undefined; throw error })
-  return sessionToken
-}
-
-async function agentHostFetch(input: string, init: RequestInit = {}): Promise<Response> {
-  const send = async () => {
-    const headers = new Headers(init.headers)
-    headers.set("authorization", `Bearer ${await getSessionToken()}`)
-    return fetch(input, { ...init, headers })
-  }
-  const response = await send()
-  if (response.status !== 401) return response
-  sessionToken = undefined
-  return send()
-}
-
 export async function listWorkspaceConversations(workspaceId: string, signal?: AbortSignal): Promise<AgentConversation[]> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/workspaces/${encodeURIComponent(workspaceId)}/conversations`, { signal })
+  const response = await agentHostFetch(`/workspaces/${encodeURIComponent(workspaceId)}/conversations`, { signal })
   return parseAgentHostResponse(
     response,
     (value) => z.array(agentConversationSchema).parse(value),
@@ -117,7 +94,7 @@ export async function listWorkspaceConversations(workspaceId: string, signal?: A
 }
 
 export async function createWorkspaceConversation(workspaceId: string, name?: string | null): Promise<AgentConversation> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/workspaces/${encodeURIComponent(workspaceId)}/conversations`, {
+  const response = await agentHostFetch(`/workspaces/${encodeURIComponent(workspaceId)}/conversations`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(name ? { name } : {}),
@@ -133,7 +110,7 @@ export async function updateWorkspaceConversation(
   conversationId: string,
   patch: Partial<Pick<AgentConversation, "name" | "pinned">>,
 ): Promise<AgentConversation> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}`, {
+  const response = await agentHostFetch(`/conversations/${encodeURIComponent(conversationId)}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(patch),
@@ -146,14 +123,14 @@ export async function updateWorkspaceConversation(
 }
 
 export async function deleteWorkspaceConversation(conversationId: string): Promise<void> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}`, {
+  const response = await agentHostFetch(`/conversations/${encodeURIComponent(conversationId)}`, {
     method: "DELETE",
   })
   if (!response.ok) throw new Error(`Failed to delete workspace conversation: ${response.status}`)
 }
 
 export async function listConversationMessages(conversationId: string, signal?: AbortSignal): Promise<AgentMessage[]> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}/messages`, { signal })
+  const response = await agentHostFetch(`/conversations/${encodeURIComponent(conversationId)}/messages`, { signal })
   return parseAgentHostResponse(
     response,
     (value) => z.array(agentMessageSchema).parse(value),
@@ -173,7 +150,7 @@ export async function startConversationRun(input: {
   context?: Record<string, unknown>
 }): Promise<AgentRun> {
   const response = await agentHostFetch(
-    `${agentHostBaseUrl}/workspaces/${encodeURIComponent(input.workspaceId)}/conversations/${encodeURIComponent(input.conversationId)}/runs`,
+    `/workspaces/${encodeURIComponent(input.workspaceId)}/conversations/${encodeURIComponent(input.conversationId)}/runs`,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -198,7 +175,7 @@ export async function startConversationRun(input: {
 }
 
 export async function getAgentRun(runId: string): Promise<AgentRun> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}`)
+  const response = await agentHostFetch(`/agent-runs/${encodeURIComponent(runId)}`)
   return parseAgentHostResponse(
     response,
     (value) => agentRunSchema.parse(value),
@@ -214,7 +191,7 @@ export async function sendAgentRunInput(input: {
   attachments?: HarnessAttachment[]
   context?: Record<string, unknown>
 }): Promise<AgentMessage> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(input.runId)}/input`, {
+  const response = await agentHostFetch(`/agent-runs/${encodeURIComponent(input.runId)}/input`, {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ message: { content: input.content, mentions: input.mentions ?? [],
       references: input.references, attachments: input.attachments }, context: input.context ?? {} }),
@@ -223,7 +200,7 @@ export async function sendAgentRunInput(input: {
 }
 
 export async function cancelAgentRun(runId: string): Promise<void> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/cancel`, {
+  const response = await agentHostFetch(`/agent-runs/${encodeURIComponent(runId)}/cancel`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ reason: "User cancelled" }),
@@ -232,7 +209,7 @@ export async function cancelAgentRun(runId: string): Promise<void> {
 }
 
 export async function respondToAgentInteraction(runId: string, kind: "questions" | "permissions", requestId: string, body: { answers: Record<string, string> } | { status: "approved" | "denied" }): Promise<void> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/${kind}/${encodeURIComponent(requestId)}`, {
+  const response = await agentHostFetch(`/agent-runs/${encodeURIComponent(runId)}/${kind}/${encodeURIComponent(requestId)}`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   })
   if (!response.ok) throw new Error("请求已结束或提交失败，请刷新后重试")
@@ -240,7 +217,7 @@ export async function respondToAgentInteraction(runId: string, kind: "questions"
 
 export async function listAgentRunEvents(runId: string, afterSequence = -1, signal?: AbortSignal): Promise<AgentRunEvent[]> {
   const searchParams = new URLSearchParams({ after: String(afterSequence) })
-  const response = await agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/events?${searchParams}`, { signal })
+  const response = await agentHostFetch(`/agent-runs/${encodeURIComponent(runId)}/events?${searchParams}`, { signal })
   return parseAgentHostResponse(
     response,
     (value) => z.array(agentRunEventSchema).parse(value),
@@ -249,21 +226,23 @@ export async function listAgentRunEvents(runId: string, afterSequence = -1, sign
 }
 
 export function createAgentRunEventSource(runId: string, afterSequence = -1): AgentRunEventSource {
-  return new AgentRunEventSource({
-    runId, afterSequence,
-    fetchStream: (after, signal) => agentHostFetch(`${agentHostBaseUrl}/agent-runs/${encodeURIComponent(runId)}/events?${new URLSearchParams({ after: String(after), stream: "1" })}`, { signal }),
-    getRun: () => getAgentRun(runId),
-    listEvents: (after) => listAgentRunEvents(runId, after),
+  const session = captureAccountSession()
+  const source = new AgentRunEventSource({
+    runId, afterSequence, signal: session.activitySignal,
+    fetchStream: (after, signal) => agentHostFetch(`/agent-runs/${encodeURIComponent(runId)}/events?${new URLSearchParams({ after: String(after), stream: "1" })}`, { signal }, session),
+    getRun: () => { assertAccountSession(session); return getAgentRun(runId) },
+    listEvents: (after) => { assertAccountSession(session); return listAgentRunEvents(runId, after) },
   })
+  return source
 }
 
 export async function getConversationActiveRun(conversationId: string, signal?: AbortSignal): Promise<AgentRun | null> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/conversations/${encodeURIComponent(conversationId)}/active-run`, { signal })
+  const response = await agentHostFetch(`/conversations/${encodeURIComponent(conversationId)}/active-run`, { signal })
   return parseAgentHostResponse(response, (value) => agentRunSchema.nullable().parse(value), "Failed to load active run")
 }
 
 export async function listWorkspacePlugins(workspaceId: string): Promise<AgentPluginSummary[]> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/workspaces/${encodeURIComponent(workspaceId)}/plugins`)
+  const response = await agentHostFetch(`/workspaces/${encodeURIComponent(workspaceId)}/plugins`)
   return parseAgentHostResponse(
     response,
     (value) => z.array(agentPluginSummarySchema).parse(value),
@@ -272,7 +251,7 @@ export async function listWorkspacePlugins(workspaceId: string): Promise<AgentPl
 }
 
 export async function getModelSettings(): Promise<ModelSettingsResponse> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/settings/model`)
+  const response = await agentHostFetch(`/settings/model`)
   return parseAgentHostResponse(
     response,
     (value) => modelSettingsResponseSchema.parse(value),
@@ -282,7 +261,7 @@ export async function getModelSettings(): Promise<ModelSettingsResponse> {
 
 export async function updateModelSettings(input: ModelSettingsUpdate): Promise<ModelSettingsResponse> {
   const payload = modelSettingsUpdateSchema.parse(input)
-  const response = await agentHostFetch(`${agentHostBaseUrl}/settings/model`, {
+  const response = await agentHostFetch(`/settings/model`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
@@ -297,7 +276,7 @@ export async function updateModelSettings(input: ModelSettingsUpdate): Promise<M
 }
 
 export async function clearModelApiKey(): Promise<ModelSettingsResponse> {
-  const response = await agentHostFetch(`${agentHostBaseUrl}/settings/model/api-key`, { method: "DELETE" })
+  const response = await agentHostFetch(`/settings/model/api-key`, { method: "DELETE" })
   return parseAgentHostResponse(
     response,
     (value) => modelSettingsResponseSchema.parse(value),
@@ -310,7 +289,10 @@ async function parseAgentHostResponse<T>(
   parser: (value: unknown) => T,
   fallbackMessage: string,
 ): Promise<T> {
-  const payload = await response.json().catch(() => null)
+  const payload = await response.json().catch((error: unknown) => {
+    if (error instanceof AccountSessionEndedError) throw error
+    return null
+  })
   if (!response.ok) {
     const message = typeof payload?.message === "string" ? payload.message : typeof payload?.error === "string" ? payload.error : `${response.status}`
     throw new Error(`${fallbackMessage}: ${message}`)
