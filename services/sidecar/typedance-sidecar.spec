@@ -5,7 +5,7 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_sub
 
 project_dir = Path(SPECPATH)
 source_dir = project_dir / "src"
-entry = source_dir / "typedance_sidecar" / "cli.py"
+entry = project_dir / "entrypoint.py"
 one_dir = os.environ.get("TYPEDANCE_PYINSTALLER_MODE") == "onedir"
 show_console = one_dir or os.environ.get("TYPEDANCE_PYINSTALLER_CONSOLE") == "1"
 

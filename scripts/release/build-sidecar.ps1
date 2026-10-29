@@ -97,7 +97,9 @@ function Assert-SidecarHealthy {
         # still failing immediately if the child exits.
         while ($stopwatch.Elapsed -lt [TimeSpan]::FromSeconds($HealthTimeoutSeconds)) {
             if ($process.HasExited) {
-                throw "Sidecar exited before becoming healthy (code $($process.ExitCode))"
+                $stdout = $standardOutput.GetAwaiter().GetResult()
+                $stderr = $standardError.GetAwaiter().GetResult()
+                throw "Sidecar exited before becoming healthy (code $($process.ExitCode))`n$stdout`n$stderr"
             }
             try { $response = Invoke-RestMethod -Uri "http://127.0.0.1:$port/health" -Headers $headers -TimeoutSec 1 }
             catch {

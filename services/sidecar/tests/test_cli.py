@@ -1,10 +1,38 @@
 import os
 import json
+import subprocess
+import sys
 import pytest
 from pathlib import Path
 from unittest.mock import Mock
 
 from typedance_sidecar.cli import main
+
+
+def test_release_entrypoint_runs_as_a_script_and_can_migrate_offline(tmp_path):
+    entry = Path(__file__).resolve().parents[1] / "entrypoint.py"
+    environment = {**os.environ, "PYTHONPATH": str(entry.parent / "src")}
+    environment.pop("TYPEDANCE_LOCAL_TOKEN", None)
+    help_result = subprocess.run(
+        [sys.executable, str(entry), "--help"],
+        env=environment, capture_output=True, text=True, timeout=20,
+    )
+    assert help_result.returncode == 0, help_result.stderr
+    assert "--migrate-local-data" in help_result.stdout
+
+    source = tmp_path / "source"
+    (source / "files").mkdir(parents=True)
+    (source / "files" / "notes.txt").write_text("entrypoint migration", encoding="utf-8")
+    target = tmp_path / "target"
+    result = subprocess.run(
+        [sys.executable, str(entry), "--migrate-local-data", "--source-data-dir", str(source),
+         "--data-dir", str(target), "--entries-json", json.dumps(["files"])],
+        env=environment, capture_output=True, text=True, timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["file_count"] == 1
+    assert (target / "files" / "notes.txt").read_text(encoding="utf-8") == "entrypoint migration"
+    assert (source / "files" / "notes.txt").exists()
 
 
 def test_cli_sets_release_paths_before_starting_uvicorn(tmp_path, monkeypatch):
