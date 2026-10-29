@@ -36,6 +36,7 @@ try {
   if (($result.args | ConvertTo-Json -Compress) -ne ($expected | ConvertTo-Json -Compress)) { throw "Windows argv quoting changed literal input" }
 } finally { Stop-SmokeProcess $child }
 $token = New-PrivateToken
+if ($token -cnotmatch '^[A-Za-z0-9_-]{32,512}$') { throw "Runtime probe generated a capability rejected by the local service token contract" }
 $port = Get-FreeLoopbackPort
 Write-Output "Runtime probe: private health and capability rejection"
 $serverCode = 'const http=require("node:http");const token=process.env.TYPEDANCE_LOCAL_TOKEN;const server=http.createServer((q,s)=>{s.setHeader("Content-Type","application/json");s.writeHead(q.headers.authorization==="Bearer "+token?200:401);s.end(JSON.stringify({status:"ok"}));});server.listen(Number(process.env.TYPEDANCE_TEST_PORT),"127.0.0.1");'

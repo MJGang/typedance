@@ -23,7 +23,7 @@ function New-PrivateToken {
     $random = [Security.Cryptography.RandomNumberGenerator]::Create()
     $bytes = New-Object byte[] 32
     try { $random.GetBytes($bytes) } finally { $random.Dispose() }
-    return [Convert]::ToBase64String($bytes)
+    return [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
 }
 
 function Get-FreeLoopbackPort {
@@ -87,15 +87,22 @@ function Assert-Unauthorized {
 
 function Wait-ServiceHealth {
     param($Handle, [string]$Url, [string]$Token)
+    $name = Split-Path -Leaf $Handle.Process.StartInfo.FileName
+    Write-Host "[smoke-runtime] waiting for $name at $Url"
+    $lastResponse = "no response"
     $watch = [Diagnostics.Stopwatch]::StartNew()
     while ($watch.Elapsed -lt [TimeSpan]::FromSeconds(90)) {
-        if ($Handle.Process.HasExited) { throw "Packaged service exited before health check (exit $($Handle.Process.ExitCode)): $(Read-SmokeOutput $Handle.Error)" }
+        if ($Handle.Process.HasExited) { throw "Packaged $name exited before health check (exit $($Handle.Process.ExitCode)): $(Read-SmokeOutput $Handle.Error)" }
         try {
             $response = Invoke-RestMethod "$Url/health" -Headers @{ Authorization = "Bearer $Token" } -TimeoutSec 1
             if ($response.status -eq "ok") { return }
-        } catch { Start-Sleep -Milliseconds 250 }
+            $lastResponse = "unexpected health status"
+        } catch {
+            $lastResponse = if ($_.Exception.Response) { "HTTP $([int]$_.Exception.Response.StatusCode)" } else { "connection unavailable" }
+            Start-Sleep -Milliseconds 250
+        }
     }
-    throw "Packaged service health check timed out"
+    throw "Packaged $name health check timed out at $Url ($lastResponse)"
 }
 
 function Invoke-MarkdownImportSmoke {
