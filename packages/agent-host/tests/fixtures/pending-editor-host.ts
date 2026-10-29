@@ -2,7 +2,7 @@ import { approvalHost, approvalSnapshot, nextManualProposal } from "../helpers/e
 import { createAgentHostServer } from "../../src";
 
 const { host } = await approvalHost(process.argv[2], approvalSnapshot);
-const server = createAgentHostServer({ host });
+const server = createAgentHostServer({ host, authToken: "pending-editor-account-token-0123456789" });
 server.listen();
 const conversation = host.createConversation("doc");
 const run = host.startConversationRun("doc", conversation.id, { message: { content: "改写原文，等我手动应用" }, mutationMode: "review", context: { editor_snapshot: approvalSnapshot } });

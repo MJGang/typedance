@@ -20,6 +20,7 @@ import { ChatModelMenu } from "./ChatModelMenu"
 import { LiveChatStatusBar } from "./LiveChatStatusBar"
 import { HoverScrollText } from "@/components/HoverScrollText"
 import { statisticsRevision } from "./useChatStatistics"
+import { subscribeAccountActivitiesResumed } from "@/accountSession"
 import { editorRequestSchema, harnessAttachmentsSchema, type HarnessAttachment } from "@typedance/contracts"
 import {
   cancelAgentRun,
@@ -201,6 +202,8 @@ function AgentChatContent({
   const [messages, setMessages] = useState<AgentMessage[]>([])
   const [runEvents, setRunEvents] = useState<Record<string, AgentRunEvent[]>>({})
   const [runningRunId, setRunningRunId] = useState<string | null>(null)
+  const [activityRevision, setActivityRevision] = useState(0)
+  useEffect(() => subscribeAccountActivitiesResumed(() => setActivityRevision(current => current + 1)), [])
   const [reconnecting, setReconnecting] = useState(false)
   const [input, setInput] = useState("")
   const [attachments, setAttachments] = useState<HarnessAttachment[]>([])
@@ -489,7 +492,7 @@ function AgentChatContent({
       subscriptionRef.current?.close()
       subscriptionRef.current = null
     }
-  }, [scope, workspaceId, activeConversationId, loadMessages, subscribeRun])
+  }, [scope, workspaceId, activeConversationId, loadMessages, subscribeRun, activityRevision])
 
   const handleSend = useCallback(async (resumeFromRunId?: string) => {
     const content = resumeFromRunId ? "继续未完成的任务。先检查当前状态，避免重复执行已生效的操作。" : input.trim() || (editorReferences?.pending.length ? "请按每处引用的修改要求处理。" : attachments.length ? "请阅读这些附件。" : "")

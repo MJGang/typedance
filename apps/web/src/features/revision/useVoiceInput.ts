@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { getSpeechStatus, transcribeSpeech } from "@/agentHost"
 import { microphoneConstraints, microphoneFailureMessage } from "@/lib/microphone"
+import { subscribeAccountActivitiesStopped } from "@/accountSession"
 
 export type VoicePhase = "idle" | "starting" | "recording" | "transcribing" | "failed"
 type Recording = {
@@ -56,11 +57,12 @@ export function useVoiceInput(scope: string, onTranscript: (text: string) => voi
     setPhase("idle"); setLevels([]); setError(null)
   }
   useEffect(() => {
+    const stopAccountSubscription = subscribeAccountActivitiesStopped(cancel)
     const hide = () => { if (document.hidden) cancel() }
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape" && operation.current) { event.preventDefault(); cancel() } }
     document.addEventListener("visibilitychange", hide)
     document.addEventListener("keydown", escape)
-    return () => { cancel(); document.removeEventListener("visibilitychange", hide); document.removeEventListener("keydown", escape) }
+    return () => { stopAccountSubscription(); cancel(); document.removeEventListener("visibilitychange", hide); document.removeEventListener("keydown", escape) }
   }, [scope])
 
   async function start() {

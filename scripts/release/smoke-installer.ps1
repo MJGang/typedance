@@ -25,8 +25,6 @@ if ($existing) {
 
 $installation = $null
 $sentinel = Join-Path $env:APPDATA "app.typedance.desktop\release-smoke-$PID.sentinel"
-$langfuseConfig = Join-Path $env:APPDATA "app.typedance.desktop\agent-host\langfuse.env"
-$langfuseConfigCreated = $false
 try {
     $installerProcess = Start-Process -FilePath $installerPath -ArgumentList "/S" -PassThru -Wait
     if ($installerProcess.ExitCode -ne 0) {
@@ -60,18 +58,6 @@ try {
 
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $sentinel) | Out-Null
     Set-Content -LiteralPath $sentinel -Encoding utf8 -Value "preserve-user-data"
-    if (Test-Path -LiteralPath $langfuseConfig) {
-        throw "Installer smoke will not overwrite an existing Langfuse configuration"
-    }
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $langfuseConfig) | Out-Null
-    [IO.File]::WriteAllText($langfuseConfig, @"
-LANGFUSE_ENABLED=true
-LANGFUSE_BASE_URL=http://127.0.0.1:1
-LANGFUSE_PUBLIC_KEY=pk-smoke
-LANGFUSE_SECRET_KEY=sk-smoke
-LANGFUSE_CAPTURE_CONTENT=false
-"@, [Text.UTF8Encoding]::new($false))
-    $langfuseConfigCreated = $true
     $smokeArguments = @(
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
@@ -82,12 +68,8 @@ LANGFUSE_CAPTURE_CONTENT=false
     if ($LASTEXITCODE -ne 0) {
         throw "Installed runtime smoke test failed with code $LASTEXITCODE"
     }
-    $agentHostLog = Join-Path $env:APPDATA "app.typedance.desktop\logs\agent-host.log"
-    if (-not (Test-Path -LiteralPath $agentHostLog) -or
-        -not ([IO.File]::ReadAllText($agentHostLog).Contains("Langfuse: enabled"))) {
-        throw "Installed Agent Host did not load the per-user Langfuse configuration"
-    }
-    Write-Host "[smoke-installer] per-user Langfuse configuration loaded without cloud requests"
+    # Runtime smoke verifies Langfuse loading in its isolated, temporary account profile.
+    # Unconfigured desktop intentionally does not launch the Agent Host.
 } finally {
     if ($installation) {
         $uninstallString = [string]$installation.UninstallString
@@ -99,9 +81,6 @@ LANGFUSE_CAPTURE_CONTENT=false
         if (Test-Path -LiteralPath $uninstaller) {
             Start-Process -FilePath $uninstaller -ArgumentList "/S" -Wait | Out-Null
         }
-    }
-    if ($langfuseConfigCreated -and (Test-Path -LiteralPath $langfuseConfig)) {
-        Remove-Item -LiteralPath $langfuseConfig -Force
     }
 }
 

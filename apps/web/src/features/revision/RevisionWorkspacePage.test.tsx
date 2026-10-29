@@ -3,6 +3,9 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { useState, type ReactNode } from "react"
 import { MemoryRouter, Outlet, Route, Routes, useNavigate } from "react-router-dom"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { installTestAccountSession } from "@/test/accountFixture"
+
+beforeEach(() => installTestAccountSession())
 import type { CanvasPrintSnapshot, ContextSource, ContextSourceChild, TemplateStyleConfig, WorkspaceView } from "@typedance/contracts"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ResumePackNavigationProvider } from "../resume-pack/ResumePackNavigation"

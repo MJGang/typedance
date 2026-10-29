@@ -1,13 +1,9 @@
-#[cfg(any(not(debug_assertions), test))]
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
-#[cfg(not(debug_assertions))]
 use std::io::Read;
 use std::io::Write;
-#[cfg(not(debug_assertions))]
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
-#[cfg(any(not(debug_assertions), test))]
 use std::path::{Component, Path};
 use std::process::{Command as StdCommand, Stdio};
 use std::sync::{
@@ -15,17 +11,13 @@ use std::sync::{
     Mutex,
 };
 use std::thread;
-#[cfg(not(debug_assertions))]
 use std::time::{Duration, Instant};
 
-#[cfg(any(not(debug_assertions), test))]
 use serde::Deserialize;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_shell::process::CommandChild;
-#[cfg(not(debug_assertions))]
 use tauri_plugin_shell::{process::CommandEvent, ShellExt};
 
-#[cfg(any(not(debug_assertions), test))]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ReleasePaths {
     pub(crate) data_dir: PathBuf,
@@ -34,20 +26,17 @@ pub(crate) struct ReleasePaths {
     pub(crate) markdown_converter_path: PathBuf,
 }
 
-#[cfg(any(not(debug_assertions), test))]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ChromiumManifest {
     chromium_executable: String,
 }
 
-#[cfg(any(not(debug_assertions), test))]
 #[derive(Deserialize)]
 struct HealthPayload {
     status: String,
 }
 
-#[cfg(any(not(debug_assertions), test))]
 pub(crate) fn resolve_release_paths(
     resource_dir: &Path,
     data_dir: &Path,
@@ -77,7 +66,6 @@ pub(crate) fn resolve_release_paths(
     })
 }
 
-#[cfg(any(not(debug_assertions), test))]
 pub(crate) fn health_response_is_ok(response: &str) -> bool {
     let Some((headers, body)) = response.split_once("\r\n\r\n") else {
         return false;
@@ -93,7 +81,6 @@ pub(crate) fn health_response_is_ok(response: &str) -> bool {
         })
 }
 
-#[cfg(any(not(debug_assertions), test))]
 pub(crate) fn filter_environment<I>(environment: I) -> Vec<(OsString, OsString)>
 where
     I: IntoIterator<Item = (OsString, OsString)>,
@@ -126,7 +113,6 @@ where
         .collect()
 }
 
-#[cfg(any(not(debug_assertions), test))]
 fn langfuse_environment<I>(environment: I) -> Vec<(OsString, OsString)>
 where
     I: IntoIterator<Item = (OsString, OsString)>,
@@ -154,7 +140,6 @@ pub(crate) struct ManagedProcesses {
 }
 
 impl ManagedProcesses {
-    #[cfg(not(debug_assertions))]
     fn push(&self, child: CommandChild) {
         self.children
             .lock()
@@ -180,6 +165,27 @@ impl ManagedProcesses {
         for child in children.drain(..).rev() {
             terminate_process_tree(child);
         }
+    }
+
+    pub(crate) fn stop_agent_host(&self) {
+        let mut children = self.children.lock().expect("managed process lock poisoned");
+        // ready 会话按 Sidecar、Host 顺序拥有两个进程，保留 Sidecar 以便保存画布。
+        if children.len() == 2 {
+            if let Some(child) = children.pop() {
+                terminate_process_tree(child);
+            }
+        }
+    }
+
+    pub(crate) fn adopt(&self, incoming: ManagedProcesses) {
+        self.shutdown();
+        *self.children.lock().expect("managed process lock poisoned") = std::mem::take(
+            &mut *incoming
+                .children
+                .lock()
+                .expect("managed process lock poisoned"),
+        );
+        self.shutdown_started.store(false, Ordering::SeqCst);
     }
 
     pub(crate) fn request_termination(&self) {
@@ -218,25 +224,143 @@ impl ManagedProcesses {
     }
 }
 
-#[cfg(not(debug_assertions))]
-pub(crate) fn start_release_services(app: &AppHandle) -> Result<ManagedProcesses, String> {
+impl Drop for ManagedProcesses {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+pub(crate) struct AccountServices {
+    pub(crate) data_dir: PathBuf,
+    pub(crate) sidecar_port: u16,
+    pub(crate) host_port: u16,
+    pub(crate) token: String,
+    pub(crate) credential_url: String,
+    pub(crate) credential_token: String,
+}
+
+fn source_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.."))
+}
+
+fn python_binary() -> OsString {
+    std::env::var_os("TYPEDANCE_PYTHON_BINARY").unwrap_or_else(|| {
+        let local = source_root().join(".venv/Scripts/python.exe");
+        if local.is_file() {
+            local.into_os_string()
+        } else {
+            OsString::from("python")
+        }
+    })
+}
+
+fn sidecar_command(
+    app: &AppHandle,
+    name: &str,
+) -> Result<tauri_plugin_shell::process::Command, String> {
+    if cfg!(debug_assertions) {
+        if name == "typedance-sidecar" {
+            Ok(app
+                .shell()
+                .command(python_binary())
+                .args(["-m", "typedance_sidecar.cli"]))
+        } else {
+            let node =
+                std::env::var_os("TYPEDANCE_NODE_BINARY").unwrap_or_else(|| OsString::from("node"));
+            Ok(app.shell().command(node).args([
+                source_root()
+                    .join("packages/agent-host/node_modules/tsx/dist/cli.mjs")
+                    .into_os_string(),
+                source_root()
+                    .join("packages/agent-host/src/cli.ts")
+                    .into_os_string(),
+            ]))
+        }
+    } else {
+        app.shell()
+            .sidecar(name)
+            .map_err(|_| "无法定位随客户端安装的业务服务。".to_string())
+    }
+}
+
+fn account_runtime_paths(
+    resource: &Path,
+    data: &Path,
+    manifest: &Path,
+) -> Result<ReleasePaths, String> {
+    if manifest.is_file() {
+        return resolve_release_paths(
+            resource,
+            data,
+            &fs::read_to_string(manifest).map_err(|_| "无法读取浏览器资源清单。")?,
+        );
+    }
+    if !cfg!(debug_assertions) {
+        return Err("客户端浏览器资源清单缺失，请重新安装。".into());
+    }
+    let browser = if let Some(path) = std::env::var_os("TYPEDANCE_CHROMIUM_PATH") {
+        PathBuf::from(path)
+    } else {
+        let output = StdCommand::new(python_binary()).args(["-c", "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()"])
+            .output().map_err(|_| "无法定位开发环境的 Chromium。")?;
+        if !output.status.success() {
+            return Err("请先为开发环境安装 Playwright Chromium。".into());
+        }
+        PathBuf::from(
+            String::from_utf8(output.stdout)
+                .map_err(|_| "Chromium 路径编码无效。")?
+                .trim(),
+        )
+    };
+    Ok(ReleasePaths {
+        data_dir: data.into(),
+        browser_path: browser,
+        plugin_root: source_root().join("plugins"),
+        markdown_converter_path: resource.join("typedance-markdown-converter.exe"),
+    })
+}
+
+pub(crate) async fn run_offline(
+    app: &AppHandle,
+    name: &str,
+    args: Vec<OsString>,
+) -> Result<(), String> {
+    let output = sidecar_command(app, name)?
+        .env_clear()
+        .envs(filter_environment(std::env::vars_os()))
+        .env("PYTHONPATH", source_root().join("services/sidecar/src"))
+        .args(args)
+        .output()
+        .await
+        .map_err(|_| "资料迁移进程未能启动，原资料已保留。")?;
+    if !output.status.success() {
+        return Err("资料迁移未完成，原资料已保留。请关闭旧客户端后重试。".into());
+    }
+    Ok(())
+}
+
+pub(crate) fn start_account_services(
+    app: &AppHandle,
+    spec: &AccountServices,
+) -> Result<ManagedProcesses, String> {
+    #[cfg(not(debug_assertions))]
     let resource_dir = app
         .path()
         .resource_dir()
-        .map_err(|error| format!("Unable to locate application resources: {error}"))?;
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("Unable to locate application data directory: {error}"))?;
+        .map_err(|_| "无法定位应用资源。")?;
+    #[cfg(debug_assertions)]
+    let resource_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources");
+    let data_dir = spec.data_dir.clone();
     fs::create_dir_all(&data_dir)
         .map_err(|error| format!("Unable to create application data directory: {error}"))?;
 
     let manifest_path = resource_dir
         .join("ms-playwright")
         .join("chromium-manifest.json");
-    let manifest = fs::read_to_string(&manifest_path)
-        .map_err(|error| format!("Unable to read {}: {error}", manifest_path.display()))?;
-    let paths = resolve_release_paths(&resource_dir, &data_dir, &manifest)?;
+    let paths = account_runtime_paths(&resource_dir, &data_dir, &manifest_path)?;
     if !paths.browser_path.is_file() {
         return Err(format!(
             "Bundled Chromium executable is missing: {}",
@@ -250,37 +374,38 @@ pub(crate) fn start_release_services(app: &AppHandle) -> Result<ManagedProcesses
             plugin_manifest.display()
         ));
     }
-    if !paths.markdown_converter_path.is_file() {
+    if !cfg!(debug_assertions) && !paths.markdown_converter_path.is_file() {
         return Err(format!(
             "Bundled Markdown converter is missing: {}",
             paths.markdown_converter_path.display()
         ));
     }
 
-    let processes = ManagedProcesses {
-        shutdown_log: paths.data_dir.join("logs").join("shutdown.log"),
-        ..ManagedProcesses::default()
-    };
+    let mut processes = ManagedProcesses::default();
+    processes.shutdown_log = paths.data_dir.join("logs").join("shutdown.log");
     processes.record("release services starting");
     let child_environment = filter_environment(std::env::vars_os());
-    let sidecar_args = vec![
+    let mut sidecar_args = vec![
         OsString::from("--host"),
         OsString::from("127.0.0.1"),
         OsString::from("--port"),
-        OsString::from("4317"),
+        OsString::from(spec.sidecar_port.to_string()),
         OsString::from("--data-dir"),
         paths.data_dir.clone().into_os_string(),
         OsString::from("--browser-path"),
         paths.browser_path.clone().into_os_string(),
-        OsString::from("--markdown-converter-path"),
-        paths.markdown_converter_path.clone().into_os_string(),
     ];
-    let (sidecar_events, sidecar) = app
-        .shell()
-        .sidecar("typedance-sidecar")
-        .map_err(|error| format!("Unable to prepare Python Sidecar: {error}"))?
+    if paths.markdown_converter_path.is_file() {
+        sidecar_args.extend([
+            OsString::from("--markdown-converter-path"),
+            paths.markdown_converter_path.clone().into_os_string(),
+        ]);
+    }
+    let (sidecar_events, sidecar) = sidecar_command(app, "typedance-sidecar")?
         .env_clear()
         .envs(child_environment.clone())
+        .env("TYPEDANCE_LOCAL_TOKEN", &spec.token)
+        .env("PYTHONPATH", source_root().join("services/sidecar/src"))
         .args(sidecar_args)
         .spawn()
         .map_err(|error| format!("Unable to start Python Sidecar: {error}"))?;
@@ -289,24 +414,31 @@ pub(crate) fn start_release_services(app: &AppHandle) -> Result<ManagedProcesses
         paths.data_dir.join("logs").join("sidecar-process.log"),
     );
     processes.push(sidecar);
-    if let Err(error) = wait_for_health("Python Sidecar", "127.0.0.1:4317", Duration::from_secs(60))
-    {
+    if let Err(error) = wait_for_health(
+        "Python Sidecar",
+        &format!("127.0.0.1:{}", spec.sidecar_port),
+        &spec.token,
+        Duration::from_secs(60),
+    ) {
         processes.shutdown();
         return Err(error);
     }
 
-    let agent_host = app
-        .shell()
-        .sidecar("typedance-agent-host")
-        .map_err(|error| format!("Unable to prepare Agent Host: {error}"))?
+    let agent_host = sidecar_command(app, "typedance-agent-host")?
         .env_clear()
         .envs(child_environment)
         .envs(langfuse_environment(std::env::vars_os()))
         .env("AGENT_HOST_HOST", "127.0.0.1")
-        .env("AGENT_HOST_PORT", "4327")
+        .env("AGENT_HOST_PORT", spec.host_port.to_string())
         .env("TYPEDANCE_DATA_DIR", &paths.data_dir)
         .env("TYPEDANCE_PLUGIN_ROOT", &paths.plugin_root)
-        .env("TYPEDANCE_SIDECAR_URL", "http://127.0.0.1:4317")
+        .env(
+            "TYPEDANCE_SIDECAR_URL",
+            format!("http://127.0.0.1:{}", spec.sidecar_port),
+        )
+        .env("TYPEDANCE_LOCAL_TOKEN", &spec.token)
+        .env("TYPEDANCE_CREDENTIAL_URL", &spec.credential_url)
+        .env("TYPEDANCE_CREDENTIAL_TOKEN", &spec.credential_token)
         .spawn();
     let (agent_host_events, agent_host) = match agent_host {
         Ok(result) => result,
@@ -320,7 +452,12 @@ pub(crate) fn start_release_services(app: &AppHandle) -> Result<ManagedProcesses
         paths.data_dir.join("logs").join("agent-host.log"),
     );
     processes.push(agent_host);
-    if let Err(error) = wait_for_health("Agent Host", "127.0.0.1:4327", Duration::from_secs(30)) {
+    if let Err(error) = wait_for_health(
+        "Agent Host",
+        &format!("127.0.0.1:{}", spec.host_port),
+        &spec.token,
+        Duration::from_secs(30),
+    ) {
         processes.shutdown();
         return Err(error);
     }
@@ -330,29 +467,10 @@ pub(crate) fn start_release_services(app: &AppHandle) -> Result<ManagedProcesses
 }
 
 #[cfg(not(debug_assertions))]
-pub(crate) fn restore_release_services(app: &AppHandle) -> Result<(), String> {
-    let Some(processes) = app.try_state::<ManagedProcesses>() else {
-        return Ok(());
-    };
-    if !processes
-        .children
-        .lock()
-        .map_err(|error| error.to_string())?
-        .is_empty()
-    {
-        return Ok(());
-    }
-    let resumed = start_release_services(app)?;
-    let children = resumed
-        .children
-        .into_inner()
-        .map_err(|error| error.to_string())?;
-    *processes
-        .children
-        .lock()
-        .map_err(|error| error.to_string())? = children;
-    processes.shutdown_started.store(false, Ordering::SeqCst);
-    Ok(())
+pub(crate) async fn restore_release_services(app: &AppHandle) -> Result<(), String> {
+    app.state::<std::sync::Arc<crate::account::AccountManager>>()
+        .restart_services(app)
+        .await
 }
 
 pub(crate) fn request_managed_shutdown(app: &AppHandle) -> bool {
@@ -360,31 +478,30 @@ pub(crate) fn request_managed_shutdown(app: &AppHandle) -> bool {
         return false;
     };
     if !processes.begin_shutdown() {
-        return false;
-    }
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.hide();
+        return true;
     }
     let app_handle = app.clone();
-    thread::spawn(move || {
-        if let Some(processes) = app_handle.try_state::<ManagedProcesses>() {
-            processes.record("shutdown worker started");
-            processes.request_termination();
-            processes.record("desktop process exiting");
-        }
-        std::process::exit(0);
+    tauri::async_runtime::spawn(async move {
+        app_handle
+            .state::<std::sync::Arc<crate::account::AccountManager>>()
+            .request_shutdown(&app_handle)
+            .await;
     });
     true
 }
 
-#[cfg(not(debug_assertions))]
-fn wait_for_health(name: &str, address: &str, timeout: Duration) -> Result<(), String> {
+fn wait_for_health(
+    name: &str,
+    address: &str,
+    token: &str,
+    timeout: Duration,
+) -> Result<(), String> {
     let address: SocketAddr = address
         .parse()
         .map_err(|error| format!("Invalid {name} health address: {error}"))?;
     let started = Instant::now();
     while started.elapsed() < timeout {
-        if request_health(address).is_ok_and(|response| health_response_is_ok(&response)) {
+        if request_health(address, token).is_ok_and(|response| health_response_is_ok(&response)) {
             return Ok(());
         }
         thread::sleep(Duration::from_millis(250));
@@ -395,12 +512,11 @@ fn wait_for_health(name: &str, address: &str, timeout: Duration) -> Result<(), S
     ))
 }
 
-#[cfg(not(debug_assertions))]
-fn request_health(address: SocketAddr) -> std::io::Result<String> {
+fn request_health(address: SocketAddr, token: &str) -> std::io::Result<String> {
     let mut stream = TcpStream::connect_timeout(&address, Duration::from_millis(500))?;
     stream.set_read_timeout(Some(Duration::from_secs(1)))?;
     stream.set_write_timeout(Some(Duration::from_secs(1)))?;
-    stream.write_all(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")?;
+    stream.write_all(format!("GET /health HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n").as_bytes())?;
     let mut response = Vec::new();
     let mut chunk = [0_u8; 4096];
     loop {
@@ -427,7 +543,6 @@ fn request_health(address: SocketAddr) -> std::io::Result<String> {
     Ok(String::from_utf8_lossy(&response).into_owned())
 }
 
-#[cfg(not(debug_assertions))]
 fn drain_process_events(
     mut events: tauri::async_runtime::Receiver<CommandEvent>,
     log_path: PathBuf,
@@ -469,8 +584,8 @@ fn request_process_tree_termination(pid: u32) -> bool {
             .creation_flags(CREATE_NO_WINDOW)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .spawn()
-            .is_ok();
+            .status()
+            .is_ok_and(|status| status.success());
         if termination_requested {
             return true;
         }

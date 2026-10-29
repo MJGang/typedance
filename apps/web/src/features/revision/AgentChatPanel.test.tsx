@@ -4,6 +4,8 @@ import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AgentMessage, ContextSource } from "@typedance/contracts"
 import { AgentChatPanel } from "./AgentChatPanel"
+import { captureAccountSession, pauseAccountWork, resumeAccountWork, setAccountSession } from "@/accountSession"
+import { testAccountSession } from "@/test/accountFixture"
 
 const agentHostMocks = vi.hoisted(() => ({
   getModelSelection: vi.fn(),
@@ -286,6 +288,54 @@ describe("AgentChatPanel", () => {
     expect(events.source.close).not.toHaveBeenCalled()
     act(() => events.dispatch("assistant_delta", { id: "resume", run_id: "active", sequence: 0, type: "assistant_delta", payload: { delta: "恢复后的回答" }, created_at: "2026-10-21T00:00:00.000Z" }))
     expect(await screen.findByText("恢复后的回答")).toBeInTheDocument()
+  })
+
+  it.each(["cancelled", "running"] as const)("restores chat after account activity resumes with a %s run", async (status) => {
+    setAccountSession(testAccountSession("chat-resume"))
+    const fetchLifecycle = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response("{}"))
+    const sources: ReturnType<typeof controllableEventSource>[] = []
+    agentHostMocks.createAgentRunEventSource.mockImplementation(() => {
+      const source = controllableEventSource()
+      sources.push(source)
+      captureAccountSession().activitySignal.addEventListener("abort", () => source.source.close(), { once: true })
+      return source.source
+    })
+    const activeRun = { id: "paused-run", conversation_id: "conv_1", status: "running", mutation_mode: "review" }
+    agentHostMocks.getConversationActiveRun.mockResolvedValue(activeRun)
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage("已保留的回答", activeRun.id)])
+    agentHostMocks.startConversationRun.mockResolvedValue({ ...activeRun, id: "new-run" })
+    const view = render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
+    try {
+      await screen.findByRole("button", { name: "停止" })
+      typeComposerText(screen.getByRole("textbox"), "保存失败后保留的草稿")
+      await act(async () => { await pauseAccountWork() })
+      expect(sources[0].source.close).toHaveBeenCalled()
+      // Host finishes cancellation after the aborted stream; no terminal SSE reaches this panel.
+      agentHostMocks.getConversationActiveRun.mockResolvedValue(status === "running" ? activeRun : null)
+      if (status === "cancelled") agentHostMocks.listAgentRunEvents.mockResolvedValue([
+        { id: "cancelled", run_id: activeRun.id, sequence: 1, type: "run_cancelled", payload: {}, created_at: "2026-10-29T00:00:00.000Z" },
+      ])
+      await act(async () => { await resumeAccountWork() })
+      await waitFor(() => expect(agentHostMocks.getConversationActiveRun).toHaveBeenCalledTimes(2))
+      expect(screen.getByRole("textbox")).toHaveTextContent("保存失败后保留的草稿")
+      act(() => sources[0].dispatch("assistant_delta", { id: "old", run_id: activeRun.id, sequence: 2, type: "assistant_delta", payload: { delta: "旧订阅迟到内容" } }))
+      expect(screen.queryByText(/旧订阅迟到内容/)).not.toBeInTheDocument()
+      if (status === "running") {
+        await waitFor(() => expect(sources).toHaveLength(2))
+        act(() => sources[1].dispatch("assistant_delta", { id: "new", run_id: activeRun.id, sequence: 2, type: "assistant_delta", payload: { delta: "恢复订阅后的内容" } }))
+        expect(await screen.findByText(/恢复订阅后的内容/)).toBeVisible()
+      } else {
+        await waitFor(() => expect(screen.getByRole("button", { name: /^发送$/ })).toBeEnabled())
+        expect(screen.queryByRole("button", { name: "停止" })).not.toBeInTheDocument()
+        fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+        await waitFor(() => expect(agentHostMocks.startConversationRun).toHaveBeenCalledWith(expect.objectContaining({ content: "保存失败后保留的草稿" })))
+        expect(agentHostMocks.sendAgentRunInput).not.toHaveBeenCalled()
+      }
+    } finally {
+      view.unmount()
+      fetchLifecycle.mockRestore()
+      setAccountSession(null)
+    }
   })
 
   it("closes the previous subscription on conversation switch and ignores late events", async () => {

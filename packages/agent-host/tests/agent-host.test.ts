@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createHarnessRuntime, type HarnessModelRequest } from "@typedance/harness-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentHost, createAgentHostServer, createMemoryAgentHostStore, type AgentHostHttpServer } from "../src";
-import { createFileModelSettings } from "../src/model-settings";
+import { createFileModelSettings } from "./helpers/model-credentials";
 
 const authToken = "test-agent-host-token-01234567890123456789";
 const apiFetch: typeof fetch = (input, init = {}) => fetch(input, { ...init, headers: { authorization: `Bearer ${authToken}`, ...init.headers } });

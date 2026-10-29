@@ -5,11 +5,27 @@ from fastapi.testclient import TestClient
 
 from typedance_sidecar.main import app
 
+TEST_TOKEN = "sidecar-test-account-token-0123456789"
+
+
+@pytest.fixture(autouse=True)
+def local_session(monkeypatch):
+    monkeypatch.setenv("TYPEDANCE_LOCAL_TOKEN", TEST_TOKEN)
+
+
+def authenticated_client(application, **kwargs):
+    return TestClient(
+        application,
+        base_url="http://127.0.0.1",
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+        **kwargs,
+    )
+
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
-    return TestClient(app)
+    return authenticated_client(app)
 
 
 @pytest.fixture

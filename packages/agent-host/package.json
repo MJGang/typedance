@@ -18,7 +18,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
-    "test": "vitest run --maxWorkers=2 --minWorkers=1"
+    "test": "vitest run --maxWorkers=1 --minWorkers=1"
   },
   "dependencies": {
     "@typedance/harness-speech": "workspace:*",

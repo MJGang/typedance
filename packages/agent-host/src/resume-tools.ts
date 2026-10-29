@@ -4,6 +4,7 @@ import { HarnessToolOutput, type HarnessRuntime, type HarnessContentPart } from 
 import { editorOperationSchema, type EditorSnapshot } from "@typedance/contracts";
 import type { EditorService } from "./editor-service";
 import type { EditorSession } from "./editor-session";
+import { createAuthenticatedSidecarFetch } from "./sidecar-fetch";
 
 export const READ_RESUME_TOOL_NAME = "resume.read";
 export const VIEW_RESUME_PAGES_TOOL_NAME = "resume.view_pages";
@@ -48,10 +49,11 @@ function snapshotIdentity(snapshot: EditorSnapshot) {
     canvas_version: snapshot.canvas_version, content_revision: snapshot.content_revision };
 }
 
-export function createSidecarPageReader(baseUrl: string, fetchImpl: typeof fetch = fetch): ResumePageReader {
+export function createSidecarPageReader(baseUrl: string, authToken: string, fetchImpl: typeof fetch = fetch): ResumePageReader {
+  const authenticatedFetch = createAuthenticatedSidecarFetch(authToken, fetchImpl);
   return async ({ snapshot, pages, signal }) => {
     if (!snapshot.print_snapshot) throw new Error("本轮没有画布排版快照，请打开简历后重新发送。");
-    const response = await fetchImpl(`${baseUrl.replace(/\/+$/, "")}/documents/${encodeURIComponent(snapshot.document_id)}/source-resume-canvas/pages`, {
+    const response = await authenticatedFetch(`${baseUrl.replace(/\/+$/, "")}/documents/${encodeURIComponent(snapshot.document_id)}/source-resume-canvas/pages`, {
       method: "POST", signal, headers: { "content-type": "application/json" },
       body: JSON.stringify({ print_snapshot: snapshot.print_snapshot, pages }),
     });

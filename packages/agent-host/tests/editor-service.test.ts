@@ -8,7 +8,7 @@ describe("editor service projections", () => {
       operations: [{ id: "text.replace", title: "替换", description: "精确替换", effect: "content", parameters: { type: "object" } }] };
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response(JSON.stringify(catalog)))
       .mockResolvedValueOnce(new Response(JSON.stringify({ view: "detail", nodes: [{ path: [1], text: "最新正文" }] })));
-    const service = createSidecarEditorService("http://127.0.0.1:5517", fetchMock);
+    const service = createSidecarEditorService("http://127.0.0.1:5517", "test-sidecar-account-token-0123456789", fetchMock);
     const signal = new AbortController().signal;
     expect(await service.catalog(signal, ["text.replace", "page.margins"])).toEqual(catalog);
     expect(fetchMock.mock.calls[0]?.[0]).toBe("http://127.0.0.1:5517/editor/capabilities?operation_ids=text.replace&operation_ids=page.margins");

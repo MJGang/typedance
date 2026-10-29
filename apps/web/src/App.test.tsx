@@ -6,6 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { SiteLayout, type RevisionWorkspaceChromeContext } from "./components/SiteLayout"
 import { ResumePackModeSwitch } from "./features/resume-pack/ResumePackNavigation"
 import { appRoutes } from "./router"
+import { installTestAccountSession } from "./test/accountFixture"
+
+beforeEach(() => installTestAccountSession())
 
 const documentDefaults = { status: "active", target_language: "zh-CN", updated_at: "2026-10-20T00:00:00.000Z" } as const
 

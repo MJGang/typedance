@@ -1,5 +1,5 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
+import { dirname, join, resolve as resolvePath } from "node:path";
 import {
   modelSettingsUpdateSchema,
   modelSelectionUpdateSchema,
@@ -10,19 +10,17 @@ import {
   type ModelSettingsUpdate,
 } from "@typedance/contracts";
 import { modelSelection } from "./model-catalog";
+import type { ModelCredentialStore } from "./model-credentials";
 
 const DEFAULT_MODEL = "deepseek-flash";
 const DEFAULT_BASE_URL = "https://api.deepseek.com";
+const settingsOperations = new Map<string, Promise<void>>();
 
 type ModelConfigFile = {
   provider: "deepseek";
   model: string;
   base_url: string;
   reasoning_effort?: ReasoningEffort;
-};
-
-type ModelAuthFile = {
-  api_key: string;
 };
 
 export type ResolvedModelSettings = {
@@ -44,11 +42,13 @@ export type ModelSettingsService = {
 
 export function createFileModelSettings(
   dataDir: string,
+  credentials: ModelCredentialStore,
   environment: Record<string, string | undefined> = process.env,
 ): ModelSettingsService {
   const settingsDir = join(dataDir, "agent-host");
   const configPath = join(settingsDir, "config.json");
-  const authPath = join(settingsDir, "auth.json");
+  const pendingPath = join(settingsDir, "settings-transaction.json");
+  const operationPath = process.platform === "win32" ? resolvePath(configPath).toLowerCase() : resolvePath(configPath);
   const defaults: ModelConfigFile = {
     provider: "deepseek",
     model: environment.AGENT_MODEL?.trim() || environment.DEEPSEEK_MODEL?.trim() || environment.VITE_DEFAULT_AGENT_MODEL?.trim() || DEFAULT_MODEL,
@@ -56,22 +56,49 @@ export function createFileModelSettings(
   };
   const environmentEffort = environment.DEEPSEEK_REASONING_EFFORT ? reasoningEffortSchema.parse(environment.DEEPSEEK_REASONING_EFFORT) : undefined;
 
-  async function resolve(): Promise<ResolvedModelSettings> {
+  function serial<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = settingsOperations.get(operationPath) ?? Promise.resolve();
+    const running = previous.then(operation);
+    const settled = running.then(() => {}, () => {});
+    settingsOperations.set(operationPath, settled);
+    void settled.then(() => {
+      if (settingsOperations.get(operationPath) === settled) settingsOperations.delete(operationPath);
+    });
+    return running;
+  }
+
+  async function hasPendingUpdate(): Promise<boolean> {
+    try { await readFile(pendingPath); return true; }
+    catch (error) { if (isNodeError(error) && error.code === "ENOENT") return false; throw error; }
+  }
+
+  async function beginUpdate(): Promise<void> {
+    await mkdir(settingsDir, { recursive: true });
+    // 标记不含凭据；先同步到磁盘，任何半次保存或重启都不能放行不匹配的 Key。
+    const handle = await open(pendingPath, "w", 0o600);
+    try { await handle.writeFile('{"pending":true}\n', "utf8"); await handle.sync(); }
+    finally { await handle.close(); }
+  }
+
+  async function resolveUnlocked(): Promise<ResolvedModelSettings> {
     const config = await readConfig(configPath, defaults);
-    const auth = await readAuth(authPath);
-    const environmentKey = environment.TYPEDANCE_LLM_API_KEY?.trim() || environment.DEEPSEEK_API_KEY?.trim();
+    let apiKey = await hasPendingUpdate() ? undefined : await credentials.get();
+    if (apiKey) {
+      const current = await readConfig(configPath, defaults);
+      if (current.base_url !== config.base_url || current.provider !== config.provider || await hasPendingUpdate()) apiKey = undefined;
+    }
     const effort = config.reasoning_effort ?? environmentEffort;
     return {
       provider: "deepseek",
       model: config.model,
       baseUrl: config.base_url,
-      apiKey: environmentKey || auth?.api_key,
+      apiKey,
       ...(effort !== undefined ? { reasoningEffort: effort } : {}),
     };
   }
 
-  async function get(): Promise<ModelSettingsResponse> {
-    const settings = await resolve();
+  async function getUnlocked(): Promise<ModelSettingsResponse> {
+    const settings = await resolveUnlocked();
     return {
       provider: settings.provider,
       model: settings.model,
@@ -84,43 +111,47 @@ export function createFileModelSettings(
   }
 
   return {
-    get,
-    resolve,
-    async getSelection() {
-      const settings = await resolve();
+    get: () => serial(getUnlocked),
+    resolve: () => serial(resolveUnlocked),
+    getSelection: () => serial(async () => {
+      const settings = await resolveUnlocked();
       return modelSelection(settings.model, settings.reasoningEffort);
-    },
-    async updateSelection(input) {
+    }),
+    updateSelection: (input) => serial(async () => {
       const parsed = modelSelectionUpdateSchema.parse(input);
       const selection = modelSelection(parsed.model, parsed.reasoning_effort ?? undefined);
       if (selection.reasoning_effort !== parsed.reasoning_effort) throw new Error("该模型不支持所选推理强度");
       const config = await readConfig(configPath, defaults);
       await writeJsonAtomic(configPath, { ...config, model: parsed.model, reasoning_effort: parsed.reasoning_effort ?? undefined });
       return selection;
-    },
-    async update(input) {
+    }),
+    update: (input) => serial(async () => {
       const parsed = modelSettingsUpdateSchema.parse(input);
+      if (await hasPendingUpdate() && !parsed.api_key) throw new Error("模型设置保存未完成，请重新填写 API Key 后保存，或先清除密钥。");
       const config = await readConfig(configPath, defaults);
+      await beginUpdate();
+      if (parsed.api_key) await credentials.set(parsed.api_key);
       await writeJsonAtomic(configPath, {
         provider: "deepseek",
         model: parsed.model,
         base_url: parsed.base_url,
         ...(config.reasoning_effort ? { reasoning_effort: config.reasoning_effort } : {}),
       } satisfies ModelConfigFile);
-      if (parsed.api_key) {
-        await writeJsonAtomic(authPath, { api_key: parsed.api_key } satisfies ModelAuthFile);
-      }
-      return get();
-    },
-    async clearApiKey() {
-      await rm(authPath, { force: true });
-      return get();
-    },
+      await unlink(pendingPath);
+      return getUnlocked();
+    }),
+    clearApiKey: () => serial(async () => {
+      await beginUpdate();
+      await credentials.clear();
+      await unlink(pendingPath);
+      return getUnlocked();
+    }),
   };
 }
 
 function apiKeyPreview(value: string | undefined): string | null {
-  return value ? `...${value.slice(-4)}` : null;
+  if (!value) return null;
+  return value.length > 4 ? `...${value.slice(-4)}` : "...****";
 }
 
 async function readConfig(path: string, defaults: ModelConfigFile): Promise<ModelConfigFile> {
@@ -137,16 +168,6 @@ async function readConfig(path: string, defaults: ModelConfigFile): Promise<Mode
     ...(effort !== undefined ? { reasoning_effort: effort } : {}) };
 }
 
-async function readAuth(path: string): Promise<ModelAuthFile | undefined> {
-  const value = await readOptionalJson(path);
-  if (!value) return undefined;
-  const record = objectRecord(value, "model auth");
-  if (typeof record.api_key !== "string" || !record.api_key.trim()) {
-    throw new Error("Invalid model auth file");
-  }
-  return { api_key: record.api_key };
-}
-
 async function readOptionalJson(path: string): Promise<unknown | undefined> {
   try {
     return JSON.parse(await readFile(path, "utf8"));
@@ -159,7 +180,9 @@ async function readOptionalJson(path: string): Promise<unknown | undefined> {
 async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporaryPath = `${path}.${process.pid}.tmp`;
-  await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  const handle = await open(temporaryPath, "w", 0o600);
+  try { await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8"); await handle.sync(); }
+  finally { await handle.close(); }
   await rename(temporaryPath, path);
 }
 

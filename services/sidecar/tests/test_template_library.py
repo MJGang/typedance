@@ -1,4 +1,5 @@
-﻿import pytest
+from conftest import authenticated_client
+import pytest
 from fastapi.testclient import TestClient
 
 from fixtures.heading2_styles import template_style_payload
@@ -7,7 +8,7 @@ from typedance_sidecar.main import app
 
 def test_template_sample_round_trip_without_updated_at(tmp_path, monkeypatch):
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
-    client = TestClient(app)
+    client = authenticated_client(app)
 
     payload = {
         "id": "test-sample",

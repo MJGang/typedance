@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { createHarnessRuntime } from "@typedance/harness-core";
 import {
   createAgentHost,
@@ -9,6 +8,7 @@ import {
   createFileModelSettings,
   createSqliteAgentHostStore,
   migrateJsonStoreToSqlite,
+  createHttpModelCredentialStore,
 } from "./index";
 import { loadExplicitEnvironment, loadLangfuseEnvironment } from "./environment";
 import {
@@ -30,8 +30,16 @@ import { dirname } from "node:path";
 import { JsonFileHarnessCheckpointStore } from "./checkpoint-store";
 import { migrateRetiredModelId } from "./migrations/model-id";
 import { createModelRuntimeConfiguration } from "./model-catalog";
+import { requireLocalToken } from "./local-access";
 
 async function main(): Promise<void> {
+  if (process.argv.includes("--migrate-store")) {
+    const dataDir = process.argv[process.argv.indexOf("--data-dir") + 1];
+    if (!process.argv.includes("--data-dir") || !dataDir || !isAbsolute(dataDir)) throw new Error("Store migration requires an absolute --data-dir");
+    migrateJsonStoreToSqlite(join(dataDir, "agent-host", "store.json"), join(dataDir, "agent-host", "store.sqlite"));
+    console.log(JSON.stringify({ migrated: true }));
+    return;
+  }
   if (process.argv.includes("--speech-worker")) { runSpeechWorker(); return; }
   if (process.argv.includes("--check-speech-runtime")) {
     const runtimePackage = process.argv[process.argv.indexOf("--check-speech-runtime") + 1];
@@ -40,14 +48,16 @@ async function main(): Promise<void> {
     return;
   }
   const env = loadExplicitEnvironment(process.env, (path) => readFileSync(path, "utf8"));
+  const authToken = requireLocalToken(env.TYPEDANCE_LOCAL_TOKEN);
+  if (!env.TYPEDANCE_DATA_DIR?.trim()) throw new Error("An account data directory is required");
+  const credentials = createHttpModelCredentialStore({ url: env.TYPEDANCE_CREDENTIAL_URL ?? "", token: env.TYPEDANCE_CREDENTIAL_TOKEN ?? "" });
   const port = numberEnv(env.AGENT_HOST_PORT, 4327);
   const hostname = env.AGENT_HOST_HOST ?? "127.0.0.1";
-  const dataDir = env.TYPEDANCE_DATA_DIR || join(homedir(), ".typedance");
-  const storeFile = env.AGENT_HOST_DATABASE_FILE || join(dataDir, "agent-host", "store.sqlite");
+  const dataDir = env.TYPEDANCE_DATA_DIR;
+  const storeFile = join(dataDir, "agent-host", "store.sqlite");
   const sidecarUrl = env.TYPEDANCE_SIDECAR_URL || "http://127.0.0.1:4317";
   await migrateRetiredModelId(dataDir, env);
-  migrateJsonStoreToSqlite(env.AGENT_HOST_STORE_FILE || join(dataDir, "agent-host", "store.json"), storeFile);
-  const modelSettings = createFileModelSettings(dataDir, env);
+  const modelSettings = createFileModelSettings(dataDir, credentials, env);
   const pluginLoader = env.TYPEDANCE_PLUGIN_ROOT
     ? createResumePluginLoader(env.TYPEDANCE_PLUGIN_ROOT)
     : createResumePluginLoader();
@@ -78,10 +88,10 @@ async function main(): Promise<void> {
   const host = createAgentHost({
     runtime,
     resolveModelRuntimeConfiguration: (requestedModel) => createModelRuntimeConfiguration(requestedModel, () => modelSettings.resolve()),
-    contextProvider: createSidecarContextProvider({ baseUrl: sidecarUrl }),
+    contextProvider: createSidecarContextProvider({ baseUrl: sidecarUrl, authToken }),
     resumeTools: {
-      editor: createSidecarEditorService(sidecarUrl),
-      pageReader: createSidecarPageReader(sidecarUrl),
+      editor: createSidecarEditorService(sidecarUrl, authToken),
+      pageReader: createSidecarPageReader(sidecarUrl, authToken),
       supportsImages: async (requestedModel) => (requestedModel || (await modelSettings.resolve()).model) === "deepseek-flash",
     },
     store: createSqliteAgentHostStore(storeFile),
@@ -95,7 +105,7 @@ async function main(): Promise<void> {
   });
 
   const speech = new LocalSpeechService(dataDir);
-  const server = createAgentHostServer({ host, modelSettings, speech,
+  const server = createAgentHostServer({ host, modelSettings, speech, authToken,
     ...(env.TYPEDANCE_WEB_ORIGIN?.trim() ? { allowedOrigins: [env.TYPEDANCE_WEB_ORIGIN.trim()] } : {}) });
   server.listen(port, hostname);
   server.nodeServer.on("listening", () => {
@@ -108,9 +118,8 @@ async function main(): Promise<void> {
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    await server.prepareClose();
     const closed = server.close();
-    server.nodeServer.closeAllConnections();
-    await speech.dispose();
     try {
       await telemetry?.shutdown();
     } catch {

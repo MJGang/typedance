@@ -1,5 +1,6 @@
 #![deny(warnings)]
 
+mod account;
 mod runtime;
 mod updater;
 
@@ -8,8 +9,6 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager,
 };
-#[cfg(not(debug_assertions))]
-use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 
 #[tauri::command]
@@ -68,7 +67,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => show_main_window(app),
             "quit" => {
-                app.remove_tray_by_id("main");
+                show_main_window(app);
                 if !runtime::request_managed_shutdown(app) {
                     app.exit(0);
                 }
@@ -90,6 +89,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updater::ClientUpdater::default())
+        .manage(account::window::AccountWindow::default())
         .invoke_handler(tauri::generate_handler![
             open_exported_pdf,
             open_client_update_logs,
@@ -98,9 +98,23 @@ pub fn run() {
             updater::download_client_update,
             updater::cancel_client_update,
             updater::install_client_update,
+            account::get_account_state,
+            account::sign_in_account,
+            account::cancel_account_sign_in,
+            account::sign_out_account,
+            account::import_local_account_data,
+            account::skip_local_account_data,
+            account::finish_account_lock,
+            account::open_account_center,
         ])
         .on_window_event(|window, event| {
             if window.label() == "main" {
+                if matches!(
+                    event,
+                    tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Moved(_)
+                ) {
+                    account::window::AccountWindow::remember_workspace(window);
+                }
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
                     if let Err(error) = window.hide() {
@@ -111,39 +125,27 @@ pub fn run() {
         })
         .setup(|app| {
             setup_tray(app)?;
-            #[cfg(not(debug_assertions))]
+            account::window::AccountWindow::fit_initial(app.handle())?;
+            app.manage(runtime::ManagedProcesses::default());
+            let accounts =
+                account::AccountManager::new(app.handle()).map_err(std::io::Error::other)?;
+            app.manage(accounts.clone());
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                accounts.restore(&handle).await;
+            });
+            if let Some(window) = app.get_webview_window("main") {
+                window.show()?;
+            }
+            if let Some(delay) = std::env::var("TYPEDANCE_RELEASE_SMOKE_EXIT_AFTER_MS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
             {
-                match runtime::start_release_services(app.handle()) {
-                    Ok(processes) => {
-                        app.manage(processes);
-                        let main_window = app
-                            .get_webview_window("main")
-                            .ok_or_else(|| std::io::Error::other("Main window is missing"))?;
-                        main_window.show()?;
-                        if let Some(delay) = std::env::var("TYPEDANCE_RELEASE_SMOKE_EXIT_AFTER_MS")
-                            .ok()
-                            .and_then(|value| value.parse::<u64>().ok())
-                        {
-                            if let Some(processes) = app.try_state::<runtime::ManagedProcesses>() {
-                                processes
-                                    .record(&format!("smoke shutdown scheduled after {delay} ms"));
-                            }
-                            let app_handle = app.handle().clone();
-                            std::thread::spawn(move || {
-                                std::thread::sleep(std::time::Duration::from_millis(delay));
-                                runtime::request_managed_shutdown(&app_handle);
-                            });
-                        }
-                    }
-                    Err(error) => {
-                        app.dialog()
-                            .message(format!("TypeDance 启动失败：\n\n{error}"))
-                            .title("TypeDance")
-                            .kind(MessageDialogKind::Error)
-                            .blocking_show();
-                        return Err(std::io::Error::other(error).into());
-                    }
-                }
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(delay));
+                    runtime::request_managed_shutdown(&handle);
+                });
             }
             Ok(())
         })

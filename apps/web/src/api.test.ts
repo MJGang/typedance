@@ -1,6 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { CanvasPrintSnapshot } from "@typedance/contracts"
 import { getTemplateSample } from "./api"
+import { installTestAccountSession, testAccountSession } from "./test/accountFixture"
+import { setAccountSession } from "./accountSession"
+
+beforeEach(() => installTestAccountSession())
 
 const printSnapshot: CanvasPrintSnapshot = {
   html: '<div class="ProseMirror"><p>当前画布</p><p><br></p><h2>项目经验</h2></div>',
@@ -45,19 +49,22 @@ describe("exportResumePdf", () => {
       click: clickMock,
     } as unknown as HTMLAnchorElement);
     // jsdom doesn't have URL.createObjectURL, so stub it
-    vi.stubGlobal("URL", {
+    vi.stubGlobal("URL", Object.assign(class extends URL {}, {
       createObjectURL: vi.fn().mockReturnValue("blob:test"),
       revokeObjectURL: vi.fn(),
-    });
+    }));
 
     const result = await exportResumePdf("resume-123", "My Resume");
 
     expect(fetch).toHaveBeenCalledWith(
       "http://127.0.0.1:4317/exports/pdf/resume-123",
-      { method: "POST" },
+      expect.objectContaining({ method: "POST" }),
     );
     expect(clickMock).toHaveBeenCalled();
     expect(result?.filePath).toBe("C:/Users/test/.typedance/files/exports/resume-123.pdf");
+    expect(result?.previewUrl).toBe("blob:test")
+    const request = vi.mocked(fetch).mock.calls[0][1]
+    expect(new Headers(request?.headers).get("authorization")).toBe(`Bearer ${testAccountSession().token}`)
 
     createElementMock.mockRestore();
   });
@@ -76,10 +83,10 @@ describe("exportResumePdf", () => {
       download: "",
       click: clickMock,
     } as unknown as HTMLAnchorElement);
-    vi.stubGlobal("URL", {
+    vi.stubGlobal("URL", Object.assign(class extends URL {}, {
       createObjectURL: vi.fn().mockReturnValue("blob:test"),
       revokeObjectURL: vi.fn(),
-    });
+    }));
 
     const result = await exportResumePdf("resume-123", "中文简历");
 
@@ -90,6 +97,18 @@ describe("exportResumePdf", () => {
 })
 
 describe("revision api", () => {
+  it("does not export an old account document after a delayed save picker resolves", async () => {
+    let finishPicker!: (handle: FileSystemFileHandle) => void
+    vi.stubGlobal("showSaveFilePicker", vi.fn(() => new Promise<FileSystemFileHandle>((resolve) => { finishPicker = resolve })))
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    const { exportCanvasPdf } = await import("./api")
+    const pending = exportCanvasPdf("private-A", "简历 A", { printSnapshot })
+    setAccountSession(testAccountSession("B"))
+    finishPicker({ name: "简历 A.pdf" } as FileSystemFileHandle)
+    await expect(pending).rejects.toThrow("账号会话已结束")
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
   it("duplicates a revision document without sending a request body", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       id: "doc_copy",
@@ -109,7 +128,7 @@ describe("revision api", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "http://127.0.0.1:4317/documents/doc_original/duplicate",
-      { method: "POST" },
+      expect.objectContaining({ method: "POST" }),
     )
     expect(duplicate).toMatchObject({ id: "doc_copy", title: "技术简历 副本", template_id: "custom-a4" })
     expect(duplicate.current_draft_id).toBeUndefined()
@@ -148,7 +167,7 @@ describe("revision api", () => {
     const { listRevisionDocuments } = await import("./api")
     const documents = await listRevisionDocuments()
 
-    expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:4317/documents")
+    expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:4317/documents", expect.any(Object))
     expect(documents).toHaveLength(1)
     expect(documents[0]).toMatchObject({
       id: "doc_1",
@@ -212,7 +231,7 @@ describe("revision api", () => {
     const { getRevisionWorkspaceView } = await import("./api")
     const view = await getRevisionWorkspaceView("doc_1")
 
-    expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:4317/documents/doc_1/workspace-view")
+    expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:4317/documents/doc_1/workspace-view", expect.any(Object))
     expect(view.document.id).toBe("doc_1")
     expect(view.available_actions[0].action_type).toBe("accept_proposal")
   })
@@ -235,11 +254,11 @@ describe("revision api", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "http://127.0.0.1:4317/documents/doc_1",
-      {
+      expect.objectContaining({
         method: "PATCH",
-        headers: { "content-type": "application/json" },
+        headers: expect.any(Headers),
         body: JSON.stringify({ title: "前端负责人简历" }),
-      },
+      }),
     )
     expect(document.title).toBe("前端负责人简历")
   })
@@ -260,11 +279,11 @@ describe("revision api", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "http://127.0.0.1:4317/drafts/draft_1/render",
-      {
+      expect.objectContaining({
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: expect.any(Headers),
         body: JSON.stringify({ render_profile: "default-a4" }),
-      },
+      }),
     )
     expect(projection.id).toBe("render_1")
   })
@@ -295,16 +314,16 @@ describe("revision api", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "http://127.0.0.1:4317/documents/doc_1/source-resume-canvas",
-      {
+      expect.objectContaining({
         method: "PUT",
-        headers: { "content-type": "application/json" },
+        headers: expect.any(Headers),
         body: JSON.stringify({
           doc_json: {
             type: "doc",
             content: [{ type: "paragraph" }],
           },
         }),
-      },
+      }),
     )
     expect(canvas.id).toBe("canvas_1")
     expect(canvas.doc_json).toEqual(responsePayload.doc_json)
@@ -347,7 +366,7 @@ describe("revision api", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "http://127.0.0.1:4317/proposals/prop_1/accept",
-      { method: "POST" },
+      expect.objectContaining({ method: "POST" }),
     )
     expect(proposal.status).toBe("applied")
   })
@@ -454,6 +473,7 @@ describe("revision api", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
       "http://127.0.0.1:4317/documents/doc_import/workspace-view",
+      expect.any(Object),
     )
     expect(workspace.document.current_draft_id).toBeUndefined()
     expect(workspace.current_draft).toBeUndefined()
@@ -559,6 +579,7 @@ describe("revision api", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
       "http://127.0.0.1:4317/documents/doc_import/workspace-view",
+      expect.any(Object),
     )
     expect(progressSteps).toEqual([
       "create_document",
@@ -624,6 +645,7 @@ describe("revision api", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "http://127.0.0.1:4317/documents/doc_guided/workspace-view",
+      expect.any(Object),
     )
     expect(workspace.document.current_draft_id).toBeUndefined()
   })
@@ -660,13 +682,13 @@ describe("revision api", () => {
     })
     expect(fetch).toHaveBeenCalledWith(
       "http://127.0.0.1:4317/documents/doc_1/canvas-export/pdf",
-      {
+      expect.objectContaining({
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: expect.any(Headers),
         body: JSON.stringify({
           print_snapshot: printSnapshot,
         }),
-      },
+      }),
     )
     expect(writable.write).toHaveBeenCalled()
     expect(writable.close).toHaveBeenCalled()
@@ -695,23 +717,23 @@ describe("revision api", () => {
       download: "",
       click: clickMock,
     } as unknown as HTMLAnchorElement)
-    vi.stubGlobal("URL", {
+    vi.stubGlobal("URL", Object.assign(class extends URL {}, {
       createObjectURL: vi.fn().mockReturnValue("blob:revision-html"),
       revokeObjectURL: vi.fn(),
-    })
+    }));
 
     const { exportCanvasHtml } = await import("./api")
     const result = await exportCanvasHtml("doc_1", "张三", { printSnapshot })
 
     expect(fetch).toHaveBeenCalledWith(
       "http://127.0.0.1:4317/documents/doc_1/canvas-export/html",
-      {
+      expect.objectContaining({
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: expect.any(Headers),
         body: JSON.stringify({
           print_snapshot: printSnapshot,
         }),
-      },
+      }),
     )
     expect(clickMock).toHaveBeenCalled()
     expect(result).toMatchObject({

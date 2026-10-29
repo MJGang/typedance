@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import { version } from "../../../../../package.json"
 import { isTauri } from "@/tauri"
+import { finishAccountUpdate, prepareAccountUpdate } from "@/accountActions"
 
 export type UpdatePhase = "idle" | "checking" | "latest" | "available" | "downloading" | "ready" | "installing" | "error"
 export type UpdateFailure = "check" | "download" | "install" | "connection" | "unconfigured"
@@ -28,6 +29,8 @@ type UpdaterDependencies = {
   invoke: <T>(command: string) => Promise<T>
   listen: (callback: (snapshot: ClientUpdateSnapshot) => void) => Promise<() => void>
   storage: Pick<Storage, "getItem" | "setItem">
+  prepareInstall: () => Promise<boolean>
+  finishInstall: () => Promise<void>
 }
 
 const AUTO_CHECK_KEY = "typedance.client-updates.auto-check"
@@ -81,12 +84,19 @@ export function createClientUpdater(dependencies: UpdaterDependencies) {
     if (!dependencies.supported) return Promise.resolve()
     if (operation) return operation
     operation = (async () => {
+      let installPrepared = false
       try {
         await initialize()
+        if (command === "install_client_update") {
+          if (!await dependencies.prepareInstall()) throw new Error("资料尚未保存，未开始安装更新。")
+          installPrepared = true
+        }
         apply(await dependencies.invoke<ClientUpdateSnapshot>(command))
       } catch (cause) {
         console.error(`Client updater ${command} failed`, cause)
         publish({ phase: "error", error })
+      } finally {
+        if (installPrepared) await dependencies.finishInstall()
       }
     })().finally(() => { operation = undefined })
     return operation
@@ -143,6 +153,8 @@ export function createClientUpdater(dependencies: UpdaterDependencies) {
 export const clientUpdater = createClientUpdater({
   supported: isTauri(),
   invoke,
+  prepareInstall: prepareAccountUpdate,
+  finishInstall: finishAccountUpdate,
   listen: (callback) => listen<ClientUpdateSnapshot>("client-update-state", (event) => callback(event.payload)),
   storage: {
     getItem: (key) => localStorage.getItem(key),

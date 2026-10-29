@@ -171,8 +171,13 @@ test("release runtime smoke checks the GUI subsystem and packaged Tauri CORS", (
   assert.match(smokeScript, /MultipartFormDataContent/)
   assert.match(smokeScript, /source_resume_canvas/)
   assert.match(smokeScript, /StatusCode[^\r\n]*Created/)
-  assert.match(smokeScript, /4327\/settings\/model/)
+  assert.match(smokeScript, /\$agentHostUrl\/settings\/model/)
   assert.match(smokeScript, /Access-Control-Request-Method[^\r\n]*PUT/)
+  assert.match(smokeScript, /Invoke-UnconfiguredDesktopSmoke/)
+  assert.match(smokeScript, /Account startup gate: unconfigured/)
+  assert.match(smokeScript, /TYPEDANCE_ACCOUNT_DATA_DIR/)
+  assert.match(smokeScript, /Assert-Unauthorized/)
+  assert.doesNotMatch(smokeScript, /127\.0\.0\.1:(?:4317|4327)/)
 })
 
 test("tag workflow builds through pnpm release without application secrets", () => {

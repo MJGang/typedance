@@ -1,3 +1,4 @@
+from conftest import authenticated_client
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -25,7 +26,7 @@ def test_context_sources_manage_local_files_and_directories(tmp_path, monkeypatc
     revealed_paths: list[Path] = []
     monkeypatch.setattr("typedance_sidecar.context_sources._open_path", lambda path: opened_paths.append(path))
     monkeypatch.setattr("typedance_sidecar.context_sources._reveal_path", lambda path: revealed_paths.append(path))
-    client = TestClient(app)
+    client = authenticated_client(app)
     document_id = create_document(client)
 
     materials = tmp_path / "materials"
@@ -126,7 +127,7 @@ def test_context_sources_manage_webpage_metadata(tmp_path, monkeypatch):
         lambda source, path="": ("job description body", False),
     )
 
-    client = TestClient(app)
+    client = authenticated_client(app)
     document_id = create_document(client)
 
     created = client.post(
@@ -159,7 +160,7 @@ def test_context_sources_manage_webpage_metadata(tmp_path, monkeypatch):
 
 def test_context_sources_are_removed_with_document(tmp_path, monkeypatch):
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path / "data"))
-    client = TestClient(app)
+    client = authenticated_client(app)
     document_id = create_document(client)
     source_file = tmp_path / "resume.txt"
     source_file.write_text("resume", encoding="utf-8")

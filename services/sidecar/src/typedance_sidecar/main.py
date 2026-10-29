@@ -10,14 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from starlette.types import ASGIApp
+from .local_access import ALLOWED_ORIGINS, LocalAccessMiddleware
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_ORIGINS = [
-    "http://127.0.0.1:5173",
-    "http://localhost:5173",
-    "http://tauri.localhost",
-]
 EXPOSED_HEADERS = ["X-Pdf-Path", "X-Html-Path", "X-Export-Artifact-Id"]
 
 from .db import ResumeRepository, TemplateSampleRepository, TemplateStyleRepository, connect
@@ -78,7 +74,7 @@ def app_data_dir() -> Path:
     override = os.environ.get("TYPEDANCE_DATA_DIR")
     if override:
         return Path(override)
-    return Path.home() / ".typedance"
+    raise RuntimeError("An account data directory is required")
 
 
 def resume_repository() -> ResumeRepository:
@@ -356,4 +352,4 @@ def export_html(
     )
 
 
-app = with_cors(app)
+app = LocalAccessMiddleware(with_cors(app))

@@ -6,6 +6,8 @@ import type { EditorRequest, EditorSnapshot } from "@typedance/contracts"
 import { createAgentRunEventSource, getConversationActiveRun, getEditorRequest, listAgentRunEvents, respondToEditorRequest } from "@/agentHost"
 import { EditorRunBridge } from "./EditorRunBridge"
 import { EditorReferencesProvider, useEditorReferences, type CanvasReferenceBridge } from "./references/EditorReferences"
+import { installTestAccountSession } from "@/test/accountFixture"
+import { setAccountSaveOnly } from "@/accountSession"
 
 vi.mock("@/agentHost", () => ({ createAgentRunEventSource: vi.fn(), getConversationActiveRun: vi.fn(), getEditorRequest: vi.fn(), listAgentRunEvents: vi.fn(), respondToEditorRequest: vi.fn() }))
 vi.mock("./useSourceCanvasAutosave", () => ({ flushSourceCanvasSaves: async () => true }))
@@ -37,7 +39,8 @@ function setup() {
   }) })))
   return { ...view, source, bridge, dispatch }
 }
-beforeEach(() => {
+beforeEach(async () => {
+  await installTestAccountSession()
   vi.resetAllMocks()
   vi.mocked(getConversationActiveRun).mockResolvedValue({ id: "run", conversation_id: "conv", status: "running" } as Awaited<ReturnType<typeof getConversationActiveRun>>)
   vi.mocked(listAgentRunEvents).mockResolvedValue([])
@@ -47,6 +50,25 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe("workspace editor execution", () => {
+  it("does not apply a fetched request that resolves after account activities pause", async () => {
+    let finishRequest!: (value: EditorRequest) => void
+    vi.mocked(getEditorRequest).mockImplementation(() => new Promise((resolve) => { finishRequest = resolve }))
+    const { bridge, source, dispatch } = setup()
+    await waitFor(() => expect(createAgentRunEventSource).toHaveBeenCalled())
+    const transaction: EditorRequest = { ...read, id: "late-write", kind: "transaction", mode: "solo", transaction: {
+      id: "late-tx", document_id: "doc", editor_session_id: "new", content_revision: 0,
+      before_doc_json: snapshot.doc_json, doc_json: snapshot.doc_json, catalog_revision: "current", summary: "late write",
+      effects: [], node_origins: [], text_origins: [],
+    } }
+    dispatch(transaction)
+    await waitFor(() => expect(getEditorRequest).toHaveBeenCalled())
+    act(() => setAccountSaveOnly(true))
+    await act(async () => { finishRequest(transaction) })
+    expect(source.close).toHaveBeenCalled()
+    expect(bridge.apply).not.toHaveBeenCalled()
+    expect(respondToEditorRequest).not.toHaveBeenCalled()
+  })
+
   it("services both parallel conversations through the same canvas and routes responses to their own runs", async () => {
     const sources = new Map(["run-a", "run-b"].map((id) => [id, Object.assign(new EventTarget(), { close: vi.fn() })]));
     vi.mocked(getConversationActiveRun).mockImplementation(async (id) => ({ id: `run-${id}`, conversation_id: id, status: "running" } as Awaited<ReturnType<typeof getConversationActiveRun>>));

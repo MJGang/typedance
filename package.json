@@ -4,7 +4,7 @@
   "version": "0.1.13",
   "packageManager": "pnpm@10.11.0",
   "scripts": {
-    "dev": "corepack pnpm --parallel --filter @typedance/desktop --filter @typedance/sidecar --filter @typedance/agent-host dev",
+    "dev": "corepack pnpm --filter @typedance/desktop dev",
     "build": "corepack pnpm --filter @typedance/harness-contracts build && corepack pnpm --filter @typedance/contracts build && corepack pnpm --filter @typedance/harness-core build && corepack pnpm --filter @typedance/harness-server build && corepack pnpm --filter @typedance/harness-speech build && corepack pnpm --filter @typedance/agent-host build && corepack pnpm --filter @typedance/resume-renderer build && corepack pnpm --filter @typedance/web build",
     "test": "corepack pnpm --filter @typedance/harness-contracts test && corepack pnpm --filter @typedance/contracts test && corepack pnpm --filter @typedance/harness-core test && corepack pnpm --filter @typedance/harness-server test && corepack pnpm --filter @typedance/harness-speech test && corepack pnpm --filter @typedance/agent-host test && corepack pnpm --filter @typedance/resume-renderer test && corepack pnpm --filter @typedance/resume-markdown test && corepack pnpm --filter @typedance/web test && corepack pnpm --filter @typedance/sidecar test && node --test scripts/benchmarks/*.test.mjs",
     "lint": "corepack pnpm --filter @typedance/web lint",

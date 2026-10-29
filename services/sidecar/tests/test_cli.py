@@ -1,4 +1,6 @@
 import os
+import json
+import pytest
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -41,3 +43,30 @@ def test_cli_sets_release_paths_before_starting_uvicorn(tmp_path, monkeypatch):
         log_config=None,
         access_log=False,
     )
+
+
+def test_service_cli_fails_closed_without_desktop_credentials(tmp_path, monkeypatch):
+    monkeypatch.delenv("TYPEDANCE_LOCAL_TOKEN", raising=False)
+    run = Mock()
+    monkeypatch.setattr("typedance_sidecar.cli.uvicorn.run", run)
+    with pytest.raises(RuntimeError, match="desktop-issued"):
+        main(["--data-dir", str(tmp_path), "--browser-path", str(tmp_path / "browser.exe")])
+    run.assert_not_called()
+
+
+def test_offline_migration_cli_requires_no_session_or_browser_and_does_not_start_http(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("TYPEDANCE_LOCAL_TOKEN", raising=False)
+    source = tmp_path / "source"
+    (source / "files").mkdir(parents=True)
+    (source / "files" / "notes.txt").write_text("local migration fixture", encoding="utf-8")
+    target = tmp_path / "target"
+    run = Mock()
+    monkeypatch.setattr("typedance_sidecar.cli.uvicorn.run", run)
+    main([
+        "--migrate-local-data", "--source-data-dir", str(source), "--data-dir", str(target),
+        "--entries-json", json.dumps(["files"]), "--exclude-json", "[]",
+    ])
+    assert json.loads(capsys.readouterr().out) == {"migrated": True, "file_count": 1, "entries": ["files"]}
+    assert (target / "files" / "notes.txt").read_text(encoding="utf-8") == "local migration fixture"
+    assert (source / "files" / "notes.txt").exists()
+    run.assert_not_called()

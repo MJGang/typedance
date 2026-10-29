@@ -1,3 +1,4 @@
+from conftest import authenticated_client
 import pytest
 import json
 from pathlib import Path
@@ -25,7 +26,7 @@ from typedance_sidecar.source_canvas_doc_json import source_canvas_hash
 @pytest.fixture
 def revision_client(tmp_path, monkeypatch):
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
-    return TestClient(app), tmp_path
+    return authenticated_client(app), tmp_path
 
 
 def repo_for(tmp_path) -> RevisionRepository:

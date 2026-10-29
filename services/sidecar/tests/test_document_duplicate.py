@@ -1,3 +1,4 @@
+from conftest import authenticated_client
 from copy import deepcopy
 import sqlite3
 
@@ -191,7 +192,7 @@ def test_duplicate_endpoint_returns_document_without_requiring_request_body(tmp_
     repository = RevisionRepository(connect(tmp_path / "typedance.sqlite"))
     original, _, _, _ = seed_formatted_resume(repository, tmp_path)
 
-    response = TestClient(app).post(f"/documents/{original.id}/duplicate")
+    response = authenticated_client(app).post(f"/documents/{original.id}/duplicate")
 
     assert response.status_code == 201
     duplicate = Document.model_validate(response.json())
@@ -204,7 +205,7 @@ def test_duplicate_endpoint_returns_document_without_requiring_request_body(tmp_
 def test_duplicate_endpoint_returns_404_without_creating_anything(tmp_path, monkeypatch):
     monkeypatch.setenv("TYPEDANCE_DATA_DIR", str(tmp_path))
 
-    response = TestClient(app).post("/documents/missing/duplicate")
+    response = authenticated_client(app).post("/documents/missing/duplicate")
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Document not found"}

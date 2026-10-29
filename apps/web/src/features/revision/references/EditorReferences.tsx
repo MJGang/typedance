@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react"
 import type { EditorReference, EditorSnapshot, EditorTransaction, EditorRequest, EditorResponse } from "@typedance/contracts"
 import { toast } from "sonner"
+import { assertAccountSession, captureAccountSession } from "@/accountSession"
 import { flushSourceCanvasSaves } from "../useSourceCanvasAutosave"
 
 export type CanvasReferenceSource = Extract<EditorReference["source"], { kind: "canvas" }>
@@ -151,6 +152,10 @@ export function EditorReferencesProvider({ documentId, children, onReferenceAdde
       let unchanged = false
       let appliedSnapshot: EditorSnapshot | undefined
       try {
+        const session = captureAccountSession()
+        const activity = session.activitySignal
+        assertAccountSession(session)
+        if (activity.aborted) throw new Error("账号活动已暂停，未应用画布修改。")
         if (request.kind === "transaction" && !approved) return { status: "rejected" }
         if (request.kind === "transaction") {
           if (!request.transaction) throw new Error("缺少编辑事务")

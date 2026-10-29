@@ -2,6 +2,9 @@ import "@testing-library/jest-dom/vitest"
 import { act, fireEvent, render as renderBase, screen, waitFor, within } from "@testing-library/react"
 import type { ReactElement } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { installTestAccountSession } from "@/test/accountFixture"
+
+beforeEach(() => installTestAccountSession())
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { WorkbenchSidebar } from "./WorkbenchSidebar"
 import { WorkspaceConversationsProvider } from "./WorkspaceConversations"
