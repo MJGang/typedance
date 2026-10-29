@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest"
 import { transferableAbortController } from "node:util"
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { createMemoryRouter, MemoryRouter, Route, RouterProvider, Routes, useOutletContext, useParams } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { SiteLayout, type RevisionWorkspaceChromeContext } from "./components/SiteLayout"
@@ -58,7 +58,7 @@ describe("App navigation", () => {
     const router = renderAppAt()
     expect(await screen.findByText("还没有简历。")).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "开始编辑简历" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "新建简历" })).toBeInTheDocument()
+    expect(screen.getAllByRole("button", { name: "新建简历" })).toHaveLength(2)
     expect(screen.queryByRole("button", { name: "导入" })).not.toBeInTheDocument()
     expect(screen.getByRole("radio", { name: "简历" })).toBeChecked()
     expect(screen.queryByRole("heading", { name: "工作台" })).not.toBeInTheDocument()
@@ -114,11 +114,12 @@ describe("App navigation", () => {
     expect(screen.getByRole("radio", { name: "模板" })).toBeEnabled()
   })
 
-  it("keeps an import dialog open if the initial resume list finishes loading", async () => {
+  it.each(["sidebar", "workspace"])("keeps the %s import dialog open if the initial resume list finishes loading", async (entry) => {
     let finishLoading!: (response: Response) => void
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { finishLoading = resolve })))
     const router = renderAppAt()
-    fireEvent.click(await screen.findByRole("button", { name: "新建简历" }))
+    const container = await screen.findByRole(entry === "sidebar" ? "complementary" : "main", { name: entry === "sidebar" ? "简历导航" : "简历工作台" })
+    fireEvent.click(within(container).getByRole("button", { name: "新建简历" }))
     fireEvent.click(screen.getByRole("radio", { name: "导入已有简历" }))
     await screen.findByRole("dialog", { name: "新建简历" })
     await act(async () => finishLoading(new Response(JSON.stringify([
@@ -145,8 +146,11 @@ describe("App navigation", () => {
     renderAppAt()
     await screen.findByText("还没有简历。")
     fireEvent.click(screen.getByRole("button", { name: "隐藏左侧导航" }))
-    expect(screen.queryByRole("button", { name: "新建简历" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("complementary", { name: "简历导航" })).not.toBeInTheDocument()
+    fireEvent.click(within(screen.getByRole("main", { name: "简历工作台" })).getByRole("button", { name: "新建简历" }))
+    expect(await screen.findByRole("dialog", { name: "新建简历" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Close" }))
     fireEvent.click(screen.getByRole("button", { name: "显示左侧导航" }))
-    await waitFor(() => expect(screen.getByRole("button", { name: "新建简历" })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "新建简历" })).toHaveLength(2))
   })
 })
