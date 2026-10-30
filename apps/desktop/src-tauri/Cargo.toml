@@ -1,6 +1,6 @@
 [package]
 name = "typedance_desktop"
-version = "0.1.16"
+version = "0.1.17"
 edition = "2021"
 
 [lib]
@@ -22,7 +22,7 @@ tauri-plugin-updater = "=2.12.0"
 futures-util = "0.3.34"
 axum = "0.8.9"
 openidconnect = "4.0.1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "system-proxy"] }
 sha2 = "0.10"
 subtle = "2.6"
 tokio = { version = "1", features = ["net", "sync", "time", "macros", "rt-multi-thread"] }
@@ -35,4 +35,5 @@ zeroize = "1"
 windows-native-keyring-store = "1.1.0"
 
 [dev-dependencies]
+tempfile = "3"
 tower = { version = "0.5", features = ["util"] }

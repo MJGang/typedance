@@ -12,16 +12,20 @@ struct Claim {
     profile: String,
 }
 
-pub(super) fn available(source: &Path, profile: &str) -> Result<bool, String> {
+pub(super) fn owner(source: &Path) -> Result<Option<String>, String> {
     match fs::read(source.join(RECEIPT)) {
         Ok(bytes) => {
             let claim: Claim = serde_json::from_slice(&bytes)
                 .map_err(|_| "历史资料归属记录无效，请保留原资料并修复记录后重试。")?;
-            Ok(claim.profile == profile)
+            Ok(Some(claim.profile))
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(_) => Err("无法读取历史资料归属记录。".into()),
     }
+}
+
+pub(super) fn available(source: &Path, profile: &str) -> Result<bool, String> {
+    Ok(owner(source)?.is_none_or(|owner| owner == profile))
 }
 
 /// 认领先于复制，失败可由同一账号继续；原资料备份不会再次分配给其他账号。

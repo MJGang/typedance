@@ -5190,7 +5190,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "typedance_desktop"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "axum",
  "futures-util",
@@ -5208,6 +5208,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tempfile",
  "tokio",
  "tokio-util",
  "tower",

@@ -19,11 +19,11 @@ function publish(status: AccountState["status"], id = "A") {
     revision: getAccountView().state.revision + 1, status, configured: status !== "unconfigured", providers: ["github"],
     user: status === "ready" || status === "locking" || status === "needs_import" ? { id, name: `账号 ${id}` } : null,
     session: status === "ready" || status === "locking" ? testAccountSession(id) : null,
-    legacy: status === "needs_import" ? { available: true, file_count: 3 } : null, error: null,
+    legacy: status === "needs_import" ? { import_started: false, sources: [{ id: "installed", path: "C:/TypeDance", file_count: 3 }] } : null, error: null,
   })
 }
 
-beforeEach(() => { vi.clearAllMocks(); setAccountAction("idle"); publish("signed_out") })
+beforeEach(() => { HTMLElement.prototype.scrollIntoView = vi.fn(); vi.clearAllMocks(); setAccountAction("idle"); publish("signed_out") })
 afterEach(cleanup)
 
 describe("account workspace gate", () => {
@@ -47,12 +47,55 @@ describe("account workspace gate", () => {
     publish("needs_import")
     render(<AccountGate><p>私有简历内容</p></AccountGate>)
     expect(screen.getByText("当前账号：账号 A")).toBeInTheDocument()
-    expect(screen.getByText(/3 个尚未归属账号/)).toBeInTheDocument()
+    expect(screen.getByText(/3 个文件/)).toBeInTheDocument()
     expect(mocks.importData).not.toHaveBeenCalled()
     expect(mocks.skip).not.toHaveBeenCalled()
     expect(screen.queryByText("私有简历内容")).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole("button", { name: "归入当前账号" }))
-    expect(mocks.importData).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole("button", { name: "导入并进入工作台" }))
+    expect(mocks.importData).toHaveBeenCalledWith("installed")
+  })
+
+  it("lets users skip multiple historical sources without selecting or importing one", () => {
+    publish("needs_import")
+    applyAccountState({ ...getAccountView().state, revision: getAccountView().state.revision + 1,
+      legacy: { import_started: false, sources: [{ id: "installed", path: "C:/TypeDance", file_count: 3 }, { id: "home", path: "C:/Users/test/.typedance", file_count: 5 }] } })
+    render(<AccountGate><p>私有简历内容</p></AccountGate>)
+    expect(screen.getByRole("button", { name: "导入并进入工作台" })).toBeDisabled()
+    fireEvent.click(screen.getByRole("button", { name: "暂不导入，进入工作台" }))
+    expect(mocks.skip).toHaveBeenCalledOnce()
+    expect(mocks.importData).not.toHaveBeenCalled()
+    expect(screen.queryByText("私有简历内容")).not.toBeInTheDocument()
+  })
+
+  it("imports the selected source and clears that choice when the account changes", () => {
+    const sources = [{ id: "installed", path: "C:/TypeDance", file_count: 3 }, { id: "home", path: "C:/Users/test/.typedance", file_count: 5 }]
+    publish("needs_import")
+    applyAccountState({ ...getAccountView().state, revision: getAccountView().state.revision + 1, legacy: { import_started: false, sources } })
+    render(<AccountGate><p>私有简历内容</p></AccountGate>)
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "历史数据目录" }), { key: "Enter" })
+    fireEvent.click(screen.getByRole("option", { name: "C:/Users/test/.typedance" }))
+    fireEvent.click(screen.getByRole("button", { name: "导入并进入工作台" }))
+    expect(mocks.importData).toHaveBeenCalledWith("home")
+    act(() => {
+      publish("needs_import", "B")
+      applyAccountState({ ...getAccountView().state, revision: getAccountView().state.revision + 1, legacy: { import_started: false, sources } })
+    })
+    expect(screen.getByRole("button", { name: "导入并进入工作台" })).toBeDisabled()
+    act(() => setAccountAction("switching"))
+    expect(screen.getByRole("combobox", { name: "历史数据目录" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "暂不导入，进入工作台" })).toBeDisabled()
+  })
+
+  it("requires resuming an interrupted import before entering its workspace", () => {
+    publish("needs_import")
+    applyAccountState({ ...getAccountView().state, revision: getAccountView().state.revision + 1,
+      legacy: { import_started: true, sources: [{ id: "installed", path: "C:/TypeDance", file_count: 3 }] } })
+    render(<AccountGate><p>私有简历内容</p></AccountGate>)
+    expect(screen.getByRole("combobox", { name: "历史数据目录" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "暂不导入，进入工作台" })).toBeDisabled()
+    fireEvent.click(screen.getByRole("button", { name: "继续导入并进入工作台" }))
+    expect(mocks.importData).toHaveBeenCalledWith("installed")
+    expect(mocks.skip).not.toHaveBeenCalled()
   })
 
   it("shows only configured providers in WeChat, Google, GitHub order", () => {

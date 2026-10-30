@@ -1,17 +1,45 @@
-import { useEffect, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { toast } from "sonner"
 import { Loader2, LockKeyhole, LogIn, Minus, RefreshCw, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { closeDesktopWindow, minimizeDesktopWindow } from "@/desktopWindow"
 import { cancelAccountSignIn, finishAccountLock, importLocalAccountData, signInAccount, skipLocalAccountData } from "@/accountActions"
-import { connectAccountState, refreshAccountState, type AccountProvider } from "@/accountState"
+import { connectAccountState, refreshAccountState, type AccountProvider, type AccountState } from "@/accountState"
 import { captureAccountSession } from "@/accountSession"
 import { useAccount } from "./useAccount"
 import { AccountProviderIcon } from "./AccountProviderIcon"
 
 const providerNames: Record<AccountProvider, string> = { github: "GitHub", google: "Google", wechat: "微信" }
 const providerOrder: AccountProvider[] = ["wechat", "google", "github"]
+
+function LocalDataSetup({ sources, importStarted, disabled }: { sources: NonNullable<AccountState["legacy"]>["sources"]; importStarted: boolean; disabled: boolean }) {
+  const [selectedId, setSelectedId] = useState("")
+  const selected = sources.find(source => source.id === selectedId) ?? (sources.length === 1 ? sources[0] : undefined)
+  return <>
+    <p className="text-sm leading-6 text-muted-foreground">{importStarted ? "这份历史数据已开始导入，请继续完成。已复制的数据和原数据均已保留。" : `发现 ${sources.length} 份历史本机数据，包含简历、画布、参考文件、AI 对话及设置。请选择要导入的一份。`}</p>
+    <FieldGroup>
+      <Field>
+        <FieldLabel htmlFor="legacy-data-source">历史数据目录</FieldLabel>
+        <Select value={selected?.id ?? ""} onValueChange={setSelectedId} disabled={disabled || importStarted}>
+          <SelectTrigger id="legacy-data-source" className="w-full"><SelectValue placeholder="选择要导入的历史数据" /></SelectTrigger>
+          <SelectContent><SelectGroup>
+            {sources.map(source => <SelectItem key={source.id} value={source.id}>{source.path}</SelectItem>)}
+          </SelectGroup></SelectContent>
+        </Select>
+        {selected ? <FieldDescription className="break-all">{selected.path} · {selected.file_count} 个文件</FieldDescription> : null}
+      </Field>
+    </FieldGroup>
+    <p className="text-xs leading-5 text-muted-foreground">确认导入后，所选数据及其中的旧模型密钥将归入当前账号。请确认它们属于你。</p>
+    <div className="flex flex-col gap-3 pt-1">
+      <Button className="h-12 w-full rounded-xl" disabled={disabled || !selected} onClick={() => { if (selected) void importLocalAccountData(selected.id) }}>{disabled ? <><Loader2 data-icon="inline-start" className="animate-spin motion-reduce:animate-none" />正在准备工作台…</> : importStarted ? "继续导入并进入工作台" : "导入并进入工作台"}</Button>
+      <Button className="h-12 w-full rounded-xl" variant="outline" disabled={disabled || importStarted} onClick={() => void skipLocalAccountData()}>暂不导入，进入工作台</Button>
+    </div>
+    {importStarted ? null : <p className="text-xs leading-5 text-muted-foreground">暂不导入会保留所有历史数据，当前账号从空工作区开始。</p>}
+  </>
+}
 
 function AccountWindowControls() {
   return <>
@@ -29,7 +57,7 @@ function AccountScreen() {
   const loading = state.status === "restoring" || signingIn || phase === "switching"
   const needsImport = state.status === "needs_import"
   const isLocking = state.status === "locking"
-  const title = needsImport ? "处理已有本机资料" : isLocking ? "先保存，再继续" : "欢迎使用 TypeDance"
+  const title = needsImport ? "导入历史本机数据" : isLocking ? "先保存，再继续" : "欢迎使用 TypeDance"
   const description = needsImport ? `当前账号：${state.user?.name || state.user?.email || "已登录账号"}`
     : isLocking ? "登录已失效，正在保护你的资料。" : "登录，开启你的简历工作台"
 
@@ -49,15 +77,7 @@ function AccountScreen() {
               <p className="text-sm leading-6 text-muted-foreground">工作区已锁定。完成当前内容保存后，可以重新登录；保存失败时内容会保留。</p>
               {phase === "saving" ? <p role="status" className="flex items-center gap-2 text-sm"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" />正在保存资料…</p>
                 : <Button className="h-12 w-full rounded-xl" onClick={() => void finishAccountLock()}>重试保存</Button>}
-            </> : needsImport ? <>
-              <p className="text-sm leading-6 text-muted-foreground">这台设备上有 {state.legacy?.file_count ?? 0} 个尚未归属账号的资料文件。归入后，仅当前账号可以在应用中访问这些资料。</p>
-              <p className="text-sm leading-6 text-muted-foreground">如果存在旧模型密钥，确认归入也会将其安全保存到当前账号，校验成功后清除原明文副本。请确认资料和密钥都属于当前账号。</p>
-              <div className="flex flex-col gap-3 pt-1">
-                <Button className="h-12 w-full rounded-xl" disabled={phase !== "idle"} onClick={() => void importLocalAccountData()}>归入当前账号</Button>
-                <Button className="h-12 w-full rounded-xl" variant="outline" disabled={phase !== "idle"} onClick={() => void skipLocalAccountData()}>暂不归入，进入工作区</Button>
-              </div>
-              <p className="text-xs leading-5 text-muted-foreground">暂不归入会保留原资料，不会删除或自动分给其他账号，也不会迁移旧模型密钥。</p>
-            </> : loading ? <>
+            </> : needsImport && state.legacy ? <LocalDataSetup key={state.user?.id} sources={state.legacy.sources} importStarted={state.legacy.import_started} disabled={phase !== "idle"} /> : loading ? <>
               <p role="status" className="flex items-start gap-2.5 text-sm leading-6 text-muted-foreground"><Loader2 className="mt-1 size-4 shrink-0 animate-spin motion-reduce:animate-none" />{signingIn ? "请在浏览器中完成登录，然后返回这里。" : phase === "switching" ? "正在更新账号状态…" : "正在恢复登录状态…"}</p>
               {signingIn ? <Button className="h-12 w-full rounded-xl" variant="outline" onClick={() => void cancelAccountSignIn()}>取消登录</Button> : null}
             </> : state.configured ? <>

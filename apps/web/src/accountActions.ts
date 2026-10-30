@@ -47,7 +47,7 @@ export function signInAccount(provider?: AccountProvider) {
   return changeAccount("sign_in_account", provider ? { provider } : undefined)
 }
 export function signOutAccount() { return changeAccount("sign_out_account") }
-export function importLocalAccountData() { return changeAccount("import_local_account_data") }
+export function importLocalAccountData(source: string) { return changeAccount("import_local_account_data", { source }) }
 export function skipLocalAccountData() { return changeAccount("skip_local_account_data") }
 
 let updateSession: ReturnType<typeof captureAccountSession> | null = null

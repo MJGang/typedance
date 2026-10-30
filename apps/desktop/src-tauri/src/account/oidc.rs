@@ -13,9 +13,9 @@ use axum::{
 };
 use openidconnect::{
     core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata, CoreUserInfoClaims},
-    AccessTokenHash, AuthType, AuthorizationCode, ClientId, CsrfToken, IssuerUrl, Nonce,
-    OAuth2TokenResponse, PkceCodeChallenge, RedirectUrl, RefreshToken, Scope, SubjectIdentifier,
-    TokenResponse,
+    AccessTokenHash, AuthType, AuthorizationCode, ClientId, CsrfToken, DiscoveryError, IssuerUrl,
+    Nonce, OAuth2TokenResponse, PkceCodeChallenge, RedirectUrl, RefreshToken, Scope,
+    SubjectIdentifier, TokenResponse,
 };
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
@@ -27,6 +27,20 @@ use super::{
     config::{profile_key, AccountConfig, Provider},
     AccountUser,
 };
+
+const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(600);
+const CALLBACK_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+
+fn discovery_error<RE: std::error::Error + 'static>(error: DiscoveryError<RE>) -> String {
+    match error {
+        DiscoveryError::Request(_) => "无法连接账号服务，请检查网络和系统代理设置后重试。".into(),
+        DiscoveryError::Response(status, _, _) => format!(
+            "账号服务配置请求失败（HTTP {}），请稍后重试。",
+            status.as_u16()
+        ),
+        _ => "账号服务配置校验失败，请检查 Logto Endpoint。".into(),
+    }
+}
 
 #[derive(Deserialize)]
 struct DiscoveryEndpoints {
@@ -102,7 +116,7 @@ impl Oidc {
         let issuer = IssuerUrl::new(config.issuer()).map_err(|_| "账号服务签发者无效。")?;
         let metadata = CoreProviderMetadata::discover_async(issuer, &http)
             .await
-            .map_err(|_| "无法验证账号服务配置，请检查网络和 Logto 地址。")?;
+            .map_err(discovery_error)?;
         // 使用成熟 OIDC 库发现与校验 JWKS；额外端点只从同一受信配置取得，不接受客户端传入。
         let endpoints: DiscoveryEndpoints = http
             .get(format!(
@@ -194,35 +208,13 @@ impl Oidc {
             request = request.add_extra_param("direct_sign_in", format!("social:{connector}"));
         }
         let (url, state, nonce) = request.url();
-        let (sender, receiver) = oneshot::channel();
-        let callback_state = Arc::new(CallbackState {
-            authority,
-            expected_state: state.secret().clone(),
-            sender: Mutex::new(Some(sender)),
-        });
-        let server_stop = CancellationToken::new();
-        let server_signal = server_stop.clone();
-        let task = tokio::spawn(async move {
-            let router = Router::new()
-                .route("/callback", get(callback))
-                .with_state(callback_state);
-            let _ = axum::serve(listener, router)
-                .with_graceful_shutdown(server_signal.cancelled_owned())
-                .await;
-        });
+        let mut callback_server =
+            CallbackServer::start(listener, authority, state.secret().clone());
         if let Err(error) = open(url.as_str()) {
-            server_stop.cancel();
-            task.abort();
+            callback_server.shutdown().await;
             return Err(error);
         }
-        let code = tokio::select! {
-            _ = cancelled.cancelled() => Err("登录已取消。".to_string()),
-            _ = tokio::time::sleep(Duration::from_secs(180)) => Err("登录已超时，请重新登录。".to_string()),
-            result = receiver => result.map_err(|_| "登录回调已关闭。".to_string()).and_then(|value| value),
-        };
-        server_stop.cancel();
-        task.abort();
-        let code = code?;
+        let code = callback_server.wait(&cancelled, SIGN_IN_TIMEOUT).await?;
         if cancelled.is_cancelled() {
             return Err("登录已取消。".into());
         }
@@ -451,6 +443,70 @@ struct CallbackState {
     sender: Mutex<Option<CallbackSender>>,
 }
 
+struct CallbackServer {
+    receiver: oneshot::Receiver<Result<String, String>>,
+    stop: CancellationToken,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl CallbackServer {
+    fn start(listener: TcpListener, authority: String, expected_state: String) -> Self {
+        let (sender, receiver) = oneshot::channel();
+        let callback_state = Arc::new(CallbackState {
+            authority,
+            expected_state,
+            sender: Mutex::new(Some(sender)),
+        });
+        let stop = CancellationToken::new();
+        let signal = stop.clone();
+        let task = tokio::spawn(async move {
+            let router = Router::new()
+                .route("/callback", get(callback))
+                .with_state(callback_state);
+            let _ = axum::serve(listener, router)
+                .with_graceful_shutdown(signal.cancelled_owned())
+                .await;
+        });
+        Self {
+            receiver,
+            stop,
+            task,
+        }
+    }
+
+    async fn wait(
+        mut self,
+        cancelled: &CancellationToken,
+        timeout: Duration,
+    ) -> Result<String, String> {
+        let result = tokio::select! {
+            _ = cancelled.cancelled() => Err("登录已取消。".to_string()),
+            _ = tokio::time::sleep(timeout) => Err("登录已超时，请返回 TypeDance 重新发起登录。".to_string()),
+            result = &mut self.receiver => result.map_err(|_| "登录回调已关闭。".to_string()).and_then(|value| value),
+        };
+        self.shutdown().await;
+        result
+    }
+
+    async fn shutdown(&mut self) {
+        self.stop.cancel();
+        if tokio::time::timeout(CALLBACK_DRAIN_TIMEOUT, &mut self.task)
+            .await
+            .is_err()
+        {
+            self.task.abort();
+            let _ = (&mut self.task).await;
+        }
+    }
+}
+
+impl Drop for CallbackServer {
+    fn drop(&mut self) {
+        self.stop.cancel();
+        self.task.abort();
+    }
+}
+
 fn parse_callback(query: &str, expected_state: &str) -> Result<String, String> {
     if query.len() > 8192 {
         return Err("登录回调内容过长。".into());
@@ -517,6 +573,126 @@ async fn callback(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn discovery_failures_identify_the_stage_without_exposing_server_data() {
+        let network = discovery_error(DiscoveryError::Request(std::io::Error::other(
+            "private proxy credentials",
+        )));
+        assert!(network.contains("系统代理"));
+        assert!(!network.contains("private"));
+
+        let response = discovery_error(DiscoveryError::<std::io::Error>::Response(
+            StatusCode::BAD_GATEWAY,
+            b"private response body".to_vec(),
+            "private response explanation".into(),
+        ));
+        assert!(response.contains("HTTP 502"));
+        assert!(!response.contains("private"));
+
+        let validation = discovery_error(DiscoveryError::<std::io::Error>::Validation(
+            "private issuer details".into(),
+        ));
+        assert!(validation.contains("配置校验失败"));
+        assert!(!validation.contains("private"));
+    }
+
+    #[tokio::test]
+    async fn loopback_rejects_unrelated_requests_and_drains_the_authorization_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = CallbackServer::start(listener, address.to_string(), "expected".into());
+        let completion = tokio::spawn(async move {
+            server
+                .wait(&CancellationToken::new(), Duration::from_secs(5))
+                .await
+        });
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
+        let endpoint = format!("http://{address}/callback");
+        for (query, host) in [
+            ("code=unrelated&state=wrong", address.to_string()),
+            ("code=unrelated&state=expected", "untrusted.example".into()),
+        ] {
+            let response = client
+                .get(format!("{endpoint}?{query}"))
+                .header(header::HOST, host)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+        let response = client
+            .get(format!("{endpoint}?code=test-authorization&state=expected"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert_eq!(response.headers()[header::REFERRER_POLICY], "no-referrer");
+        assert!(response.headers()[header::CONTENT_SECURITY_POLICY]
+            .to_str()
+            .unwrap()
+            .contains("default-src 'none'"));
+        let body = response.text().await.unwrap();
+        assert!(body.contains("已收到授权"));
+        assert!(!body.contains("test-authorization"));
+        assert_eq!(completion.await.unwrap().unwrap(), "test-authorization");
+        assert!(tokio::net::TcpStream::connect(address).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn loopback_sends_provider_failure_response_before_stopping() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = CallbackServer::start(listener, address.to_string(), "expected".into());
+        let completion = tokio::spawn(async move {
+            server
+                .wait(&CancellationToken::new(), Duration::from_secs(5))
+                .await
+        });
+        let response = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap()
+            .get(format!(
+                "http://{address}/callback?error=access_denied&state=expected"
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(response.text().await.unwrap().contains("登录未完成"));
+        assert!(completion
+            .await
+            .unwrap()
+            .unwrap_err()
+            .contains("未完成授权"));
+        assert!(tokio::net::TcpStream::connect(address).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn loopback_releases_the_port_after_cancellation_or_timeout() {
+        for cancel in [true, false] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = CallbackServer::start(listener, address.to_string(), "expected".into());
+            let cancelled = CancellationToken::new();
+            if cancel {
+                cancelled.cancel();
+            }
+            let error = server
+                .wait(&cancelled, Duration::from_millis(1))
+                .await
+                .unwrap_err();
+            assert!(error.contains(if cancel { "已取消" } else { "已超时" }));
+            assert!(tokio::net::TcpStream::connect(address).await.is_err());
+        }
+    }
 
     #[test]
     fn callbacks_reject_replay_ambiguity_wrong_state_and_provider_errors() {
