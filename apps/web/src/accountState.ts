@@ -21,13 +21,18 @@ export const accountStateSchema = z.object({
   user: z.object({ id: z.string().min(1), name: z.string(), email: z.string().optional(), avatar: z.string().optional() }).nullable(),
   session: z.object({ id: z.string().min(1), sidecar_url: localServiceUrl, agent_host_url: localServiceUrl, token: z.string().min(32) }).nullable(),
   error: z.string().nullable(),
-  legacy: z.object({ available: z.boolean(), file_count: z.number().int().nonnegative() }).nullable(),
+  legacy: z.object({ import_started: z.boolean(), sources: z.array(z.object({
+    id: z.string().min(1), path: z.string().min(1), file_count: z.number().int().nonnegative(),
+  })).min(1) }).nullable(),
 }).superRefine((state, context) => {
   if ((state.status === "ready" || state.status === "locking") && (!state.user || !state.session)) {
     context.addIssue({ code: "custom", message: "已登录账号缺少有效会话" })
   }
   if (state.status !== "ready" && state.status !== "locking" && state.session) {
     context.addIssue({ code: "custom", message: "当前状态不允许访问账号资料" })
+  }
+  if (state.status === "needs_import" && (!state.user || !state.legacy)) {
+    context.addIssue({ code: "custom", message: "历史数据导入缺少已验证账号或数据来源" })
   }
 })
 

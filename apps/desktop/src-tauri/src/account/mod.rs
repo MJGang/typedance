@@ -1,6 +1,7 @@
 mod broker;
 mod config;
 mod import_claim;
+mod legacy;
 mod oidc;
 mod revocations;
 mod vault;
@@ -8,6 +9,7 @@ pub(crate) mod window;
 
 use broker::CredentialBroker;
 use config::{profile_key, AccountConfig, Provider};
+use legacy::LegacySummary;
 use oidc::{Oidc, RefreshFailure, StoredRefresh, VerifiedSession};
 use openidconnect::CsrfToken;
 use serde::{Deserialize, Serialize};
@@ -42,11 +44,6 @@ pub(crate) struct LocalSession {
     sidecar_url: String,
     agent_host_url: String,
     token: String,
-}
-#[derive(Clone, Serialize)]
-struct LegacySummary {
-    available: bool,
-    file_count: usize,
 }
 #[derive(Clone, Serialize)]
 pub(crate) struct AccountState {
@@ -256,13 +253,9 @@ impl AccountManager {
         Ok(profiles.join(&verified.profile))
     }
 
-    fn legacy_root(&self, profile: &str) -> Result<Option<PathBuf>, String> {
+    fn legacy_sources(&self, profile: &str) -> Result<Vec<legacy::LegacyCandidate>, String> {
         if let Some(explicit) = std::env::var_os("TYPEDANCE_LEGACY_DATA_DIR") {
-            let root = PathBuf::from(explicit);
-            plain_directory(&root)?;
-            return Ok((!legacy_entries(&root).is_empty()
-                && import_claim::available(&root, profile)?)
-            .then_some(root));
+            return legacy::discover(vec![PathBuf::from(explicit)], profile);
         }
         let mut roots = vec![self.data.clone()];
         if let Some(home) = std::env::var_os("USERPROFILE") {
@@ -271,20 +264,7 @@ impl AccountManager {
                 roots.push(root);
             }
         }
-        roots.retain(|root| !legacy_entries(root).is_empty());
-        let mut available = Vec::new();
-        for root in roots {
-            if import_claim::available(&root, profile)? {
-                available.push(root);
-            }
-        }
-        let mut roots = available;
-        if roots.len() > 1 {
-            return Err(
-                "检测到多份未归属资料，请先用 TYPEDANCE_LEGACY_DATA_DIR 指定要归属的目录。".into(),
-            );
-        }
-        Ok(roots.pop())
+        legacy::discover(roots, profile)
     }
 
     async fn stop_local(&self, app: &AppHandle) {
@@ -426,18 +406,12 @@ impl AccountManager {
             });
             self.profile_dir(&state.current.as_ref().ok_or("账号会话已结束。")?.verified)?
         };
-        let legacy = if !profile.join(".account-profile.json").is_file() {
-            self.legacy_root(&identity)?
+        let sources = if !profile.join(".account-profile.json").is_file() {
+            self.legacy_sources(&identity)?
         } else {
-            None
+            vec![]
         };
-        let summary = legacy.map(|root| LegacySummary {
-            available: true,
-            file_count: legacy_entries(&root)
-                .iter()
-                .map(|name| file_count(&root.join(name)))
-                .sum(),
-        });
+        let summary = legacy::summarize(sources);
         {
             let mut state = self.inner.lock().await;
             state.view.error = None;
@@ -822,11 +796,16 @@ impl AccountManager {
     async fn finish_setup(
         self: &Arc<Self>,
         app: &AppHandle,
-        import: bool,
+        source: Option<String>,
     ) -> Result<AccountState, String> {
         let _operation = self.operation.lock().await;
         if self.inner.lock().await.view.status != "needs_import" {
             return Err("当前账号没有待确认的本机资料归属。".into());
+        }
+        if source.is_none() {
+            if let Some(summary) = &self.inner.lock().await.view.legacy {
+                summary.ensure_skip_allowed()?;
+            }
         }
         let config = self
             .inner
@@ -837,7 +816,7 @@ impl AccountManager {
             .ok_or("账号会话已结束。")?
             .config
             .clone();
-        if import {
+        if let Some(source_id) = source {
             let (target, profile) = {
                 let state = self.inner.lock().await;
                 let current = state.current.as_ref().ok_or("账号会话已结束。")?;
@@ -846,10 +825,17 @@ impl AccountManager {
                     current.verified.profile.clone(),
                 )
             };
-            let source = self
-                .legacy_root(&profile)?
-                .ok_or("未找到待归属的本机资料。")?;
+            let selected = legacy::select(self.legacy_sources(&profile)?, &source_id)?;
+            let source = selected.root;
             import_claim::reserve(&source, &profile)?;
+            {
+                let mut state = self.inner.lock().await;
+                state.view.legacy = Some(LegacySummary {
+                    sources: vec![selected.info],
+                    import_started: true,
+                });
+                Self::publish(app, &mut state.view);
+            }
             if !target.join(".local-data-import.json").is_file() {
                 let exclusions = legacy_credentials(&source)?
                     .iter()
@@ -1035,15 +1021,16 @@ pub(crate) async fn sign_out_account(
 pub(crate) async fn import_local_account_data(
     app: AppHandle,
     state: State<'_, Arc<AccountManager>>,
+    source: String,
 ) -> Result<AccountState, String> {
-    state.finish_setup(&app, true).await
+    state.finish_setup(&app, Some(source)).await
 }
 #[tauri::command]
 pub(crate) async fn skip_local_account_data(
     app: AppHandle,
     state: State<'_, Arc<AccountManager>>,
 ) -> Result<AccountState, String> {
-    state.finish_setup(&app, false).await
+    state.finish_setup(&app, None).await
 }
 #[tauri::command]
 pub(crate) async fn finish_account_lock(
