@@ -279,11 +279,30 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
     Write-Host "[smoke-runtime] per-profile Langfuse configuration loaded without AI or cloud calls"
 }
 
-function Invoke-UnconfiguredDesktopSmoke {
+function Assert-FreshLoginGate {
+    param([string]$Diagnostics, [string]$DataDirectory)
+    if (-not $Diagnostics.Contains("Account startup gate: restoring")) {
+        throw "Release did not embed a valid public account configuration"
+    }
+    if (-not $Diagnostics.Contains("Account state: signed_out")) {
+        throw "Fresh release did not reach its signed-out login page"
+    }
+    if ($Diagnostics -notmatch 'Account startup providers: \[(Github|Google|Wechat)(, (Github|Google|Wechat))*\]') {
+        throw "Fresh release did not provide a sign-in channel"
+    }
+    if (Test-Path -LiteralPath (Join-Path $DataDirectory "account-config.json")) {
+        throw "Fresh release used a local account configuration file"
+    }
+    if (Test-Path -LiteralPath (Join-Path $DataDirectory "profiles")) {
+        throw "Fresh release created account business storage before login"
+    }
+}
+
+function Invoke-FreshDesktopSmoke {
     if ((Get-WindowsExecutableSubsystem $executablePath) -ne 2) { throw "Release desktop must use the Windows GUI subsystem (2)" }
     $desktop = $null
     $desktopFailure = $null
-    $desktopData = Join-Path $smokeRoot "unconfigured-account-data"
+    $desktopData = Join-Path $smokeRoot "fresh-account-data"
     try {
         $desktop = Start-IsolatedSmokeProcess -FilePath $executablePath -ShowWindow -Environment @{
             TYPEDANCE_ACCOUNT_DATA_DIR = $desktopData
@@ -296,16 +315,15 @@ function Invoke-UnconfiguredDesktopSmoke {
             $desktop.Process.Refresh()
             if ($desktop.Process.MainWindowHandle -ne [IntPtr]::Zero) { $guiSeen = $true }
             $children = @(Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $desktop.Process.Id -and $_.Name -in @("typedance-sidecar.exe", "typedance-agent-host.exe", "typedance-markdown-converter.exe") })
-            if ($children.Count) { throw "Unconfigured desktop started a business service before login" }
+            if ($children.Count) { throw "Fresh desktop started a business service before login" }
             Start-Sleep -Milliseconds 150
         }
-        if (-not $guiSeen) { throw "Unconfigured desktop did not create its GUI window" }
-        if (-not $desktop.Process.HasExited -or $desktop.Process.ExitCode -ne 0) { throw "Unconfigured desktop did not complete clean automatic shutdown" }
+        if (-not $guiSeen) { throw "Fresh desktop did not create its GUI window" }
+        if (-not $desktop.Process.HasExited -or $desktop.Process.ExitCode -ne 0) { throw "Fresh desktop did not complete clean automatic shutdown" }
         Write-Host "[smoke-runtime] desktop exited cleanly; waiting for WebView process shutdown"
         Wait-SmokeChildrenExit $desktop.Process
         $diagnostics = Read-SmokeOutput $desktop.Error
-        if (-not $diagnostics.Contains("Account startup gate: unconfigured")) { throw "Desktop did not confirm the real unconfigured account gate" }
-        if (Test-Path -LiteralPath (Join-Path $desktopData "profiles")) { throw "Unconfigured desktop created account business storage" }
+        Assert-FreshLoginGate -Diagnostics $diagnostics -DataDirectory $desktopData
     } catch {
         $desktopFailure = $_
         throw
@@ -330,7 +348,7 @@ function Invoke-UnconfiguredDesktopSmoke {
             Write-Warning "Desktop smoke cleanup also failed: $($_.Exception.Message)"
         }
     }
-    Write-Host "[smoke-runtime] unconfigured GUI, login gate and clean managed shutdown passed"
+    Write-Host "[smoke-runtime] embedded account configuration, fresh signed-out login and clean managed shutdown passed"
 }
 
 $releaseProcessNames = @("typedance_desktop.exe", "typedance-sidecar.exe", "typedance-agent-host.exe", "typedance-markdown-converter.exe")
@@ -338,7 +356,7 @@ try {
     $existing = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -in $releaseProcessNames })
     if ($existing.Count) { throw "TypeDance processes are already running; smoke will not interfere with a user session" }
     Invoke-PackagedServicesSmoke
-    if (-not $ServicesOnly) { Invoke-UnconfiguredDesktopSmoke }
+    if (-not $ServicesOnly) { Invoke-FreshDesktopSmoke }
 } finally {
     $resolvedSmoke = [IO.Path]::GetFullPath($smokeRoot)
     $allowedTemp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'

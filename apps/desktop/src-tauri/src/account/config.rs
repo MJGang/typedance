@@ -23,6 +23,13 @@ pub(crate) struct AccountConfig {
 
 impl AccountConfig {
     pub(crate) fn load(data_dir: &Path) -> Result<Option<Self>, String> {
+        Self::load_with_settings(data_dir, public_setting)
+    }
+
+    fn load_with_settings(
+        data_dir: &Path,
+        setting: impl Fn(&str) -> Option<String>,
+    ) -> Result<Option<Self>, String> {
         let path = data_dir.join("account-config.json");
         let mut config = if path.is_file() {
             serde_json::from_slice::<Self>(&fs::read(path).map_err(|_| "无法读取账号配置。")?)
@@ -35,10 +42,10 @@ impl AccountConfig {
             }
         };
 
-        if let Some(value) = public_setting("TYPEDANCE_LOGTO_ENDPOINT") {
+        if let Some(value) = setting("TYPEDANCE_LOGTO_ENDPOINT") {
             config.endpoint = value;
         }
-        if let Some(value) = public_setting("TYPEDANCE_LOGTO_APP_ID") {
+        if let Some(value) = setting("TYPEDANCE_LOGTO_APP_ID") {
             config.app_id = value;
         }
         for (provider, name) in [
@@ -46,7 +53,7 @@ impl AccountConfig {
             (Provider::Google, "TYPEDANCE_LOGTO_GOOGLE_CONNECTOR_ID"),
             (Provider::Wechat, "TYPEDANCE_LOGTO_WECHAT_CONNECTOR_ID"),
         ] {
-            if let Some(value) = public_setting(name) {
+            if let Some(value) = setting(name) {
                 config.connectors.insert(provider, value);
             }
         }
@@ -110,6 +117,10 @@ fn public_setting(name: &str) -> Option<String> {
     let runtime = std::env::var(name)
         .ok()
         .filter(|value| !value.trim().is_empty());
+    runtime.or_else(|| embedded_setting(name).map(str::to_string))
+}
+
+fn embedded_setting(name: &str) -> Option<&'static str> {
     let embedded = match name {
         "TYPEDANCE_LOGTO_ENDPOINT" => option_env!("TYPEDANCE_LOGTO_ENDPOINT"),
         "TYPEDANCE_LOGTO_APP_ID" => option_env!("TYPEDANCE_LOGTO_APP_ID"),
@@ -118,11 +129,7 @@ fn public_setting(name: &str) -> Option<String> {
         "TYPEDANCE_LOGTO_WECHAT_CONNECTOR_ID" => option_env!("TYPEDANCE_LOGTO_WECHAT_CONNECTOR_ID"),
         _ => None,
     };
-    runtime.or_else(|| {
-        embedded
-            .filter(|value| !value.trim().is_empty())
-            .map(str::to_string)
-    })
+    embedded.filter(|value| !value.trim().is_empty())
 }
 
 pub(crate) fn profile_key(issuer: &str, subject: &str) -> String {
@@ -133,6 +140,41 @@ pub(crate) fn profile_key(issuer: &str, subject: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn public_configuration_provides_sign_in_without_a_local_config_file() {
+        let data = tempfile::tempdir().unwrap();
+        let config = AccountConfig::load_with_settings(data.path(), |name| match name {
+            "TYPEDANCE_LOGTO_ENDPOINT" => Some("https://auth.example.com".into()),
+            "TYPEDANCE_LOGTO_APP_ID" => Some("native-app".into()),
+            "TYPEDANCE_LOGTO_GITHUB_CONNECTOR_ID" => Some("github-connector".into()),
+            _ => None,
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(config.endpoint, "https://auth.example.com");
+        assert_eq!(
+            config.connectors.get(&Provider::Github).unwrap(),
+            "github-connector"
+        );
+        assert!(!data.path().join("account-config.json").exists());
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn release_embeds_sign_in_configuration_for_a_clean_install() {
+        let data = tempfile::tempdir().unwrap();
+        let config = AccountConfig::load_with_settings(data.path(), |name| {
+            embedded_setting(name).map(str::to_string)
+        })
+        .expect("embedded account configuration must be valid")
+        .expect("release must embed its public account configuration");
+        assert!(
+            !config.connectors.is_empty(),
+            "release must provide a sign-in channel"
+        );
+        assert!(!data.path().join("account-config.json").exists());
+    }
 
     #[test]
     fn configured_origin_rejects_credentials_paths_and_plain_http() {

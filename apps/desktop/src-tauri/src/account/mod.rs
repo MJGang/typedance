@@ -202,6 +202,7 @@ impl AccountManager {
                 "unconfigured"
             }
         );
+        eprintln!("Account startup providers: {providers:?}");
         Ok(Arc::new(Self {
             data,
             inner: Mutex::new(Inner {
@@ -233,6 +234,7 @@ impl AccountManager {
     }
     fn publish(app: &AppHandle, state: &mut AccountState) {
         state.revision += 1;
+        eprintln!("Account state: {}", state.status);
         // 失效锁定的草稿尚在保存，先保留工作台几何，避免编辑器在保存中重新布局。
         window::AccountWindow::apply(app, matches!(state.status.as_str(), "ready" | "locking"));
         let _ = app.emit("typedance-account-changed", state.clone());
