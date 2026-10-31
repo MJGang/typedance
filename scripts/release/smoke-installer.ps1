@@ -74,7 +74,7 @@ try {
         throw "Installed runtime smoke test failed with code $LASTEXITCODE"
     }
     # Runtime smoke verifies Langfuse loading in its isolated, temporary account profile.
-    # Unconfigured desktop intentionally does not launch the Agent Host.
+    # Fresh signed-out desktop intentionally does not launch the Agent Host.
 } finally {
     if ($installation) {
         $uninstallString = [string]$installation.UninstallString

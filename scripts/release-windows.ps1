@@ -64,6 +64,20 @@ function Read-ReleaseVersion {
     return $versions[0]
 }
 
+function Assert-AccountReleaseInputs {
+    param([string]$Endpoint, [string]$AppId, [string[]]$Connectors)
+    if ([string]::IsNullOrWhiteSpace($Endpoint)) {
+        throw "TYPEDANCE_LOGTO_ENDPOINT is required for a release with working sign-in"
+    }
+    if ([string]::IsNullOrWhiteSpace($AppId)) {
+        throw "TYPEDANCE_LOGTO_APP_ID is required for a release with working sign-in"
+    }
+    $enabled = @($Connectors | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($enabled.Count -eq 0) {
+        throw "At least one Logto social connector ID is required for a release with working sign-in"
+    }
+}
+
 function Assert-NoForbiddenReleaseInputs {
     $roots = @(
         (Join-Path $tauriRoot "resources\ms-playwright"),
@@ -98,6 +112,11 @@ function Get-ReleaseSha256 {
 if ($env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
     throw "Windows x64 is required to build the NSIS release"
 }
+Assert-AccountReleaseInputs -Endpoint $env:TYPEDANCE_LOGTO_ENDPOINT -AppId $env:TYPEDANCE_LOGTO_APP_ID -Connectors @(
+    $env:TYPEDANCE_LOGTO_GITHUB_CONNECTOR_ID,
+    $env:TYPEDANCE_LOGTO_GOOGLE_CONNECTOR_ID,
+    $env:TYPEDANCE_LOGTO_WECHAT_CONNECTOR_ID
+)
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     throw "uv is required to provision the Python 3.11 release environment"
 }

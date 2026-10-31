@@ -9,6 +9,61 @@ import { spawnSync } from "node:child_process"
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const powershell = process.env.SystemRoot ? join(process.env.SystemRoot, "System32/WindowsPowerShell/v1.0/powershell.exe") : "powershell"
 
+test("production login checks reject missing release inputs and locally configured clean installs", { skip: process.platform !== "win32" }, t => {
+  const temporaryRoot = resolve(tmpdir())
+  const directory = mkdtempSync(join(temporaryRoot, "typedance-account-release-"))
+  t.after(() => {
+    assert.equal(dirname(resolve(directory)), temporaryRoot)
+    rmSync(directory, { recursive: true, force: true })
+  })
+  const probe = join(directory, "probe.ps1")
+  writeFileSync(probe, String.raw`param([string]$ReleaseSource, [string]$SmokeSource, [string]$Directory)
+$ErrorActionPreference = "Stop"
+foreach ($checkDefinition in @(@($ReleaseSource, "Assert-AccountReleaseInputs"), @($SmokeSource, "Assert-FreshLoginGate"))) {
+  $tokens = $null; $errors = $null
+  $ast = [Management.Automation.Language.Parser]::ParseFile($checkDefinition[0], [ref]$tokens, [ref]$errors)
+  if ($errors.Count) { throw ($errors | Out-String) }
+  $name = $checkDefinition[1]
+  $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
+  if (-not $definition) { throw "Missing production account check" }
+  Invoke-Expression $definition.Extent.Text
+}
+Assert-AccountReleaseInputs -Endpoint "https://auth.example.com" -AppId "native-app" -Connectors @("github-id", "", "")
+foreach ($scenario in @(
+  { Assert-AccountReleaseInputs -Endpoint "" -AppId "native-app" -Connectors @("github-id") },
+  { Assert-AccountReleaseInputs -Endpoint "https://auth.example.com" -AppId " " -Connectors @("github-id") },
+  { Assert-AccountReleaseInputs -Endpoint "https://auth.example.com" -AppId "native-app" -Connectors @("", " ") }
+)) {
+  $rejected = $false
+  try { & $scenario } catch {
+    if ($_.Exception.Message -notmatch "required for a release with working sign-in") { throw }
+    $rejected = $true
+  }
+  if (-not $rejected) { throw "Release accepted missing public login inputs" }
+}
+$good = [string]::Join([char]10, @("Account startup gate: restoring", "Account startup providers: [Github]", "Account state: signed_out"))
+Assert-FreshLoginGate -Diagnostics $good -DataDirectory $Directory
+foreach ($diagnostics in @("Account startup gate: unconfigured", $good.Replace("[Github]", "[]"), $good.Replace("Account state: signed_out", "Account state: restoring"))) {
+  $rejected = $false
+  try { Assert-FreshLoginGate -Diagnostics $diagnostics -DataDirectory $Directory } catch { $rejected = $true }
+  if (-not $rejected) { throw "Fresh release accepted a missing login gate or channel" }
+}
+$localConfiguration = Join-Path $Directory "account-config.json"
+Set-Content -LiteralPath $localConfiguration -Value "{}"
+$rejected = $false
+try { Assert-FreshLoginGate -Diagnostics $good -DataDirectory $Directory } catch { $rejected = $true }
+if (-not $rejected) { throw "Fresh login smoke accepted local configuration masking missing embedded defaults" }
+Remove-Item -LiteralPath $localConfiguration
+New-Item -ItemType Directory -Path (Join-Path $Directory "profiles") | Out-Null
+$rejected = $false
+try { Assert-FreshLoginGate -Diagnostics $good -DataDirectory $Directory } catch { $rejected = $true }
+if (-not $rejected) { throw "Fresh login smoke accepted business storage before authentication" }
+Write-Output "Production account release checks passed"
+`, "utf8")
+  const result = spawnSync(powershell, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", probe, "-ReleaseSource", join(root, "scripts/release-windows.ps1"), "-SmokeSource", join(root, "scripts/release/smoke-release-runtime.ps1"), "-Directory", directory], { encoding: "utf8", windowsHide: true, timeout: 20_000 })
+  assert.equal(result.status, 0, `${result.error?.message ?? ""}\n${result.stdout}\n${result.stderr}`)
+})
+
 test("runtime smoke isolates child environment, preserves argv and checks private HTTP capability", { skip: process.platform !== "win32" }, t => {
   const directory = mkdtempSync(join(tmpdir(), "typedance-smoke-probe-"))
   t.after(() => rmSync(directory, { recursive: true, force: true }))

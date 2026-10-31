@@ -38,6 +38,8 @@ $env:TYPEDANCE_UPDATE_REPOSITORY = "MJGang/typedance"
 
 该配置会在构建时写入客户端，用于更新清单和更新日志地址。未配置的开发构建显示「更新服务尚未配置」；正式构建缺少配置或仓库不能匿名访问时会直接中止。
 
+正式发布还必须在构建环境提供官方登录的公开参数：`TYPEDANCE_LOGTO_ENDPOINT`、`TYPEDANCE_LOGTO_APP_ID`，以及至少一个 `TYPEDANCE_LOGTO_GITHUB_CONNECTOR_ID` / `TYPEDANCE_LOGTO_GOOGLE_CONNECTOR_ID` / `TYPEDANCE_LOGTO_WECHAT_CONNECTOR_ID`。GitHub Actions 从同名 repository variables 注入并嵌入 Rust 客户端；这些参数不含 AppSecret。缺少参数时打包直接失败，不能再发布要求普通用户填写 `account-config.json` 的安装包。本机执行 `pnpm release:rust-test` 也需要设置这些构建变量。
+
 先配置更新签名私钥。当前开发机的私钥保存在仓库外的 `%USERPROFILE%\.typedance\release-keys\updater.key`，对应公钥已配置在 `apps/desktop/src-tauri/tauri.conf.json`。不要提交私钥，也不要为每次构建重新生成密钥。
 
 ```powershell
@@ -93,7 +95,7 @@ gh workflow run release-windows.yml --ref main -f compare_compression=true
 pnpm release:smoke
 ```
 
-脚本会静默安装、启动应用并验证未配置账号时的登录门禁；另外在临时目录中单独启动已安装的 Python Sidecar 与 Agent Host，验证健康状态、本机访问凭据、内置 Chromium 和语音运行时。验收令牌由 `pnpm release:rust-test` 构建的 `local-service-token` 工具生成，与正式登录复用 `account/token.rs`，不在脚本中另行生成；该工具不随客户端安装。随后静默卸载，并确认卸载不会删除用户数据。检测到已有安装时会直接中止，避免覆盖真实用户环境。
+脚本会静默安装、启动应用并验证干净安装时的登录入口：不提供本机配置文件或运行时登录配置变量，必须使用内置配置进入具有登录渠道的 signed_out 状态，且不得在登录前创建账号资料空间或启动业务服务。另外在临时目录中单独启动已安装的 Python Sidecar 与 Agent Host，验证健康状态、本机访问凭据、内置 Chromium 和语音运行时。验收令牌由 `pnpm release:rust-test` 构建的 `local-service-token` 工具生成，与正式登录复用 `account/token.rs`，不在脚本中另行生成；该工具不随客户端安装。随后静默卸载，并确认卸载不会删除用户数据。检测到已有安装时会直接中止，避免覆盖真实用户环境。
 
 也可以手动校验安装包哈希：
 

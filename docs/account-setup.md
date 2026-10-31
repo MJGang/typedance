@@ -18,7 +18,9 @@ Windows 原生认证请求遵循系统代理配置，并保持 TLS 证书、签�
 
 ## 客户端公开配置
 
-默认配置文件位于 Windows `%APPDATA%/app.typedance.desktop/account-config.json`。如系统实际应用数据目录不同，以 Tauri 的 app_data_dir 为准。文件内容：
+正式发行版内置官方公开登录配置，用户安装后即可看到已启用的登录渠道，无须创建 Logto 应用或填写配置文件。发布环境通过 GitHub Actions repository variables 提供 `TYPEDANCE_LOGTO_ENDPOINT`、`TYPEDANCE_LOGTO_APP_ID` 和至少一个第三方连接器 ID；缺少配置时发布构建直接失败。第三方 AppSecret、管理令牌和模型 Key 不进入客户端。
+
+开发或自建认证服务时，可使用 Windows `%APPDATA%/app.typedance.desktop/account-config.json`。如系统实际应用数据目录不同，以 Tauri 的 app_data_dir 为准。文件内容：
 
 ```json
 {
@@ -72,6 +74,8 @@ Endpoint 使用租户 HTTPS 源地址，不附加 `/oidc`、路径或参数。�
 
 ## 验收边界
 
-代码和自动化验证覆盖本机接口授权、请求隔离、保存门槛、迁移与系统凭据。当前未提供真实租户，不能将这些结果视作 GitHub、Google、微信生产登录已完成。实际启用前需验证各平台首次注册/重登、回调错误和超时、刷新撤销、账号管理、微信免扫码/扫码/换号、A/B 账号资料与模型 Key 隔离及真实 BYOK 调用。
+代码和自动化验证覆盖本机接口授权、请求隔离、保存门槛、迁移与系统凭据。正式发行的干净安装验收不提供本机配置文件或运行时登录配置变量，必须使用内置公开配置进入含可用渠道的登录页，且登录前不得启动业务服务或创建账号资料空间。该验收覆盖默认配置和登录门禁，不代表已经完成真实第三方账号授权。
+
+当前正式发行已配置 GitHub；Google 与微信需完成各自平台接入后才能展示。实际启用前需验证各平台首次注册/重登、回调错误和超时、刷新撤销、账号管理、微信免扫码/扫码/换号、A/B 账号资料与模型 Key 隔离及真实 BYOK 调用。
 
 官方依据：[Native 回调匹配实现](https://github.com/logto-io/logto/blob/master/packages/core/src/oidc/redirect-uri/index.ts)、[回调匹配测试](https://github.com/logto-io/logto/blob/master/packages/core/src/oidc/redirect-uri/index.test.ts)、[Logto Account Center](https://docs.logto.io/end-user-flows/account-settings/by-account-center-ui)。
