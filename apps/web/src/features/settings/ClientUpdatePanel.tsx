@@ -29,15 +29,17 @@ export function ClientUpdatePanel({ onDismiss }: { onDismiss: () => void }) {
   const { phase, update, supported, error } = state
   const [confirmRestart, setConfirmRestart] = useState(false)
   const [preparing, setPreparing] = useState(false)
-  const busy = ["checking", "downloading", "installing"].includes(phase) || preparing
-  const canInstall = supported && (phase === "ready" || (phase === "error" && error === "install"))
-  const canDownload = supported && (phase === "available" || (phase === "error" && error === "download"))
+  const automatic = state.automatic && ["checking", "available", "downloading", "ready", "installing"].includes(phase)
+  const busy = ["checking", "downloading", "installing"].includes(phase) || preparing || automatic
+  const canInstall = !automatic && supported && (phase === "ready" || (phase === "error" && (error === "install" || error === "prepare")))
+  const canDownload = !automatic && supported && (phase === "available" || (phase === "error" && error === "download"))
   const percent = state.totalBytes ? Math.min(100, Math.floor(state.downloadedBytes / state.totalBytes * 100)) : null
-  const Icon = phase === "checking" || phase === "installing" ? Loader2
-    : phase === "latest" || canInstall ? CheckCircle2
-      : phase === "error" ? TriangleAlert : Download
+  const Icon = phase === "error" ? TriangleAlert
+    : phase === "checking" || phase === "installing" ? Loader2
+      : phase === "latest" || canInstall ? CheckCircle2 : Download
   const title = !supported ? "请在桌面客户端中检查更新"
     : error === "unconfigured" ? "更新服务尚未配置"
+      : error === "prepare" ? "更新准备未完成"
     : phase === "error" && error === "download" ? "更新下载失败"
       : phase === "error" && error === "install" ? "更新安装失败" : phaseTitles[phase]
 
@@ -85,8 +87,9 @@ export function ClientUpdatePanel({ onDismiss }: { onDismiss: () => void }) {
           <CardDescription>
             {!supported ? "下载与安装更新需要使用 TypeDance 桌面客户端。"
               : error === "unconfigured" ? "当前构建暂未启用在线更新。"
-                : phase === "error" ? error === "install" ? "请关闭其他 TypeDance 窗口后重试。" : "请检查网络连接后重试。"
-                : phase === "ready" ? "重启后完成安装。"
+                : phase === "error" ? error === "prepare" ? "资料已保留，请先完成当前操作和内容保存后重试。" : error === "install" ? "请关闭其他 TypeDance 窗口后重试。" : "请检查网络连接后重试。"
+                : automatic ? "本轮更新将自动下载、保存资料并重启完成安装。"
+                  : phase === "ready" ? "重启后完成安装。"
                   : phase === "latest" ? "你正在使用最新的 TypeDance。"
                     : phase === "idle" ? "检查新版本，获取最新改进。"
                       : phase === "checking" ? "正在获取最新版本信息。"
@@ -110,7 +113,7 @@ export function ClientUpdatePanel({ onDismiss }: { onDismiss: () => void }) {
           </CardContent>
         ) : null}
         <CardFooter className="flex flex-wrap justify-end gap-2">
-          {phase === "downloading" ? <>
+          {phase === "downloading" && !automatic ? <>
             <p className="mr-auto text-xs text-muted-foreground">可继续编辑</p>
             <Button variant="ghost" size="sm" onClick={() => void clientUpdater.cancel().then((cancelled) => { if (!cancelled) toast.error("取消下载失败，请重试。") })}>取消下载</Button>
           </> : null}
@@ -130,8 +133,8 @@ export function ClientUpdatePanel({ onDismiss }: { onDismiss: () => void }) {
 
       <Field orientation="horizontal">
         <FieldContent>
-          <FieldLabel htmlFor="auto-check-updates">启动时自动检查更新</FieldLabel>
-          <FieldDescription>仅检查版本，下载与重启由你决定。</FieldDescription>
+          <FieldLabel htmlFor="auto-check-updates">工作台启动时自动检查更新</FieldLabel>
+          <FieldDescription>登录页始终自动完成更新；在工作台发起的检查只提示版本。</FieldDescription>
           {state.preferenceError ? <p role="alert" className="text-xs text-destructive">偏好未能保存，下次启动后需重新设置。</p> : null}
         </FieldContent>
         <Switch id="auto-check-updates" checked={state.autoCheck} disabled={!supported} onCheckedChange={clientUpdater.setAutoCheck} />

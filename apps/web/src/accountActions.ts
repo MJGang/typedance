@@ -4,8 +4,10 @@ import { applyAccountState, getAccountView, lockAccountView, refreshAccountState
 import { captureAccountSession, pauseAccountWork, resumeAccountWork, setAccountSession } from "./accountSession"
 
 let operation: Promise<void> | null = null
+let updatePreparing = false
 
 async function changeAccount(command: string, args?: Record<string, unknown>) {
+  if (updatePreparing) return
   if (operation) return operation
   if (getAccountView().phase !== "idle") return
   if (getAccountView().state.status === "locking") {
@@ -53,18 +55,31 @@ export function skipLocalAccountData() { return changeAccount("skip_local_accoun
 let updateSession: ReturnType<typeof captureAccountSession> | null = null
 
 export async function prepareAccountUpdate(): Promise<boolean> {
-  if (operation || getAccountView().phase !== "idle" || getAccountView().state.status === "locking") return false
-  if (getAccountView().state.status !== "ready") return true
-  const captured = captureAccountSession()
-  setAccountAction("saving")
+  if (updatePreparing) return false
+  updatePreparing = true
+  let captured: ReturnType<typeof captureAccountSession> | null = null
   try {
-    await pauseAccountWork(captured)
-    if (!await flushAllSourceCanvasSaves()) throw new Error("有内容尚未保存，未开始安装更新。")
+    if (getAccountView().state.status === "signing_in") await invoke("cancel_account_sign_in")
+    // 已经开始的数据导入必须完成；OAuth 取消后也要等原操作关闭回调端口。
+    await operation
+    if (getAccountView().phase !== "idle" || getAccountView().state.status === "locking" || getAccountView().state.status === "restoring") {
+      updatePreparing = false
+      return false
+    }
+    captured = getAccountView().state.status === "ready" ? captureAccountSession() : null
+    setAccountAction(captured ? "saving" : "switching")
+    if (captured) {
+      await pauseAccountWork(captured)
+      if (!await flushAllSourceCanvasSaves()) throw new Error("有内容尚未保存，未开始安装更新。")
+    }
     updateSession = captured
     setAccountAction("switching")
     return true
   } catch (error) {
-    try { await resumeAccountWork(captured) } catch { /* 保留画布与保存能力，可重试退出。 */ }
+    if (captured) {
+      try { await resumeAccountWork(captured) } catch { /* 保留画布与保存能力，可重试退出。 */ }
+    }
+    updatePreparing = false
     setAccountAction("idle", error instanceof Error ? error.message : "资料保存失败，未开始安装更新。")
     return false
   }
@@ -76,6 +91,7 @@ export async function finishAccountUpdate() {
   if (captured && getAccountView().state.status === "ready" && getAccountView().state.session?.id === captured.session.id) {
     try { await resumeAccountWork(captured) } catch { /* 安装器可能已停止进程，桌面状态事件将重新绑定会话。 */ }
   }
+  updatePreparing = false
   setAccountAction("idle")
 }
 
