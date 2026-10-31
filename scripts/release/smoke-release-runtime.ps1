@@ -1,11 +1,13 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Executable,
+    [Parameter(Mandatory = $true)][string]$TokenGenerator,
     [switch]$ServicesOnly
 )
 
 $ErrorActionPreference = "Stop"
 $executablePath = (Resolve-Path -LiteralPath $Executable).Path
+$TokenGenerator = (Resolve-Path -LiteralPath $TokenGenerator).Path
 $runtimeDirectory = Split-Path -Parent $executablePath
 $smokeRoot = Join-Path ([IO.Path]::GetTempPath()) ("typedance-release-smoke-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $smokeRoot | Out-Null
@@ -20,10 +22,13 @@ function Get-WindowsExecutableSubsystem {
 }
 
 function New-PrivateToken {
-    $random = [Security.Cryptography.RandomNumberGenerator]::Create()
-    $bytes = New-Object byte[] 32
-    try { $random.GetBytes($bytes) } finally { $random.Dispose() }
-    return [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+    # 使用与桌面账号启动相同的 Rust 实现，不能另造一套合规令牌掩盖回归。
+    $token = (& $TokenGenerator | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) { throw "Desktop capability generator failed" }
+    if ($token -cnotmatch '^[A-Za-z0-9_-]{32,512}$') {
+        throw "Desktop capability generator violated the local service token contract"
+    }
+    return $token
 }
 
 function Get-FreeLoopbackPort {

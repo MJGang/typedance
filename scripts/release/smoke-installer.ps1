@@ -22,6 +22,10 @@ $existing = Find-TypeDanceInstallation
 if ($existing) {
     throw "TypeDance is already installed. Installer smoke test will not overwrite an existing user installation."
 }
+$tokenGenerator = Join-Path $repositoryRoot "apps\desktop\src-tauri\target\release\examples\local-service-token.exe"
+if (-not (Test-Path -LiteralPath $tokenGenerator)) {
+    throw "Build the desktop capability generator with pnpm release:rust-test before installer smoke"
+}
 
 $installation = $null
 $sentinel = Join-Path $env:APPDATA "app.typedance.desktop\release-smoke-$PID.sentinel"
@@ -62,7 +66,8 @@ try {
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
         "-File", (Join-Path $PSScriptRoot "smoke-release-runtime.ps1"),
-        "-Executable", $installedExecutable
+        "-Executable", $installedExecutable,
+        "-TokenGenerator", $tokenGenerator
     )
     & powershell @smokeArguments
     if ($LASTEXITCODE -ne 0) {

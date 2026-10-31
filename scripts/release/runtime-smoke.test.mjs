@@ -35,6 +35,28 @@ try {
   if ($result.leaked -or $result.private -ne "present") { throw "Child environment isolation failed" }
   if (($result.args | ConvertTo-Json -Compress) -ne ($expected | ConvertTo-Json -Compress)) { throw "Windows argv quoting changed literal input" }
 } finally { Stop-SmokeProcess $child }
+Write-Output "Runtime probe: desktop generator failures and rejected short capabilities"
+$capabilityLength = 43; $capabilityExitCode = 0
+function New-TestCapability {
+  $global:LASTEXITCODE = $capabilityExitCode
+  return ([Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')).Substring(0, $capabilityLength)
+}
+$TokenGenerator = "New-TestCapability"
+$capabilityLength = 22
+$detected = $false
+try { $null = New-PrivateToken } catch {
+  if ($_.Exception.Message -notmatch "violated the local service token contract") { throw }
+  $detected = $true
+}
+if (-not $detected) { throw "Runtime smoke accepted the rejected desktop capability length" }
+$capabilityLength = 43; $capabilityExitCode = 7
+$detected = $false
+try { $null = New-PrivateToken } catch {
+  if ($_.Exception.Message -notmatch "Desktop capability generator failed") { throw }
+  $detected = $true
+}
+if (-not $detected) { throw "Runtime smoke ignored the desktop generator exit code" }
+$capabilityExitCode = 0
 $token = New-PrivateToken
 if ($token -cnotmatch '^[A-Za-z0-9_-]{32,512}$') { throw "Runtime probe generated a capability rejected by the local service token contract" }
 $port = Get-FreeLoopbackPort

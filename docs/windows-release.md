@@ -93,7 +93,7 @@ gh workflow run release-windows.yml --ref main -f compare_compression=true
 pnpm release:smoke
 ```
 
-脚本会静默安装、启动应用并验证未配置账号时的登录门禁；另外在临时目录中单独启动已安装的 Python Sidecar 与 Agent Host，验证健康状态、本机访问凭据、内置 Chromium 和语音运行时。随后静默卸载，并确认卸载不会删除用户数据。检测到已有安装时会直接中止，避免覆盖真实用户环境。
+脚本会静默安装、启动应用并验证未配置账号时的登录门禁；另外在临时目录中单独启动已安装的 Python Sidecar 与 Agent Host，验证健康状态、本机访问凭据、内置 Chromium 和语音运行时。验收令牌由 `pnpm release:rust-test` 构建的 `local-service-token` 工具生成，与正式登录复用 `account/token.rs`，不在脚本中另行生成；该工具不随客户端安装。随后静默卸载，并确认卸载不会删除用户数据。检测到已有安装时会直接中止，避免覆盖真实用户环境。
 
 也可以手动校验安装包哈希：
 

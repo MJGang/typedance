@@ -1,7 +1,7 @@
 {
   "name": "typedance",
   "private": true,
-  "version": "0.1.18",
+  "version": "0.1.19",
   "packageManager": "pnpm@10.11.0",
   "scripts": {
     "dev": "corepack pnpm --filter @typedance/desktop dev",
@@ -10,7 +10,7 @@
     "lint": "corepack pnpm --filter @typedance/web lint",
     "verify:change": "node scripts/verify-change.mjs",
     "release:test": "node --test --test-concurrency=1 scripts/release/*.test.mjs",
-    "release:rust-test": "cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --release --lib --features tauri/custom-protocol",
+    "release:rust-test": "cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --release --lib --features tauri/custom-protocol && cargo build --manifest-path apps/desktop/src-tauri/Cargo.toml --locked --release --example local-service-token --features tauri/custom-protocol",
     "release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-windows.ps1",
     "release:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release/smoke-installer.ps1",
     "release:publish": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release/publish-release.ps1"

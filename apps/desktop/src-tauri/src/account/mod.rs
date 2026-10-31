@@ -4,6 +4,7 @@ mod import_claim;
 mod legacy;
 mod oidc;
 mod revocations;
+mod token;
 mod vault;
 pub(crate) mod window;
 
@@ -11,7 +12,6 @@ use broker::CredentialBroker;
 use config::{profile_key, AccountConfig, Provider};
 use legacy::LegacySummary;
 use oidc::{Oidc, RefreshFailure, StoredRefresh, VerifiedSession};
-use openidconnect::CsrfToken;
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -25,6 +25,7 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
+pub(crate) use token::random_token;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use vault::Vault;
@@ -87,10 +88,6 @@ pub(crate) struct AccountManager {
     inner: Mutex<Inner>,
     operation: Mutex<()>,
     shutting_down: AtomicBool,
-}
-
-pub(crate) fn random_token() -> String {
-    CsrfToken::new_random().secret().clone()
 }
 
 fn available_port() -> Result<u16, String> {

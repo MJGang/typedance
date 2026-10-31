@@ -167,7 +167,8 @@ Invoke-Checked "corepack" @(
 Invoke-Checked "powershell" @(
     "-NoProfile", "-ExecutionPolicy", "Bypass",
     "-File", "scripts/release/smoke-release-runtime.ps1",
-    "-Executable", "apps/desktop/src-tauri/target/release/typedance_desktop.exe"
+    "-Executable", "apps/desktop/src-tauri/target/release/typedance_desktop.exe",
+    "-TokenGenerator", "apps/desktop/src-tauri/target/release/examples/local-service-token.exe"
 )
 
 $installers = @(Get-ChildItem -LiteralPath $bundleRoot -Filter "*.exe" -File)
