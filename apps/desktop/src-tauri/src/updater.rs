@@ -148,6 +148,7 @@ pub(crate) async fn check_client_update(
         app.updater_builder()
             .endpoints(vec![endpoint])?
             .timeout(Duration::from_secs(30))
+            .restart_after_install(true)
             .on_before_exit(move || {
                 if let Some(processes) = exit_app.try_state::<crate::runtime::ManagedProcesses>() {
                     processes.shutdown();

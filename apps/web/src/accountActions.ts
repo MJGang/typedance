@@ -1,18 +1,32 @@
 import { invoke } from "@tauri-apps/api/core"
 import { flushAllSourceCanvasSaves, retryAllSourceCanvasSaves } from "./features/revision/useSourceCanvasAutosave"
-import { applyAccountState, getAccountView, lockAccountView, refreshAccountState, setAccountAction, type AccountProvider } from "./accountState"
+import { applyAccountState, getAccountView, lockAccountView, refreshAccountState, setAccountAction, subscribeAccountView, type AccountProvider } from "./accountState"
 import { captureAccountSession, pauseAccountWork, resumeAccountWork, setAccountSession } from "./accountSession"
 
 let operation: Promise<void> | null = null
+let operationCommand: string | null = null
+let updatePreparing = false
+
+function runAccountOperation(command: string, execute: () => Promise<void>): Promise<void> {
+  let complete!: () => void
+  let fail!: (cause: unknown) => void
+  const pending = new Promise<void>((resolve, reject) => { complete = resolve; fail = reject })
+  operationCommand = command
+  operation = pending.finally(() => { operation = null; operationCommand = null })
+  // 先注册操作，再发布 UI 状态，避免订阅者看到进行中的操作却拿不到它的完成凭据。
+  void execute().then(complete, fail)
+  return operation
+}
 
 async function changeAccount(command: string, args?: Record<string, unknown>) {
+  if (updatePreparing) return
   if (operation) return operation
   if (getAccountView().phase !== "idle") return
   if (getAccountView().state.status === "locking") {
     setAccountAction("idle", "请先保存当前资料，再重新登录。")
     return
   }
-  operation = (async () => {
+  return runAccountOperation(command, async () => {
     const hasWorkspace = getAccountView().state.status === "ready"
     const captured = hasWorkspace ? captureAccountSession() : null
     setAccountAction(hasWorkspace ? "saving" : "switching")
@@ -39,8 +53,7 @@ async function changeAccount(command: string, args?: Record<string, unknown>) {
       }
       setAccountAction("idle", error instanceof Error ? error.message : String(error))
     }
-  })().finally(() => { operation = null })
-  return operation
+  })
 }
 
 export function signInAccount(provider?: AccountProvider) {
@@ -52,19 +65,48 @@ export function skipLocalAccountData() { return changeAccount("skip_local_accoun
 
 let updateSession: ReturnType<typeof captureAccountSession> | null = null
 
-export async function prepareAccountUpdate(): Promise<boolean> {
-  if (operation || getAccountView().phase !== "idle" || getAccountView().state.status === "locking") return false
-  if (getAccountView().state.status !== "ready") return true
-  const captured = captureAccountSession()
-  setAccountAction("saving")
+async function cancelPendingSignIn(pending: Promise<void>) {
+  let finished = false
+  let unsubscribe = () => {}
   try {
-    await pauseAccountWork(captured)
-    if (!await flushAllSourceCanvasSaves()) throw new Error("有内容尚未保存，未开始安装更新。")
+    await new Promise<void>((resolve, reject) => {
+      const ready = () => { if (getAccountView().state.status === "signing_in") resolve() }
+      unsubscribe = subscribeAccountView(ready)
+      void pending.then(() => { finished = true; resolve() }, reject)
+      ready()
+    })
+    if (!finished && getAccountView().state.status === "signing_in") await invoke("cancel_account_sign_in")
+    await pending
+  } finally { unsubscribe() }
+}
+
+export async function prepareAccountUpdate(): Promise<boolean> {
+  if (updatePreparing) return false
+  updatePreparing = true
+  let captured: ReturnType<typeof captureAccountSession> | null = null
+  try {
+    if (operationCommand === "sign_in_account" && operation) await cancelPendingSignIn(operation)
+    else if (getAccountView().state.status === "signing_in") await invoke("cancel_account_sign_in")
+    // 已经开始的数据导入必须完成；OAuth 取消后也要等原操作关闭回调端口。
+    await operation
+    if (getAccountView().phase !== "idle" || getAccountView().state.status === "locking" || getAccountView().state.status === "restoring") {
+      updatePreparing = false
+      return false
+    }
+    captured = getAccountView().state.status === "ready" ? captureAccountSession() : null
+    setAccountAction(captured ? "saving" : "switching")
+    if (captured) {
+      await pauseAccountWork(captured)
+      if (!await flushAllSourceCanvasSaves()) throw new Error("有内容尚未保存，未开始安装更新。")
+    }
     updateSession = captured
     setAccountAction("switching")
     return true
   } catch (error) {
-    try { await resumeAccountWork(captured) } catch { /* 保留画布与保存能力，可重试退出。 */ }
+    if (captured) {
+      try { await resumeAccountWork(captured) } catch { /* 保留画布与保存能力，可重试退出。 */ }
+    }
+    updatePreparing = false
     setAccountAction("idle", error instanceof Error ? error.message : "资料保存失败，未开始安装更新。")
     return false
   }
@@ -76,13 +118,14 @@ export async function finishAccountUpdate() {
   if (captured && getAccountView().state.status === "ready" && getAccountView().state.session?.id === captured.session.id) {
     try { await resumeAccountWork(captured) } catch { /* 安装器可能已停止进程，桌面状态事件将重新绑定会话。 */ }
   }
+  updatePreparing = false
   setAccountAction("idle")
 }
 
 export async function finishAccountLock() {
   if (operation || getAccountView().state.status !== "locking") return
-  setAccountAction("saving")
-  operation = (async () => {
+  return runAccountOperation("finish_account_lock", async () => {
+    setAccountAction("saving")
     try {
       if (!await retryAllSourceCanvasSaves()) throw new Error("当前内容尚未保存。请重试保存，资料保存完成后再重新登录。")
       applyAccountState(await invoke("finish_account_lock"))
@@ -90,8 +133,7 @@ export async function finishAccountLock() {
     } catch (error) {
       setAccountAction("idle", error instanceof Error ? error.message : String(error))
     }
-  })().finally(() => { operation = null })
-  return operation
+  })
 }
 
 export async function cancelAccountSignIn() {

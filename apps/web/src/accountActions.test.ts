@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { captureAccountSession } from "./accountSession"
 import { applyAccountState, getAccountView, setAccountAction, type AccountState } from "./accountState"
-import { finishAccountLock, finishAccountUpdate, prepareAccountUpdate, signInAccount, signOutAccount } from "./accountActions"
+import { finishAccountLock, finishAccountUpdate, importLocalAccountData, prepareAccountUpdate, signInAccount, signOutAccount } from "./accountActions"
 import { testAccountSession } from "./test/accountFixture"
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), flush: vi.fn() }))
@@ -26,6 +26,94 @@ beforeEach(() => {
 })
 
 describe("safe account transitions", () => {
+  it("locks account actions during installation even without an active workspace", async () => {
+    applyAccountState(state("signed_out"))
+    expect(await prepareAccountUpdate()).toBe(true)
+    expect(getAccountView().phase).toBe("switching")
+    await signInAccount("github")
+    expect(mocks.invoke).not.toHaveBeenCalled()
+    expect(mocks.flush).not.toHaveBeenCalled()
+    await finishAccountUpdate()
+    expect(getAccountView().phase).toBe("idle")
+  })
+
+  it("cancels an in-flight sign-in and waits for its callback cleanup before installing", async () => {
+    applyAccountState(state("signed_out"))
+    let finishLogin!: (value: AccountState) => void
+    mocks.invoke.mockImplementation((command: string) => {
+      if (command === "sign_in_account") {
+        applyAccountState(state("signing_in"))
+        return new Promise<AccountState>(resolve => { finishLogin = resolve })
+      }
+      if (command === "cancel_account_sign_in") return Promise.resolve(state("signing_in"))
+      throw new Error(`unexpected command: ${command}`)
+    })
+    const login = signInAccount("github")
+    const preparing = prepareAccountUpdate()
+    let prepared = false
+    void preparing.then(() => { prepared = true })
+    await vi.waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("cancel_account_sign_in"))
+    expect(prepared).toBe(false)
+    await signInAccount("github")
+    expect(mocks.invoke.mock.calls.filter(([command]) => command === "sign_in_account")).toHaveLength(1)
+    finishLogin(state("signed_out"))
+    await login
+    expect(await preparing).toBe(true)
+    expect(getAccountView().phase).toBe("switching")
+    await finishAccountUpdate()
+  })
+
+  it("waits for a dispatched sign-in to publish its cancellable state before canceling", async () => {
+    applyAccountState(state("signed_out"))
+    let finishLogin!: (value: AccountState) => void
+    mocks.invoke.mockImplementation((command: string) => command === "sign_in_account"
+      ? new Promise<AccountState>(resolve => { finishLogin = resolve }) : Promise.resolve(state("signing_in")))
+    const login = signInAccount("github")
+    expect(mocks.invoke).toHaveBeenCalledWith("sign_in_account", { provider: "github" })
+    const preparing = prepareAccountUpdate()
+    let prepared = false
+    void preparing.then(() => { prepared = true })
+    await Promise.resolve()
+    expect(mocks.invoke).not.toHaveBeenCalledWith("cancel_account_sign_in")
+    expect(prepared).toBe(false)
+    applyAccountState(state("signing_in"))
+    await vi.waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("cancel_account_sign_in"))
+    expect(prepared).toBe(false)
+    finishLogin(state("signed_out"))
+    await login
+    expect(await preparing).toBe(true)
+    expect(mocks.invoke.mock.calls.filter(([command]) => command === "cancel_account_sign_in")).toHaveLength(1)
+    await finishAccountUpdate()
+  })
+
+  it("finishes an existing data import and saves its workspace before installing", async () => {
+    applyAccountState({ ...state("needs_import"), legacy: { import_started: false, sources: [{ id: "source", path: "C:/fixture", file_count: 1 }] } })
+    let finishImport!: (value: AccountState) => void
+    mocks.invoke.mockImplementation(() => new Promise<AccountState>(resolve => { finishImport = resolve }))
+    const importing = importLocalAccountData("source")
+    const preparing = prepareAccountUpdate()
+    expect(mocks.flush).not.toHaveBeenCalled()
+    expect(mocks.invoke).toHaveBeenCalledWith("import_local_account_data", { source: "source" })
+    finishImport(state("ready"))
+    await importing
+    expect(await preparing).toBe(true)
+    expect(mocks.flush).toHaveBeenCalledOnce()
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/account/pause"), expect.anything())
+    await finishAccountUpdate()
+  })
+
+  it("preserves unsaved content and releases the update guard when preparation fails", async () => {
+    const captured = captureAccountSession()
+    mocks.flush.mockResolvedValue(false)
+    expect(await prepareAccountUpdate()).toBe(false)
+    expect(getAccountView().phase).toBe("idle")
+    expect(captureAccountSession()).toBe(captured)
+    expect(captured.activitySignal.aborted).toBe(false)
+    mocks.flush.mockResolvedValue(true)
+    expect(await prepareAccountUpdate()).toBe(true)
+    await finishAccountUpdate()
+  })
+
   it("excludes account changes while an update owns the pause and save gate", async () => {
     let finishSave!: (success: boolean) => void
     mocks.flush.mockImplementation(() => new Promise<boolean>((resolve) => { finishSave = resolve }))

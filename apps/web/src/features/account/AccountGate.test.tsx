@@ -11,6 +11,7 @@ vi.mock("@/accountState", async (original) => ({ ...await original<object>(), co
 vi.mock("@/accountActions", () => ({
   signInAccount: mocks.login, importLocalAccountData: mocks.importData, skipLocalAccountData: mocks.skip,
   finishAccountLock: mocks.finishLock, cancelAccountSignIn: vi.fn(),
+  prepareAccountUpdate: vi.fn(), finishAccountUpdate: vi.fn(),
 }))
 vi.mock("@/desktopWindow", () => ({ closeDesktopWindow: vi.fn(), minimizeDesktopWindow: vi.fn(), toggleMaximizeDesktopWindow: vi.fn() }))
 

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { createClientUpdater, type ClientUpdateSnapshot } from "./client-updater"
 
 const initial: ClientUpdateSnapshot = {
@@ -16,18 +16,27 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-function setup(options: { supported?: boolean; autoCheck?: string } = {}) {
+function setup(options: { supported?: boolean; autoCheck?: string; context?: "restoring" | "login" | "workspace" } = {}) {
   let emit!: (state: ClientUpdateSnapshot) => void
+  let accountChanged!: () => void
+  let context = options.context ?? "workspace"
   const invoke = vi.fn(async (command: string): Promise<unknown> => command === "get_client_update_state" ? initial : available)
   const storage = { getItem: vi.fn(() => options.autoCheck ?? null), setItem: vi.fn() }
   const listen = vi.fn(async (callback: (state: ClientUpdateSnapshot) => void) => { emit = callback; return vi.fn() })
   const prepareInstall = vi.fn(async () => true)
+  const subscribeAccount = vi.fn((listener: () => void) => { accountChanged = listener; return vi.fn() })
   const updater = createClientUpdater({
     supported: options.supported ?? true, storage, listen, prepareInstall, finishInstall: async () => {},
     invoke: <T,>(command: string) => invoke(command) as Promise<T>,
+    getAccountContext: () => context, subscribeAccount,
   })
-  return { updater, invoke, storage, listen, prepareInstall, emit: (state: ClientUpdateSnapshot) => emit(state) }
+  return { updater, invoke, storage, listen, prepareInstall, subscribeAccount,
+    emit: (state: ClientUpdateSnapshot) => emit(state),
+    setContext(next: typeof context) { context = next; accountChanged() },
+  }
 }
+
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 
 describe("client updater lifecycle", () => {
   it("never calls native installation when the final save gate fails", async () => {
@@ -38,7 +47,7 @@ describe("client updater lifecycle", () => {
       await updater.install()
       expect(prepareInstall).toHaveBeenCalledTimes(1)
       expect(invoke).not.toHaveBeenCalledWith("install_client_update")
-      expect(updater.getSnapshot()).toMatchObject({ phase: "error", error: "install" })
+      expect(updater.getSnapshot()).toMatchObject({ phase: "error", error: "prepare" })
     } finally { log.mockRestore() }
   })
   it("initializes the native listener and automatic check once across repeated mounts", async () => {
@@ -112,5 +121,132 @@ describe("client updater lifecycle", () => {
     await vi.waitFor(() => expect(invoke.mock.calls.filter(([command]) => command === "check_client_update")).toHaveLength(1))
     result.resolve(available)
     await Promise.all(checks)
+  })
+})
+
+const ready: ClientUpdateSnapshot = { ...available, revision: 4, phase: "ready", downloadedBytes: 100, totalBytes: 100 }
+const installing: ClientUpdateSnapshot = { ...ready, revision: 5, phase: "installing" }
+
+function successfulUpdates(command: string): Promise<ClientUpdateSnapshot> {
+  return Promise.resolve(command === "get_client_update_state" ? initial
+    : command === "check_client_update" ? available
+      : command === "download_client_update" ? ready : installing)
+}
+
+describe("automatic updates before login", () => {
+  it("releases automatic ownership after a no-update result so later workspace checks remain manual", async () => {
+    const { updater, invoke, setContext } = setup({ context: "login" })
+    invoke.mockImplementation(command => Promise.resolve(command === "get_client_update_state" ? initial : { ...available, phase: "latest", update: null }))
+    await updater.start()
+    expect(updater.getSnapshot()).toMatchObject({ phase: "latest", automatic: false })
+    setContext("workspace")
+    invoke.mockResolvedValue({ ...available, revision: 3 })
+    await updater.check()
+    expect(updater.getSnapshot()).toMatchObject({ phase: "available", automatic: false })
+    expect(invoke).not.toHaveBeenCalledWith("download_client_update")
+    expect(invoke).not.toHaveBeenCalledWith("install_client_update")
+    invoke.mockImplementation(successfulUpdates)
+    setContext("login")
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("install_client_update"))
+    expect(invoke.mock.calls.filter(([command]) => command === "download_client_update")).toHaveLength(1)
+  })
+
+  it("checks, downloads and installs once without user actions even when workspace checks are disabled", async () => {
+    const { updater, invoke, prepareInstall, listen, subscribeAccount } = setup({ context: "login", autoCheck: "false" })
+    invoke.mockImplementation(successfulUpdates)
+    await Promise.all([updater.start(), updater.start()])
+    expect(invoke.mock.calls.map(([command]) => command)).toEqual([
+      "get_client_update_state", "check_client_update", "download_client_update", "install_client_update",
+    ])
+    expect(prepareInstall).toHaveBeenCalledOnce()
+    expect(listen).toHaveBeenCalledOnce()
+    expect(subscribeAccount).toHaveBeenCalledOnce()
+    expect(updater.getSnapshot()).toMatchObject({ automatic: true, phase: "installing" })
+  })
+
+  it("waits for account restoration and does not automatically install in a restored workspace", async () => {
+    const { updater, invoke, setContext } = setup({ context: "restoring" })
+    invoke.mockImplementation(successfulUpdates)
+    await updater.start()
+    expect(invoke.mock.calls.map(([command]) => command)).toEqual(["get_client_update_state"])
+    setContext("workspace")
+    await vi.waitFor(() => expect(updater.getSnapshot().phase).toBe("available"))
+    expect(invoke.mock.calls.map(([command]) => command)).toEqual(["get_client_update_state", "check_client_update"])
+    setContext("login")
+    setContext("login")
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("install_client_update"))
+    expect(invoke.mock.calls.filter(([command]) => command === "download_client_update")).toHaveLength(1)
+  })
+
+  it("finishes the same update after sign-in and after login subscribers unmount", async () => {
+    const { updater, invoke, setContext, emit } = setup({ context: "login" })
+    const download = deferred<ClientUpdateSnapshot>()
+    invoke.mockImplementation(command => command === "download_client_update" ? download.promise : successfulUpdates(command))
+    const unsubscribe = updater.subscribe(vi.fn())
+    const pending = updater.start()
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("download_client_update"))
+    emit({ ...available, revision: 3, phase: "downloading", downloadedBytes: 64, totalBytes: 100 })
+    unsubscribe()
+    setContext("workspace")
+    expect(updater.getSnapshot().downloadedBytes).toBe(64)
+    download.resolve(ready)
+    await pending
+    expect(invoke.mock.calls.filter(([command]) => command === "install_client_update")).toHaveLength(1)
+  })
+
+  it("retries a failed download with backoff and never installs unverified or incomplete bytes", async () => {
+    vi.useFakeTimers()
+    const { updater, invoke } = setup({ context: "login" })
+    let downloads = 0
+    invoke.mockImplementation(command => command === "download_client_update" && downloads++ === 0
+      ? Promise.resolve({ ...available, revision: 3, phase: "error", error: "download" }) : successfulUpdates(command))
+    const pending = updater.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(updater.getSnapshot()).toMatchObject({ phase: "error", retrying: true })
+    expect(invoke).not.toHaveBeenCalledWith("install_client_update")
+    await vi.advanceTimersByTimeAsync(9_999)
+    expect(downloads).toBe(1)
+    await vi.advanceTimersByTimeAsync(1)
+    await pending
+    expect(downloads).toBe(2)
+    expect(invoke).toHaveBeenCalledWith("install_client_update")
+  })
+
+  it("stops after bounded download failures and never invokes the installer", async () => {
+    vi.useFakeTimers()
+    const { updater, invoke } = setup({ context: "login" })
+    let revision = 3
+    invoke.mockImplementation(command => command === "download_client_update"
+      ? Promise.resolve({ ...available, revision: revision++, phase: "error", error: "download" }) : successfulUpdates(command))
+    const pending = updater.start()
+    await vi.runAllTimersAsync()
+    await pending
+    expect(invoke.mock.calls.filter(([command]) => command === "download_client_update")).toHaveLength(4)
+    expect(invoke).not.toHaveBeenCalledWith("install_client_update")
+    expect(updater.getSnapshot()).toMatchObject({ phase: "error", retrying: false })
+  })
+
+  it("does not invoke the installer when preparation fails", async () => {
+    const { updater, invoke, prepareInstall } = setup({ context: "login" })
+    invoke.mockImplementation(successfulUpdates)
+    prepareInstall.mockResolvedValue(false)
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    await updater.start()
+    await updater.start()
+    expect(prepareInstall).toHaveBeenCalledOnce()
+    expect(invoke).not.toHaveBeenCalledWith("install_client_update")
+    expect(updater.getSnapshot()).toMatchObject({ phase: "error", error: "prepare" })
+  })
+
+  it("does not automatically reopen a failed or canceled installer", async () => {
+    const { updater, invoke, setContext } = setup({ context: "login" })
+    invoke.mockImplementation(command => command === "install_client_update"
+      ? Promise.resolve({ ...ready, revision: 5, phase: "error", error: "install" }) : successfulUpdates(command))
+    await updater.start()
+    await updater.start()
+    setContext("login")
+    setContext("login")
+    expect(invoke.mock.calls.filter(([command]) => command === "install_client_update")).toHaveLength(1)
+    expect(updater.getSnapshot()).toMatchObject({ phase: "error", error: "install", automatic: false })
   })
 })

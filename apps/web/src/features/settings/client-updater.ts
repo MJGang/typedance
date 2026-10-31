@@ -3,9 +3,10 @@ import { listen } from "@tauri-apps/api/event"
 import { version } from "../../../../../package.json"
 import { isTauri } from "@/tauri"
 import { finishAccountUpdate, prepareAccountUpdate } from "@/accountActions"
+import { getAccountView, subscribeAccountView } from "@/accountState"
 
 export type UpdatePhase = "idle" | "checking" | "latest" | "available" | "downloading" | "ready" | "installing" | "error"
-export type UpdateFailure = "check" | "download" | "install" | "connection" | "unconfigured"
+export type UpdateFailure = "check" | "download" | "prepare" | "install" | "connection" | "unconfigured"
 export type ClientUpdateSnapshot = {
   revision: number
   phase: UpdatePhase
@@ -22,6 +23,8 @@ type UpdaterSnapshot = ClientUpdateSnapshot & {
   supported: boolean
   autoCheck: boolean
   preferenceError: boolean
+  automatic: boolean
+  retrying: boolean
 }
 
 type UpdaterDependencies = {
@@ -31,6 +34,8 @@ type UpdaterDependencies = {
   storage: Pick<Storage, "getItem" | "setItem">
   prepareInstall: () => Promise<boolean>
   finishInstall: () => Promise<void>
+  getAccountContext: () => "restoring" | "login" | "workspace"
+  subscribeAccount: (listener: () => void) => () => void
 }
 
 const AUTO_CHECK_KEY = "typedance.client-updates.auto-check"
@@ -44,13 +49,15 @@ export function createClientUpdater(dependencies: UpdaterDependencies) {
   let snapshot: UpdaterSnapshot = {
     revision: 0, phase: "idle", currentVersion: version, releasesUrl: null, update: null,
     downloadedBytes: 0, totalBytes: null, lastCheckedAt: null, error: null,
-    supported: dependencies.supported, autoCheck, preferenceError: false,
+    supported: dependencies.supported, autoCheck, preferenceError: false, automatic: false, retrying: false,
   }
   const listeners = new Set<() => void>()
   let subscription: Promise<() => void> | undefined
   let initialization: Promise<void> | undefined
   let operation: Promise<void> | undefined
-  let started = false
+  let startup: Promise<void> | undefined
+  let automaticUpdate: Promise<void> | undefined
+  let accountContext: ReturnType<UpdaterDependencies["getAccountContext"]> | undefined
 
   function publish(patch: Partial<UpdaterSnapshot>) {
     snapshot = { ...snapshot, ...patch }
@@ -88,7 +95,10 @@ export function createClientUpdater(dependencies: UpdaterDependencies) {
       try {
         await initialize()
         if (command === "install_client_update") {
-          if (!await dependencies.prepareInstall()) throw new Error("资料尚未保存，未开始安装更新。")
+          if (!await dependencies.prepareInstall()) {
+            publish({ phase: "error", error: "prepare" })
+            return
+          }
           installPrepared = true
         }
         apply(await dependencies.invoke<ClientUpdateSnapshot>(command))
@@ -102,21 +112,81 @@ export function createClientUpdater(dependencies: UpdaterDependencies) {
     return operation
   }
 
+  async function waitForNativeOperation() {
+    await operation
+    if (snapshot.phase !== "checking" && snapshot.phase !== "downloading") return
+    // WebView 重载时原生下载仍可能在运行，继续消费同一份进度和结果。
+    await new Promise<void>((resolve) => {
+      const settled = () => {
+        if (snapshot.phase === "checking" || snapshot.phase === "downloading") return
+        listeners.delete(settled)
+        resolve()
+      }
+      listeners.add(settled)
+      settled()
+    })
+  }
+
+  function startLoginUpdate(): Promise<void> {
+    if (automaticUpdate) return automaticUpdate
+    publish({ automatic: true })
+    automaticUpdate = (async () => {
+      for (let attempt = 0; attempt <= 3; attempt++) {
+        await waitForNativeOperation()
+        if (snapshot.phase === "error" && ["unconfigured", "prepare", "install"].includes(snapshot.error ?? "")) return
+        if (snapshot.phase === "idle" || snapshot.phase === "latest" || (snapshot.phase === "error" && snapshot.error !== "download")) {
+          await run("check_client_update", "check")
+          await waitForNativeOperation()
+        }
+        if (snapshot.phase === "available" || (snapshot.phase === "error" && snapshot.error === "download")) {
+          await run("download_client_update", "download")
+          await waitForNativeOperation()
+        }
+        if (snapshot.phase === "ready") {
+          await run("install_client_update", "install")
+          return
+        }
+        if (snapshot.phase !== "error" || !["check", "download", "connection"].includes(snapshot.error ?? "") || attempt === 3) return
+        publish({ retrying: true })
+        await new Promise<void>((resolve) => setTimeout(resolve, [10_000, 30_000, 60_000][attempt]))
+        publish({ retrying: false })
+      }
+    })().catch((cause: unknown) => {
+      console.error("Automatic client update failed", cause)
+      publish({ phase: "error", error: "connection", retrying: false })
+    }).finally(() => {
+      if (snapshot.phase !== "ready" && snapshot.phase !== "installing") publish({ automatic: false, retrying: false })
+      automaticUpdate = undefined
+    })
+    return automaticUpdate
+  }
+
+  function updateForAccount(): Promise<void> {
+    const context = dependencies.getAccountContext()
+    const enteredLogin = context === "login" && accountContext !== "login"
+    accountContext = context
+    if (enteredLogin) return startLoginUpdate()
+    if (context === "login") return automaticUpdate ?? Promise.resolve()
+    if (context === "workspace" && snapshot.autoCheck && snapshot.phase === "idle") return run("check_client_update", "check")
+    return Promise.resolve()
+  }
+
   return {
     getSnapshot: () => snapshot,
     subscribe(listener: () => void) {
       listeners.add(listener)
       return () => { listeners.delete(listener) }
     },
-    async start() {
-      if (started || !dependencies.supported) return
-      started = true
-      try {
+    start(): Promise<void> {
+      if (!dependencies.supported) return Promise.resolve()
+      if (startup) return startup
+      // 应用级订阅只安装一次；登录页卸载和进入工作台不会丢失本轮更新。
+      dependencies.subscribeAccount(() => { void updateForAccount() })
+      startup = (async () => {
         await initialize()
-        if (snapshot.autoCheck && snapshot.phase === "idle") await run("check_client_update", "check")
-      } catch {
-        publish({ phase: "error", error: "connection" })
-      }
+        await updateForAccount()
+      })().catch(() => { publish({ phase: "error", error: "connection" }) })
+      return startup
     },
     check: () => run("check_client_update", "check"),
     download: () => run("download_client_update", "download"),
@@ -155,6 +225,12 @@ export const clientUpdater = createClientUpdater({
   invoke,
   prepareInstall: prepareAccountUpdate,
   finishInstall: finishAccountUpdate,
+  getAccountContext: () => {
+    const { status } = getAccountView().state
+    if (status === "restoring") return "restoring"
+    return status === "ready" || status === "locking" ? "workspace" : "login"
+  },
+  subscribeAccount: subscribeAccountView,
   listen: (callback) => listen<ClientUpdateSnapshot>("client-update-state", (event) => callback(event.payload)),
   storage: {
     getItem: (key) => localStorage.getItem(key),

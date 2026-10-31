@@ -11,6 +11,8 @@ import { connectAccountState, refreshAccountState, type AccountProvider, type Ac
 import { captureAccountSession } from "@/accountSession"
 import { useAccount } from "./useAccount"
 import { AccountProviderIcon } from "./AccountProviderIcon"
+import { AccountUpdateFooter } from "./AccountUpdateFooter"
+import { useClientUpdater } from "@/features/settings/useClientUpdater"
 
 const providerNames: Record<AccountProvider, string> = { github: "GitHub", google: "Google", wechat: "微信" }
 const providerOrder: AccountProvider[] = ["wechat", "google", "github"]
@@ -53,18 +55,20 @@ function AccountWindowControls() {
 
 function AccountScreen() {
   const { state, phase, actionError } = useAccount()
+  const update = useClientUpdater()
+  const installingUpdate = update.automatic && (update.phase === "ready" || update.phase === "installing")
   const signingIn = state.status === "signing_in"
-  const loading = state.status === "restoring" || signingIn || phase === "switching"
+  const loading = state.status === "restoring" || signingIn || (phase === "switching" && !installingUpdate)
   const needsImport = state.status === "needs_import"
   const isLocking = state.status === "locking"
   const title = needsImport ? "导入历史本机数据" : isLocking ? "先保存，再继续" : "欢迎使用 TypeDance"
   const description = needsImport ? `当前账号：${state.user?.name || state.user?.email || "已登录账号"}`
     : isLocking ? "登录已失效，正在保护你的资料。" : "登录，开启你的简历工作台"
 
-  return <div data-account-screen className="relative min-h-svh bg-linear-to-b from-muted to-card to-60% text-foreground [--background:#ffffff] [--card:#ffffff] [--foreground:#1c2638] [--primary:#24292f] [--primary-foreground:#ffffff] [--muted:#edf4fd] [--muted-foreground:#68768a] [--border:#dce4ee] [--input:color-mix(in_srgb,var(--card)_80%,var(--border))] [--accent:#edf3fb] [--accent-foreground:#1c2638]">
+  return <div data-account-screen className="relative h-svh overflow-hidden bg-linear-to-b from-muted to-card to-60% text-foreground [--background:#ffffff] [--card:#ffffff] [--foreground:#1c2638] [--primary:#24292f] [--primary-foreground:#ffffff] [--muted:#edf4fd] [--muted-foreground:#68768a] [--border:#dce4ee] [--input:color-mix(in_srgb,var(--card)_80%,var(--border))] [--accent:#edf3fb] [--accent-foreground:#1c2638]">
     <AccountWindowControls />
-    <div className="min-h-svh">
-      <main aria-labelledby="account-screen-heading" className="flex min-h-svh min-w-0 flex-col px-7 pt-16 pb-9 sm:px-10">
+    <div className="flex h-full flex-col">
+      <main aria-labelledby="account-screen-heading" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-7 pt-16 pb-8 sm:px-10">
         <div className="mx-auto my-auto flex w-full max-w-[21rem] flex-col gap-7">
           <div className="flex flex-col items-center gap-3 text-center">
             <img src="/images/typedance-icon.png" alt="" aria-hidden="true" className="mb-3 size-18 shrink-0 select-none" />
@@ -77,15 +81,15 @@ function AccountScreen() {
               <p className="text-sm leading-6 text-muted-foreground">工作区已锁定。完成当前内容保存后，可以重新登录；保存失败时内容会保留。</p>
               {phase === "saving" ? <p role="status" className="flex items-center gap-2 text-sm"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" />正在保存资料…</p>
                 : <Button className="h-12 w-full rounded-xl" onClick={() => void finishAccountLock()}>重试保存</Button>}
-            </> : needsImport && state.legacy ? <LocalDataSetup key={state.user?.id} sources={state.legacy.sources} importStarted={state.legacy.import_started} disabled={phase !== "idle"} /> : loading ? <>
+            </> : needsImport && state.legacy ? <LocalDataSetup key={state.user?.id} sources={state.legacy.sources} importStarted={state.legacy.import_started} disabled={phase !== "idle" || installingUpdate} /> : loading ? <>
               <p role="status" className="flex items-start gap-2.5 text-sm leading-6 text-muted-foreground"><Loader2 className="mt-1 size-4 shrink-0 animate-spin motion-reduce:animate-none" />{signingIn ? "请在浏览器中完成登录，然后返回这里。" : phase === "switching" ? "正在更新账号状态…" : "正在恢复登录状态…"}</p>
               {signingIn ? <Button className="h-12 w-full rounded-xl" variant="outline" onClick={() => void cancelAccountSignIn()}>取消登录</Button> : null}
             </> : state.configured ? <>
               <div className="flex flex-col gap-3">
-                {state.providers.length ? providerOrder.filter(provider => state.providers.includes(provider)).map((provider, index) => <Button key={provider} className="h-12 w-full gap-3 rounded-xl" variant={index === 0 ? "default" : "outline"} onClick={() => void signInAccount(provider)}>
+                {state.providers.length ? providerOrder.filter(provider => state.providers.includes(provider)).map((provider, index) => <Button key={provider} disabled={installingUpdate} className="h-12 w-full gap-3 rounded-xl" variant={index === 0 ? "default" : "outline"} onClick={() => void signInAccount(provider)}>
                   <AccountProviderIcon provider={provider} />
                   使用{provider === "wechat" ? "" : " "}{providerNames[provider]}{provider === "wechat" ? "" : " "}登录
-                </Button>) : <Button className="h-12 w-full rounded-xl" onClick={() => void signInAccount()}><LogIn data-icon="inline-start" />登录或注册</Button>}
+                </Button>) : <Button disabled={installingUpdate} className="h-12 w-full rounded-xl" onClick={() => void signInAccount()}><LogIn data-icon="inline-start" />登录或注册</Button>}
               </div>
               <p className="pt-2 text-center text-xs leading-5 text-muted-foreground">首次登录将自动创建账号</p>
             </> : <>
@@ -99,6 +103,7 @@ function AccountScreen() {
           </div>
         </div>
       </main>
+      <AccountUpdateFooter />
     </div>
   </div>
 }
