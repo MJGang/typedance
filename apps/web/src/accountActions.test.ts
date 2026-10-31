@@ -63,6 +63,29 @@ describe("safe account transitions", () => {
     await finishAccountUpdate()
   })
 
+  it("waits for a dispatched sign-in to publish its cancellable state before canceling", async () => {
+    applyAccountState(state("signed_out"))
+    let finishLogin!: (value: AccountState) => void
+    mocks.invoke.mockImplementation((command: string) => command === "sign_in_account"
+      ? new Promise<AccountState>(resolve => { finishLogin = resolve }) : Promise.resolve(state("signing_in")))
+    const login = signInAccount("github")
+    expect(mocks.invoke).toHaveBeenCalledWith("sign_in_account", { provider: "github" })
+    const preparing = prepareAccountUpdate()
+    let prepared = false
+    void preparing.then(() => { prepared = true })
+    await Promise.resolve()
+    expect(mocks.invoke).not.toHaveBeenCalledWith("cancel_account_sign_in")
+    expect(prepared).toBe(false)
+    applyAccountState(state("signing_in"))
+    await vi.waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("cancel_account_sign_in"))
+    expect(prepared).toBe(false)
+    finishLogin(state("signed_out"))
+    await login
+    expect(await preparing).toBe(true)
+    expect(mocks.invoke.mock.calls.filter(([command]) => command === "cancel_account_sign_in")).toHaveLength(1)
+    await finishAccountUpdate()
+  })
+
   it("finishes an existing data import and saves its workspace before installing", async () => {
     applyAccountState({ ...state("needs_import"), legacy: { import_started: false, sources: [{ id: "source", path: "C:/fixture", file_count: 1 }] } })
     let finishImport!: (value: AccountState) => void

@@ -675,6 +675,12 @@ impl AccountManager {
         Self::publish(app, &mut state.view);
     }
 
+    async fn cancel_sign_in(&self) -> AccountState {
+        self.inner.lock().await.login_cancel.cancel();
+        let _operation = self.operation.lock().await;
+        self.snapshot().await
+    }
+
     async fn sign_in(
         self: &Arc<Self>,
         app: &AppHandle,
@@ -1002,8 +1008,7 @@ pub(crate) async fn sign_in_account(
 pub(crate) async fn cancel_account_sign_in(
     state: State<'_, Arc<AccountManager>>,
 ) -> Result<AccountState, String> {
-    state.inner.lock().await.login_cancel.cancel();
-    Ok(state.snapshot().await)
+    Ok(state.cancel_sign_in().await)
 }
 #[tauri::command]
 pub(crate) async fn sign_out_account(
@@ -1072,4 +1077,53 @@ pub(crate) async fn open_account_center(
     app.opener()
         .open_url(config.account_center()?.as_str(), None::<&str>)
         .map_err(|_| "无法打开账号管理页面。".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cancel_waits_for_the_active_login_operation_to_finish() {
+        let data = tempfile::tempdir().unwrap();
+        let token = CancellationToken::new();
+        let manager = Arc::new(AccountManager {
+            data: data.path().to_path_buf(),
+            inner: Mutex::new(Inner {
+                view: AccountState {
+                    revision: 1,
+                    status: "signing_in".into(),
+                    configured: true,
+                    providers: vec![],
+                    user: None,
+                    session: None,
+                    error: None,
+                    legacy: None,
+                },
+                current: None,
+                login_cancel: token.clone(),
+            }),
+            operation: Mutex::new(()),
+            shutting_down: AtomicBool::new(false),
+        });
+        let active_login = manager.operation.lock().await;
+        let canceling = tokio::spawn({
+            let manager = manager.clone();
+            async move { manager.cancel_sign_in().await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), token.cancelled())
+            .await
+            .unwrap();
+        assert!(
+            !canceling.is_finished(),
+            "cancellation must wait for login cleanup"
+        );
+        manager.inner.lock().await.view.status = "signed_out".into();
+        drop(active_login);
+        let state = tokio::time::timeout(Duration::from_secs(1), canceling)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.status, "signed_out");
+    }
 }
