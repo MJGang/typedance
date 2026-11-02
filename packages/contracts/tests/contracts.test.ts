@@ -121,6 +121,16 @@ describe("templateStyleConfigSchema", () => {
     expect(templateStyleConfigSchema.parse(validTemplateStyle)).toEqual(validTemplateStyle);
   });
 
+  it("validates divider overrides and rejects invalid CSS values", () => {
+    const config = { ...validTemplateStyle, blocks: { ...validTemplateStyle.blocks,
+      horizontalRule: { style: "double", width: "3px", color: "#213547", marginTop: "12px", marginBottom: "12px" },
+    } };
+    expect(templateStyleConfigSchema.parse(config)).toEqual(config);
+    for (const patch of [{ style: "unknown" }, { width: "-1px" }, { color: "red" }, { marginTop: "12px; color:red" }]) {
+      expect(() => templateStyleConfigSchema.parse({ ...config, blocks: { ...config.blocks, horizontalRule: { ...config.blocks.horizontalRule, ...patch } } })).toThrow();
+    }
+  });
+
   it("requires a valid theme accent color", () => {
     expect(() => templateStyleConfigSchema.parse({ ...validTemplateStyle, theme: undefined })).toThrow();
     expect(() => templateStyleConfigSchema.parse({

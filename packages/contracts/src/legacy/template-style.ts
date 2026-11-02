@@ -17,6 +17,7 @@ export const blockTypeSchema = z.enum([
   "paragraph",
   "bulletList",
   "orderedList",
+  "horizontalRule",
 ]);
 
 export const borderBottomSchema = z.object({
@@ -57,6 +58,14 @@ export const heading2BlockStyleSchema = blockStyleSchema
   .extend({ decorationStyle: heading2DecorationStyleSchema })
   .strict();
 
+export const dividerStyleSchema = z.object({
+  style: z.enum(["solid", "dashed", "dotted", "double"]).optional(),
+  width: z.string().regex(/^\d+(?:\.\d+)?px$/).optional(),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+  marginTop: z.string().regex(/^\d+(?:\.\d+)?px$/).optional(),
+  marginBottom: z.string().regex(/^\d+(?:\.\d+)?px$/).optional(),
+}).strict();
+
 export const templateBlocksSchema = z.object({
   heading1: blockStyleSchema,
   heading2: heading2BlockStyleSchema,
@@ -64,6 +73,7 @@ export const templateBlocksSchema = z.object({
   paragraph: blockStyleSchema,
   bulletList: blockStyleSchema,
   orderedList: blockStyleSchema,
+  horizontalRule: dividerStyleSchema.optional(),
 }).strict();
 
 export const templateStyleConfigSchema = z.object({
@@ -78,6 +88,7 @@ export const templateStyleConfigSchema = z.object({
 export type TemplateSampleContent = z.infer<typeof templateSampleContentSchema>;
 export type TemplateStyleConfig = z.infer<typeof templateStyleConfigSchema>;
 export type BlockStyle = z.infer<typeof blockStyleSchema>;
+export type DividerStyle = z.infer<typeof dividerStyleSchema>;
 export type Heading2DecorationStyle = z.infer<typeof heading2DecorationStyleSchema>;
 export type ThemeStyle = z.infer<typeof themeStyleSchema>;
 export type Heading2BlockStyle = z.infer<typeof heading2BlockStyleSchema>;

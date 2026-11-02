@@ -118,6 +118,16 @@ class ThemeStyle(BaseModel):
     accent_color: str = Field(alias="accentColor", pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
+class DividerStyle(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    style: Literal["solid", "dashed", "dotted", "double"] | None = None
+    width: str | None = Field(default=None, pattern=r"^\d+(?:\.\d+)?px$")
+    color: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    margin_top: str | None = Field(default=None, alias="marginTop", pattern=r"^\d+(?:\.\d+)?px$")
+    margin_bottom: str | None = Field(default=None, alias="marginBottom", pattern=r"^\d+(?:\.\d+)?px$")
+
+
 class TemplateBlocks(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -127,6 +137,7 @@ class TemplateBlocks(BaseModel):
     paragraph: BlockStyle
     bulletList: BlockStyle
     orderedList: BlockStyle
+    horizontalRule: DividerStyle | None = None
 
 
 class TemplateStyleConfig(BaseModel):

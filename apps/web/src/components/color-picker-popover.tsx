@@ -1,9 +1,10 @@
-import { useState } from "react"
+import { useId, useState } from "react"
 import type { ComponentType, CSSProperties, SVGProps } from "react"
 import { Baseline, Check } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
@@ -41,6 +42,69 @@ type ColorPickerPopoverProps = {
 
 function isHexColor(value: unknown): value is string {
   return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value)
+}
+
+function colorChannels(color: string): string[] {
+  return [1, 3, 5].map((offset) => String(Number.parseInt(color.slice(offset, offset + 2), 16)))
+}
+
+function CustomColorInput({ value, onSelect }: { value: string; onSelect: (color: string) => void }) {
+  const id = useId()
+  const [hex, setHex] = useState(value)
+  const [channels, setChannels] = useState(() => colorChannels(value))
+  const validChannels = channels.every((channel) => /^\d{1,3}$/.test(channel) && Number(channel) <= 255)
+  const valid = isHexColor(hex) && validChannels
+  const apply = () => { if (valid) onSelect(hex.toLowerCase()) }
+
+  return (
+    <FieldGroup className="gap-2 border-t border-border px-3 py-3" onKeyDown={(event) => {
+      if (event.key === "Enter") {
+        event.preventDefault()
+        apply()
+      }
+    }}>
+      <Field orientation="horizontal" className="gap-2" data-invalid={!isHexColor(hex)}>
+        <FieldLabel className="shrink-0" htmlFor={`${id}-hex`}>HEX</FieldLabel>
+        <Input
+          id={`${id}-hex`}
+          aria-label="HEX 颜色"
+          aria-invalid={!isHexColor(hex)}
+          value={hex}
+          placeholder="#213547"
+          className="h-8 min-w-0 font-mono"
+          onChange={(event) => {
+            const next = event.target.value
+            setHex(next)
+            if (isHexColor(next)) setChannels(colorChannels(next))
+          }}
+        />
+        <span aria-label="自定义颜色预览" className="size-7 shrink-0 rounded border border-border" style={{ backgroundColor: valid ? hex : undefined }} />
+      </Field>
+      <FieldGroup className="grid grid-cols-3 gap-2">
+        {(["R", "G", "B"] as const).map((label, index) => (
+          <Field key={label} className="gap-1">
+            <FieldLabel className="text-xs" htmlFor={`${id}-${label}`}>{label}</FieldLabel>
+            <Input
+              id={`${id}-${label}`}
+              aria-label={`${label} 颜色值`}
+              inputMode="numeric"
+              value={channels[index]}
+              aria-invalid={!/^\d{1,3}$/.test(channels[index]) || Number(channels[index]) > 255}
+              className="h-8 text-center"
+              onChange={(event) => {
+                const next = channels.map((channel, channelIndex) => channelIndex === index ? event.target.value : channel)
+                setChannels(next)
+                if (next.every((channel) => /^\d{1,3}$/.test(channel) && Number(channel) <= 255)) {
+                  setHex(`#${next.map((channel) => Number(channel).toString(16).padStart(2, "0")).join("")}`)
+                }
+              }}
+            />
+          </Field>
+        ))}
+      </FieldGroup>
+      <Button type="button" size="sm" disabled={!valid} onClick={apply}>应用颜色</Button>
+    </FieldGroup>
+  )
 }
 
 function BackgroundColorIcon(props: SVGProps<SVGSVGElement>) {
@@ -118,7 +182,7 @@ export function ColorPickerPopover({
         </TooltipTrigger>
         <TooltipContent>{label}</TooltipContent>
       </Tooltip>
-      <PopoverContent align="start" className="td-color-picker-content">
+      <PopoverContent align="start" className="td-color-picker-content max-h-(--radix-popover-content-available-height) overflow-y-auto">
         <button type="button" className="td-color-picker-default" onClick={clearColor}>
           {kind === "background" ? (
             <span className="td-color-picker-no-fill-swatch" />
@@ -127,6 +191,8 @@ export function ColorPickerPopover({
           )}
           <span>{kind === "background" ? "无填充色" : "默认"}</span>
         </button>
+
+        <CustomColorInput value={safeValue ?? DEFAULT_TEXT_COLOR} onSelect={selectColor} />
 
         <div className="td-color-picker-grid" aria-label="常用颜色">
           {SOLID_COLOR_ROWS.flat().map((color, index) => (
@@ -183,17 +249,6 @@ export function ColorPickerPopover({
           <div className="td-color-picker-empty-recent">暂无</div>
         )}
 
-        <label className="td-color-picker-more-color">
-          <span className="td-color-picker-rainbow-dot" />
-          <span>更多颜色</span>
-          <span className="td-color-picker-more-arrow" aria-hidden="true" />
-          <Input
-            type="color"
-            className="sr-only"
-            value={safeValue ?? DEFAULT_TEXT_COLOR}
-            onChange={(event) => selectColor(event.target.value)}
-          />
-        </label>
       </PopoverContent>
     </Popover>
   )

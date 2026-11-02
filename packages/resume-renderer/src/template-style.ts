@@ -1,8 +1,23 @@
-import type { BlockStyle, Heading2DecorationStyle, TemplateStyleConfig } from "@typedance/contracts"
+import type { BlockStyle, DividerStyle, Heading2DecorationStyle, TemplateStyleConfig } from "@typedance/contracts"
 
 export const HEADING_PREFIX_CLASS = "td-heading-prefix"
 export const HEADING_CONTENT_CLASS = "td-heading-content"
 export const HEADING_SUFFIX_CLASS = "td-heading-suffix"
+
+export const DEFAULT_DIVIDER_STYLE = {
+  style: "solid", width: "1px", color: "#d1d5db", marginTop: "8px", marginBottom: "8px",
+} as const satisfies Required<DividerStyle>
+
+export function generateDividerCSS(selector: string, style: DividerStyle = {}): string {
+  const divider = { ...DEFAULT_DIVIDER_STYLE, ...style }
+  return `${selector} {
+  border: 0;
+  border-top: ${divider.width} ${divider.style} ${divider.color};
+  height: 0;
+  margin: ${divider.marginTop} 0 ${divider.marginBottom};
+  padding: 0;
+}`
+}
 
 const LIST_BLOCKS = new Set(["bulletList", "orderedList"])
 const TEXT_STYLE_KEYS = new Set([
@@ -203,6 +218,7 @@ ${suffix} {
 export function generateTemplateCSS(config: TemplateStyleConfig): string {
   const rules: string[] = []
   for (const [blockName, style] of Object.entries(config.blocks)) {
+    if (blockName === "horizontalRule") continue
     if (LIST_BLOCKS.has(blockName)) {
       rules.push(...generateListCSS(
         `.td-resume-${blockName}`,
@@ -220,6 +236,7 @@ export function generateTemplateCSS(config: TemplateStyleConfig): string {
     config.blocks.heading2.decorationStyle,
     config.theme.accentColor,
   ))
+  rules.push(generateDividerCSS(".td-resume-divider", config.blocks.horizontalRule))
   rules.push(generateNestedListCSS(".td-resume-page"))
   return rules.join("\n\n")
 }
@@ -230,6 +247,7 @@ export function generateWorkspaceTemplateCSS(
 ): string {
   const rules: string[] = []
   for (const [blockName, style] of Object.entries(config.blocks)) {
+    if (blockName === "horizontalRule") continue
     const elements = ELEMENT_MAP[blockName]
     if (!elements) continue
 
@@ -251,6 +269,7 @@ export function generateWorkspaceTemplateCSS(
     config.blocks.heading2.decorationStyle,
     config.theme.accentColor,
   ))
+  rules.push(generateDividerCSS(`${scope} hr`, config.blocks.horizontalRule))
   rules.push(generateNestedListCSS(scope))
   return rules.join("\n\n")
 }

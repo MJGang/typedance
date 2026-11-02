@@ -21,6 +21,37 @@ beforeAll(() => {
 afterEach(() => { cleanup(); vi.resetAllMocks() })
 
 describe("bold toolbar operations", () => {
+  it.each(["paragraph", "bulletList"])("sets the selected time to 12px in %s while preserving other styles, then restores the template size", async (kind) => {
+    const paragraph = { type: "paragraph", content: [{ type: "text", text: "时间2026年正文", marks: [{ type: "bold" }, { type: "inlineStyle", attrs: { color: "#213547" } }] }] }
+    const content = kind === "paragraph" ? [paragraph] : [{ type: "bulletList", content: [{ type: "listItem", content: [paragraph] }] }]
+    const start = kind === "paragraph" ? 3 : 5
+    const ref = createRef<ResumeRichTextEditorHandle>(), onChange = vi.fn()
+    render(<TooltipProvider><ResumeRichTextEditor ref={ref} ariaLabel="Resume text" templateStyle={defaultClassicA4Style} docJson={{ type: "doc", content }} onChange={onChange} /></TooltipProvider>)
+    await waitFor(() => expect(document.querySelector("[data-rm-pagination-style]")).not.toBeNull())
+    // jsdom 的选择器引擎无法在 Radix 带斜杠的类名上解析分页插件的 :has；布局由 Chromium 验证。
+    for (const sheet of document.styleSheets) {
+      for (let index = sheet.cssRules.length - 1; index >= 0; index--) {
+        if (sheet.cssRules[index].cssText.includes(":has") && sheet.cssRules[index].cssText.includes("ProseMirror-trailingBreak")) sheet.deleteRule(index)
+      }
+    }
+    act(() => ref.current?.setTextSelection({ anchor: start, head: start + 5 }))
+    fireEvent.click(screen.getByLabelText("字号", { exact: true }))
+    const input = screen.getByLabelText("字号数值")
+    fireEvent.change(input, { target: { value: "12" } })
+    fireEvent.keyDown(input, { key: "Enter" })
+    const target = () => kind === "paragraph" ? onChange.mock.lastCall?.[0].docJson.content[0] : onChange.mock.lastCall?.[0].docJson.content[0].content[0].content[0]
+    await waitFor(() => expect(target()?.content).toEqual([
+      expect.objectContaining({ text: "时间", marks: expect.arrayContaining([{ type: "bold" }, expect.objectContaining({ type: "inlineStyle", attrs: expect.objectContaining({ color: "#213547", fontSize: null }) })]) }),
+      expect.objectContaining({ text: "2026年", marks: expect.arrayContaining([{ type: "bold" }, expect.objectContaining({ type: "inlineStyle", attrs: expect.objectContaining({ color: "#213547", fontSize: "12px" }) })]) }),
+      expect.objectContaining({ text: "正文" }),
+    ]))
+    expect(screen.getByLabelText("字号", { exact: true })).toHaveTextContent("12")
+    fireEvent.click(screen.getByLabelText("字号", { exact: true }))
+    fireEvent.click(screen.getByRole("button", { name: "恢复模板" }))
+    await waitFor(() => expect(JSON.stringify(target())).not.toContain('"fontSize":"12px"'))
+    expect(JSON.stringify(target())).toContain("#213547")
+  }, 15_000)
+
   it.each(["paragraph", "heading", "bulletList", "orderedList", "nestedList"])("adds and removes bold from selected text in %s without changing other text or marks", async (container) => {
     const paragraph = { type: container === "heading" ? "heading" : "paragraph", attrs: { canvasNodeId: "target", ...(container === "heading" ? { level: 2 } : {}) },
       content: [{ type: "text", text: "保留重点内容", marks: [{ type: "italic" }] }] }

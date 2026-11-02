@@ -4,7 +4,7 @@ import { Bold, Eraser } from "lucide-react"
 import { beforeAll, describe, expect, it, vi } from "vitest"
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { EditorToolbar, ToolbarIconButton } from "./editor-toolbar"
+import { EditorToolbar, FontSizeToolbarButton, ToolbarIconButton } from "./editor-toolbar"
 
 beforeAll(() => {
   class ResizeObserverMock {
@@ -17,6 +17,20 @@ beforeAll(() => {
 })
 
 describe("EditorToolbar", () => {
+  it.each(["12", "invalid"])("keeps native Enter activation on the reset button with draft %s", (draft) => {
+    const onChange = vi.fn()
+    render(<EditorToolbar><FontSizeToolbarButton value="16px" onChange={onChange} /></EditorToolbar>)
+    fireEvent.click(screen.getByRole("button", { name: "字号" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "字号数值" }), { target: { value: draft } })
+    const reset = screen.getByRole("button", { name: "恢复模板" })
+    reset.focus()
+    expect(fireEvent.keyDown(reset, { key: "Enter", cancelable: true })).toBe(true)
+    expect(onChange).not.toHaveBeenCalled()
+    // jsdom 不执行原生按钮默认动作；只有未取消的 keydown 才能在浏览器中生成此 click。
+    fireEvent.click(reset)
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(null)
+  })
+
   it("exposes pressed state only for controlled toolbar toggles", () => {
     render(
       <TooltipProvider>

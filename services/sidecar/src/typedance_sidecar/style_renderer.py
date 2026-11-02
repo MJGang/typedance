@@ -170,10 +170,23 @@ def _generate_heading_decoration_css(
     return f"{common}\n\n{variants[style]}"
 
 
+def generate_divider_css(selector: str, style: dict[str, object] | None = None) -> str:
+    divider = {"style": "solid", "width": "1px", "color": "#d1d5db", "marginTop": "8px", "marginBottom": "8px", **(style or {})}
+    return f"""{selector} {{
+  border: 0;
+  border-top: {divider['width']} {divider['style']} {divider['color']};
+  height: 0;
+  margin: {divider['marginTop']} 0 {divider['marginBottom']};
+  padding: 0;
+}}"""
+
+
 def generate_template_css(config: TemplateStyleConfig) -> str:
     rules: list[str] = []
     blocks = config.blocks.model_dump(by_alias=True, exclude_none=True)
     for block_name, style in blocks.items():
+        if block_name == "horizontalRule":
+            continue
         if block_name in LIST_BLOCKS:
             rules.extend(_generate_list_css(
                 f".td-resume-{block_name}",
@@ -189,5 +202,6 @@ def generate_template_css(config: TemplateStyleConfig) -> str:
         config.blocks.heading2.decoration_style,
         config.theme.accent_color,
     ))
+    rules.append(generate_divider_css(".td-resume-divider", blocks.get("horizontalRule")))
     rules.append(_generate_nested_list_css(".td-resume-page"))
     return "\n\n".join(rules)

@@ -16,7 +16,7 @@ from typing import Any
 from playwright.sync_api import sync_playwright
 
 from .models import Heading2DecorationStyle, ResumeVersion, TemplateStyleConfig
-from .style_renderer import generate_template_css
+from .style_renderer import generate_divider_css, generate_template_css
 
 
 # Default A4 page padding mirrors the editor's default page margins.
@@ -496,12 +496,7 @@ body.td-resume-page {
 .td-columns .td-column > :last-child {
   margin-bottom: 0;
 }
-.td-resume-divider {
-  border: 0;
-  border-top: 1px solid #d1d5db;
-  margin: 8px 0;
-}
-"""
+""" + generate_divider_css(":where(.td-resume-divider)")
 
 
 def render_resume_html(

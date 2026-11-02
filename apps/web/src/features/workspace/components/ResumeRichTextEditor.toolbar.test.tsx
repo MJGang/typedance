@@ -152,7 +152,7 @@ describe("ResumeRichTextEditor toolbar", () => {
     expect(screen.getByRole("button", { name: "正文与标题" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "正文与标题" }).querySelector(".lucide-type")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "正文与标题" }).querySelector(".lucide-pilcrow")).not.toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "字号" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "字号" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "下划线" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "行高调整" }).querySelector(".lucide-list-collapse")).toBeInTheDocument()
     expect(screen.getAllByRole("separator")).toHaveLength(4)

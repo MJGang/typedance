@@ -73,6 +73,22 @@ function styleConfig(decorationStyle: Heading2DecorationStyle = "minimal-line"):
 }
 
 describe("renderResumeHtml", () => {
+  it.each(["solid", "dashed", "dotted", "double"] as const)("uses the same %s divider settings in the editor and exported document", (style) => {
+    const config = styleConfig();
+    config.blocks.horizontalRule = { style, width: "3px", color: "#213547", marginTop: "12px", marginBottom: "12px" };
+    const exported = generateTemplateCSS(config);
+    const editor = generateWorkspaceTemplateCSS(config, ".test-editor");
+    for (const css of [exported, editor]) {
+      expect(css).toContain(`border-top: 3px ${style} #213547;`);
+      expect(css).toContain("margin: 12px 0 12px;");
+      expect(css).toContain("border: 0;");
+    }
+    expect(exported).toContain(".td-resume-divider {");
+    expect(editor).toContain(".test-editor hr {");
+    const html = renderStyledHtml({ type: "doc", content: [{ type: "horizontalRule" }] }, config, "zh-CN");
+    expect(html).toContain('<hr class="td-resume-divider">');
+    expect(html).toContain(`border-top: 3px ${style} #213547;`);
+  });
   it("renders TipTap JSON as the canonical resume content", () => {
     const html = renderResumeHtml({
       id: "resume_json",

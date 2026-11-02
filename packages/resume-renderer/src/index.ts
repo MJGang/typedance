@@ -1,5 +1,6 @@
 ﻿import type { Heading2DecorationStyle, ResumeVersion, TemplateStyleConfig } from "@typedance/contracts";
 import {
+  generateDividerCSS,
   generateTemplateCSS,
   HEADING_CONTENT_CLASS,
   HEADING_PREFIX_CLASS,
@@ -7,6 +8,7 @@ import {
 } from "./template-style"
 
 export {
+  DEFAULT_DIVIDER_STYLE,
   generateTemplateCSS,
   generateWorkspaceTemplateCSS,
   HEADING_CONTENT_CLASS,
@@ -320,11 +322,7 @@ body.td-resume-page * {
 .td-columns .td-column > :last-child {
   margin-bottom: 0;
 }
-.td-resume-divider {
-  border: 0;
-  border-top: 1px solid #d1d5db;
-  margin: 8px 0;
-}`
+${generateDividerCSS(":where(.td-resume-divider)")}`
 
 // Extract heading number (1-3) from a block name like "heading1", "heading2", "heading3"
 function headingNumber(blockName: string): number {

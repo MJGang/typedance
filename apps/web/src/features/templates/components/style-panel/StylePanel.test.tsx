@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { defaultClassicA4Style } from "../../data"
 import { StylePanel } from "./StylePanel"
 
-function renderPanel(activeBlock: "heading2" | "paragraph", onChange = vi.fn()) {
+function renderPanel(activeBlock: "heading2" | "paragraph" | "horizontalRule", onChange = vi.fn()) {
   return {
     onChange,
     ...render(
@@ -27,6 +27,20 @@ function renderPanel(activeBlock: "heading2" | "paragraph", onChange = vi.fn()) 
 
 describe("StylePanel", () => {
   afterEach(cleanup)
+
+  it("allows divider margins to be typed before committing the complete template override", () => {
+    const { onChange } = renderPanel("horizontalRule")
+    const top = screen.getByRole("textbox", { name: "上方间距" })
+    fireEvent.change(top, { target: { value: "12" } })
+    expect(onChange).not.toHaveBeenCalled()
+    fireEvent.blur(top)
+    expect(onChange).toHaveBeenLastCalledWith({ ...defaultClassicA4Style, preset: "", blocks: { ...defaultClassicA4Style.blocks, horizontalRule: { marginTop: "12px" } } })
+    const bottom = screen.getByRole("textbox", { name: "下方间距" })
+    fireEvent.change(bottom, { target: { value: "12px" } })
+    fireEvent.keyDown(bottom, { key: "Enter" })
+    expect(onChange.mock.lastCall?.[0].blocks.horizontalRule.marginBottom).toBe("12px")
+    expect(screen.queryByText("文字覆盖")).not.toBeInTheDocument()
+  })
 
   it("adds the accent control and three full-width H2 decoration rows to the existing panel", () => {
     renderPanel("heading2")

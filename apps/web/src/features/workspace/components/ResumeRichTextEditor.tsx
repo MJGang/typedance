@@ -18,6 +18,7 @@ import {
   BulletListToolbarButton,
   DividerToolbarButton,
   EditorToolbar,
+  FontSizeToolbarButton,
   IndentToolbarButton,
   LineHeightToolbarButton,
   OrderedListToolbarButton,
@@ -102,6 +103,7 @@ type ToolbarState = {
   isParagraph: boolean
   isColumns: boolean
   inlineColor: string
+  inlineFontSize: string | null
   inlineBackgroundColor: string | null
   textAlign: ToolbarAlignment
   lineHeight: ToolbarLineHeight
@@ -125,6 +127,7 @@ const inactiveToolbarState: ToolbarState = {
   isParagraph: false,
   isColumns: false,
   inlineColor: DEFAULT_TEXT_COLOR,
+  inlineFontSize: null,
   inlineBackgroundColor: null,
   textAlign: "left",
   lineHeight: "default",
@@ -818,6 +821,10 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
           return
         }
 
+        if (editor.isActive("horizontalRule")) {
+          onUpdate("horizontalRule")
+          return
+        }
         const { $from } = editor.state.selection
         const node = $from.parent
         if (node.type.name === "heading") {
@@ -844,6 +851,8 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
             isOrderedList: editor.isActive("orderedList"),
             isParagraph: editor.isActive("paragraph"),
             isColumns: editor.isActive("columns"),
+            inlineFontSize: typeof editor.getAttributes("inlineStyle").fontSize === "string"
+              ? editor.getAttributes("inlineStyle").fontSize : null,
             inlineColor: typeof editor.getAttributes("inlineStyle").color === "string"
               ? editor.getAttributes("inlineStyle").color
               : DEFAULT_TEXT_COLOR,
@@ -1065,6 +1074,11 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                     } }], templateStyle)
                   }
                 }}
+              />
+              <FontSizeToolbarButton
+                value={toolbarState.inlineFontSize ?? templateStyle.blocks[toolbarState.activeBlock === "columns" ? "paragraph" : toolbarState.activeBlock].fontSize ?? templateStyle.blocks.paragraph.fontSize ?? "16px"}
+                disabled={!editor}
+                onChange={(fontSize) => formatSelection("inlineStyle", true, { fontSize })}
               />
               <ToolbarIconButton
                 label="加粗"
