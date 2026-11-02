@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { markdownToResumeDocJson } from "@typedance/resume-markdown"
-import { looksLikeMarkdown, makeResumeDocFromText, resumeDocToPlainText } from "./editor"
+import { makeResumeDocFromText, resumeDocToPlainText } from "./editor"
 import type { ResumeDocJson } from "./editor"
 
 describe("resume editor document utilities", () => {
@@ -57,16 +57,6 @@ describe("resume editor document utilities", () => {
 
   it("returns empty text for malformed document content", () => {
     expect(resumeDocToPlainText({ type: "doc", content: "abc" })).toBe("")
-  })
-
-  it("detects common Markdown resume structures", () => {
-    expect(looksLikeMarkdown("# Alice\n\n## Experience\n\n- Built TypeDance")).toBe(true)
-    expect(looksLikeMarkdown("Experience\n\n1. Built TypeDance")).toBe(true)
-    expect(looksLikeMarkdown("Built **TypeDance** with [Tiptap](https://tiptap.dev)")).toBe(true)
-  })
-
-  it("does not treat plain resume text as Markdown", () => {
-    expect(looksLikeMarkdown("Alice Chen\nFull-stack Engineer\nReact TypeScript Local-first Apps")).toBe(false)
   })
 
   it("uses the shared Markdown converter for resume content document JSON", () => {

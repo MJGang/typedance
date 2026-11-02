@@ -1,6 +1,15 @@
 ﻿@import "tailwindcss";
 @import "tw-animate-css";
 
+[data-markdown-source-hidden],
+[data-markdown-source-active] > br.ProseMirror-trailingBreak {
+  display: none;
+}
+
+[data-markdown-source-list] {
+  list-style-type: none;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

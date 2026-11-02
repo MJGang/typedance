@@ -56,6 +56,7 @@ function clonePrintElement(source: HTMLElement): HTMLElement | null {
 }
 
 export function captureCanvasPrintSnapshot(editor: HTMLElement): CanvasPrintSnapshot {
+  editor.dispatchEvent(new Event("typedance:render-markdown"))
   const rect = editor.getBoundingClientRect()
   const computed = getComputedStyle(editor)
   const pageWidth = Number.parseFloat(computed.width)
@@ -76,6 +77,7 @@ export function captureCanvasPrintSnapshot(editor: HTMLElement): CanvasPrintSnap
 }
 
 export async function prepareCanvasPrintSnapshot(editor: HTMLElement): Promise<CanvasPrintSnapshot> {
+  editor.dispatchEvent(new Event("typedance:render-markdown"))
   await document.fonts.ready
   let previous = ""
   let stableFrames = 0
