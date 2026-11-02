@@ -197,4 +197,16 @@ describe("local Markdown source editing", () => {
     expect(editor.view.dom.querySelector("strong")?.textContent).toBe("加粗")
     expect(editor.state.doc.textContent).toBe(`${image} 和 加粗 ${image}`)
   })
+
+  it("keeps every intermediate state valid while typing a nested list after a heading", async () => {
+    const editor = createEditor("<h3>当前</h3>")
+    await enter(editor, "当前")
+    const markdown = "- 第一项\n  - 子项"
+    for (let end = 1; end <= markdown.length; end++) {
+      input(editor.view.dom.querySelector<HTMLTextAreaElement>("textarea")!, markdown.slice(0, end))
+      expect(() => editor.state.doc.check()).not.toThrow()
+    }
+    editor.view.dom.querySelector<HTMLTextAreaElement>("textarea")!.blur()
+    expect(editor.view.dom.querySelector("ul ul li")?.textContent).toBe("子项")
+  })
 })

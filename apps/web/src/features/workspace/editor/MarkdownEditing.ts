@@ -47,6 +47,14 @@ export function parseEditorMarkdown(editor: Editor, source: string): JSONContent
     return pieces
   })
   if (parsed.content) parsed.content = restore(parsed.content)
+  const normalize = (node: JSONContent) => {
+    node.content?.forEach(normalize)
+    // Markdown 允许列表项从标题或代码块开始，原生 listItem schema 要求首块是段落。
+    if (node.type === "listItem" && node.content?.[0]?.type !== "paragraph") {
+      node.content = [{ type: "paragraph" }, ...node.content ?? []]
+    }
+  }
+  normalize(parsed)
   return parsed
 }
 
