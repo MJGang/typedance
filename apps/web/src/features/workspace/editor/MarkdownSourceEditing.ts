@@ -3,6 +3,7 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
 import { closeHistory } from "@tiptap/pm/history"
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state"
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view"
+import { Transform } from "@tiptap/pm/transform"
 import { diffChars } from "diff"
 import { applyDocumentChange } from "../../revision/editorTransaction"
 import { parseEditorMarkdown } from "./MarkdownEditing"
@@ -17,9 +18,16 @@ type SourceSession = {
   paths: number[][]
   list?: ListContext
   caret: number
+  pendingMarks?: JSONContent["marks"]
 }
 
 export const markdownSourceKey = new PluginKey<SourceSession | null>("markdownSourceEditing")
+export const MARKDOWN_SOURCE_SELECTION_EVENT = "typedance:markdown-source-selection"
+
+export function markdownSourceSelectionRect(editor: Editor): DOMRect | undefined {
+  const input = editor.view.dom.querySelector<HTMLTextAreaElement>("[data-markdown-source-input]")
+  if (input && input.ownerDocument.activeElement === input && markdownSourceKey.getState(editor.state)) return input.getBoundingClientRect()
+}
 
 function jsonAt(doc: JSONContent, path: number[]): JSONContent {
   return path.reduce((node, index) => node.content![index], doc)
@@ -75,6 +83,13 @@ function sourceOffsets(source: string, rendered: string): number[] {
     }
   }
   return offsets
+}
+
+function documentSelection(doc: ProseMirrorNode, session: SourceSession, start: number, end: number, backward = false) {
+  const rendered = renderedText(doc, session.paths)
+  const offsets = sourceOffsets(session.source, rendered.text)
+  const from = rendered.positions[offsets[start]], to = rendered.positions[offsets[end]]
+  if (from !== undefined && to !== undefined) return TextSelection.create(doc, backward ? to : from, backward ? from : to)
 }
 
 function preserveAttributes(previous: JSONContent[], blocks: JSONContent[]) {
@@ -180,6 +195,15 @@ function projectSource(editor: Editor, session: SourceSession, source: string) {
   return { before, after, session: { ...session, source, count: replacement.length, paths } }
 }
 
+function serializeSource(editor: Editor, doc: JSONContent, paths: number[][]): string {
+  let content = paths.map((path) => jsonAt(doc, path))
+  if (content[0]?.type === "listItem") {
+    const path = paths[0], list = jsonAt(doc, path.slice(0, -1))
+    content = [{ ...list, attrs: { ...list.attrs, start: (list.attrs?.start ?? 1) + path[path.length - 1] }, content }]
+  }
+  return editor.markdown!.serialize({ type: "doc", content })
+}
+
 function startSession(editor: Editor, position: number): SourceSession | null {
   const resolved = editor.state.doc.resolve(position)
   let depth = resolved.depth
@@ -191,17 +215,16 @@ function startSession(editor: Editor, position: number): SourceSession | null {
   const path = Array.from({ length: unitDepth }, (_, level) => resolved.index(level))
   const parent = path.slice(0, -1)
   let index = path[path.length - 1]
-  let unit = resolved.node(unitDepth).toJSON() as JSONContent
   let list: ListContext | undefined
   if (itemDepth) {
     const node = resolved.node(itemDepth - 1).toJSON() as JSONContent
     const start = (node.attrs?.start ?? 1) + index
     list = { node, before: node.content!.slice(0, index), after: node.content!.slice(index + 1), start }
-    unit = { ...node, attrs: { ...node.attrs, start }, content: [unit] }
     index = parent.pop()!
   }
-  const source = editor.markdown.serialize({ type: "doc", content: [unit] })
-  const session: SourceSession = { id: crypto.randomUUID(), source, parent, index, count: 1, paths: [path], list, caret: 0 }
+  const source = serializeSource(editor, editor.getJSON(), [path])
+  const pendingMarks = position === editor.state.selection.from ? editor.state.storedMarks?.map((mark) => mark.toJSON()) : undefined
+  const session: SourceSession = { id: crypto.randomUUID(), source, parent, index, count: 1, paths: [path], list, caret: 0, pendingMarks }
   const rendered = renderedText(editor.state.doc, session.paths)
   const offset = Math.max(0, rendered.positions.findIndex((value) => value >= position))
   const mapping = sourceOffsets(source, rendered.text)
@@ -226,12 +249,9 @@ export const MarkdownSourceEditing = Extension.create({
         session = markdownSourceKey.getState(view.state)
         if (!session) return
       }
-      const rendered = renderedText(view.state.doc, session.paths)
-      const mapping = sourceOffsets(session.source, rendered.text)
-      const anchor = rendered.positions[mapping[input?.selectionStart ?? session.caret]]
-      const head = rendered.positions[mapping[input?.selectionEnd ?? session.caret]]
+      const selection = documentSelection(view.state.doc, session, input?.selectionStart ?? session.caret, input?.selectionEnd ?? session.caret, input?.selectionDirection === "backward")
       let transaction = closeHistory(view.state.tr).setMeta(markdownSourceKey, null)
-      if (anchor !== undefined && head !== undefined) transaction = transaction.setSelection(TextSelection.create(transaction.doc, anchor, head))
+      if (selection) transaction = transaction.setSelection(selection)
       view.dispatch(transaction)
     }
     const begin = (position: number) => {
@@ -252,12 +272,55 @@ export const MarkdownSourceEditing = Extension.create({
       input.style.font = "inherit"
       input.value = session.source
       const resize = () => { input.style.height = "0px"; input.style.height = `${input.scrollHeight}px` }
+      const syncSelection = () => {
+        const active = markdownSourceKey.getState(view.state)
+        if (active?.id !== session.id || input.value !== active.source) return
+        const selection = documentSelection(view.state.doc, active, input.selectionStart, input.selectionEnd, input.selectionDirection === "backward")
+        const moved = input.selectionStart !== active.caret || input.selectionStart !== input.selectionEnd
+        if (selection && (!selection.eq(view.state.selection) || (moved && active.pendingMarks !== undefined))) {
+          let transaction = view.state.tr.setSelection(selection).setMeta("addToHistory", false)
+          if (moved) transaction = transaction.setMeta(markdownSourceKey, { ...active, caret: input.selectionStart, pendingMarks: undefined })
+          view.dispatch(transaction)
+        }
+        view.dom.dispatchEvent(new Event(MARKDOWN_SOURCE_SELECTION_EVENT))
+      }
       const change = () => {
         const current = markdownSourceKey.getState(view.state)
         if (!current || current.id !== session.id) return
+        let insertedFrom = 0, insertedTo = 0
+        const pending = current.pendingMarks
+        if (pending !== undefined) {
+          let prefix = 0, suffix = 0
+          while (prefix < current.source.length && prefix < input.value.length && current.source[prefix] === input.value[prefix]) prefix++
+          while (suffix < current.source.length - prefix && suffix < input.value.length - prefix
+            && current.source[current.source.length - suffix - 1] === input.value[input.value.length - suffix - 1]) suffix++
+          const inserted = input.value.slice(prefix, input.value.length - suffix)
+          if (inserted.trim()) {
+            insertedFrom = prefix; insertedTo = prefix + inserted.length
+          }
+        }
         const selection = { start: input.selectionStart, end: input.selectionEnd }
         const projected = projectSource(editor, current, input.value)
         projected.session.caret = selection.start
+        if (pending !== undefined && insertedTo > insertedFrom) {
+          const doc = editor.schema.nodeFromJSON(projected.after)
+          const range = documentSelection(doc, projected.session, insertedFrom, insertedTo)
+          if (range) {
+            const transform = new Transform(doc)
+            transform.removeMark(range.from, range.to)
+            for (const mark of pending) transform.addMark(range.from, range.to, editor.schema.marks[mark.type].create(mark.attrs))
+            projected.after = transform.doc.toJSON()
+            const source = serializeSource(editor, projected.after, projected.session.paths)
+            const rendered = renderedText(transform.doc, projected.session.paths)
+            const offset = Math.max(0, rendered.positions.findIndex((position) => position >= range.to))
+            const mapping = sourceOffsets(source, rendered.text)
+            selection.start = selection.end = Math.max(0, mapping.findIndex((position) => position >= offset))
+            input.value = source
+            projected.session.source = source
+            projected.session.caret = selection.start
+          }
+          projected.session.pendingMarks = undefined
+        }
         updating = true
         try {
           const changed = applyDocumentChange(editor, projected.before, projected.after, crypto.randomUUID(), [], [], {
@@ -268,17 +331,30 @@ export const MarkdownSourceEditing = Extension.create({
         } finally { updating = false }
         const mounted = view.dom.querySelector<HTMLTextAreaElement>("[data-markdown-source-input]")
         if (mounted) { mounted.focus({ preventScroll: true }); mounted.setSelectionRange(selection.start, selection.end) }
+        syncSelection()
         resize()
       }
       input.addEventListener("input", (event) => { if (!(event as InputEvent).isComposing) change(); else resize() })
       input.addEventListener("compositionend", change)
       input.addEventListener("typedance:commit-markdown-source", change)
+      input.addEventListener("select", syncSelection)
+      input.addEventListener("keyup", syncSelection)
+      input.addEventListener("pointerup", syncSelection)
       input.addEventListener("blur", () => { if (!updating && !disposed && markdownSourceKey.getState(view.state)?.id === session.id) finish() })
       input.addEventListener("keydown", (event) => {
         if ((event.ctrlKey || event.metaKey) && ["b", "i", "u"].includes(event.key.toLowerCase())) {
           event.preventDefault()
           const key = event.key.toLowerCase(), open = key === "b" ? "**" : key === "i" ? "*" : "<u>", close = key === "u" ? "</u>" : open
           const start = input.selectionStart, end = input.selectionEnd
+          const active = markdownSourceKey.getState(view.state)
+          if (start === end && active) {
+            const mark = key === "b" ? "bold" : key === "i" ? "italic" : "underline"
+            const marks = active.pendingMarks ?? (editor.state.storedMarks ?? editor.state.selection.$from.marks()).map((value) => value.toJSON())
+            const pendingMarks = marks.some((value) => value.type === mark) ? marks.filter((value) => value.type !== mark) : [...marks, { type: mark }]
+            view.dispatch(view.state.tr.setStoredMarks(pendingMarks.map((value) => editor.schema.marks[value.type].create(value.attrs)))
+              .setMeta(markdownSourceKey, { ...active, pendingMarks }).setMeta("addToHistory", false))
+            return
+          }
           if (input.value.slice(start - open.length, start) === open && input.value.slice(end, end + close.length) === close) {
             const text = input.value.slice(start, end)
             input.setSelectionRange(start - open.length, end + close.length)

@@ -209,4 +209,60 @@ describe("local Markdown source editing", () => {
     editor.view.dom.querySelector<HTMLTextAreaElement>("textarea")!.blur()
     expect(editor.view.dom.querySelector("ul ul li")?.textContent).toBe("子项")
   })
+
+  it("maps source selections to document text without moving textarea focus", async () => {
+    const editor = createEditor("<p><strong>当前</strong>内容</p>")
+    const source = await enter(editor, "当前")
+    source.setSelectionRange(2, 4, "backward")
+    source.dispatchEvent(new Event("select", { bubbles: true }))
+    expect(editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to)).toBe("当前")
+    expect(editor.state.selection.anchor).toBeGreaterThan(editor.state.selection.head)
+    expect(document.activeElement).toBe(source)
+  })
+
+  it.each(["bold", "italic", "underline", "inlineStyle"])("keeps explicitly enabled %s when typing into an empty paragraph", async (mark) => {
+    const InlineStyle = Mark.create({ name: "inlineStyle", addAttributes: () => ({ color: { default: null } }), renderHTML: () => ["span", 0] })
+    const editor = createEditor("<p></p>", mark === "inlineStyle" ? [InlineStyle] : [])
+    editor.commands.setMark(mark, mark === "inlineStyle" ? { color: "#123456" } : {})
+    const position = editor.state.selection.from
+    const handled = editor.view.someProp("handleTextInput", (handler) => handler(editor.view, position, position, "首",
+      () => editor.state.tr.insertText("首", position)))
+    expect(handled).toBe(true)
+    await Promise.resolve()
+    const source = editor.view.dom.querySelector<HTMLTextAreaElement>("textarea")!
+    source.setRangeText("字", source.selectionStart, source.selectionEnd, "end")
+    source.dispatchEvent(new Event("input", { bubbles: true }))
+    source.blur()
+    expect(editor.state.doc.textContent).toBe("首字")
+    const content = editor.getJSON().content![0].content!
+    expect(content.every((node) => node.marks?.some((value) => value.type === mark))).toBe(true)
+    if (mark === "inlineStyle") expect(content[0].marks?.[0].attrs?.color).toBe("#123456")
+  })
+
+  it("toggles a format at an empty source caret without creating a divider", async () => {
+    const editor = createEditor("<p>当前</p>")
+    const source = await enter(editor, "当前")
+    input(source, "")
+    source.dispatchEvent(new KeyboardEvent("keydown", { key: "b", ctrlKey: true, bubbles: true, cancelable: true }))
+    expect(source.value).toBe("")
+    expect(editor.view.dom.querySelector("hr")).toBeNull()
+    input(source, "新字")
+    source.blur()
+    expect(editor.view.dom.querySelector("strong")?.textContent).toBe("新字")
+  })
+
+  it("respects explicitly disabled formatting inside an existing marked run", async () => {
+    const editor = createEditor("<p><strong>当前</strong></p>")
+    editor.commands.setTextSelection(2)
+    editor.commands.unsetBold()
+    editor.view.someProp("handleTextInput", (handler) => handler(editor.view, 2, 2, "新", () => editor.state.tr.insertText("新", 2)))
+    await Promise.resolve()
+    const source = editor.view.dom.querySelector<HTMLTextAreaElement>("textarea")!
+    source.setRangeText("字", source.selectionStart, source.selectionEnd, "end")
+    source.dispatchEvent(new Event("input", { bubbles: true }))
+    source.blur()
+    const content = editor.getJSON().content![0].content!
+    expect(editor.state.doc.textContent).toBe("当新字前")
+    expect(content.find((node) => node.text === "新字")?.marks).toBeUndefined()
+  })
 })
