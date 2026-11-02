@@ -21,6 +21,12 @@ function backend(payload?: unknown) {
 const p = (text = "") => ({ type: "paragraph", content: text ? [{ type: "text", text }] : [] })
 const initial = { type: "doc", content: [p("工作经历"), p("保留的普通正文")] }
 
+function longRichDoc() {
+  const doc = structuredClone(richTimeline)
+  doc.content[1].content[1].content[1].content.push(...Array.from({ length: 26 }, (_, index) => ({ type: "listItem", content: [p(`跨页成果 ${index + 1}：复杂表格、查询面板与数据分析需要保持嵌套列表和三栏表头完整，正文宽高随内容调整。`)] })))
+  return doc
+}
+
 async function openEditor(page: Page, doc: unknown = initial) {
   page.on("pageerror", (error) => console.error(error.message))
   page.on("console", (message) => { if (message.type() === "error") console.error(message.text()) })
@@ -218,8 +224,7 @@ test("existing heading, list, column and inline formatting controls work inside 
 
 test("long rich timeline preserves text, decoration geometry and page positions in print snapshot", async ({ page, context }, info) => {
   test.setTimeout(60_000)
-  const doc = structuredClone(richTimeline)
-  doc.content[1].content[1].content[1].content.push(...Array.from({ length: 26 }, (_, index) => ({ type: "listItem", content: [p(`跨页成果 ${index + 1}：复杂表格、查询面板与数据分析需要保持嵌套列表和三栏表头完整，正文宽高随内容调整。`)] })))
+  const doc = longRichDoc()
   await openEditor(page, doc)
   await expect.poll(() => page.locator(".rm-pagination-gap").count()).toBeGreaterThan(1)
   await expect(page.locator(".td-timeline-line:visible")).toHaveCount(2)
@@ -262,4 +267,42 @@ render_canvas_snapshot_pdf(render_canvas_snapshot_html(CanvasPrintSnapshot.model
   })
   await info.attach("timeline-pdf", { path: pdfPath, contentType: "application/pdf" })
   await standalone.close()
+})
+
+test("background document export renders timeline rich blocks and a real PDF", async ({ page, context }, info) => {
+  test.setTimeout(60_000)
+  const doc = longRichDoc()
+  await openEditor(page, doc)
+  const style = await page.evaluate(async () => (await import("/src/features/templates/data.ts")).defaultClassicA4Style)
+  const pdfPath = info.outputPath("timeline-server.pdf")
+  const result = JSON.parse(execFileSync("python", ["-X", "utf8", "-c", `import json,sys
+from pathlib import Path
+from typedance_sidecar.models import ResumeVersion,TemplateStyleConfig,utc_now
+from typedance_sidecar.pdf import render_resume_html,render_html_to_pdf,cleanup_browser
+p=json.load(sys.stdin)
+now=utc_now()
+resume=ResumeVersion(id='timeline',title='时间轴',target_language='zh-CN',template_id='classic-a4',doc_json=p['doc'],plain_text_snapshot='',created_at=now,updated_at=now)
+html=render_resume_html(resume,TemplateStyleConfig.model_validate(p['style']),html_page_margin={'top':'76px','bottom':'76px','left':'50px','right':'50px'})
+try:
+    render_html_to_pdf(html,Path(p['output']))
+finally:
+    cleanup_browser()
+print(json.dumps({'html':html},ensure_ascii=False))`], {
+    cwd: root, input: JSON.stringify({ doc, style, output: pdfPath }), encoding: "utf8",
+    env: { ...process.env, PYTHONPATH: resolve(root, "services/sidecar/src") },
+  }))
+  const exported = await context.newPage()
+  await exported.setContent(result.html)
+  await expect(exported.locator(".td-timeline-item")).toHaveCount(3)
+  await expect(exported.locator(".td-timeline-dot")).toHaveCount(3)
+  await expect(exported.locator(".td-columns")).toHaveCount(2)
+  await expect(exported.locator(".td-timeline-item").first().locator("h3")).toHaveText("示例科技有限公司")
+  await expect(exported.locator(".td-timeline-item").first().locator("strong")).toHaveCount(3)
+  await expect(exported.locator(".td-timeline-item").nth(1).locator("ol > li")).toHaveCount(28)
+  await expect(exported.locator(".td-timeline-item").nth(1).locator("ul > li")).toHaveCount(2)
+  await expect(exported.locator(".td-timeline-item").first().locator(".td-column").nth(2).locator("span")).toHaveCSS("font-size", "12px")
+  await expect(exported.locator(".td-timeline-dot").nth(1)).toHaveCSS("background-color", "rgb(255, 255, 255)")
+  await exported.screenshot({ path: info.outputPath("timeline-server-html.png"), fullPage: true })
+  await info.attach("timeline-server-pdf", { path: pdfPath, contentType: "application/pdf" })
+  await exported.close()
 })

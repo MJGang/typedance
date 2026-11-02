@@ -5,6 +5,7 @@ export const TIMELINE_CSS = `
 .td-timeline > .td-timeline-item:last-child,
 .td-timeline > .td-timeline-entry:last-child > .td-timeline-item { padding-bottom: 0; }
 .td-timeline-body { display: block; min-width: 0; overflow-wrap: anywhere; }
+.td-timeline-body .td-column > :first-child { margin-top: 0; }
 .td-timeline-body > :first-child,
 .td-timeline-body > [data-node-view-content-react] > :first-child { margin-top: 0; }
 .td-timeline-body > :last-child,
