@@ -211,3 +211,18 @@ test("keeps typing focused through a divider intermediate state in inline source
   await expect(editor.locator("strong em")).toHaveText("新文字")
   await expect(editor.locator("p").filter({ hasText: "这里是需求" })).toBeVisible()
 })
+
+test("continues typing after arrow navigation enters rendered list text", async ({ page }) => {
+  await openCanvas(page)
+  const editor = page.locator(".td-rich-editor-prosemirror")
+  const list = editor.locator(":scope > ul")
+  await list.locator("strong").first().click()
+  const source = editor.locator("textarea")
+  await source.press("End")
+  await page.keyboard.press("ArrowDown")
+  await expect(source).toHaveCount(0)
+  await expect(editor).toBeFocused()
+  await page.keyboard.type("新")
+  await page.keyboard.press("Escape")
+  await expect(list.locator("li").nth(1).locator("p")).toHaveText("新普通列表项正文")
+})

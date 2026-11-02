@@ -459,6 +459,7 @@ export const MarkdownSourceEditing = Extension.create({
           if (target !== undefined) {
             event.preventDefault(); finish()
             view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, target)))
+            view.focus()
             begin(target)
           }
         }

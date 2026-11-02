@@ -213,6 +213,17 @@ describe("local Markdown source editing", () => {
     expect(editor.view.dom.querySelectorAll("textarea")).toHaveLength(1)
   })
 
+  it("restores editor focus when arrow navigation enters rendered list text", async () => {
+    const editor = createEditor("<p>当前段落</p><ul><li><p>列表正文</p></li></ul>")
+    const source = await enter(editor, "当前段落")
+    source.setSelectionRange(source.value.length, source.value.length)
+    source.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }))
+    await Promise.resolve()
+    expect(editor.view.dom.querySelector("textarea")).toBeNull()
+    expect(document.activeElement).toBe(editor.view.dom)
+    expect(editor.state.selection.$from.parent.textContent).toBe("列表正文")
+  })
+
   it("preserves node identities throughout an unchanged nested list structure", async () => {
     const Ids = Extension.create({ name: "testIds", addGlobalAttributes: () => [{ types: ["paragraph", "listItem"], attributes: {
       canvasNodeId: { default: null, parseHTML: (element: HTMLElement) => element.getAttribute("data-canvas-node-id") },
