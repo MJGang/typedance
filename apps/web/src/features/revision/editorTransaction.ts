@@ -141,14 +141,14 @@ function normalizeTextFragments(node: ProseMirrorNode): ProseMirrorNode {
   return node.isLeaf ? node : node.copy(Fragment.fromArray(node.content.content.map(normalizeTextFragments)))
 }
 
-export function applyDocumentChange(editor: Editor, beforeJson: Record<string, unknown>, afterJson: Record<string, unknown>, transactionId: string, nodeOrigins: EditorNodeOrigin[], textOrigins: EditorTextOrigin[]): boolean {
+export function applyDocumentChange(editor: Editor, beforeJson: Record<string, unknown>, afterJson: Record<string, unknown>, transactionId: string, nodeOrigins: EditorNodeOrigin[], textOrigins: EditorTextOrigin[], options: { historyBoundary?: boolean; configureTransaction?: (transaction: Transaction) => void } = {}): boolean {
   if (editor.isDestroyed || !editor.isEditable) throw new Error("编辑器不可用")
   const before = editor.state.doc
   if (!editor.schema.nodeFromJSON(beforeJson).eq(before)) throw new Error("原文已变化，已阻止覆盖你的编辑")
   const after = normalizeTextFragments(editor.schema.nodeFromJSON(afterJson))
   after.check()
   if (before.eq(after)) return false
-  const tr = closeHistory(editor.state.tr)
+  const tr = options.historyBoundary === false ? editor.state.tr : closeHistory(editor.state.tr)
   syncChildren(tr, before, after, 0)
   for (const key of Object.keys(after.attrs)) {
     if (JSON.stringify(before.attrs[key]) !== JSON.stringify(after.attrs[key])) tr.setDocAttribute(key, after.attrs[key])
@@ -156,7 +156,8 @@ export function applyDocumentChange(editor: Editor, beforeJson: Record<string, u
   if (!tr.doc.eq(after)) throw new Error("编辑结果与准备事务不一致，未应用修改")
   setReferenceOrigins(tr, nodeOrigins, textOrigins)
   preserveReferenceHistory(tr, referenceTrackerKey.getState(editor.state))
+  options.configureTransaction?.(tr)
   editor.view.dispatch(tr.setMeta("typedance-editor-transaction", transactionId).scrollIntoView())
-  editor.view.dispatch(closeHistory(editor.state.tr))
+  if (options.historyBoundary !== false) editor.view.dispatch(closeHistory(editor.state.tr))
   return true
 }

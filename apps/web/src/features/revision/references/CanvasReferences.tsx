@@ -9,6 +9,7 @@ import { ReferenceSelectionPopover } from "./ReferenceSelectionPopover"
 import { prepareCanvasPrintSnapshot } from "../canvasPrintSnapshot"
 import { applyEditorTransaction } from "../editorTransaction"
 import { sameTemplateStyle } from "../documentLayout"
+import { MARKDOWN_SOURCE_SELECTION_EVENT, markdownSourceSelectionRect } from "../../workspace/editor/MarkdownSourceEditing"
 
 type CanvasSelection = Pick<EditorReference, "text" | "label" | "source"> & { rect: DOMRect; key: string }
 
@@ -74,19 +75,25 @@ export function CanvasReferences({ editor, canvasVersion, templateStyle }: { edi
 
   useEffect(() => {
     if (!editor || !documentId) return
+    const editorDom = editor.view.dom
     let dragging = false
     let alive = true
     const capture = () => {
-      if (!alive || editor.isDestroyed || dragging || !editor.isFocused) return
+      if (!alive || editor.isDestroyed || dragging) return
+      const sourceRect = markdownSourceSelectionRect(editor)
+      if (!editor.isFocused && !sourceRect) return
       const { from, to, empty, $from } = editor.state.selection
       if (empty) { setSelection(null); return }
       const text = editor.state.doc.textBetween(from, to, "\n", "\n")
       if (!text.trim()) { setSelection(null); return }
       let rect: DOMRect
       try {
-        const start = editor.view.coordsAtPos(from)
-        const end = editor.view.coordsAtPos(to)
-        rect = new DOMRect(start.left, end.top, Math.max(1, end.right - start.left), end.bottom - end.top)
+        if (sourceRect) rect = sourceRect
+        else {
+          const start = editor.view.coordsAtPos(from)
+          const end = editor.view.coordsAtPos(to)
+          rect = new DOMRect(start.left, end.top, Math.max(1, end.right - start.left), end.bottom - end.top)
+        }
       } catch { return }
       let nodeId: string | undefined
       for (let depth = $from.depth; depth > 0; depth--) {
@@ -101,10 +108,11 @@ export function CanvasReferences({ editor, canvasVersion, templateStyle }: { edi
     const onTransaction = ({ transaction }: { transaction: Transaction }) => {
       if (transaction.docChanged || transaction.getMeta(referenceTrackerKey)) contextRef.current?.updateTracked(referenceTrackerKey.getState(editor.state)?.references ?? [])
     }
-    const pointerDown = (event: PointerEvent) => { if (editor.view.dom.contains(event.target as Node)) dragging = true }
+    const pointerDown = (event: PointerEvent) => { if (editorDom.contains(event.target as Node)) dragging = true }
     const pointerUp = () => { if (dragging) { dragging = false; queueMicrotask(capture) } }
     editor.on("selectionUpdate", capture)
     editor.on("transaction", onTransaction)
+    editorDom.addEventListener(MARKDOWN_SOURCE_SELECTION_EVENT, capture)
     document.addEventListener("pointerdown", pointerDown, true)
     document.addEventListener("pointerup", pointerUp, true)
     document.addEventListener("scroll", capture, true)
@@ -113,6 +121,7 @@ export function CanvasReferences({ editor, canvasVersion, templateStyle }: { edi
       alive = false
       editor.off("selectionUpdate", capture)
       editor.off("transaction", onTransaction)
+      editorDom.removeEventListener(MARKDOWN_SOURCE_SELECTION_EVENT, capture)
       document.removeEventListener("pointerdown", pointerDown, true)
       document.removeEventListener("pointerup", pointerUp, true)
       document.removeEventListener("scroll", capture, true)

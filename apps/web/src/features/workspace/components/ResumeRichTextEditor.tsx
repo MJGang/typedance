@@ -5,12 +5,10 @@ import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
 import { Plugin, TextSelection, type Transaction } from "@tiptap/pm/state"
 import { EditorContent, ReactNodeViewRenderer, useEditor, useEditorState } from "@tiptap/react"
 import type { JSONContent } from "@tiptap/react"
-import StarterKit from "@tiptap/starter-kit"
 import DragHandle from "@tiptap/extension-drag-handle-react"
 import { PaginationPlus, PAGE_SIZES } from "tiptap-pagination-plus"
 import { Bold, Columns3, Eraser, Files, GripVertical, Hash, Heading1, Heading2, Heading3, Italic, List, ListOrdered, ListTree, Type, Underline } from "lucide-react"
 import { Column, Columns, type ColumnsCount, type ColumnsGap } from "@typedance/tiptap-layout"
-import { normalizeMarkdownListIndentation } from "@typedance/resume-markdown"
 import type { TemplateStyleConfig } from "@typedance/contracts"
 
 import { Button } from "@/components/ui/button"
@@ -34,9 +32,11 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { clearDuplicateCanvasNodeIds, looksLikeMarkdown } from "../editor"
+import { clearDuplicateCanvasNodeIds } from "../editor"
 import type { ResumeDocJson, ResumeEditorChange } from "../editor"
 import { blockStyleToCss, createResumeHeading, syncHeading2DecorationDom } from "../editor/ResumeHeading"
+import { MarkdownPaste, MarkdownStarterKit } from "../editor/MarkdownEditing"
+import { MarkdownSourceEditing } from "../editor/MarkdownSourceEditing"
 import { ColumnsNodeView } from "./ColumnsNodeView"
 import { ReferenceTracker } from "../../revision/references/referenceTracker"
 import { CanvasReferences } from "../../revision/references/CanvasReferences"
@@ -112,14 +112,6 @@ type ToolbarState = {
 }
 
 type ToolbarBlock = "paragraph" | "heading1" | "heading2" | "heading3" | "bulletList" | "orderedList" | "columns"
-
-type EditorMarkdownApi = {
-  parse: (markdown: string) => JSONContent
-}
-
-type MarkdownEditor = Editor & {
-  markdown?: EditorMarkdownApi
-}
 
 const inactiveToolbarState: ToolbarState = {
   isBold: false,
@@ -503,35 +495,6 @@ function clearDuplicateSourceCanvasIds(tr: Transaction, originalPositions = new 
   }
 }
 
-const PasteMarkdown = Extension.create({
-  name: "pasteMarkdown",
-
-  addProseMirrorPlugins() {
-    const { editor } = this
-
-    return [
-      new Plugin({
-        props: {
-          handlePaste(_view, event) {
-            const text = event.clipboardData?.getData("text/plain")
-
-            if (!text || !looksLikeMarkdown(text)) {
-              return false
-            }
-
-            const markdown = (editor as MarkdownEditor).markdown
-            if (!markdown) return false
-
-            const json = markdown.parse(normalizeMarkdownListIndentation(text))
-            editor.commands.insertContent(json)
-            return true
-          },
-        },
-      }),
-    ]
-  },
-})
-
 type ToolbarSelectProps<T extends string> = {
   ariaLabel: string
   tooltipLabel?: string
@@ -789,10 +752,11 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
 
     const editor = useEditor({
       extensions: [
-        StarterKit.configure({ heading: false }),
+        MarkdownStarterKit.configure({ heading: false }),
         resumeHeadingRef.current,
         Markdown,
-        PasteMarkdown,
+        MarkdownPaste,
+        MarkdownSourceEditing,
         ReferenceTracker,
         DocumentLayout,
         InlineStyle,
@@ -998,6 +962,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
     useEffect(() => {
       if (!editor || editor.isDestroyed) return
       if (editor.isEditable !== editable) {
+        if (!editable) editor.view.dom.dispatchEvent(new Event("typedance:render-markdown"))
         editor.setEditable(editable)
       }
       const next = editor.schema.nodeFromJSON(normalizedDocJson)
@@ -1044,7 +1009,6 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
 
     useEffect(() => stopBlockDragScrolling, [stopBlockDragScrolling])
 
-    const canEditParagraphStyle = toolbarState.activeBlock === "paragraph"
     const canEditBlockStyle = Boolean(editor) && toolbarState.activeBlock !== "columns"
     const updateCurrentBlockStyle = (attrs: Record<string, unknown>) => {
       if (!editor) return
@@ -1106,7 +1070,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
                 label="加粗"
                 icon={Bold}
                 isActive={toolbarState.isBold}
-                disabled={!editor || !canEditParagraphStyle}
+                disabled={!editor}
                 onClick={() => formatSelection("bold", !toolbarState.isBold)}
               />
               <ToolbarIconButton

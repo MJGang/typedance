@@ -20,6 +20,48 @@ beforeAll(() => {
 })
 afterEach(() => { cleanup(); vi.resetAllMocks() })
 
+describe("bold toolbar operations", () => {
+  it.each(["paragraph", "heading", "bulletList", "orderedList", "nestedList"])("adds and removes bold from selected text in %s without changing other text or marks", async (container) => {
+    const paragraph = { type: container === "heading" ? "heading" : "paragraph", attrs: { canvasNodeId: "target", ...(container === "heading" ? { level: 2 } : {}) },
+      content: [{ type: "text", text: "保留重点内容", marks: [{ type: "italic" }] }] }
+    const listItem = { type: "listItem", content: [paragraph] }
+    const content = container === "paragraph" || container === "heading" ? [paragraph]
+      : container === "nestedList" ? [{ type: "bulletList", content: [{ type: "listItem", content: [
+        { type: "paragraph", content: [{ type: "text", text: "父级" }] },
+        { type: "bulletList", content: [listItem] },
+      ] }] }]
+        : [{ type: container, content: [listItem] }]
+    const path = container === "paragraph" || container === "heading" ? [0]
+      : container === "nestedList" ? [0, 0, 1, 0, 0] : [0, 0, 0]
+    const start = container === "paragraph" || container === "heading" ? 3 : container === "nestedList" ? 11 : 5
+    const ref = createRef<ResumeRichTextEditorHandle>(), onChange = vi.fn()
+    render(<TooltipProvider><ResumeRichTextEditor ref={ref} ariaLabel="Resume text" templateStyle={defaultClassicA4Style}
+      docJson={{ type: "doc", content }} onChange={onChange} /></TooltipProvider>)
+    act(() => ref.current?.setTextSelection({ anchor: start, head: start + 2 }))
+
+    const bold = screen.getByLabelText("加粗", { exact: true })
+    expect(bold).toBeEnabled()
+    fireEvent.click(bold)
+    await waitFor(() => expect(screen.getByLabelText("Resume text").querySelector("strong")).toHaveTextContent("重点"))
+    expect(prepareEditorOperations).toHaveBeenLastCalledWith(expect.anything(), [{ capability: "text.format", parameters: {
+      path, text: "重点", occurrence: 0, mark: "bold", enabled: true,
+    } }], defaultClassicA4Style)
+    const result = onChange.mock.lastCall![0].docJson
+    const target = path.reduce((node, index) => node.content[index], result)
+    expect(target.attrs.canvasNodeId).toBe("target")
+    expect(target.content.map((node: { text: string }) => node.text)).toEqual(["保留", "重点", "内容"])
+    expect(target.content.every((node: { marks: Array<{ type: string }> }) => node.marks.some((mark) => mark.type === "italic"))).toBe(true)
+    expect(bold).toHaveAttribute("data-active", "true")
+
+    fireEvent.click(bold)
+    await waitFor(() => expect(screen.getByLabelText("Resume text").querySelector("strong")).toBeNull())
+    expect(bold).not.toHaveAttribute("data-active", "true")
+    const restored = path.reduce((node, index) => node.content[index], onChange.mock.lastCall![0].docJson)
+    expect(restored).toMatchObject(paragraph)
+    expect(prepareEditorOperations).toHaveBeenCalledTimes(2)
+  }, 15_000)
+})
+
 describe("heading to list toolbar operations", () => {
   it.each([1, 2, 3])("converts H%i and selected body together through one backend transaction", async (level) => {
     const ref = createRef<ResumeRichTextEditorHandle>()

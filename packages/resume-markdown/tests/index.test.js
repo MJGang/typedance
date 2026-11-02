@@ -2,9 +2,26 @@ import { describe, expect, it } from "vitest"
 import {
   markdownBlockToResumeDocNodes,
   markdownToResumeDocJson,
+  normalizeMarkdownListIndentation,
 } from "../src/index.js"
 
 describe("resume markdown conversion", () => {
+  it.each(["```", "~~~", "````"])("preserves exact list-shaped code within %s fences", (fence) => {
+    const code = `${fence}md\n- root\n    - child\n\t- tabbed\n${fence}`
+    const markdown = `- 外部\n    - 子项\n\n${code}\n\n- 另一项\n    - 子项`
+    expect(normalizeMarkdownListIndentation(markdown)).toBe(`- 外部\n  - 子项\n\n${code}\n\n- 另一项\n  - 子项`)
+  })
+
+  it.each([
+    "```md\n- root\n    - child",
+    "- ```md\n  - root\n      - child\n  ```",
+    "> ```md\n> - root\n>     - child\n> ```",
+    "```md\n    ```\n- root\n    - child\n```",
+    "````md\n```\n- root\n    - child\n````",
+  ])("does not rewrite code while fences are nested, incomplete or literal: %s", (markdown) => {
+    expect(normalizeMarkdownListIndentation(markdown)).toBe(markdown)
+  })
+
   it("converts Markdown syntax into Tiptap document JSON", () => {
     const doc = markdownToResumeDocJson("## 核心能力\n\n- **前端架构**: Vue\n\n---")
 
