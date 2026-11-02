@@ -1,5 +1,5 @@
 import { Extension, type Editor, type JSONContent } from "@tiptap/core"
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
+import type { Node as ProseMirrorNode, NodeType, Schema } from "@tiptap/pm/model"
 import { closeHistory } from "@tiptap/pm/history"
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state"
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view"
@@ -112,7 +112,7 @@ function preserveAttributes(previous: JSONContent[], blocks: JSONContent[]) {
 }
 
 /** Markdown 没有颜色、字号等语法；这些已有局部样式随原文和替换文字保留。 */
-function preserveInlineStyles(previous: JSONContent[], blocks: JSONContent[]) {
+function preserveInlineStyles(previous: JSONContent[], blocks: JSONContent[], schema: Schema) {
   type Style = NonNullable<JSONContent["marks"]>[number] | null
   const collect = (nodes: JSONContent[]) => {
     let text = "", count = 0
@@ -148,8 +148,9 @@ function preserveInlineStyles(previous: JSONContent[], blocks: JSONContent[]) {
       offset += change.value.length; replacing = false
     }
   }
-  const apply = (nodes: JSONContent[]): JSONContent[] => nodes.flatMap((node) => {
-    if (node.type !== "text") { if (node.content) node.content = apply(node.content); return [node] }
+  const apply = (nodes: JSONContent[], parent?: NodeType): JSONContent[] => nodes.flatMap((node) => {
+    if (node.type !== "text") { if (node.content) node.content = apply(node.content, schema.nodes[node.type ?? ""]); return [node] }
+    if (!schema.marks.inlineStyle || !parent?.allowsMarkType(schema.marks.inlineStyle)) return [node]
     if (node.marks?.some((mark) => mark.type === "inlineStyle" || mark.type === "code")) return [node]
     const start = next.starts.get(node)!, text = node.text ?? ""
     const result: JSONContent[] = []
@@ -174,7 +175,7 @@ function projectSource(editor: Editor, session: SourceSession, source: string) {
   const originalBlocks = previous[0]?.type === "listItem"
     ? [{ ...jsonAt(before, session.paths[0].slice(0, -1)), content: previous }] : previous
   preserveAttributes(originalBlocks, blocks)
-  preserveInlineStyles(previous, blocks)
+  preserveInlineStyles(previous, blocks, editor.schema)
   let replacement = blocks
   let paths = blocks.map((_, offset) => [...session.parent, session.index + offset])
   if (session.list) {

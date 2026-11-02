@@ -273,4 +273,19 @@ describe("local Markdown source editing", () => {
     source.blur()
     expect(editor.state.doc.firstChild?.textContent).toBe("- root2\n    - child\n\t- tabbed")
   })
+
+  it("does not inherit unsupported local styles when converting a paragraph to a code block", async () => {
+    const InlineStyle = Mark.create({ name: "inlineStyle",
+      addAttributes: () => ({ color: { default: null, parseHTML: (element: HTMLElement) => element.style.color } }),
+      parseHTML: () => [{ tag: "span[data-td-inline-style]" }], renderHTML: () => ["span", 0],
+    })
+    const editor = createEditor('<p><span data-td-inline-style style="color: #123456">当前</span></p>', [InlineStyle])
+    const source = await enter(editor, "当前")
+    input(source, "```text\n当前\n```")
+    source.blur()
+    expect(editor.state.doc.firstChild?.type.name).toBe("codeBlock")
+    expect(editor.state.doc.firstChild?.textContent).toBe("当前")
+    expect(editor.state.doc.firstChild?.firstChild?.marks).toEqual([])
+    expect(() => editor.state.doc.check()).not.toThrow()
+  })
 })
