@@ -45,17 +45,26 @@ export const TimelineLayout = Extension.create({
               const next = items[index + 1]
               const start = rect.top + center * scale
               const end = next ? next.rect.top + next.center * next.scale : start
-              const stops = ["#cbd9f3 0px"]
+              const height = Math.max(0, (end - start) / scale)
+              const segments: Array<[number, number]> = []
+              let cursor = 0
               for (const gap of breaks) {
                 if (gap.bottom <= start || gap.top >= end) continue
                 const from = Math.max(0, (gap.top - start) / scale)
-                const to = Math.min((end - start) / scale, (gap.bottom - start) / scale)
-                stops.push(`#cbd9f3 ${from}px`, `transparent ${from}px`, `transparent ${to}px`, `#cbd9f3 ${to}px`)
+                const to = Math.min(height, (gap.bottom - start) / scale)
+                if (from > cursor) segments.push([cursor, from])
+                cursor = Math.max(cursor, to)
               }
-              stops.push(`#cbd9f3 ${Math.max(0, (end - start) / scale)}px`)
+              if (cursor < height) segments.push([cursor, height])
               line.style.borderLeftWidth = "0"
               line.style.width = "1px"
-              line.style.backgroundImage = `linear-gradient(to bottom, ${stops.join(",")})`
+              // 实线片段可直接打印，避免 PDF 的透明渐变遮罩在页尾产生黑色细线。
+              line.replaceChildren(...segments.map(([from, to]) => {
+                const segment = document.createElement("span")
+                segment.className = "td-timeline-line-segment"
+                segment.style.cssText = `position:absolute;left:0;top:${from}px;width:1px;height:${to - from}px;background-color:#cbd9f3;pointer-events:none`
+                return segment
+              }))
             })
             // 无文档变更、无历史记录。现有分页器在 view.update 中读取最新 DOM。
             view.dispatch(view.state.tr.setMeta("addToHistory", false))

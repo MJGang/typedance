@@ -223,6 +223,7 @@ test("long rich timeline preserves text, decoration geometry and page positions 
   await openEditor(page, doc)
   await expect.poll(() => page.locator(".rm-pagination-gap").count()).toBeGreaterThan(1)
   await expect(page.locator(".td-timeline-line:visible")).toHaveCount(2)
+  await expect.poll(() => page.locator(".td-timeline-line-segment").count()).toBeGreaterThan(2)
   await expect(page.locator(".td-timeline-dot").nth(1)).toHaveCSS("background-color", "rgb(255, 255, 255)")
   const snapshot: CanvasPrintSnapshot = await page.evaluate(async () => {
     const { prepareCanvasPrintSnapshot } = await import("/src/features/revision/canvasPrintSnapshot.ts")
