@@ -4,6 +4,7 @@ import { BlockSelector } from "./BlockSelector";
 import { BlockStyleEditor } from "./BlockStyleEditor";
 import { ThemeSelector, type ThemeSelectorOption } from "./ThemeSelector";
 import { ThemeAccentColorControl } from "./ThemeAccentColorControl";
+import { DividerStyleEditor } from "./DividerStyleEditor";
 import { ColumnsSection } from "./sections/ColumnsSection";
 import type { ColumnsCount, ColumnsGap } from "@typedance/tiptap-layout";
 
@@ -38,7 +39,8 @@ export function StylePanel({
   onUnsetColumns,
   uiLanguage,
 }: StylePanelProps) {
-  const currentBlockStyle = styleConfig.blocks[activeBlock] ?? {};
+  const textBlock = activeBlock === "horizontalRule" ? "paragraph" : activeBlock;
+  const currentBlockStyle = styleConfig.blocks[textBlock];
 
   const handleBlockStyleChange = useCallback((newStyle: typeof currentBlockStyle) => {
     const next: TemplateStyleConfig = {
@@ -80,12 +82,15 @@ export function StylePanel({
             onUnsetColumns={onUnsetColumns}
           />
         )}
-        <BlockStyleEditor
-          blockType={activeBlock}
+        {activeBlock === "horizontalRule" ? <DividerStyleEditor
+          value={styleConfig.blocks.horizontalRule}
+          onChange={(horizontalRule) => onChange({ ...styleConfig, preset: "", blocks: { ...styleConfig.blocks, horizontalRule } })}
+        /> : <BlockStyleEditor
+          blockType={textBlock}
           value={currentBlockStyle}
           accentColor={styleConfig.theme.accentColor}
           onChange={handleBlockStyleChange}
-        />
+        />}
       </div>
 
     </div>

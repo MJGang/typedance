@@ -13,6 +13,22 @@ from typedance_sidecar.pdf import render_resume_html, resume_lines_for_pdf
 from typedance_sidecar.style_renderer import mix_hex_with_white
 
 
+@pytest.mark.parametrize("line_style", ["solid", "dashed", "dotted", "double"])
+def test_export_contains_configured_divider_and_selected_font_size(line_style):
+    payload = template_style_payload()
+    payload["blocks"]["horizontalRule"] = {"style": line_style, "width": "3px", "color": "#213547", "marginTop": "12px", "marginBottom": "12px"}
+    resume = ResumeVersion(id="divider-test", title="Projects", template_id="classic-a4", target_language="zh-CN",
+                           doc_json={"type": "doc", "content": [
+                               {"type": "paragraph", "content": [{"type": "text", "text": "2026年", "marks": [{"type": "inlineStyle", "attrs": {"fontSize": "12px"}}]}]},
+                               {"type": "horizontalRule"},
+                           ]}, plain_text_snapshot="", created_at="2026-01-01T00:00:00Z", updated_at="2026-01-01T00:00:00Z")
+    html = render_resume_html(resume, TemplateStyleConfig.model_validate(payload))
+    assert f"border-top: 3px {line_style} #213547" in html
+    assert "margin: 12px 0 12px;" in html
+    assert '<hr class="td-resume-divider">' in html
+    assert "font-size: 12px" in html
+
+
 @pytest.mark.parametrize("decoration_style", ["minimal-line", "accent-wash", "dot-ribbon"])
 def test_h2_styles_render_three_real_spans_with_marks(decoration_style):
     resume = ResumeVersion(

@@ -1,4 +1,4 @@
-import type { ComponentType, ReactNode, SVGProps } from "react"
+import { useId, useState, type ComponentType, type ReactNode, type SVGProps } from "react"
 import {
   AlignCenter,
   AlignJustify,
@@ -14,6 +14,9 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
@@ -157,6 +160,48 @@ export function ToolbarVerticalSeparator() {
     <span role="separator" aria-orientation="vertical" className="td-editor-toolbar-separator">
       |
     </span>
+  )
+}
+
+function FontSizeInput({ value, onChange }: { value: string; onChange: (value: string | null) => void }) {
+  const id = useId()
+  const [draft, setDraft] = useState(value.replace(/px$/, ""))
+  const match = draft.trim().match(/^(\d+)(?:px)?$/)
+  const size = match ? Number(match[1]) : NaN
+  const valid = Number.isInteger(size) && size >= 8 && size <= 72
+  const apply = () => { if (valid) onChange(`${size}px`) }
+  return (
+    <FieldGroup className="gap-3" onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); apply() } }}>
+      <Field data-invalid={!valid}>
+        <FieldLabel htmlFor={id}>字号（8–72 px）</FieldLabel>
+        <Input id={id} aria-label="字号数值" inputMode="numeric" value={draft} aria-invalid={!valid} onChange={(event) => setDraft(event.target.value)} />
+      </Field>
+      <div className="flex gap-2">
+        <Button type="button" size="sm" disabled={!valid} onClick={apply}>应用字号</Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => onChange(null)}>恢复模板</Button>
+      </div>
+    </FieldGroup>
+  )
+}
+
+export function FontSizeToolbarButton({ value, disabled, onChange }: { value: string; disabled?: boolean; onChange: (value: string | null) => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button type="button" variant="ghost" size="sm" aria-label="字号" disabled={disabled} className="td-editor-toolbar-button min-w-16 gap-1">
+              <span>{value.replace(/px$/, "")}</span><span className="text-xs text-muted-foreground">px</span><span className="td-toolbar-triangle" aria-hidden="true" />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>选中文字的字号</TooltipContent>
+      </Tooltip>
+      <PopoverContent align="start" className="w-60">
+        <FontSizeInput value={value} onChange={(size) => { onChange(size); setOpen(false) }} />
+      </PopoverContent>
+    </Popover>
   )
 }
 

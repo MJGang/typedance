@@ -44,6 +44,23 @@ def test_style_config_round_trip(client):
     assert data["blocks"]["heading2"]["decorationStyle"] == "accent-wash"
 
 
+def test_divider_style_round_trip(client):
+    payload = template_style_payload()
+    divider = {"style": "double", "width": "3px", "color": "#213547", "marginTop": "12px", "marginBottom": "12px"}
+    payload["blocks"]["horizontalRule"] = divider
+    response = client.put("/template-styles/classic-a4", json=payload)
+    assert response.status_code == 200, response.text
+    assert client.get("/template-styles/classic-a4").json()["blocks"]["horizontalRule"] == divider
+
+
+@pytest.mark.parametrize("patch", [{"style": "unknown"}, {"width": "-1px"}, {"color": "red"}, {"marginTop": "12px; color:red"}])
+def test_divider_style_rejects_invalid_values(client, patch):
+    payload = template_style_payload()
+    payload["blocks"]["horizontalRule"] = patch
+    response = client.put("/template-styles/classic-a4", json=payload)
+    assert response.status_code == 422, response.text
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
