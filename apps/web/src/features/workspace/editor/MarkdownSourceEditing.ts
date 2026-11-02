@@ -556,8 +556,9 @@ export const MarkdownSourceEditing = Extension.create({
                 decorations.push(Decoration.node(item.position, item.position + item.node.nodeSize, { "data-markdown-source-list": "" }))
               }
               decorations.push(Decoration.widget(from, createInput, { key: active.id, side: -1, stopEvent: () => true, ignoreSelection: true }))
+              return DecorationSet.create(state.doc, decorations)
             }
-            return DecorationSet.create(state.doc, decorations)
+            // *** 等合法中间状态可能成为分割线；没有文字位置时仍在根节点上保留输入框。
           }
           const hide = (node: ProseMirrorNode, position: number) => {
             if (first && position === first.position) {

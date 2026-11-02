@@ -193,3 +193,21 @@ test("preserves a source selection while revealing the toolbar", async ({ page }
   await page.getByRole("button", { name: "斜体", exact: true }).click()
   await expect(page.locator(".td-rich-editor-prosemirror em")).toHaveText("需求")
 })
+
+test("keeps typing focused through a divider intermediate state in inline source", async ({ page }) => {
+  await openCanvas(page)
+  const editor = page.locator(".td-rich-editor-prosemirror")
+  const source = editor.locator("textarea")
+  await editor.locator("strong").filter({ hasText: "需求背景" }).click()
+  await source.press("Control+A")
+  let typed = ""
+  for (const character of "***新文字***") {
+    typed += character
+    await page.keyboard.type(character)
+    await expect(source).toHaveValue(typed)
+    await expect(source).toBeFocused()
+  }
+  await page.keyboard.press("Escape")
+  await expect(editor.locator("strong em")).toHaveText("新文字")
+  await expect(editor.locator("p").filter({ hasText: "这里是需求" })).toBeVisible()
+})

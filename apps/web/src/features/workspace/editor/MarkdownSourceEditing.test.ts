@@ -77,6 +77,25 @@ describe("local Markdown source editing", () => {
     expect(editor.state.doc.textContent).toBe("前缀修改后缀正文")
   })
 
+  it("keeps inline source mounted while intermediate Markdown becomes a divider", async () => {
+    const editor = createEditor("<p><strong>原文</strong></p><p>相邻正文</p>")
+    await enter(editor, "原文")
+    const markdown = "***新文字***"
+    for (let end = 1; end <= markdown.length; end++) {
+      const source = editor.view.dom.querySelector<HTMLTextAreaElement>("textarea")!
+      input(source, markdown.slice(0, end))
+      await Promise.resolve()
+      const mounted = editor.view.dom.querySelector<HTMLTextAreaElement>("textarea")
+      expect(mounted).not.toBeNull()
+      expect(mounted?.value).toBe(markdown.slice(0, end))
+      expect(document.activeElement).toBe(mounted)
+      expect(() => editor.state.doc.check()).not.toThrow()
+    }
+    editor.view.dom.querySelector<HTMLTextAreaElement>("textarea")!.blur()
+    expect(editor.view.dom.querySelector("strong em")?.textContent).toBe("新文字")
+    expect(editor.state.doc.lastChild?.textContent).toBe("相邻正文")
+  })
+
   it("reveals only the active marked text and preserves the rest of its paragraph", async () => {
     const editor = createEditor("<p><strong>当前</strong>内容</p><p><em>相邻段落</em></p>")
     const source = await enter(editor, "当前")
