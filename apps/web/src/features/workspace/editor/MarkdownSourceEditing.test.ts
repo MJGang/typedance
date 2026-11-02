@@ -13,10 +13,11 @@ function createEditor(content: string, extra: Extensions = []) {
   editors.push(editor)
   return editor
 }
-async function enter(editor: Editor, text: string) {
+async function enter(editor: Editor, text: string, marker = false) {
   let position = 1
   editor.state.doc.descendants((node, pos) => { if (node.isText && node.text?.includes(text)) position = pos })
-  editor.view.someProp("handleClick", (handler) => handler(editor.view, position, new MouseEvent("click")))
+  editor.view.someProp("handleClick", (handler) => handler(editor.view, position, new MouseEvent("click", { clientX: marker ? -1 : 1 })))
+  await Promise.resolve()
   await Promise.resolve()
   return editor.view.dom.querySelector<HTMLTextAreaElement>("[data-markdown-source-input]")!
 }
@@ -28,10 +29,58 @@ function input(source: HTMLTextAreaElement, text: string) {
 afterEach(() => { editors.splice(0).forEach((editor) => { const root = editor.view.dom.parentElement; editor.destroy(); root?.remove() }) })
 
 describe("local Markdown source editing", () => {
-  it("reveals only the active paragraph and renders its source edits on blur", async () => {
+  it("opens and focuses source after the editor recreates plugin views", async () => {
+    const editor = createEditor("<h2>项目背景</h2>")
+    editor.view.setProps({ plugins: [] })
+    const source = await enter(editor, "项目背景")
+    expect(source.value).toBe("## 项目背景")
+    expect(document.activeElement).toBe(source)
+    input(source, "## 修改背景")
+    source.blur()
+    expect(editor.state.doc.textContent).toBe("修改背景")
+  })
+
+  it.each(["ul", "ol"])("keeps %s content rendered until its marker is targeted", async (tag) => {
+    const editor = createEditor(`<${tag}><li><p>普通内容 <strong>加粗内容</strong> 其他文字</p></li></${tag}>`)
+    const plain = await enter(editor, "普通内容")
+    expect(plain).toBeNull()
+    const marked = await enter(editor, "加粗内容")
+    expect(marked.value).toBe("**加粗内容**")
+    expect(editor.view.dom.querySelector("li[data-markdown-source-list]")).toBeNull()
+    input(marked, "**调整**")
+    marked.blur()
+    expect(editor.state.doc.textContent).toBe("普通内容 调整 其他文字")
+    const marker = await enter(editor, "普通内容", true)
+    expect(marker.value).toBe(tag === "ul" ? "- " : "1. ")
+    expect(editor.view.dom.querySelector("strong")?.textContent).toBe("调整")
+  })
+
+  it("maps a clicked Chinese heading position to the same character in source", async () => {
+    const editor = createEditor("<h2>项目背景</h2><p>面向 ETC 业务人员</p>")
+    editor.view.someProp("handleClick", (handler) => handler(editor.view, 4, new MouseEvent("click")))
+    await Promise.resolve()
+    await Promise.resolve()
+    const source = editor.view.dom.querySelector<HTMLTextAreaElement>("textarea")!
+    expect(source.value).toBe("## 项目背景")
+    expect(source.selectionStart).toBe(6)
+    expect(document.activeElement).toBe(source)
+  })
+
+  it("isolates nested inline syntax without expanding the surrounding list or outer mark", async () => {
+    const editor = createEditor("<ul><li><p><strong>前缀<em>嵌套</em>后缀</strong>正文</p></li></ul>")
+    const source = await enter(editor, "嵌套")
+    expect(source.value).toBe("*嵌套*")
+    input(source, "*修改*")
+    source.blur()
+    expect(editor.view.dom.querySelector("li strong")?.textContent).toBe("前缀修改后缀")
+    expect(editor.view.dom.querySelector("li em")?.textContent).toBe("修改")
+    expect(editor.state.doc.textContent).toBe("前缀修改后缀正文")
+  })
+
+  it("reveals only the active marked text and preserves the rest of its paragraph", async () => {
     const editor = createEditor("<p><strong>当前</strong>内容</p><p><em>相邻段落</em></p>")
     const source = await enter(editor, "当前")
-    expect(source.value).toBe("**当前**内容")
+    expect(source.value).toBe("**当前**")
     expect(editor.view.dom.querySelectorAll("textarea")).toHaveLength(1)
     expect(editor.view.dom.querySelector("p:last-child em")?.textContent).toBe("相邻段落")
     input(source, "**Agent 应用：** 熟悉、**意图识别**、*斜体*和`代码`")
@@ -42,13 +91,14 @@ describe("local Markdown source editing", () => {
     expect(editor.view.dom.querySelector("textarea")).toBeNull()
     expect(editor.view.dom.querySelector("strong")?.textContent).toBe("Agent 应用：")
     expect(editor.view.dom.querySelector("code")?.textContent).toBe("代码")
+    expect(editor.state.doc.firstChild?.textContent).toMatch(/内容$/)
   })
 
   it("edits one list item without changing its siblings or nesting", async () => {
     const editor = createEditor("<ul><li><p>前项</p></li><li><p><strong>当前</strong></p><ul><li><p>子项</p></li></ul></li><li><p>后项</p></li></ul>")
     const before = editor.getJSON().content![0].content! as JSONContent[]
     const source = await enter(editor, "当前")
-    expect(source.value).toContain("- **当前**")
+    expect(source.value).toBe("**当前**")
     expect(source.value).not.toContain("前项")
     expect(source.value).not.toContain("后项")
     input(source, source.value.replace("当前", "修改"))
@@ -73,9 +123,12 @@ describe("local Markdown source editing", () => {
 
   it("changes a middle list item into a paragraph without deleting adjacent items", async () => {
     const editor = createEditor("<ul><li><p>前项</p></li><li><p>当前</p></li><li><p>后项</p></li></ul>")
-    const source = await enter(editor, "当前")
-    input(source, "**独立段落**")
-    input(editor.view.dom.querySelector<HTMLTextAreaElement>("textarea")!, "**独立段落更新**")
+    const source = await enter(editor, "当前", true)
+    expect(source.value).toBe("- ")
+    input(source, "")
+    editor.view.dom.querySelector<HTMLTextAreaElement>("textarea")!.blur()
+    const paragraph = await enter(editor, "当前")
+    input(paragraph, "**独立段落更新**")
     editor.view.dom.querySelector<HTMLTextAreaElement>("textarea")!.blur()
     expect(editor.getJSON().content!.slice(0, 3).map((node) => node.type)).toEqual(["bulletList", "paragraph", "bulletList"])
     expect(editor.state.doc.textContent).toBe("前项独立段落更新后项")
@@ -145,7 +198,7 @@ describe("local Markdown source editing", () => {
     const Ids = Extension.create({ name: "testIds", addGlobalAttributes: () => [{ types: ["paragraph", "listItem"], attributes: {
       canvasNodeId: { default: null, parseHTML: (element: HTMLElement) => element.getAttribute("data-canvas-node-id") },
     } }] })
-    const editor = createEditor('<ul><li data-canvas-node-id="item"><p data-canvas-node-id="main">当前</p><ul><li data-canvas-node-id="nested-item"><p data-canvas-node-id="nested">子项</p></li></ul></li></ul>', [Ids])
+    const editor = createEditor('<ul><li data-canvas-node-id="item"><p data-canvas-node-id="main"><strong>当前</strong></p><ul><li data-canvas-node-id="nested-item"><p data-canvas-node-id="nested">子项</p></li></ul></li></ul>', [Ids])
     const source = await enter(editor, "当前")
     input(source, source.value.replace("当前", "修改"))
     source.blur()

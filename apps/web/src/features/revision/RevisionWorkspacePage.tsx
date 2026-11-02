@@ -722,6 +722,8 @@ function RevisionWorkspaceContent() {
                     size="icon-sm"
                     aria-label={editorToolbarVisible ? "隐藏格式工具栏" : "显示格式工具栏"}
                     aria-pressed={editorToolbarVisible}
+                    onMouseDown={(event) => event.preventDefault()}
+                    data-preserve-editor-selection=""
                     onClick={() => setEditorToolbarVisible((visible) => !visible)}
                   >
                     <SlidersHorizontal />

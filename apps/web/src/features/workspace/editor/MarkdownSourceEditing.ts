@@ -19,6 +19,11 @@ type SourceSession = {
   list?: ListContext
   caret: number
   pendingMarks?: JSONContent["marks"]
+  slice?: { from: number; to: number }
+}
+
+function visibleSource(session: SourceSession) {
+  return session.slice ? session.source.slice(session.slice.from, session.slice.to) : session.source
 }
 
 export const markdownSourceKey = new PluginKey<SourceSession | null>("markdownSourceEditing")
@@ -86,6 +91,8 @@ function sourceOffsets(source: string, rendered: string): number[] {
 }
 
 function documentSelection(doc: ProseMirrorNode, session: SourceSession, start: number, end: number, backward = false) {
+  start += session.slice?.from ?? 0
+  end += session.slice?.from ?? 0
   const rendered = renderedText(doc, session.paths)
   const offsets = sourceOffsets(session.source, rendered.text)
   const from = rendered.positions[offsets[start]], to = rendered.positions[offsets[end]]
@@ -205,7 +212,7 @@ function serializeSource(editor: Editor, doc: JSONContent, paths: number[][]): s
   return editor.markdown!.serialize({ type: "doc", content })
 }
 
-function startSession(editor: Editor, position: number): SourceSession | null {
+function startSession(editor: Editor, position: number, marker = false): SourceSession | null {
   const resolved = editor.state.doc.resolve(position)
   let depth = resolved.depth
   while (depth > 0 && !resolved.node(depth).isTextblock) depth--
@@ -230,6 +237,41 @@ function startSession(editor: Editor, position: number): SourceSession | null {
   const offset = Math.max(0, rendered.positions.findIndex((value) => value >= position))
   const mapping = sourceOffsets(source, rendered.text)
   session.caret = Math.max(0, mapping.findIndex((value) => value >= offset))
+  if (itemDepth && marker) {
+    const prefix = source.match(/^(?:[-+*]|\d+[.)])[ \t]+/)?.[0]
+    if (!prefix) return null
+    session.slice = { from: 0, to: prefix.length }
+    session.caret = prefix.length
+  } else {
+    // 行内格式只展开命中的连续标记区域，保留同一段落其余内容的渲染。
+    const block = resolved.node(depth)
+    const local = position - resolved.start(depth)
+    let cursor = 0
+    const runs: Array<{ from: number; to: number; node: ProseMirrorNode }> = []
+    block.forEach((node) => { runs.push({ from: cursor, to: cursor + node.nodeSize, node }); cursor += node.nodeSize })
+    const hit = runs.findIndex((run) => local >= run.from && local < run.to)
+    const marks = hit < 0 ? [] : runs[hit].node.marks.filter((mark) => ["bold", "italic", "strike", "code", "link", "underline"].includes(mark.type.name))
+    const mark = marks[marks.length - 1]
+    if (mark) {
+      let first = hit, last = hit
+      while (first > 0 && mark.isInSet(runs[first - 1].node.marks)) first--
+      while (last + 1 < runs.length && mark.isInSet(runs[last + 1].node.marks)) last++
+      const surrounding = [...(runs[first - 1]?.node.marks ?? []), ...(runs[last + 1]?.node.marks ?? [])]
+      const content = runs.slice(first, last + 1).map((run) => {
+        const node = run.node.toJSON() as JSONContent
+        node.marks = node.marks?.filter((value) => !editor.schema.markFromJSON(value).isInSet(surrounding))
+        return node
+      })
+      const inline = editor.markdown.serialize({ type: "doc", content: [{ type: "paragraph", content }] })
+      const plainOffset = rendered.positions.indexOf(resolved.start(depth) + runs[first].from)
+      let from = source.indexOf(inline)
+      while (from >= 0 && mapping[from] !== plainOffset) from = source.indexOf(inline, from + 1)
+      if (from >= 0) {
+        session.slice = { from, to: from + inline.length }
+        session.caret = Math.max(0, Math.min(inline.length, session.caret - from))
+      }
+    } else if (itemDepth) return null
+  }
   return session
 }
 
@@ -245,7 +287,7 @@ export const MarkdownSourceEditing = Extension.create({
       let session = markdownSourceKey.getState(view.state)
       if (!session) return
       const input = view.dom.querySelector<HTMLTextAreaElement>("[data-markdown-source-input]")
-      if (input && input.value !== session.source) {
+      if (input && input.value !== visibleSource(session)) {
         input.dispatchEvent(new Event("typedance:commit-markdown-source"))
         session = markdownSourceKey.getState(view.state)
         if (!session) return
@@ -255,9 +297,9 @@ export const MarkdownSourceEditing = Extension.create({
       if (selection) transaction = transaction.setSelection(selection)
       view.dispatch(transaction)
     }
-    const begin = (position: number) => {
+    const begin = (position: number, marker = false) => {
       if (!editor.isEditable || markdownSourceKey.getState(view.state)) return
-      const session = startSession(editor, position)
+      const session = startSession(editor, position, marker)
       if (session) view.dispatch(closeHistory(view.state.tr).setMeta(markdownSourceKey, session))
     }
     const createInput = () => {
@@ -265,17 +307,31 @@ export const MarkdownSourceEditing = Extension.create({
       const wrapper = document.createElement("span")
       wrapper.contentEditable = "false"
       wrapper.dataset.markdownSourceWidget = ""
-      wrapper.className = "block w-full"
+      wrapper.className = session.slice ? "inline-grid max-w-full align-baseline" : "block w-full"
       const input = document.createElement("textarea")
       input.dataset.markdownSourceInput = ""
       input.setAttribute("aria-label", "当前段落 Markdown 源码")
       input.className = "block w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-inherit outline-none"
       input.style.font = "inherit"
-      input.value = session.source
-      const resize = () => { input.style.height = "0px"; input.style.height = `${input.scrollHeight}px` }
+      input.style.lineHeight = "inherit"
+      input.rows = 1
+      input.value = visibleSource(session)
+      const measure = document.createElement("span")
+      if (session.slice) {
+        input.cols = 1
+        measure.setAttribute("aria-hidden", "true")
+        measure.className = "invisible whitespace-pre-wrap [grid-area:1/1]"
+        input.className = "m-0 block min-w-0 w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-inherit outline-none [grid-area:1/1]"
+        wrapper.append(measure)
+      }
+      const resize = () => {
+        measure.textContent = input.value || " "
+        input.style.height = "0px"
+        input.style.height = `${input.scrollHeight}px`
+      }
       const syncSelection = () => {
         const active = markdownSourceKey.getState(view.state)
-        if (active?.id !== session.id || input.value !== active.source) return
+        if (active?.id !== session.id || input.value !== visibleSource(active)) return
         const selection = documentSelection(view.state.doc, active, input.selectionStart, input.selectionEnd, input.selectionDirection === "backward")
         const moved = input.selectionStart !== active.caret || input.selectionStart !== input.selectionEnd
         if (selection && (!selection.eq(view.state.selection) || (moved && active.pendingMarks !== undefined))) {
@@ -291,17 +347,22 @@ export const MarkdownSourceEditing = Extension.create({
         let insertedFrom = 0, insertedTo = 0
         const pending = current.pendingMarks
         if (pending !== undefined) {
+          const previous = visibleSource(current)
           let prefix = 0, suffix = 0
-          while (prefix < current.source.length && prefix < input.value.length && current.source[prefix] === input.value[prefix]) prefix++
-          while (suffix < current.source.length - prefix && suffix < input.value.length - prefix
-            && current.source[current.source.length - suffix - 1] === input.value[input.value.length - suffix - 1]) suffix++
+          while (prefix < previous.length && prefix < input.value.length && previous[prefix] === input.value[prefix]) prefix++
+          while (suffix < previous.length - prefix && suffix < input.value.length - prefix
+            && previous[previous.length - suffix - 1] === input.value[input.value.length - suffix - 1]) suffix++
           const inserted = input.value.slice(prefix, input.value.length - suffix)
           if (inserted.trim()) {
             insertedFrom = prefix; insertedTo = prefix + inserted.length
           }
         }
         const selection = { start: input.selectionStart, end: input.selectionEnd }
-        const projected = projectSource(editor, current, input.value)
+        const source = current.slice
+          ? current.source.slice(0, current.slice.from) + input.value + current.source.slice(current.slice.to)
+          : input.value
+        const projected = projectSource(editor, current, source)
+        if (current.slice) projected.session.slice = { from: current.slice.from, to: current.slice.from + input.value.length }
         projected.session.caret = selection.start
         if (pending !== undefined && insertedTo > insertedFrom) {
           const doc = editor.schema.nodeFromJSON(projected.after)
@@ -315,9 +376,13 @@ export const MarkdownSourceEditing = Extension.create({
             const rendered = renderedText(transform.doc, projected.session.paths)
             const offset = Math.max(0, rendered.positions.findIndex((position) => position >= range.to))
             const mapping = sourceOffsets(source, rendered.text)
-            selection.start = selection.end = Math.max(0, mapping.findIndex((position) => position >= offset))
-            input.value = source
+            if (projected.session.slice) {
+              const offsets = sourceOffsets(projected.session.source, source)
+              projected.session.slice = { from: offsets[projected.session.slice.from], to: offsets[projected.session.slice.to] }
+            }
             projected.session.source = source
+            selection.start = selection.end = Math.max(0, mapping.findIndex((position) => position >= offset) - (projected.session.slice?.from ?? 0))
+            input.value = visibleSource(projected.session)
             projected.session.caret = selection.start
           }
           projected.session.pendingMarks = undefined
@@ -371,6 +436,16 @@ export const MarkdownSourceEditing = Extension.create({
         const next = ["ArrowRight", "ArrowDown"].includes(event.key) && input.selectionEnd === input.value.length
         const active = markdownSourceKey.getState(view.state)
         if (!event.shiftKey && input.selectionStart === input.selectionEnd && active && (previous || next)) {
+          if (active.slice && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
+            const boundary = documentSelection(view.state.doc, active, previous ? 0 : input.value.length, previous ? 0 : input.value.length)
+            if (boundary) {
+              event.preventDefault()
+              finish()
+              view.dispatch(view.state.tr.setSelection(boundary))
+              view.focus()
+              return
+            }
+          }
           const roots = active.paths.map((path) => nodeAtPath(view.state.doc, path))
           const from = roots[0].position
           const last = roots[roots.length - 1]
@@ -424,12 +499,32 @@ export const MarkdownSourceEditing = Extension.create({
       props: {
         handleClick(_view, position, event) {
           if (event.shiftKey || event.ctrlKey || event.metaKey) return false
-          begin(position)
-          return Boolean(markdownSourceKey.getState(view.state))
+          // 在浏览器按旧布局完成落点后展开，避免 mouseup 将光标重定位到重排后的正文。
+          const resolved = view.state.doc.resolve(position)
+          const block = resolved.parent.isTextblock ? view.nodeDOM(resolved.before()) : null
+          let marker = block instanceof HTMLElement && Boolean(block.closest("li"))
+            && event.clientX <= block.getBoundingClientRect().left
+          let targetPosition = position
+          const target = event.target instanceof Element ? event.target : null
+          const list = target?.closest("ul, ol")
+          if (list) {
+            // ::marker 位于 li 的内容盒之外，浏览器可能将点击目标报告为外层 ul/ol。
+            const paragraph = Array.from(list.querySelectorAll<HTMLElement>("li > p:first-child")).find((element) => {
+              const rect = element.getBoundingClientRect()
+              return event.clientY >= rect.top && event.clientY <= rect.bottom
+                && event.clientX <= rect.left && event.clientX >= rect.left - 48
+            })
+            if (paragraph) { marker = true; targetPosition = view.posAtDOM(paragraph, 0) }
+          }
+          queueMicrotask(() => {
+            if (!disposed && view.state.selection.empty) begin(targetPosition, marker)
+          })
+          return false
         },
         handleTextInput(_view, from, to, text) {
           if (from !== to || !editor.isEditable) return false
-          begin(from)
+          const resolved = view.state.doc.resolve(from)
+          begin(from, resolved.parentOffset === 0)
           const input = view.dom.querySelector<HTMLTextAreaElement>("[data-markdown-source-input]")
           const active = markdownSourceKey.getState(view.state)
           if (!input || !active) return false
@@ -440,7 +535,7 @@ export const MarkdownSourceEditing = Extension.create({
         },
         handleKeyDown(_view, event) {
           if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key) && !event.shiftKey) queueMicrotask(() => {
-            if (!disposed && view.hasFocus() && view.state.selection.empty) begin(view.state.selection.from)
+            if (!disposed && view.hasFocus() && view.state.selection.empty) begin(view.state.selection.from, view.state.selection.$from.parentOffset === 0)
           })
           return false
         },
@@ -450,6 +545,20 @@ export const MarkdownSourceEditing = Extension.create({
           const decorations: Decoration[] = []
           const roots = active.paths.map((path) => nodeAtPath(state.doc, path))
           const first = roots.map(({ node, position }) => firstTextblock(node, position)).find(Boolean)
+          if (active.slice) {
+            const rendered = renderedText(state.doc, active.paths)
+            const mapping = sourceOffsets(active.source, rendered.text)
+            const from = rendered.positions[mapping[active.slice.from]], to = rendered.positions[mapping[active.slice.to]]
+            if (from !== undefined && to !== undefined) {
+              if (from < to) decorations.push(Decoration.inline(from, to, { "data-markdown-source-hidden": "" }))
+              if (active.list && active.slice.from === 0) {
+                const item = roots[0]
+                decorations.push(Decoration.node(item.position, item.position + item.node.nodeSize, { "data-markdown-source-list": "" }))
+              }
+              decorations.push(Decoration.widget(from, createInput, { key: active.id, side: -1, stopEvent: () => true, ignoreSelection: true }))
+            }
+            return DecorationSet.create(state.doc, decorations)
+          }
           const hide = (node: ProseMirrorNode, position: number) => {
             if (first && position === first.position) {
               if (node.content.size) decorations.push(Decoration.inline(position + 1, position + node.nodeSize - 1, { "data-markdown-source-hidden": "" }))
@@ -466,8 +575,10 @@ export const MarkdownSourceEditing = Extension.create({
       },
       view(editorView) {
         view = editorView
+        // Tiptap 更新 editor props 时会重建插件视图，同一个插件仍需正常接受输入和聚焦。
+        disposed = false
         const outside = (event: PointerEvent) => {
-          if (event.target instanceof Element && !event.target.closest("[data-markdown-source-widget]")) finish()
+          if (event.target instanceof Element && !event.target.closest("[data-markdown-source-widget], [data-preserve-editor-selection]")) finish()
         }
         document.addEventListener("pointerdown", outside, true)
         view.dom.addEventListener("typedance:render-markdown", finish)
