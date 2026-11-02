@@ -1,0 +1,44 @@
+{
+  "type": "doc",
+  "content": [
+    {"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"工作经历"}]},
+    {"type":"timeline","content":[
+      {"type":"timelineItem","content":[
+        {"type":"columns","attrs":{"count":3,"widths":[50,25,25],"gap":"compact"},"content":[
+          {"type":"column","content":[{"type":"heading","attrs":{"level":3},"content":[{"type":"text","text":"示例科技有限公司"}]}]},
+          {"type":"column","content":[{"type":"paragraph","content":[{"type":"text","text":"前端负责人","marks":[{"type":"inlineStyle","attrs":{"fontSize":"12px","color":"#64748b"}}]}]}]},
+          {"type":"column","content":[{"type":"paragraph","attrs":{"textAlign":"right"},"content":[{"type":"text","text":"2023.02 - 2026.02","marks":[{"type":"inlineStyle","attrs":{"fontSize":"12px","color":"#2563eb"}}]}]}]}
+        ]},
+        {"type":"bulletList","attrs":{"listStyleType":"disc"},"content":[
+          {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"知识库建设：","marks":[{"type":"bold"}]},{"type":"text","text":"负责文档处理、检索和问答功能建设，保持信息准确，持续改善使用体验。"}]}]},
+          {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"核心业务交付：","marks":[{"type":"bold"}]},{"type":"text","text":"负责管理后台与前端应用的架构和交付，完善自动化验证与日常维护。"}]}]},
+          {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"工程效能建设：","marks":[{"type":"bold"}]},{"type":"text","text":"统一项目结构、模块规范和开发流程，推动团队协作。"}]}]}
+        ]}
+      ]},
+      {"type":"timelineItem","content":[
+        {"type":"columns","attrs":{"count":3,"widths":[50,25,25],"gap":"compact"},"content":[
+          {"type":"column","content":[{"type":"heading","attrs":{"level":3},"content":[{"type":"text","text":"示例电子商务有限公司"}]}]},
+          {"type":"column","content":[{"type":"paragraph","content":[{"type":"text","text":"高级技术经理"}]}]},
+          {"type":"column","content":[{"type":"paragraph","attrs":{"textAlign":"right"},"content":[{"type":"text","text":"2019.08 - 2022.12"}]}]}
+        ]},
+        {"type":"orderedList","attrs":{"listStyleType":"decimal"},"content":[
+          {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"平台建设：负责复杂表格、查询面板和数据分析功能。"}]},{"type":"bulletList","attrs":{"listStyleType":"circle"},"content":[
+            {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"数据处理与界面渲染分离。"}]}]},
+            {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"统一图表适配与页面状态管理。"}]}]}
+          ]}]},
+          {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"工程规范：完善代码评审与技术文档，降低重复开发成本。"}]}]}
+        ]}
+      ]},
+      {"type":"timelineItem","content":[
+        {"type":"heading","attrs":{"level":3},"content":[{"type":"text","text":"示例软件有限公司"}]},
+        {"type":"paragraph","content":[{"type":"text","text":"保留一个可以继续编辑的段落。"}]},
+        {"type":"orderedList","attrs":{"listStyleType":"lower-alpha"},"content":[
+          {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"业务系统开发与维护。"}]}]},
+          {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"工具建设与协作流程改进。"}]}]}
+        ]},
+        {"type":"horizontalRule"}
+      ]}
+    ]},
+    {"type":"paragraph","content":[{"type":"text","text":"其他经历保持正常编辑。"}]}
+  ]
+}

@@ -6,6 +6,10 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
+    "./timeline-style": {
+      "types": "./src/timeline-style.ts",
+      "import": "./src/timeline-style.ts"
+    },
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"
