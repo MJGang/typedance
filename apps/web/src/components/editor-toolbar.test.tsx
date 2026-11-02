@@ -20,7 +20,7 @@ describe("EditorToolbar", () => {
   it.each(["12", "invalid"])("keeps native Enter activation on the reset button with draft %s", (draft) => {
     const onChange = vi.fn()
     render(<EditorToolbar><FontSizeToolbarButton value="16px" onChange={onChange} /></EditorToolbar>)
-    fireEvent.click(screen.getByRole("button", { name: "字号", exact: true }))
+    fireEvent.click(screen.getByRole("button", { name: "字号" }))
     fireEvent.change(screen.getByRole("textbox", { name: "字号数值" }), { target: { value: draft } })
     const reset = screen.getByRole("button", { name: "恢复模板" })
     reset.focus()
