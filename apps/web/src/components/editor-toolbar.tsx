@@ -171,10 +171,10 @@ function FontSizeInput({ value, onChange }: { value: string; onChange: (value: s
   const valid = Number.isInteger(size) && size >= 8 && size <= 72
   const apply = () => { if (valid) onChange(`${size}px`) }
   return (
-    <FieldGroup className="gap-3" onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); apply() } }}>
+    <FieldGroup className="gap-3">
       <Field data-invalid={!valid}>
         <FieldLabel htmlFor={id}>字号（8–72 px）</FieldLabel>
-        <Input id={id} aria-label="字号数值" inputMode="numeric" value={draft} aria-invalid={!valid} onChange={(event) => setDraft(event.target.value)} />
+        <Input id={id} aria-label="字号数值" inputMode="numeric" value={draft} aria-invalid={!valid} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); apply() } }} />
       </Field>
       <div className="flex gap-2">
         <Button type="button" size="sm" disabled={!valid} onClick={apply}>应用字号</Button>
