@@ -69,6 +69,22 @@ def test_invalid_targets_do_not_change_source():
     assert source == before
 
 
+@pytest.mark.parametrize("kind", ["bulletList", "orderedList"])
+def test_timeline_preserves_required_list_leading_paragraph_and_guides_whole_list_conversion(kind):
+    source = {"type": "doc", "content": [{"type": kind, "content": [{"type": "listItem", "content": [paragraph("必须保留的首段"), paragraph("后续正文")]}]}]}
+    before = deepcopy(source)
+    for capability, parameters in [("timeline.wrap", {"paths": [[0, 0, 0]]}), ("timeline.insert", {"parent": [0, 0], "index": 0})]:
+        with pytest.raises(ValueError, match="请转换外层完整列表"):
+            apply(source, capability, **parameters)
+    assert source == before
+    for capability, parameters in [("timeline.wrap", {"paths": [[0, 0, 1]]}), ("timeline.insert", {"parent": [0, 0], "index": 1})]:
+        result = apply(source, capability, **parameters)["doc_json"]
+        assert result["content"][0]["content"][0]["content"][0] == source["content"][0]["content"][0]["content"][0]
+        validate_document(result)
+    wrapped = apply(source, "timeline.wrap", paths=[[0]])["doc_json"]
+    assert apply(wrapped, "timeline.unwrap", path=[0])["doc_json"] == source
+
+
 @pytest.mark.parametrize("node", [{"type": "timeline", "content": []}, {"type": "timeline", "content": [paragraph()]}, {"type": "timelineItem", "content": []}])
 def test_invalid_timeline_structure_is_rejected(node):
     with pytest.raises(ValueError):

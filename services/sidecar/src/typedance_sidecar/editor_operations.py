@@ -158,7 +158,7 @@ class InsertBlock(Parameters):
 
 
 class InsertTimeline(Parameters):
-    parent: list[int] = Field(default_factory=list, max_length=24)
+    parent: list[int] = Field(default_factory=list, max_length=24, description="文档、分栏或列表项的路径；列表项必须保留首段，只允许在其首段之后插入时间轴。")
     index: int = Field(ge=0)
 
 
@@ -657,10 +657,17 @@ def empty_timeline_item():
             "content": [{"type": "paragraph", "attrs": {"canvasNodeId": f"canvas_{uuid4().hex}"}}]}
 
 
-def insert_timeline(doc, params: InsertTimeline, _provenance: TextProvenance):
-    parent = node_at(doc, params.parent)
-    if parent["type"] not in {"doc", "column", "listItem"} or params.index > len(parent.get("content", [])):
+def timeline_parent(doc, path, index):
+    parent = node_at(doc, path)
+    if parent["type"] not in {"doc", "column", "listItem"} or index > len(parent.get("content", [])):
         raise ValueError("此位置不能插入时间轴")
+    if parent["type"] == "listItem" and index == 0:
+        raise ValueError("列表项必须保留首段；请转换外层完整列表，或在列表项首段之后插入时间轴")
+    return parent
+
+
+def insert_timeline(doc, params: InsertTimeline, _provenance: TextProvenance):
+    parent = timeline_parent(doc, params.parent, params.index)
     parent.setdefault("content", []).insert(params.index, {"type": "timeline", "attrs": {"canvasNodeId": f"canvas_{uuid4().hex}"},
                                                           "content": [empty_timeline_item(), empty_timeline_item()]})
 
@@ -669,9 +676,7 @@ def wrap_timeline(doc, params: Paths, _provenance: TextProvenance):
     paths = sorted(params.paths)
     if any(path[:-1] != paths[0][:-1] for path in paths) or [path[-1] for path in paths] != list(range(paths[0][-1], paths[-1][-1] + 1)):
         raise ValueError("请选择连续的同级完整内容块")
-    parent = node_at(doc, paths[0][:-1])
-    if parent["type"] not in {"doc", "column", "listItem"}:
-        raise ValueError("此位置不能转换为时间轴")
+    parent = timeline_parent(doc, paths[0][:-1], paths[0][-1])
     content = [node_at(doc, path) for path in paths]
     if any(node["type"] in {"text", "hardBreak", "column", "listItem", "timeline", "timelineItem"} for node in content):
         raise ValueError("请选择普通内容块，不能嵌套时间轴")
@@ -775,7 +780,7 @@ class Capability:
 
 CAPABILITIES = {
     "timeline.insert": Capability("插入时间轴", "在指定位置插入包含两个空白条目的时间轴。", InsertTimeline, insert_timeline, "layout"),
-    "timeline.wrap": Capability("创建时间轴条目", "将连续同级完整内容块放入时间轴的第一个条目，保留正文、格式和来源关联。", Paths, wrap_timeline, "layout"),
+    "timeline.wrap": Capability("创建时间轴条目", "将连续同级完整内容块放入时间轴的第一个条目，保留正文、格式和来源关联。列表项必须保留首段；需要转换该首段时，请传入外层完整列表路径。", Paths, wrap_timeline, "layout"),
     "timeline.add": Capability("新增时间轴条目", "在时间轴内指定索引插入空白条目，保留已有内容。", TimelineIndex, add_timeline_item, "layout"),
     "timeline.split": Capability("拆分时间轴条目", "以条目内指定的直接子块为新条目起点，移动该块及后续内容，保留全部文字、格式和来源关联。", Target, split_timeline_item, "layout"),
     "timeline.remove": Capability("删除时间轴条目", "删除指定条目及正文，最后一个条目删除后恢复空段落。", Target, remove_timeline_item, "content"),
