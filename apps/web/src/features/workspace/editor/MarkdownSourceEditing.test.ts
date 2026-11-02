@@ -263,6 +263,14 @@ describe("local Markdown source editing", () => {
     source.blur()
     const content = editor.getJSON().content![0].content!
     expect(editor.state.doc.textContent).toBe("当新字前")
-    expect(content.find((node) => node.text === "新字")?.marks).toBeUndefined()
+    expect(content.find((node) => "text" in node && node.text === "新字")?.marks).toBeUndefined()
+  })
+
+  it("keeps code indentation unchanged while editing other characters", async () => {
+    const editor = createEditor("<pre><code>- root\n    - child\n\t- tabbed</code></pre>")
+    const source = await enter(editor, "root")
+    input(source, source.value.replace("root", "root2"))
+    source.blur()
+    expect(editor.state.doc.firstChild?.textContent).toBe("- root2\n    - child\n\t- tabbed")
   })
 })
