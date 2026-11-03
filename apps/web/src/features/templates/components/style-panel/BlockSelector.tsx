@@ -1,4 +1,4 @@
-import { List, ListOrdered, Minus } from "lucide-react";
+import { GitCommitVertical, List, ListOrdered, Minus } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { BlockType } from "../../style-engine/types";
 import { BLOCK_TYPE_LABELS } from "../../style-engine/types";
@@ -10,7 +10,7 @@ type BlockSelectorProps = {
 };
 
 const TEXT_BLOCK_TYPES: BlockType[] = ["heading1", "heading2", "heading3", "paragraph"];
-const LIST_BLOCK_TYPES: BlockType[] = ["bulletList", "orderedList", "horizontalRule"];
+const LIST_BLOCK_TYPES: BlockType[] = ["bulletList", "orderedList", "horizontalRule", "timeline"];
 
 export function BlockSelector({ active, onChange, uiLanguage }: BlockSelectorProps) {
   const handleChange = (value: string) => {
@@ -42,7 +42,7 @@ export function BlockSelector({ active, onChange, uiLanguage }: BlockSelectorPro
         type="single"
         value={LIST_BLOCK_TYPES.includes(active) ? active : undefined}
         onValueChange={handleChange}
-        className="grid w-full grid-cols-3 gap-1"
+        className="grid w-full grid-cols-2 gap-1"
         aria-label="选择列表段落样式"
       >
         <ToggleGroupItem value="bulletList" size="sm" className="w-full text-xs">
@@ -56,6 +56,10 @@ export function BlockSelector({ active, onChange, uiLanguage }: BlockSelectorPro
         <ToggleGroupItem value="horizontalRule" size="sm" className="w-full text-xs">
           <Minus data-icon="inline-start" />
           {BLOCK_TYPE_LABELS.horizontalRule[uiLanguage]}
+        </ToggleGroupItem>
+        <ToggleGroupItem value="timeline" size="sm" className="w-full text-xs">
+          <GitCommitVertical data-icon="inline-start" />
+          {BLOCK_TYPE_LABELS.timeline[uiLanguage]}
         </ToggleGroupItem>
       </ToggleGroup>
     </div>

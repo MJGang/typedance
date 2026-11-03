@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { defaultClassicA4Style } from "../../data"
 import { StylePanel } from "./StylePanel"
 
-function renderPanel(activeBlock: "heading2" | "paragraph" | "horizontalRule", onChange = vi.fn()) {
+function renderPanel(activeBlock: "heading2" | "paragraph" | "horizontalRule" | "timeline", onChange = vi.fn()) {
   return {
     onChange,
     ...render(
@@ -27,6 +27,23 @@ function renderPanel(activeBlock: "heading2" | "paragraph" | "horizontalRule", o
 
 describe("StylePanel", () => {
   afterEach(cleanup)
+
+  it("commits zero timeline padding and rejects negative or incomplete values", () => {
+    const { onChange } = renderPanel("timeline")
+    const bottom = screen.getByRole("textbox", { name: "节点底部内边距" })
+    fireEvent.change(bottom, { target: { value: "0" } })
+    fireEvent.keyDown(bottom, { key: "Enter" })
+    expect(onChange).toHaveBeenLastCalledWith({ ...defaultClassicA4Style, preset: "", blocks: { ...defaultClassicA4Style.blocks, timeline: { paddingBottom: "0px" } } })
+    const left = screen.getByRole("textbox", { name: "节点左侧内边距" })
+    for (const value of ["", "-1", "12px;color:red"]) {
+      fireEvent.change(left, { target: { value } })
+      fireEvent.blur(left)
+    }
+    expect(onChange).toHaveBeenCalledTimes(1)
+    fireEvent.change(left, { target: { value: "0px" } })
+    fireEvent.blur(left)
+    expect(onChange.mock.lastCall?.[0].blocks.timeline.paddingLeft).toBe("0px")
+  })
 
   it("allows divider margins to be typed before committing the complete template override", () => {
     const { onChange } = renderPanel("horizontalRule")

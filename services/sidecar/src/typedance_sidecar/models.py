@@ -128,6 +128,13 @@ class DividerStyle(BaseModel):
     margin_bottom: str | None = Field(default=None, alias="marginBottom", pattern=r"^\d+(?:\.\d+)?px$")
 
 
+class TimelineStyle(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    padding_left: str | None = Field(default=None, alias="paddingLeft", pattern=r"^\d+(?:\.\d+)?px$")
+    padding_bottom: str | None = Field(default=None, alias="paddingBottom", pattern=r"^\d+(?:\.\d+)?px$")
+
+
 class TemplateBlocks(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -138,6 +145,7 @@ class TemplateBlocks(BaseModel):
     bulletList: BlockStyle
     orderedList: BlockStyle
     horizontalRule: DividerStyle | None = None
+    timeline: TimelineStyle | None = None
 
 
 class TemplateStyleConfig(BaseModel):

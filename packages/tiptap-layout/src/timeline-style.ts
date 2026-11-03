@@ -1,7 +1,7 @@
 /** 编辑画布与静态 HTML 共用的时间轴样式。装饰使用真实元素，以便打印快照保留。 */
 export const TIMELINE_CSS = `
 .td-timeline { display: block; position: relative; min-width: 0; margin: 12px 0; }
-.td-timeline-item { display: block; position: relative; min-width: 0; padding: 0 0 20px 24px; }
+.td-timeline-item { display: block; position: relative; min-width: 0; padding: 0 0 var(--td-timeline-padding-bottom, 20px) var(--td-timeline-padding-left, 24px); }
 .td-timeline > .td-timeline-item:last-child,
 .td-timeline > .td-timeline-entry:last-child > .td-timeline-item { padding-bottom: 0; }
 .td-timeline-body { display: block; min-width: 0; overflow-wrap: anywhere; }

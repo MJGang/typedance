@@ -8,6 +8,16 @@ export const DEFAULT_DIVIDER_STYLE = {
   style: "solid", width: "1px", color: "#d1d5db", marginTop: "8px", marginBottom: "8px",
 } as const satisfies Required<DividerStyle>
 
+export const DEFAULT_TIMELINE_STYLE = { paddingLeft: "24px", paddingBottom: "20px" } as const
+
+function generateTimelineStyleCSS(scope: string, style: TemplateStyleConfig["blocks"]["timeline"]): string {
+  const timeline = { ...DEFAULT_TIMELINE_STYLE, ...style }
+  return `${scope} .td-timeline {
+  --td-timeline-padding-left: ${timeline.paddingLeft};
+  --td-timeline-padding-bottom: ${timeline.paddingBottom};
+}`
+}
+
 export function generateDividerCSS(selector: string, style: DividerStyle = {}): string {
   const divider = { ...DEFAULT_DIVIDER_STYLE, ...style }
   return `${selector} {
@@ -218,7 +228,7 @@ ${suffix} {
 export function generateTemplateCSS(config: TemplateStyleConfig): string {
   const rules: string[] = []
   for (const [blockName, style] of Object.entries(config.blocks)) {
-    if (blockName === "horizontalRule") continue
+    if (blockName === "horizontalRule" || blockName === "timeline") continue
     if (LIST_BLOCKS.has(blockName)) {
       rules.push(...generateListCSS(
         `.td-resume-${blockName}`,
@@ -237,6 +247,7 @@ export function generateTemplateCSS(config: TemplateStyleConfig): string {
     config.theme.accentColor,
   ))
   rules.push(generateDividerCSS(".td-resume-divider", config.blocks.horizontalRule))
+  rules.push(generateTimelineStyleCSS(".td-resume-page", config.blocks.timeline))
   rules.push(generateNestedListCSS(".td-resume-page"))
   return rules.join("\n\n")
 }
@@ -247,7 +258,7 @@ export function generateWorkspaceTemplateCSS(
 ): string {
   const rules: string[] = []
   for (const [blockName, style] of Object.entries(config.blocks)) {
-    if (blockName === "horizontalRule") continue
+    if (blockName === "horizontalRule" || blockName === "timeline") continue
     const elements = ELEMENT_MAP[blockName]
     if (!elements) continue
 
@@ -270,6 +281,7 @@ export function generateWorkspaceTemplateCSS(
     config.theme.accentColor,
   ))
   rules.push(generateDividerCSS(`${scope} hr`, config.blocks.horizontalRule))
+  rules.push(generateTimelineStyleCSS(scope, config.blocks.timeline))
   rules.push(generateNestedListCSS(scope))
   return rules.join("\n\n")
 }

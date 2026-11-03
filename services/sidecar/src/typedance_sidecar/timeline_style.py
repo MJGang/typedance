@@ -2,7 +2,7 @@
 
 TIMELINE_CSS = """
 .td-timeline { display: block; position: relative; min-width: 0; margin: 12px 0; }
-.td-timeline-item { display: block; position: relative; min-width: 0; padding: 0 0 20px 24px; }
+.td-timeline-item { display: block; position: relative; min-width: 0; padding: 0 0 var(--td-timeline-padding-bottom, 20px) var(--td-timeline-padding-left, 24px); }
 .td-timeline > .td-timeline-item:last-child { padding-bottom: 0; }
 .td-timeline-body { display: block; min-width: 0; overflow-wrap: anywhere; }
 .td-timeline-body .td-column > :first-child { margin-top: 0; }

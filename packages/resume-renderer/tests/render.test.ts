@@ -73,6 +73,15 @@ function styleConfig(decorationStyle: Heading2DecorationStyle = "minimal-line"):
 }
 
 describe("renderResumeHtml", () => {
+  it("applies zero timeline padding in workspace and standalone HTML", () => {
+    const config = styleConfig();
+    config.blocks.timeline = { paddingLeft: "0px", paddingBottom: "0px" };
+    const doc = { type: "doc", content: [{ type: "timeline", content: [{ type: "timelineItem", content: sampleDocJson.content }] }] };
+    for (const css of [generateWorkspaceTemplateCSS(config), renderStyledHtml(doc, config, "zh-CN")]) {
+      expect(css).toContain("--td-timeline-padding-left: 0px;");
+      expect(css).toContain("--td-timeline-padding-bottom: 0px;");
+    }
+  });
   it("preserves timeline structure, rich text and shared decoration styles", () => {
     const doc = { type: "doc", content: [{ type: "timeline", content: [{ type: "timelineItem", content: sampleDocJson.content }] }] }
     const body = renderStyledContentHtml(doc, styleConfig())

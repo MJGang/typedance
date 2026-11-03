@@ -48,6 +48,7 @@ const VALID_BLOCKS: BlockType[] = [
   "bulletList",
   "orderedList",
   "horizontalRule",
+  "timeline",
 ]
 
 export function TemplateStatusText({ status, className }: TemplateStatusTextProps) {

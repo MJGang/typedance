@@ -27,7 +27,7 @@ function longRichDoc() {
   return doc
 }
 
-async function openEditor(page: Page, doc: unknown = initial) {
+async function openEditor(page: Page, doc: unknown = initial, showStylePanel = false) {
   page.on("pageerror", (error) => console.error(error.message))
   page.on("console", (message) => { if (message.type() === "error") console.error(message.text()) })
   await page.route("http://127.0.0.1:4317/editor/**", async (route) => {
@@ -47,16 +47,23 @@ async function openEditor(page: Page, doc: unknown = initial) {
     import {TooltipProvider} from '/src/components/ui/tooltip.tsx';
     import {setAccountSession} from '/src/accountSession.ts';
     import {defaultClassicA4Style} from '/src/features/templates/data.ts';
+    import {StylePanel} from '/src/features/templates/components/style-panel/StylePanel.tsx';
     import {generateWorkspaceTemplateCSS} from '/@fs/${root.replaceAll("\\", "/")}/packages/resume-renderer/src/index.ts';
     setAccountSession({id:'timeline-test',sidecar_url:'http://127.0.0.1:4317',agent_host_url:'http://127.0.0.1:4318',token:'synthetic-timeline-test'});
     function App() {
       const [doc,setDoc]=React.useState(()=>JSON.parse(sessionStorage.getItem('timeline-doc')||'null')||${JSON.stringify(doc)});
-      return React.createElement(TooltipProvider,null,React.createElement('div',{className:'td-source-resume-canvas',style:{height:'100vh'}},React.createElement(ResumeRichTextEditor,{
-        docJson:doc,templateStyle:defaultClassicA4Style,ariaLabel:'时间轴验收画布',
+      const [style,setStyle]=React.useState(()=>JSON.parse(sessionStorage.getItem('timeline-style')||'null')||defaultClassicA4Style);
+      const [activeBlock,setActiveBlock]=React.useState('timeline');
+      return React.createElement(TooltipProvider,null,React.createElement('div',{style:{display:'flex'}},React.createElement('div',{className:'td-source-resume-canvas',style:{height:'100vh',flex:1,minWidth:0}},React.createElement(ResumeRichTextEditor,{
+        docJson:doc,templateStyle:style,ariaLabel:'时间轴验收画布',
         marginConfig:{top:76,bottom:76,left:50,right:50},
-        cssText:generateWorkspaceTemplateCSS(defaultClassicA4Style,'.rm-with-pagination'),
+        cssText:generateWorkspaceTemplateCSS(style,'.rm-with-pagination'),
         onChange:(change)=>{sessionStorage.setItem('timeline-doc',JSON.stringify(change.docJson));setDoc(change.docJson)}
-      })));
+      })),${showStylePanel} ? React.createElement('aside',{style:{width:320}},React.createElement(StylePanel,{
+        styleConfig:style,selectedThemeId:'classic-a4',themeOptions:[{id:'classic-a4',title:'经典 A4',source:'default'}],
+        onChange:(next)=>{sessionStorage.setItem('timeline-style',JSON.stringify(next));setStyle(next)},onThemeChange:()=>{},
+        activeBlock,onActiveBlockChange:setActiveBlock,uiLanguage:'zh-CN'
+      })) : null));
     }
     ReactDOM.createRoot(document.getElementById('test-root')).render(React.createElement(App));
     </script></body></html>` }))
@@ -69,6 +76,53 @@ async function itemMenu(page: Page, index: number) {
   await item.hover()
   await item.getByRole("button", { name: "时间轴条目操作" }).click()
 }
+
+test("divider hit area supports click, Delete, Backspace and undo without changing neighboring text", async ({ page }, info) => {
+  await openEditor(page, { type: "doc", content: [p("分割线上方"), { type: "horizontalRule" }, p("分割线下方")] })
+  const divider = page.locator(".ProseMirror hr")
+  const editor = page.locator(".ProseMirror")
+  for (const key of ["Delete", "Backspace"]) {
+    // 在线条下方 4px 点击，覆盖扩大后的命中范围。
+    await divider.click({ position: { x: 100, y: 4 } })
+    await expect(divider).toHaveClass(/ProseMirror-selectednode/)
+    if (key === "Delete") await page.screenshot({ path: info.outputPath("divider-selected.png") })
+    await page.keyboard.press(key)
+    await expect(divider).toHaveCount(0)
+    await expect(editor).toContainText("分割线上方")
+    await expect(editor).toContainText("分割线下方")
+    await page.keyboard.press("Control+z")
+    await expect(divider).toHaveCount(1)
+  }
+})
+
+test("template timeline padding supports zero, restores after reopening and survives print snapshot", async ({ page, context }, info) => {
+  await openEditor(page, richTimeline, true)
+  const first = page.locator(".td-timeline-item").first()
+  await expect(first).toHaveCSS("padding-left", "24px")
+  await expect(first).toHaveCSS("padding-bottom", "20px")
+  for (const [label, value] of [["节点左侧内边距", "32"], ["节点底部内边距", "0"]]) {
+    await page.getByRole("textbox", { name: label }).fill(value)
+    await page.getByRole("textbox", { name: label }).press("Enter")
+  }
+  await expect(first).toHaveCSS("padding-left", "32px")
+  await expect(first).toHaveCSS("padding-bottom", "0px")
+  await page.reload()
+  await expect(first).toHaveCSS("padding-left", "32px")
+  await expect(first).toHaveCSS("padding-bottom", "0px")
+  await page.screenshot({ path: info.outputPath("timeline-zero-padding.png") })
+  const snapshot = await page.evaluate(async () => {
+    const { prepareCanvasPrintSnapshot } = await import("/src/features/revision/canvasPrintSnapshot.ts")
+    return prepareCanvasPrintSnapshot(document.querySelector<HTMLElement>(".ProseMirror")!)
+  })
+  const exported = await context.newPage()
+  await exported.setContent(snapshot.html)
+  await expect(exported.locator(".td-timeline-item").first()).toHaveCSS("padding-left", "32px")
+  await expect(exported.locator(".td-timeline-item").first()).toHaveCSS("padding-bottom", "0px")
+  await exported.close()
+  await page.getByRole("textbox", { name: "节点左侧内边距" }).fill("0")
+  await page.getByRole("textbox", { name: "节点左侧内边距" }).press("Enter")
+  await expect(first).toHaveCSS("padding-left", "0px")
+})
 
 test("insert, edit, add before and after, remove, undo, redo and unwrap preserve ordinary content", async ({ page }, info) => {
   await openEditor(page)
@@ -273,7 +327,11 @@ test("background document export renders timeline rich blocks and a real PDF", a
   test.setTimeout(60_000)
   const doc = longRichDoc()
   await openEditor(page, doc)
-  const style = await page.evaluate(async () => (await import("/src/features/templates/data.ts")).defaultClassicA4Style)
+  const style = await page.evaluate(async () => {
+    const style = structuredClone((await import("/src/features/templates/data.ts")).defaultClassicA4Style)
+    style.blocks.timeline = { paddingLeft: "32px", paddingBottom: "0px" }
+    return style
+  })
   const pdfPath = info.outputPath("timeline-server.pdf")
   const result = JSON.parse(execFileSync("python", ["-X", "utf8", "-c", `import json,sys
 from pathlib import Path
@@ -294,6 +352,8 @@ print(json.dumps({'html':html},ensure_ascii=False))`], {
   const exported = await context.newPage()
   await exported.setContent(result.html)
   await expect(exported.locator(".td-timeline-item")).toHaveCount(3)
+  await expect(exported.locator(".td-timeline-item").first()).toHaveCSS("padding-left", "32px")
+  await expect(exported.locator(".td-timeline-item").first()).toHaveCSS("padding-bottom", "0px")
   await expect(exported.locator(".td-timeline-dot")).toHaveCount(3)
   await expect(exported.locator(".td-columns")).toHaveCount(2)
   await expect(exported.locator(".td-timeline-item").first().locator("h3")).toHaveText("示例科技有限公司")

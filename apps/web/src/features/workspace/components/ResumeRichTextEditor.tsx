@@ -39,6 +39,7 @@ import { blockStyleToCss, createResumeHeading, syncHeading2DecorationDom } from 
 import { MarkdownPaste, MarkdownStarterKit } from "../editor/MarkdownEditing"
 import { MarkdownSourceEditing } from "../editor/MarkdownSourceEditing"
 import { TimelineLayout } from "../editor/TimelineLayout"
+import { DividerSelection, DIVIDER_EDITOR_CSS } from "../editor/DividerSelection"
 import { ColumnsNodeView } from "./ColumnsNodeView"
 import { TimelineItemNodeView } from "./TimelineItemNodeView"
 import { TimelineToolbarButton } from "./TimelineToolbarButton"
@@ -774,6 +775,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         Timeline,
         EditableTimelineItem,
         TimelineLayout,
+        DividerSelection,
         ResizableColumns,
         Column,
         PaginationPlus.configure({
@@ -1067,7 +1069,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         onPointerMove={handleRichEditorPointerMove}
         onPointerLeave={handleRichEditorPointerLeave}
       >
-        <style>{TIMELINE_CSS}</style>
+        <style>{TIMELINE_CSS}{DIVIDER_EDITOR_CSS}</style>
         {editable && toolbarVisible && (
           <EditorToolbar>
             <ToolbarGroup>
