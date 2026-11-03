@@ -1,6 +1,7 @@
 import { canvasPrintSnapshotSchema, type CanvasPrintSnapshot } from "@typedance/contracts"
+import { TRAILING_PARAGRAPH_PLACEHOLDER_ATTRIBUTE } from "../workspace/editor/TrailingParagraphPlaceholder"
 
-const OMIT = "button,script,style,iframe,svg,[data-editor-reference-marker],.td-columns-resize-overlay,.td-columns-controls-overlay,.td-column-resize-handle,.td-column-grip,.td-column-delete,.td-column-add-button,.td-module-interaction-only"
+const OMIT = `button,script,style,iframe,svg,[data-editor-reference-marker],[${TRAILING_PARAGRAPH_PLACEHOLDER_ATTRIBUTE}],.td-columns-resize-overlay,.td-columns-controls-overlay,.td-column-resize-handle,.td-column-grip,.td-column-delete,.td-column-add-button,.td-module-interaction-only`
 const ATTRIBUTES = new Set(["class", "style", "start", "reversed", "value", "dir", "lang"])
 const PROPERTIES = [
   "display", "box-sizing", "position", "top", "right", "bottom", "left", "float", "clear",

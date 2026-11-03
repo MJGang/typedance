@@ -70,14 +70,42 @@ async function openWorkspace(page: Page, blankCount: number) {
   const workspace = buildWorkspace(blankCount)
   await page.addInitScript(() => {
     Object.defineProperty(window, "showSaveFilePicker", { value: undefined, configurable: true })
+    // 使用测试账号会话进入真实工作台，不依赖本机桌面登录或用户资料。
+    let callbackId = 0
+    Object.assign(window, {
+      __TAURI_INTERNALS__: {
+        metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main", windowLabel: "main" } },
+        transformCallback() { return ++callbackId },
+        unregisterCallback() {},
+        async invoke(command: string, args?: Record<string, unknown>) {
+          if (command === "plugin:event|listen") return args?.handler
+          if (command === "get_account_state") return {
+            revision: 1, status: "ready", configured: true, providers: ["github"],
+            user: { id: "print-test", name: "导出验收" },
+            session: { id: "print-test", sidecar_url: "http://127.0.0.1:4317", agent_host_url: "http://127.0.0.1:4318", token: "synthetic-print-session-token-with-32-characters" },
+            error: null, legacy: null,
+          }
+          if (command === "get_client_update_state") return {
+            revision: 0, phase: "idle", currentVersion: "0.1.25", releasesUrl: "https://example.com/releases", update: null,
+            downloadedBytes: 0, totalBytes: null, lastCheckedAt: null, error: null,
+          }
+          if (command === "plugin:dialog|save") return `C:\\synthetic\\${(args?.options as { defaultPath: string }).defaultPath}`
+          return false
+        },
+      },
+      __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener() {} },
+    })
   })
   await page.route("http://127.0.0.1:4317/**", async (route) => {
     const path = new URL(route.request().url()).pathname
-    const response = path.endsWith("/workspace-view") ? workspace
+    const response = path === "/documents" ? [workspace.document] : path.endsWith("/workspace-view") ? workspace
       : path.endsWith("/source-resume-canvas") ? workspace.source_resume_canvas : []
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response) })
   })
-  await page.goto(`/packs/resume/workspaces/${DOCUMENT_ID}`)
+  await page.route("http://127.0.0.1:4318/**", (route) => route.fulfill({ json: route.request().url().endsWith("/settings/model")
+    ? { provider: "deepseek", model: "test-model", base_url: "https://example.com", api_key: { configured: false, preview: null } } : [] }))
+  await page.goto("/")
+  await page.getByRole("link", { name: "打开简历 Synthetic print fixture", exact: true }).click()
   await expect(page.locator(".td-source-resume-canvas .ProseMirror h1")).toHaveText("Synthetic resume")
   await expect.poll(() => page.locator(".td-source-resume-canvas .rm-pagination-gap").count()).toBeGreaterThan(1)
 }
@@ -173,7 +201,7 @@ for (const format of ["pdf", "html"] as const) {
   test(`the ${format.toUpperCase()} export button submits the current measured canvas snapshot`, async ({ page }) => {
     await openWorkspace(page, 4)
     const expected = await captureSnapshot(page)
-    let submitted: { print_snapshot: CanvasPrintSnapshot } | undefined
+    let submitted: { print_snapshot: CanvasPrintSnapshot; output_path: string } | undefined
     await page.route(`http://127.0.0.1:4317/documents/${DOCUMENT_ID}/canvas-export/${format}`, async (route) => {
       submitted = route.request().postDataJSON()
       await route.fulfill({
@@ -185,7 +213,8 @@ for (const format of ["pdf", "html"] as const) {
     await page.getByRole("button", { name: "导出", exact: true }).click()
     await page.getByRole("menuitem", { name: `导出 ${format.toUpperCase()}` }).click()
     await expect.poll(() => submitted).toBeDefined()
-    expect(Object.keys(submitted!)).toEqual(["print_snapshot"])
+    expect(Object.keys(submitted!)).toEqual(["print_snapshot", "output_path"])
+    expect(submitted!.output_path).toMatch(new RegExp(`^C:\\\\synthetic\\\\.*\\.${format}$`))
     expect(submitted!.print_snapshot.page_tops).toEqual(expected.page_tops)
     expect(submitted!.print_snapshot.page_width).toBe(expected.page_width)
     expect(submitted!.print_snapshot.page_height).toBe(expected.page_height)

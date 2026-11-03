@@ -39,6 +39,7 @@ import { blockStyleToCss, createResumeHeading, syncHeading2DecorationDom } from 
 import { MarkdownPaste, MarkdownStarterKit } from "../editor/MarkdownEditing"
 import { MarkdownSourceEditing } from "../editor/MarkdownSourceEditing"
 import { TimelineLayout } from "../editor/TimelineLayout"
+import { TrailingParagraphPlaceholder } from "../editor/TrailingParagraphPlaceholder"
 import { DividerSelection, DIVIDER_EDITOR_CSS } from "../editor/DividerSelection"
 import { ColumnsNodeView } from "./ColumnsNodeView"
 import { TimelineItemNodeView } from "./TimelineItemNodeView"
@@ -775,6 +776,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         Timeline,
         EditableTimelineItem,
         TimelineLayout,
+        TrailingParagraphPlaceholder,
         DividerSelection,
         ResizableColumns,
         Column,

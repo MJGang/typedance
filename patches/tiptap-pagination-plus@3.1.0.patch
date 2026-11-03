@@ -1,0 +1,17 @@
+diff --git a/dist/PaginationPlus.js b/dist/PaginationPlus.js
+index 186b6759ba503bbc707e3d8efa98e8b6e396b026..dde142d441a0e980f1dc33514bc100adb2bccdcb 100644
+--- a/dist/PaginationPlus.js
++++ b/dist/PaginationPlus.js
+@@ -532,7 +532,11 @@ const calculatePageCount = (view, pageOptions, headerHeight = 0, footerHeight =
+     const paginationElement = editorDom.querySelector("[data-rm-pagination]");
+     const currentPageCount = getExistingPageCount(view);
+     if (paginationElement) {
+-        const lastElementOfEditor = editorDom.lastElementChild;
++        let lastElementOfEditor = editorDom.lastElementChild;
++        // View-only caret placeholders must not allocate document pages.
++        while (lastElementOfEditor && lastElementOfEditor.hasAttribute("data-rm-pagination-ignore")) {
++            lastElementOfEditor = lastElementOfEditor.previousElementSibling;
++        }
+         const lastPageBreak = (_a = paginationElement.lastElementChild) === null || _a === void 0 ? void 0 : _a.querySelector(".breaker");
+         if (lastElementOfEditor && lastPageBreak) {
+             const lastElementRect = lastElementOfEditor.getBoundingClientRect();

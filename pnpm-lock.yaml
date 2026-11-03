@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  tiptap-pagination-plus@3.1.0:
+    hash: 46651503674f26f10f8fa9e551bb1d832832b7427bcceab6c557626f0edffc32
+    path: patches/tiptap-pagination-plus@3.1.0.patch
+
 importers:
 
   .:
@@ -143,7 +148,7 @@ importers:
         version: 3.5.0
       tiptap-pagination-plus:
         specifier: ^3.1.0
-        version: 3.1.0(@tiptap/core@3.23.2(@tiptap/pm@3.23.2))(@tiptap/pm@3.23.2)
+        version: 3.1.0(patch_hash=46651503674f26f10f8fa9e551bb1d832832b7427bcceab6c557626f0edffc32)(@tiptap/core@3.23.2(@tiptap/pm@3.23.2))(@tiptap/pm@3.23.2)
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
@@ -11582,7 +11587,7 @@ snapshots:
 
   tinyspy@4.0.4: {}
 
-  tiptap-pagination-plus@3.1.0(@tiptap/core@3.23.2(@tiptap/pm@3.23.2))(@tiptap/pm@3.23.2):
+  tiptap-pagination-plus@3.1.0(patch_hash=46651503674f26f10f8fa9e551bb1d832832b7427bcceab6c557626f0edffc32)(@tiptap/core@3.23.2(@tiptap/pm@3.23.2))(@tiptap/pm@3.23.2):
     dependencies:
       '@tiptap/core': 3.23.2(@tiptap/pm@3.23.2)
       '@tiptap/pm': 3.23.2
