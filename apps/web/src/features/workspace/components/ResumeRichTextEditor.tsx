@@ -8,7 +8,7 @@ import type { JSONContent } from "@tiptap/react"
 import DragHandle from "@tiptap/extension-drag-handle-react"
 import { PaginationPlus, PAGE_SIZES } from "tiptap-pagination-plus"
 import { Bold, Columns3, Eraser, Files, GripVertical, Hash, Heading1, Heading2, Heading3, Italic, List, ListOrdered, ListTree, Type, Underline } from "lucide-react"
-import { Column, Columns, type ColumnsCount, type ColumnsGap } from "@typedance/tiptap-layout"
+import { Column, Columns, Timeline, TimelineItem, TIMELINE_CSS, type ColumnsCount, type ColumnsGap } from "@typedance/tiptap-layout"
 import type { TemplateStyleConfig } from "@typedance/contracts"
 
 import { Button } from "@/components/ui/button"
@@ -38,7 +38,10 @@ import type { ResumeDocJson, ResumeEditorChange } from "../editor"
 import { blockStyleToCss, createResumeHeading, syncHeading2DecorationDom } from "../editor/ResumeHeading"
 import { MarkdownPaste, MarkdownStarterKit } from "../editor/MarkdownEditing"
 import { MarkdownSourceEditing } from "../editor/MarkdownSourceEditing"
+import { TimelineLayout } from "../editor/TimelineLayout"
 import { ColumnsNodeView } from "./ColumnsNodeView"
+import { TimelineItemNodeView } from "./TimelineItemNodeView"
+import { TimelineToolbarButton } from "./TimelineToolbarButton"
 import { ReferenceTracker } from "../../revision/references/referenceTracker"
 import { CanvasReferences } from "../../revision/references/CanvasReferences"
 import { DocumentLayout } from "../../revision/documentLayout"
@@ -145,13 +148,17 @@ const BLOCK_OPTIONS: Array<{ value: ToolbarBlock; label: string; icon: typeof Ty
 ]
 
 const BLOCK_STYLE_NODE_TYPES = ["paragraph", "heading", "listItem"] as const
-const SOURCE_CANVAS_ATTR_NODE_TYPES = [...BLOCK_STYLE_NODE_TYPES, "horizontalRule"] as const
+const SOURCE_CANVAS_ATTR_NODE_TYPES = [...BLOCK_STYLE_NODE_TYPES, "horizontalRule", "timeline", "timelineItem"] as const
 const DEFAULT_LINE_HEIGHT: ToolbarLineHeight = "default"
 const DRAG_HANDLE_BLOCK_HIT_SLOP = 4
 const DRAG_HANDLE_TEXT_LINE_HIT_SLOP = 2
 const DRAG_HANDLE_LEFT_GUTTER = 64
 const DRAG_HANDLE_RIGHT_SLOP = 8
 const MAX_INDENT = 8
+const EditableTimelineItem = TimelineItem.extend({
+  addNodeView() { return ReactNodeViewRenderer(TimelineItemNodeView, { className: "td-timeline-entry" }) },
+})
+
 const ResizableColumns = Columns.extend({
   addNodeView() {
     return ReactNodeViewRenderer(ColumnsNodeView)
@@ -764,6 +771,9 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         DocumentLayout,
         InlineStyle,
         BlockStyle,
+        Timeline,
+        EditableTimelineItem,
+        TimelineLayout,
         ResizableColumns,
         Column,
         PaginationPlus.configure({
@@ -1057,6 +1067,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
         onPointerMove={handleRichEditorPointerMove}
         onPointerLeave={handleRichEditorPointerLeave}
       >
+        <style>{TIMELINE_CSS}</style>
         {editable && toolbarVisible && (
           <EditorToolbar>
             <ToolbarGroup>
@@ -1164,6 +1175,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
             </ToolbarGroup>
             <ToolbarVerticalSeparator />
             <ToolbarGroup>
+              <TimelineToolbarButton editor={editor} />
               <DividerToolbarButton disabled={!editor} onClick={() => {
                 if (editor) void executeEditorOperations(editor, [{ capability: "blocks.insert", parameters: {
                   ...selectedBlockInsertion(editor), kind: "horizontalRule",

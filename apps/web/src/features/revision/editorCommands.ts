@@ -1,5 +1,6 @@
 import type { Editor } from "@tiptap/core"
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
+import { Selection } from "@tiptap/pm/state"
 import type { EditorOperation, TemplateStyleConfig } from "@typedance/contracts"
 import { toast } from "sonner"
 import { prepareEditorOperations } from "@/api"
@@ -71,12 +72,23 @@ export function selectedTextOperations(editor: Editor, mark: string, enabled: bo
   return operations
 }
 
-export async function executeEditorOperations(editor: Editor, operations: EditorOperation[], templateStyle?: TemplateStyleConfig, options: { focus?: boolean } = {}): Promise<boolean> {
+export async function executeEditorOperations(editor: Editor, operations: EditorOperation[], templateStyle?: TemplateStyleConfig, options: { focus?: boolean; focusPath?: number[] } = {}): Promise<boolean> {
   if (!operations.length || editor.isDestroyed || !editor.isEditable) return false
   const before = editor.getJSON()
   try {
     const result = await prepareEditorOperations(before, operations, templateStyle)
     applyDocumentChange(editor, before, result.doc_json, crypto.randomUUID(), result.node_origins, result.text_origins)
+    if (options.focusPath) {
+      let node = editor.state.doc
+      let position = -1
+      for (const index of options.focusPath) {
+        if (index >= node.childCount) break
+        position += 1
+        for (let sibling = 0; sibling < index; sibling++) position += node.child(sibling).nodeSize
+        node = node.child(index)
+      }
+      editor.view.dispatch(editor.state.tr.setSelection(Selection.near(editor.state.doc.resolve(Math.min(position + 1, editor.state.doc.content.size)))))
+    }
     if (options.focus !== false) editor.commands.focus()
     return true
   } catch (error) {

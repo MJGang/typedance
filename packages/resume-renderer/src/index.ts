@@ -6,6 +6,7 @@ import {
   HEADING_PREFIX_CLASS,
   HEADING_SUFFIX_CLASS,
 } from "./template-style"
+import { TIMELINE_CSS } from "@typedance/tiptap-layout/timeline-style"
 
 export {
   DEFAULT_DIVIDER_STYLE,
@@ -170,8 +171,19 @@ function renderTextBlockContent(node: TipTapNode): string {
   return !content || children[children.length - 1]?.type === "hardBreak" ? `${content}<br />` : content
 }
 
+function renderTimelineBlock(node: TipTapNode, render: (node: TipTapNode) => string): string {
+  const content = (node.content ?? []).map(render).join("")
+  return node.type === "timeline"
+    ? `<div data-td-timeline="" class="td-timeline">${content}</div>`
+    : `<div data-td-timeline-item="" class="td-timeline-item"><span class="td-timeline-line" aria-hidden="true"></span><span class="td-timeline-dot" aria-hidden="true"></span><div class="td-timeline-body">${content}</div></div>`
+}
+
 function renderBlock(node: TipTapNode): string {
   const content = (node.content ?? []).map(renderInlineContent).join("")
+
+  if (node.type === "timeline" || node.type === "timelineItem") {
+    return renderTimelineBlock(node, (child) => renderBlock(child))
+  }
 
   if (node.type === "columns") {
     const columnsAttrs = getColumnsAttrs(node)
@@ -251,7 +263,7 @@ function renderSnapshot(snapshot: string): string {
 
 export function renderResumeHtml(resume: ResumeVersion): string {
   const body = renderDocJson(resume.doc_json) ?? renderSnapshot(resume.plain_text_snapshot)
-  const layoutStyles = layoutCSS
+  const layoutStyles = TIMELINE_CSS + layoutCSS
 
   return `<!doctype html>\n<html lang="${escapeHtml(resume.target_language)}">\n  <head>\n    <meta charset="utf-8" />\n    <style>\n      @page { size: A4; margin: 20mm 22mm; }\n      body {\n        font-family: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;\n        color: #1f2937;\n        line-height: 1.6;\n        font-size: 11px;\n      }\n      .resume-header {\n        border-bottom: 2px solid #174ea6;\n        margin-bottom: 16px;\n        padding-bottom: 12px;\n      }\n      h1 {\n        font-size: 22px;\n        margin: 0 0 4px;\n        font-weight: 700;\n        color: #101827;\n      }\n      .resume-title {\n        font-size: 11px;\n        margin: 0;\n        color: #174ea6;\n        font-weight: 600;\n      }\n      .resume-body p {\n        margin: 0 0 8px;\n        font-size: 10px;\n        line-height: 1.55;\n        color: #374151;\n      }\n      .muted { color: #9ca3af; font-style: italic; }\n${layoutStyles}\n    </style>\n  </head>\n  <body class="td-resume-page">\n    ${body}\n  </body>\n</html>`
 }
@@ -335,6 +347,10 @@ function renderStyledBlock(
   parentBlockName?: string,
 ): string {
   const blockName = getBlockName(node)
+
+  if (node.type === "timeline" || node.type === "timelineItem") {
+    return renderTimelineBlock(node, (child) => renderStyledBlock(child, heading2Style))
+  }
 
   if (node.type === "columns") {
     const columnsAttrs = getColumnsAttrs(node)
@@ -421,7 +437,7 @@ export function renderStyledHtml(
 ): string {
   const body = renderStyledContentHtml(docJson, config)
   const blockCSS = generateTemplateCSS(config)
-  const layoutStyles = layoutCSS
+  const layoutStyles = TIMELINE_CSS + layoutCSS
 
   return `<!doctype html>\n<html lang="${escapeHtml(lang)}">\n  <head>\n    <meta charset="utf-8" />\n    <style>\n      @page { size: A4; margin: 20mm 22mm; }\n      body {\n        font-family: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;\n        color: #1f2937;\n        line-height: 1.6;\n        font-size: 11px;\n        margin: 0;\n        padding: 0;\n      }\n${blockCSS ? `\n${blockCSS}` : ""}\n${layoutStyles}\n    </style>\n  </head>\n  <body class="td-resume-page">\n    ${body}\n  </body>\n</html>`
 }

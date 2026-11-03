@@ -17,6 +17,7 @@ from playwright.sync_api import sync_playwright
 
 from .models import Heading2DecorationStyle, ResumeVersion, TemplateStyleConfig
 from .style_renderer import generate_divider_css, generate_template_css
+from .timeline_style import TIMELINE_CSS
 
 
 # Default A4 page padding mirrors the editor's default page margins.
@@ -282,6 +283,17 @@ def _render_block(
     children = content if isinstance(content, list) else []
     node_type = node.get("type")
 
+    if node_type == "timeline":
+        body = "".join(_render_block(child, heading2_style=heading2_style) for child in children)
+        return f'<div class="td-timeline" data-td-timeline="">{body}</div>'
+
+    if node_type == "timelineItem":
+        body = "".join(_render_block(child, heading2_style=heading2_style) for child in children)
+        return ('<div class="td-timeline-item" data-td-timeline-item="">'
+                '<span class="td-timeline-line" aria-hidden="true"></span>'
+                '<span class="td-timeline-dot" aria-hidden="true"></span>'
+                f'<div class="td-timeline-body">{body}</div></div>')
+
     if node_type == "columns":
         attrs = node.get("attrs")
         count = attrs.get("count") if isinstance(attrs, dict) else 2
@@ -514,6 +526,7 @@ def render_resume_html(
     <style>
       {template_style_css}
       {LAYOUT_CSS}
+      {TIMELINE_CSS}
       {export_page_css}
     </style>
   </head>

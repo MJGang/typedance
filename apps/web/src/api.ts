@@ -69,7 +69,7 @@ export async function prepareEditorOperations(docJson: Record<string, unknown>, 
   const response = await sidecarFetch(`/editor/prepare`, { method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ doc_json: docJson, operations, catalog_revision: catalog.revision, template_style: templateStyle }) })
   return parseTemplateResponse(response, (value) => z.object({ doc_json: z.record(z.unknown()), catalog_revision: z.string(), node_origins: z.array(editorNodeOriginSchema).max(10000), text_origins: z.array(editorTextOriginSchema).max(10000),
-    effects: z.array(z.object({ capability: z.string(), title: z.string(), effect: z.string() })) }).parse(value), "无法准备编辑操作")
+    effects: z.array(z.object({ capability: z.string(), title: z.string(), effect: z.string() })) }).parse(value), "无法准备编辑操作", { preserveNulls: true })
 }
 
 type SaveFilePickerOptions = {
@@ -790,6 +790,7 @@ async function parseTemplateResponse<T>(
   response: Response,
   parser: (value: unknown) => T,
   fallbackMessage: string,
+  options: { preserveNulls?: boolean } = {},
 ): Promise<T> {
   const payload = await response.json().catch((error: unknown) => {
     if (error instanceof AccountSessionEndedError) throw error
@@ -807,7 +808,8 @@ async function parseTemplateResponse<T>(
     throw new Error(`${fallbackMessage}: ${details}`);
   }
 
-  return parser(deepStripNull(payload));
+  // 编辑事务中的 after_path: null 表示节点被删除，属于协议必需字段。
+  return parser(options.preserveNulls ? payload : deepStripNull(payload));
 }
 
 export async function getTemplateSample(sampleId: string): Promise<TemplateSampleContent> {

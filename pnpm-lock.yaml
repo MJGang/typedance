@@ -332,6 +332,9 @@ importers:
       '@typedance/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@typedance/tiptap-layout':
+        specifier: workspace:*
+        version: link:../tiptap-layout
     devDependencies:
       vitest:
         specifier: ^3.1.3

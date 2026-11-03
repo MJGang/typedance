@@ -157,6 +157,15 @@ class InsertBlock(Parameters):
     level: int = Field(default=2, ge=1, le=3)
 
 
+class InsertTimeline(Parameters):
+    parent: list[int] = Field(default_factory=list, max_length=24, description="文档、分栏或列表项的路径；列表项必须保留首段，只允许在其首段之后插入时间轴。")
+    index: int = Field(ge=0)
+
+
+class TimelineIndex(Target):
+    index: int = Field(ge=0)
+
+
 class ReorderColumns(Target):
     order: list[int] = Field(min_length=2, max_length=6)
 
@@ -630,7 +639,7 @@ def change_block_type(doc, params: ChangeBlockType, _provenance: TextProvenance)
 
 def insert_block(doc, params: InsertBlock, _provenance: TextProvenance):
     parent = node_at(doc, params.parent)
-    if parent["type"] not in {"doc", "column", "listItem"} or params.index > len(parent.get("content", [])):
+    if parent["type"] not in {"doc", "column", "listItem", "timelineItem"} or params.index > len(parent.get("content", [])):
         raise ValueError("此位置不能插入内容块")
     node = {"type": params.kind, "attrs": {"canvasNodeId": f"canvas_{uuid4().hex}"}}
     if params.kind == "horizontalRule":
@@ -641,6 +650,90 @@ def insert_block(doc, params: InsertBlock, _provenance: TextProvenance):
     if params.kind == "heading":
         node["attrs"]["level"] = params.level
     parent.setdefault("content", []).insert(params.index, node)
+
+
+def empty_timeline_item():
+    return {"type": "timelineItem", "attrs": {"canvasNodeId": f"canvas_{uuid4().hex}"},
+            "content": [{"type": "paragraph", "attrs": {"canvasNodeId": f"canvas_{uuid4().hex}"}}]}
+
+
+def timeline_parent(doc, path, index):
+    parent = node_at(doc, path)
+    if parent["type"] not in {"doc", "column", "listItem"} or index > len(parent.get("content", [])):
+        raise ValueError("此位置不能插入时间轴")
+    if parent["type"] == "listItem" and index == 0:
+        raise ValueError("列表项必须保留首段；请转换外层完整列表，或在列表项首段之后插入时间轴")
+    return parent
+
+
+def insert_timeline(doc, params: InsertTimeline, _provenance: TextProvenance):
+    parent = timeline_parent(doc, params.parent, params.index)
+    parent.setdefault("content", []).insert(params.index, {"type": "timeline", "attrs": {"canvasNodeId": f"canvas_{uuid4().hex}"},
+                                                          "content": [empty_timeline_item(), empty_timeline_item()]})
+
+
+def wrap_timeline(doc, params: Paths, _provenance: TextProvenance):
+    paths = sorted(params.paths)
+    if any(path[:-1] != paths[0][:-1] for path in paths) or [path[-1] for path in paths] != list(range(paths[0][-1], paths[-1][-1] + 1)):
+        raise ValueError("请选择连续的同级完整内容块")
+    parent = timeline_parent(doc, paths[0][:-1], paths[0][-1])
+    content = [node_at(doc, path) for path in paths]
+    if any(node["type"] in {"text", "hardBreak", "column", "listItem", "timeline", "timelineItem"} for node in content):
+        raise ValueError("请选择普通内容块，不能嵌套时间轴")
+    item = empty_timeline_item()
+    item["content"] = content
+    parent["content"][paths[0][-1]:paths[-1][-1] + 1] = [{"type": "timeline", "attrs": {"canvasNodeId": f"canvas_{uuid4().hex}"}, "content": [item]}]
+
+
+def require_timeline(doc, path):
+    node = node_at(doc, path)
+    if node["type"] != "timeline":
+        raise ValueError("目标不是时间轴")
+    return node
+
+
+def add_timeline_item(doc, params: TimelineIndex, _provenance: TextProvenance):
+    node = require_timeline(doc, params.path)
+    if params.index > len(node["content"]):
+        raise ValueError("条目插入位置已失效")
+    node["content"].insert(params.index, empty_timeline_item())
+
+
+def split_timeline_item(doc, params: Target, _provenance: TextProvenance):
+    timeline = require_timeline(doc, params.path[:-2])
+    item = node_at(doc, params.path[:-1])
+    index = params.path[-1]
+    if not 0 < index < len(item["content"]):
+        raise ValueError("请将光标放在条目首段之后的内容中")
+    next_item = empty_timeline_item()
+    next_item["content"] = item["content"][index:]
+    item["content"] = item["content"][:index]
+    timeline["content"].insert(params.path[-2] + 1, next_item)
+
+
+def replace_timeline(doc, path, content):
+    require_timeline(doc, path)
+    parent = node_at(doc, path[:-1])
+    parent["content"][path[-1]:path[-1] + 1] = content
+    if not parent["content"]:
+        parent["content"] = [{"type": "paragraph"}]
+
+
+def remove_timeline_item(doc, params: Target, _provenance: TextProvenance):
+    node = require_timeline(doc, params.path[:-1])
+    node_at(doc, params.path)
+    node["content"].pop(params.path[-1])
+    if not node["content"]:
+        replace_timeline(doc, params.path[:-1], [{"type": "paragraph"}])
+
+
+def delete_timeline(doc, params: Target, _provenance: TextProvenance):
+    replace_timeline(doc, params.path, [])
+
+
+def unwrap_timeline(doc, params: Target, _provenance: TextProvenance):
+    node = require_timeline(doc, params.path)
+    replace_timeline(doc, params.path, [block for item in node["content"] for block in item["content"]])
 
 
 def reorder_columns(doc, params: ReorderColumns, _provenance: TextProvenance):
@@ -686,6 +779,13 @@ class Capability:
 
 
 CAPABILITIES = {
+    "timeline.insert": Capability("插入时间轴", "在指定位置插入包含两个空白条目的时间轴。", InsertTimeline, insert_timeline, "layout"),
+    "timeline.wrap": Capability("创建时间轴条目", "将连续同级完整内容块放入时间轴的第一个条目，保留正文、格式和来源关联。列表项必须保留首段；需要转换该首段时，请传入外层完整列表路径。", Paths, wrap_timeline, "layout"),
+    "timeline.add": Capability("新增时间轴条目", "在时间轴内指定索引插入空白条目，保留已有内容。", TimelineIndex, add_timeline_item, "layout"),
+    "timeline.split": Capability("拆分时间轴条目", "以条目内指定的直接子块为新条目起点，移动该块及后续内容，保留全部文字、格式和来源关联。", Target, split_timeline_item, "layout"),
+    "timeline.remove": Capability("删除时间轴条目", "删除指定条目及正文，最后一个条目删除后恢复空段落。", Target, remove_timeline_item, "content"),
+    "timeline.delete": Capability("删除时间轴", "删除整个时间轴及正文；仅在用户明确要求删除内容时使用。", Target, delete_timeline, "content"),
+    "timeline.unwrap": Capability("取消时间轴", "按条目顺序恢复普通内容，保留所有正文、格式与来源关联。", Target, unwrap_timeline, "layout"),
     "text.replace": Capability("改写文字", "精确替换一个段落内的原文，保留其他内容和格式。", ReplaceText, replace_text, "content"),
     "text.format": Capability("文字强调与样式", "对准确原文设置或移除加粗、斜体、下划线、删除线、字号及颜色。", FormatText, format_text, "format"),
     "block.style": Capability("段落样式", "设置段落、标题或列表项的对齐、行高和缩进。", StyleBlocks, style_blocks, "format"),
@@ -737,8 +837,12 @@ def validate_document(doc: dict) -> None:
             raise ValueError("文档子节点必须为节点数组")
         if not isinstance(node.get("attrs", {}), dict):
             raise ValueError("节点属性必须为对象")
-        if kind in {"doc", "column", "listItem", "bulletList", "orderedList"} and not content:
+        if kind in {"doc", "column", "listItem", "bulletList", "orderedList", "timelineItem"} and not content:
             raise ValueError("内容容器不能为空")
+        if kind == "timeline" and (not content or any(child.get("type") != "timelineItem" for child in content)):
+            raise ValueError("时间轴必须包含至少一个条目")
+        if kind == "timelineItem" and any(child.get("type") in {"text", "hardBreak", "column", "listItem", "timelineItem"} for child in content):
+            raise ValueError("时间轴条目只能包含完整内容块")
         if kind == "columns" and (not 2 <= len(content) <= 6 or any(child.get("type") != "column" for child in content)):
             raise ValueError("分栏必须包含 2–6 个栏节点")
         if kind == "columns":

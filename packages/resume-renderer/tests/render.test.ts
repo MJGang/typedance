@@ -73,6 +73,15 @@ function styleConfig(decorationStyle: Heading2DecorationStyle = "minimal-line"):
 }
 
 describe("renderResumeHtml", () => {
+  it("preserves timeline structure, rich text and shared decoration styles", () => {
+    const doc = { type: "doc", content: [{ type: "timeline", content: [{ type: "timelineItem", content: sampleDocJson.content }] }] }
+    const body = renderStyledContentHtml(doc, styleConfig())
+    expect(body).toContain('class="td-timeline"')
+    expect(body).toContain('class="td-timeline-dot"')
+    expect(body).toContain("<strong>analytical</strong>")
+    expect(body).toContain("Designed programmable computation notes")
+    expect(renderStyledHtml(doc, styleConfig(), "zh-CN")).toContain(".td-timeline-item:last-child")
+  })
   it.each(["solid", "dashed", "dotted", "double"] as const)("uses the same %s divider settings in the editor and exported document", (style) => {
     const config = styleConfig();
     config.blocks.horizontalRule = { style, width: "3px", color: "#213547", marginTop: "12px", marginBottom: "12px" };
