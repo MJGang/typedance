@@ -45,6 +45,21 @@ describe("captureCanvasPrintSnapshot", () => {
     expect(() => captureCanvasPrintSnapshot(document.createElement("div"))).toThrow()
   })
 
+  it("导出排除末尾输入占位，同时保留真实空行和最后一个列表项", () => {
+    const editor = document.createElement("div")
+    editor.style.cssText = "width:794px;--rm-page-height:1123px"
+    editor.innerHTML = '<p><br></p><ul><li><p>完整的最后一项</p></li></ul><p data-rm-pagination-ignore="true"><br></p>'
+    document.body.append(editor)
+    vi.spyOn(editor, "getBoundingClientRect").mockReturnValue({ top: 0, width: 794 } as DOMRect)
+    const exported = document.createElement("div")
+    exported.innerHTML = captureCanvasPrintSnapshot(editor).html
+    expect(exported.querySelectorAll("p")).toHaveLength(2)
+    expect(exported.querySelectorAll("br")).toHaveLength(1)
+    expect(exported.querySelector("li")?.textContent).toBe("完整的最后一项")
+    expect(exported.innerHTML).not.toContain("data-rm-pagination-ignore")
+    expect(editor.querySelector("[data-rm-pagination-ignore]")).not.toBeNull()
+  })
+
   it("omits reference numbers and highlights while retaining the document text and its own formatting", () => {
     const editor = document.createElement("div")
     editor.style.cssText = "width:794px;--rm-page-height:1123px"
