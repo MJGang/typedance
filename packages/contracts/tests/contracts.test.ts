@@ -131,6 +131,14 @@ describe("templateStyleConfigSchema", () => {
     }
   });
 
+  it("preserves zero timeline padding and rejects negative or injected CSS values", () => {
+    const config = { ...validTemplateStyle, blocks: { ...validTemplateStyle.blocks, timeline: { paddingLeft: "0px", paddingBottom: "0px" } } };
+    expect(templateStyleConfigSchema.parse(config)).toEqual(config);
+    for (const paddingBottom of ["-1px", "12px;color:red", "auto"]) {
+      expect(() => templateStyleConfigSchema.parse({ ...config, blocks: { ...config.blocks, timeline: { paddingBottom } } })).toThrow();
+    }
+  });
+
   it("requires a valid theme accent color", () => {
     expect(() => templateStyleConfigSchema.parse({ ...validTemplateStyle, theme: undefined })).toThrow();
     expect(() => templateStyleConfigSchema.parse({

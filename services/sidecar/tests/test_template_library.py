@@ -53,6 +53,23 @@ def test_divider_style_round_trip(client):
     assert client.get("/template-styles/classic-a4").json()["blocks"]["horizontalRule"] == divider
 
 
+def test_timeline_padding_round_trip(client):
+    payload = template_style_payload()
+    timeline = {"paddingLeft": "0px", "paddingBottom": "0px"}
+    payload["blocks"]["timeline"] = timeline
+    response = client.put("/template-styles/classic-a4", json=payload)
+    assert response.status_code == 200, response.text
+    assert client.get("/template-styles/classic-a4").json()["blocks"]["timeline"] == timeline
+
+
+@pytest.mark.parametrize("value", ["-1px", "auto", "12px; color:red"])
+def test_timeline_padding_rejects_invalid_values(client, value):
+    payload = template_style_payload()
+    payload["blocks"]["timeline"] = {"paddingBottom": value}
+    response = client.put("/template-styles/classic-a4", json=payload)
+    assert response.status_code == 422, response.text
+
+
 @pytest.mark.parametrize("patch", [{"style": "unknown"}, {"width": "-1px"}, {"color": "red"}, {"marginTop": "12px; color:red"}])
 def test_divider_style_rejects_invalid_values(client, patch):
     payload = template_style_payload()

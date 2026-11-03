@@ -7,6 +7,7 @@ import {
   HEADING_SUFFIX_CLASS,
 } from "./template-style"
 import { TIMELINE_CSS } from "@typedance/tiptap-layout/timeline-style"
+export { DEFAULT_TIMELINE_STYLE } from "./template-style"
 
 export {
   DEFAULT_DIVIDER_STYLE,

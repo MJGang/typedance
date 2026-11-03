@@ -18,6 +18,7 @@ export const blockTypeSchema = z.enum([
   "bulletList",
   "orderedList",
   "horizontalRule",
+  "timeline",
 ]);
 
 export const borderBottomSchema = z.object({
@@ -74,6 +75,10 @@ export const templateBlocksSchema = z.object({
   bulletList: blockStyleSchema,
   orderedList: blockStyleSchema,
   horizontalRule: dividerStyleSchema.optional(),
+  timeline: z.object({
+    paddingLeft: z.string().regex(/^\d+(?:\.\d+)?px$/).optional(),
+    paddingBottom: z.string().regex(/^\d+(?:\.\d+)?px$/).optional(),
+  }).strict().optional(),
 }).strict();
 
 export const templateStyleConfigSchema = z.object({

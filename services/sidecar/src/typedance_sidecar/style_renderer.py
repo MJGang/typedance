@@ -185,7 +185,7 @@ def generate_template_css(config: TemplateStyleConfig) -> str:
     rules: list[str] = []
     blocks = config.blocks.model_dump(by_alias=True, exclude_none=True)
     for block_name, style in blocks.items():
-        if block_name == "horizontalRule":
+        if block_name in {"horizontalRule", "timeline"}:
             continue
         if block_name in LIST_BLOCKS:
             rules.extend(_generate_list_css(
@@ -203,5 +203,10 @@ def generate_template_css(config: TemplateStyleConfig) -> str:
         config.theme.accent_color,
     ))
     rules.append(generate_divider_css(".td-resume-divider", blocks.get("horizontalRule")))
+    timeline = {"paddingLeft": "24px", "paddingBottom": "20px", **blocks.get("timeline", {})}
+    rules.append(f""".td-resume-page .td-timeline {{
+  --td-timeline-padding-left: {timeline['paddingLeft']};
+  --td-timeline-padding-bottom: {timeline['paddingBottom']};
+}}""")
     rules.append(_generate_nested_list_css(".td-resume-page"))
     return "\n\n".join(rules)

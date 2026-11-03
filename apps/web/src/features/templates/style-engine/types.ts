@@ -5,7 +5,7 @@ export type { BlockStyle, BlockType, TemplateStyleConfig };
 export const BLOCK_TYPES: BlockType[] = [
   "heading1", "heading2", "heading3",
   "paragraph", "bulletList", "orderedList",
-  "horizontalRule",
+  "horizontalRule", "timeline",
 ];
 
 export const BLOCK_TYPE_LABELS: Record<BlockType, { "zh-CN": string; "en-US": string }> = {
@@ -16,4 +16,5 @@ export const BLOCK_TYPE_LABELS: Record<BlockType, { "zh-CN": string; "en-US": st
   bulletList: { "zh-CN": "无序列表", "en-US": "Bullet List" },
   orderedList: { "zh-CN": "有序列表", "en-US": "Ordered List" },
   horizontalRule: { "zh-CN": "分割线", "en-US": "Divider" },
+  timeline: { "zh-CN": "时间轴", "en-US": "Timeline" },
 };
