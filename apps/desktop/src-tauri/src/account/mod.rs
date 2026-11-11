@@ -313,26 +313,22 @@ impl AccountManager {
 
     async fn report_startup_error(&self, app: &AppHandle, error: String) {
         let mut state = self.inner.lock().await;
+        state.view.can_login = state
+            .current
+            .as_ref()
+            .is_some_and(|current| current.account.can_log_in());
         state.current = None;
         state.view.status = "error".into();
         state.view.user = None;
         state.view.legacy = None;
         state.view.github_bound = false;
-        state.view.can_login = false;
         state.view.error = Some(error);
         Self::publish(app, &mut state.view);
     }
 
     async fn accept(&self, app: &AppHandle, account: Account) -> Result<(), String> {
-        let id = &account.user.id;
-        let profile = self.profile_dir(id)?;
-        let marker = profile.join(".local-account.json");
-        let sources = if !marker.is_file() {
-            self.legacy_sources(id)?
-        } else {
-            vec![]
-        };
-        local::remember_account(&self.data, id)?;
+        let id = account.user.id.clone();
+        local::remember_account(&self.data, &id)?;
         {
             let mut state = self.inner.lock().await;
             state.view.user = Some(account.user.clone());
@@ -342,6 +338,16 @@ impl AccountManager {
                 account,
                 broker: None,
             });
+        }
+        let profile = self.profile_dir(&id)?;
+        let marker = profile.join(".local-account.json");
+        let sources = if marker.is_file() {
+            vec![]
+        } else {
+            self.legacy_sources(&id)?
+        };
+        {
+            let mut state = self.inner.lock().await;
             state.view.error = None;
             state.view.legacy = legacy::summarize(sources);
             if state.view.legacy.is_some() {
@@ -785,8 +791,14 @@ pub(crate) async fn sign_out_account(
 ) -> Result<AccountState, String> {
     state.inner.lock().await.login_cancel.cancel();
     let _operation = state.operation.lock().await;
-    if state.inner.lock().await.view.status == "locking" {
-        return Err("请先保存当前资料。".into());
+    {
+        let inner = state.inner.lock().await;
+        match inner.view.status.as_str() {
+            "ready" => {}
+            "error" if inner.view.can_login => {}
+            "locking" => return Err("请先保存当前资料。".into()),
+            _ => return Err("当前没有可退出的本机会话。".into()),
+        }
     }
     state.inner.lock().await.login_cancel = CancellationToken::new();
     state.logout_local(&app).await?;

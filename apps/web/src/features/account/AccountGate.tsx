@@ -7,7 +7,7 @@ import { Separator } from "@/components/ui/separator"
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { closeDesktopWindow, minimizeDesktopWindow } from "@/desktopWindow"
-import { cancelAccountSignIn, finishAccountLock, importLocalAccountData, signInAccount, skipLocalAccountData } from "@/accountActions"
+import { cancelAccountSignIn, finishAccountLock, importLocalAccountData, signInAccount, signOutAccount, skipLocalAccountData } from "@/accountActions"
 import { applyAccountState, connectAccountState, refreshAccountState, type AccountState } from "@/accountState"
 import { captureAccountSession } from "@/accountSession"
 import { useAccount } from "./useAccount"
@@ -88,6 +88,9 @@ function AccountScreen() {
               <Button variant="outline" onClick={() => void invoke("retry_account_restore").then(applyAccountState).catch(() => refreshAccountState())}>
                 <RefreshCw data-icon="inline-start" />重试启动
               </Button>
+              {state.can_login ? <Button variant="ghost" disabled={installingUpdate} onClick={() => void signOutAccount()}>
+                退出当前账号
+              </Button> : null}
             </> : state.configured && !installingUpdate ?
               <LocalAccountForm onGithubSignIn={state.providers.includes("github") ? () => void signInAccount("github") : undefined} />
             : installingUpdate ? <p role="status" className="text-sm text-muted-foreground">正在安装客户端更新…</p>

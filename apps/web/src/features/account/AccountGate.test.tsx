@@ -6,10 +6,10 @@ import { applyAccountState, getAccountView, setAccountAction, type AccountState 
 import { testAccountSession } from "@/test/accountFixture"
 import { AccountGate } from "./AccountGate"
 
-const mocks = vi.hoisted(() => ({ login: vi.fn(), importData: vi.fn(), skip: vi.fn(), finishLock: vi.fn() }))
+const mocks = vi.hoisted(() => ({ login: vi.fn(), logout: vi.fn(), importData: vi.fn(), skip: vi.fn(), finishLock: vi.fn() }))
 vi.mock("@/accountState", async (original) => ({ ...await original<object>(), connectAccountState: () => () => {} }))
 vi.mock("@/accountActions", () => ({
-  signInAccount: mocks.login, importLocalAccountData: mocks.importData, skipLocalAccountData: mocks.skip,
+  signInAccount: mocks.login, signOutAccount: mocks.logout, importLocalAccountData: mocks.importData, skipLocalAccountData: mocks.skip,
   finishAccountLock: mocks.finishLock, cancelAccountSignIn: vi.fn(),
   prepareAccountUpdate: vi.fn(), finishAccountUpdate: vi.fn(),
 }))
@@ -116,6 +116,18 @@ describe("account workspace gate", () => {
     act(() => publish("ready"))
     expect(screen.getByText("本机工作台")).toBeVisible()
     expect(screen.queryByRole("button", { name: "登录 TypeDance" })).not.toBeInTheDocument()
+  })
+
+  it("allows leaving a failed workspace when the account can sign in again", () => {
+    publish("error")
+    render(<AccountGate><p>本机工作台</p></AccountGate>)
+    expect(screen.getByRole("button", { name: "重试启动" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "退出当前账号" })).not.toBeInTheDocument()
+    act(() => applyAccountState({
+      ...getAccountView().state, revision: getAccountView().state.revision + 1, can_login: true,
+    }))
+    fireEvent.click(screen.getByRole("button", { name: "退出当前账号" }))
+    expect(mocks.logout).toHaveBeenCalledOnce()
   })
 
   it("keeps drafts mounted and concealed during expiry saving, then destroys the old tree", () => {
