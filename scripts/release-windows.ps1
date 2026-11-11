@@ -65,16 +65,24 @@ function Read-ReleaseVersion {
 }
 
 function Assert-AccountReleaseInputs {
-    param([string]$Endpoint, [string]$AppId, [string[]]$Connectors)
+    param([string]$Endpoint, [string]$AppId, [string]$GitHubClientId)
     if ([string]::IsNullOrWhiteSpace($Endpoint)) {
-        throw "TYPEDANCE_LOGTO_ENDPOINT is required for a release with working sign-in"
+        throw "TYPEDANCE_MIGRATION_LOGTO_ENDPOINT is required to adopt existing local workspaces"
     }
     if ([string]::IsNullOrWhiteSpace($AppId)) {
-        throw "TYPEDANCE_LOGTO_APP_ID is required for a release with working sign-in"
+        throw "TYPEDANCE_MIGRATION_LOGTO_APP_ID is required to adopt existing local workspaces"
     }
-    $enabled = @($Connectors | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-    if ($enabled.Count -eq 0) {
-        throw "At least one Logto social connector ID is required for a release with working sign-in"
+    if ($GitHubClientId -notmatch '^[A-Za-z0-9_]{1,128}$') {
+        throw "TYPEDANCE_GITHUB_CLIENT_ID must identify the TypeDance GitHub OAuth App"
+    }
+    try {
+        $code = Invoke-RestMethod -Method Post -Uri 'https://github.com/login/device/code' -TimeoutSec 20 `
+            -Headers @{ Accept = 'application/json' } -Body @{ client_id = $GitHubClientId }
+    } catch {
+        throw "GitHub Device Flow is unavailable for the release. Check Enable Device Flow in the OAuth App settings. $($_.Exception.Message)"
+    }
+    if (-not $code.device_code) {
+        throw "GitHub did not issue a device code for the release: $($code.error)"
     }
 }
 
@@ -112,11 +120,8 @@ function Get-ReleaseSha256 {
 if ($env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
     throw "Windows x64 is required to build the NSIS release"
 }
-Assert-AccountReleaseInputs -Endpoint $env:TYPEDANCE_LOGTO_ENDPOINT -AppId $env:TYPEDANCE_LOGTO_APP_ID -Connectors @(
-    $env:TYPEDANCE_LOGTO_GITHUB_CONNECTOR_ID,
-    $env:TYPEDANCE_LOGTO_GOOGLE_CONNECTOR_ID,
-    $env:TYPEDANCE_LOGTO_WECHAT_CONNECTOR_ID
-)
+Assert-AccountReleaseInputs -Endpoint $env:TYPEDANCE_MIGRATION_LOGTO_ENDPOINT `
+    -AppId $env:TYPEDANCE_MIGRATION_LOGTO_APP_ID -GitHubClientId $env:TYPEDANCE_GITHUB_CLIENT_ID
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     throw "uv is required to provision the Python 3.11 release environment"
 }

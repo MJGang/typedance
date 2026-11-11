@@ -28,15 +28,22 @@ foreach ($checkDefinition in @(@($ReleaseSource, "Assert-AccountReleaseInputs"),
   if (-not $definition) { throw "Missing production account check" }
   Invoke-Expression $definition.Extent.Text
 }
-Assert-AccountReleaseInputs -Endpoint "https://auth.example.com" -AppId "native-app" -Connectors @("github-id", "", "")
+function Invoke-RestMethod {
+  param($Method, $Uri, $TimeoutSec, $Headers, $Body)
+  if ($Method -ne "Post" -or $Uri -ne "https://github.com/login/device/code") { throw "Unexpected device flow request" }
+  if ($Body.client_id -ne "github_fixture") { throw "Device Flow disabled" }
+  return @{ device_code = "test-only" }
+}
+Assert-AccountReleaseInputs -Endpoint "https://auth.example.com" -AppId "native-app" -GitHubClientId "github_fixture"
 foreach ($scenario in @(
-  { Assert-AccountReleaseInputs -Endpoint "" -AppId "native-app" -Connectors @("github-id") },
-  { Assert-AccountReleaseInputs -Endpoint "https://auth.example.com" -AppId " " -Connectors @("github-id") },
-  { Assert-AccountReleaseInputs -Endpoint "https://auth.example.com" -AppId "native-app" -Connectors @("", " ") }
+  { Assert-AccountReleaseInputs -Endpoint "" -AppId "native-app" -GitHubClientId "github_fixture" },
+  { Assert-AccountReleaseInputs -Endpoint "https://auth.example.com" -AppId " " -GitHubClientId "github_fixture" },
+  { Assert-AccountReleaseInputs -Endpoint "https://auth.example.com" -AppId "native-app" -GitHubClientId "" },
+  { Assert-AccountReleaseInputs -Endpoint "https://auth.example.com" -AppId "native-app" -GitHubClientId "disabled_fixture" }
 )) {
   $rejected = $false
   try { & $scenario } catch {
-    if ($_.Exception.Message -notmatch "required for a release with working sign-in") { throw }
+    if ($_.Exception.Message -notmatch "required to adopt|must identify|Check Enable Device Flow") { throw }
     $rejected = $true
   }
   if (-not $rejected) { throw "Release accepted missing public login inputs" }
@@ -79,10 +86,10 @@ foreach ($name in @("ConvertTo-WindowsArgument", "Start-IsolatedSmokeProcess", "
   Invoke-Expression $definition.Extent.Text
 }
 $env:DEEPSEEK_API_KEY = "inherited-test-key-must-not-reach-child"
-$env:TYPEDANCE_LOGTO_ENDPOINT = "https://must-not-reach-child.invalid"
+$env:TYPEDANCE_GITHUB_CLIENT_ID = "must_not_reach_child"
 Write-Output "Runtime probe: child arguments and isolated environment"
 $expected = @("path with spaces", 'literal"quote', 'C:\trailing\', '$() does not execute', ([string]::Join([char]10, @('first line', 'second line'))))
-$code = 'process.stdout.write(JSON.stringify({args:process.argv.slice(1),leaked:!!process.env.DEEPSEEK_API_KEY||!!process.env.TYPEDANCE_LOGTO_ENDPOINT,private:process.env.TYPEDANCE_TEST_MARKER}))'
+$code = 'process.stdout.write(JSON.stringify({args:process.argv.slice(1),leaked:!!process.env.DEEPSEEK_API_KEY||!!process.env.TYPEDANCE_GITHUB_CLIENT_ID,private:process.env.TYPEDANCE_TEST_MARKER}))'
 $child = Start-IsolatedSmokeProcess -FilePath $Node -Arguments (@("--eval", $code, "--") + $expected) -Environment @{ TYPEDANCE_TEST_MARKER = "present" }
 try {
   if (-not $child.Process.WaitForExit(10000) -or $child.Process.ExitCode -ne 0) { throw "Argument probe failed" }

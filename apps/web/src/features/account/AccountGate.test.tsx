@@ -99,16 +99,23 @@ describe("account workspace gate", () => {
     expect(mocks.skip).not.toHaveBeenCalled()
   })
 
-  it("shows only configured providers in WeChat, Google, GitHub order", () => {
+  it("keeps local login available without a configured GitHub provider", () => {
     applyAccountState({ ...getAccountView().state, revision: getAccountView().state.revision + 1,
-      providers: ["github", "wechat", "google"] })
+      providers: [] })
     render(<AccountGate><p>私有简历内容</p></AccountGate>)
-    expect(screen.getAllByRole("button", { name: /使用.*登录/ }).map(button => button.textContent)).toEqual([
-      "使用微信登录", "使用 Google 登录", "使用 GitHub 登录",
-    ])
-    fireEvent.click(screen.getByRole("button", { name: "使用微信登录" }))
-    expect(mocks.login).toHaveBeenCalledWith("wechat")
+    expect(screen.getByRole("button", { name: "登录 TypeDance" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "使用 GitHub 登录" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "最大化" })).not.toBeInTheDocument()
+  })
+
+  it("opens the workspace from startup without rendering the login screen", () => {
+    publish("restoring")
+    render(<AccountGate><p>本机工作台</p></AccountGate>)
+    expect(screen.getByRole("status")).toHaveTextContent("正在启动 TypeDance")
+    expect(screen.queryByRole("button", { name: "登录 TypeDance" })).not.toBeInTheDocument()
+    act(() => publish("ready"))
+    expect(screen.getByText("本机工作台")).toBeVisible()
+    expect(screen.queryByRole("button", { name: "登录 TypeDance" })).not.toBeInTheDocument()
   })
 
   it("keeps drafts mounted and concealed during expiry saving, then destroys the old tree", () => {

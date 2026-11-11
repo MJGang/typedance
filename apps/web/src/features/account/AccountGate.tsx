@@ -1,21 +1,19 @@
 import { useEffect, useState, type ReactNode } from "react"
+import { invoke } from "@tauri-apps/api/core"
 import { toast } from "sonner"
-import { Loader2, LockKeyhole, LogIn, Minus, RefreshCw, X } from "lucide-react"
+import { Loader2, LockKeyhole, Minus, RefreshCw, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { closeDesktopWindow, minimizeDesktopWindow } from "@/desktopWindow"
 import { cancelAccountSignIn, finishAccountLock, importLocalAccountData, signInAccount, skipLocalAccountData } from "@/accountActions"
-import { connectAccountState, refreshAccountState, type AccountProvider, type AccountState } from "@/accountState"
+import { applyAccountState, connectAccountState, refreshAccountState, type AccountState } from "@/accountState"
 import { captureAccountSession } from "@/accountSession"
 import { useAccount } from "./useAccount"
-import { AccountProviderIcon } from "./AccountProviderIcon"
 import { AccountUpdateFooter } from "./AccountUpdateFooter"
 import { useClientUpdater } from "@/features/settings/useClientUpdater"
-
-const providerNames: Record<AccountProvider, string> = { github: "GitHub", google: "Google", wechat: "微信" }
-const providerOrder: AccountProvider[] = ["wechat", "google", "github"]
+import { LocalAccountForm } from "./LocalAccountForm"
 
 function LocalDataSetup({ sources, importStarted, disabled }: { sources: NonNullable<AccountState["legacy"]>["sources"]; importStarted: boolean; disabled: boolean }) {
   const [selectedId, setSelectedId] = useState("")
@@ -58,22 +56,23 @@ function AccountScreen() {
   const update = useClientUpdater()
   const installingUpdate = update.automatic && (update.phase === "ready" || update.phase === "installing")
   const signingIn = state.status === "signing_in"
-  const loading = state.status === "restoring" || signingIn || (phase === "switching" && !installingUpdate)
+  const loading = signingIn || (phase === "switching" && !installingUpdate)
   const needsImport = state.status === "needs_import"
   const isLocking = state.status === "locking"
-  const title = needsImport ? "导入历史本机数据" : isLocking ? "先保存，再继续" : "欢迎使用 TypeDance"
+  const title = needsImport ? "导入历史本机数据" : isLocking ? "先保存，再继续"
+    : state.status === "error" ? "工作区启动失败" : "欢迎使用 TypeDance"
   const description = needsImport ? `当前账号：${state.user?.name || state.user?.email || "已登录账号"}`
-    : isLocking ? "登录已失效，正在保护你的资料。" : "登录，开启你的简历工作台"
+    : isLocking ? "正在保存本机资料。" : state.status === "error" ? "" : "登录本机简历工作台"
 
   return <div data-account-screen className="relative h-svh overflow-hidden bg-linear-to-b from-muted to-card to-60% text-foreground [--background:#ffffff] [--card:#ffffff] [--foreground:#1c2638] [--primary:#24292f] [--primary-foreground:#ffffff] [--muted:#edf4fd] [--muted-foreground:#68768a] [--border:#dce4ee] [--input:color-mix(in_srgb,var(--card)_80%,var(--border))] [--accent:#edf3fb] [--accent-foreground:#1c2638]">
     <AccountWindowControls />
     <div className="flex h-full flex-col">
-      <main aria-labelledby="account-screen-heading" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-7 pt-16 pb-8 sm:px-10">
-        <div className="mx-auto my-auto flex w-full max-w-[21rem] flex-col gap-7">
+      <main aria-labelledby="account-screen-heading" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-7 pt-12 pb-5 sm:px-10">
+        <div className="mx-auto my-auto flex w-full max-w-[21rem] flex-col gap-4">
           <div className="flex flex-col items-center gap-3 text-center">
-            <img src="/images/typedance-icon.png" alt="" aria-hidden="true" className="mb-3 size-18 shrink-0 select-none" />
+            <img src="/images/typedance-icon.png" alt="" aria-hidden="true" className="size-12 shrink-0 select-none" />
             <h1 id="account-screen-heading" className="text-2xl leading-tight font-semibold tracking-tight text-balance">{title}</h1>
-            <p className="text-sm leading-6 break-words text-muted-foreground">{description}</p>
+            {description ? <p className="text-sm leading-6 break-words text-muted-foreground">{description}</p> : null}
           </div>
           <div className="flex flex-col gap-4">
             {actionError || state.error ? <p role="alert" className="text-sm leading-6 break-words text-destructive">{actionError || state.error}</p> : null}
@@ -82,17 +81,17 @@ function AccountScreen() {
               {phase === "saving" ? <p role="status" className="flex items-center gap-2 text-sm"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" />正在保存资料…</p>
                 : <Button className="h-12 w-full rounded-xl" onClick={() => void finishAccountLock()}>重试保存</Button>}
             </> : needsImport && state.legacy ? <LocalDataSetup key={state.user?.id} sources={state.legacy.sources} importStarted={state.legacy.import_started} disabled={phase !== "idle" || installingUpdate} /> : loading ? <>
-              <p role="status" className="flex items-start gap-2.5 text-sm leading-6 text-muted-foreground"><Loader2 className="mt-1 size-4 shrink-0 animate-spin motion-reduce:animate-none" />{signingIn ? "请在浏览器中完成登录，然后返回这里。" : phase === "switching" ? "正在更新账号状态…" : "正在恢复登录状态…"}</p>
+              <p role="status" className="flex items-start gap-2.5 text-sm leading-6 text-muted-foreground"><Loader2 className="mt-1 size-4 shrink-0 animate-spin motion-reduce:animate-none" />{signingIn ? "请在 GitHub 页面输入下方设备码。" : "正在更新账号状态…"}</p>
+              {state.github_code ? <code className="select-all text-center text-xl tracking-wide">{state.github_code}</code> : null}
               {signingIn ? <Button className="h-12 w-full rounded-xl" variant="outline" onClick={() => void cancelAccountSignIn()}>取消登录</Button> : null}
-            </> : state.configured ? <>
-              <div className="flex flex-col gap-3">
-                {state.providers.length ? providerOrder.filter(provider => state.providers.includes(provider)).map((provider, index) => <Button key={provider} disabled={installingUpdate} className="h-12 w-full gap-3 rounded-xl" variant={index === 0 ? "default" : "outline"} onClick={() => void signInAccount(provider)}>
-                  <AccountProviderIcon provider={provider} />
-                  使用{provider === "wechat" ? "" : " "}{providerNames[provider]}{provider === "wechat" ? "" : " "}登录
-                </Button>) : <Button disabled={installingUpdate} className="h-12 w-full rounded-xl" onClick={() => void signInAccount()}><LogIn data-icon="inline-start" />登录或注册</Button>}
-              </div>
-              <p className="pt-2 text-center text-xs leading-5 text-muted-foreground">首次登录将自动创建账号</p>
-            </> : <>
+            </> : state.status === "error" ? <>
+              <Button variant="outline" onClick={() => void invoke("retry_account_restore").then(applyAccountState).catch(() => refreshAccountState())}>
+                <RefreshCw data-icon="inline-start" />重试启动
+              </Button>
+            </> : state.configured && !installingUpdate ?
+              <LocalAccountForm onGithubSignIn={state.providers.includes("github") ? () => void signInAccount("github") : undefined} />
+            : installingUpdate ? <p role="status" className="text-sm text-muted-foreground">正在安装客户端更新…</p>
+            : <>
               <p className="text-sm leading-6 text-muted-foreground">登录服务尚未配置，请联系应用提供方完成设置后重试。</p>
               <Button className="h-12 w-full gap-2 rounded-xl" variant="outline" onClick={() => void refreshAccountState().catch(() => {})}><RefreshCw data-icon="inline-start" />重新检查</Button>
             </>}
@@ -150,7 +149,9 @@ export function AccountGate({ children }: { children: ReactNode }) {
     {keepWorkspace ? <div key={workspaceKey} hidden={state.status === "locking"} inert={phase === "saving" || state.status === "locking"} aria-hidden={state.status === "locking" || undefined}>
       {children}
     </div> : null}
-    {state.status !== "ready" || phase === "switching" ? <AccountScreen /> : null}
+    {state.status === "restoring" ? <div data-account-screen className="grid h-svh place-items-center bg-background text-sm text-muted-foreground" role="status">
+      正在启动 TypeDance…
+    </div> : state.status !== "ready" || phase === "switching" ? <AccountScreen /> : null}
     {state.status === "ready" && phase === "saving" ? <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/90" role="status" aria-live="polite">正在保存资料并结束当前账号的任务…</div> : null}
   </div>
 }

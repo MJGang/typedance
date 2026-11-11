@@ -162,7 +162,7 @@ describe("safe account transitions", () => {
 
   it("fails closed if a transition and the authoritative state refresh both fail", async () => {
     mocks.invoke.mockRejectedValue(new Error("service unavailable"))
-    await signInAccount()
+    await signInAccount("github")
     expect(getAccountView().state.status).toBe("error")
     expect(getAccountView().state.session).toBeNull()
     expect(getAccountView().actionError).toContain("工作区已锁定")

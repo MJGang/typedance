@@ -100,12 +100,18 @@ pub fn run() {
             updater::install_client_update,
             account::get_account_state,
             account::sign_in_account,
+            account::login_local_account,
+            account::register_local_account,
             account::cancel_account_sign_in,
             account::sign_out_account,
+            account::update_local_account,
+            account::change_local_password,
+            account::recover_local_password,
+            account::bind_github_account,
+            account::retry_account_restore,
             account::import_local_account_data,
             account::skip_local_account_data,
             account::finish_account_lock,
-            account::open_account_center,
         ])
         .on_window_event(|window, event| {
             if window.label() == "main" {
@@ -133,10 +139,8 @@ pub fn run() {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 accounts.restore(&handle).await;
+                show_main_window(&handle);
             });
-            if let Some(window) = app.get_webview_window("main") {
-                window.show()?;
-            }
             if let Some(delay) = std::env::var("TYPEDANCE_RELEASE_SMOKE_EXIT_AFTER_MS")
                 .ok()
                 .and_then(|value| value.parse::<u64>().ok())
