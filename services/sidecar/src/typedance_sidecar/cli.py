@@ -29,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--browser-path")
     parser.add_argument("--markdown-converter-path")
     parser.add_argument("--migrate-local-data", action="store_true")
+    parser.add_argument("--preserve-file-references", action="store_true")
     parser.add_argument("--source-data-dir")
     parser.add_argument("--entries-json")
     parser.add_argument("--exclude-json", default="[]")
@@ -52,7 +53,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         target = Path(args.data_dir)
         result = migrate_local_data(
             source, target, entries, excluded,
-            prepare_target=lambda staging: rebase_sidecar_file_references(staging / "typedance.sqlite", source, target),
+            prepare_target=None if args.preserve_file_references else (
+                lambda staging: rebase_sidecar_file_references(staging / "typedance.sqlite", source, target)
+            ),
         )
         print(json.dumps(result, ensure_ascii=False))
         return

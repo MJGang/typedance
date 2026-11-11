@@ -1,8 +1,11 @@
-use openidconnect::CsrfToken;
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use rand::{rngs::OsRng, RngCore};
 
 pub(crate) fn random_token() -> String {
     // 本机服务要求至少 32 个 URL 安全字符；32 随机字节编码后为 43 字符。
-    CsrfToken::new_random_len(32).secret().clone()
+    let mut bytes = [0; 32];
+    OsRng.fill_bytes(&mut bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
 #[cfg(test)]

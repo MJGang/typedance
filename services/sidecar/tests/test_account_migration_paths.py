@@ -6,6 +6,7 @@ import pytest
 
 from typedance_sidecar.cli import main
 from typedance_sidecar import account_migration_paths
+from typedance_sidecar.db import connect
 
 
 def test_migration_rebases_owned_files_and_preserves_external_references_and_text(tmp_path, monkeypatch, capsys):
@@ -89,3 +90,52 @@ def test_path_rewrite_failure_does_not_publish_a_partial_profile(tmp_path, monke
     assert not target.exists()
     assert (source / "material").read_text(encoding="utf-8") == "preserve"
     assert json.loads((tmp_path / ".target.import.json").read_text(encoding="utf-8"))["state"] == "failed"
+
+
+def test_profile_copy_preserves_templates_resume_bindings_and_conversations(tmp_path):
+    source = tmp_path / "old-profile"
+    target = tmp_path / "new-profile"
+    (source / "agent-host").mkdir(parents=True)
+    date = "2026-11-11T12:00:00Z"
+    style = json.dumps({"template_id": "classic-a4", "blocks": {"paragraph": {"fontSize": "11pt"}}})
+    sample = json.dumps({"id": "sample", "plain_text_snapshot": "修改后的示例"}, ensure_ascii=False)
+    resume = json.dumps({"id": "resume", "template_id": "classic-a4"})
+    conversation = json.dumps({"id": "conversation", "title": "原有对话"}, ensure_ascii=False)
+    message = json.dumps({"id": "message", "text": "原有内容"}, ensure_ascii=False)
+
+    with (
+        closing(connect(source / "typedance.sqlite")) as data,
+        closing(sqlite3.connect(source / "agent-host/store.sqlite")) as agent,
+    ):
+        for connection in (data, agent):
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA wal_autocheckpoint=0")
+        data.execute("INSERT INTO template_styles VALUES (?, ?, ?)", ("classic-a4", style, date))
+        data.execute("INSERT INTO template_samples VALUES (?, ?, ?)", ("sample", sample, date))
+        data.execute("INSERT INTO resume_versions VALUES (?, ?, ?)", ("resume", resume, date))
+        agent.execute("CREATE TABLE conversations (id TEXT PRIMARY KEY, data TEXT NOT NULL)")
+        agent.execute("CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT, data TEXT NOT NULL)")
+        agent.execute("INSERT INTO conversations VALUES (?, ?)", ("conversation", conversation))
+        agent.execute("INSERT INTO messages VALUES (?, ?, ?)", ("message", "conversation", message))
+        data.commit()
+        agent.commit()
+
+        main([
+            "--migrate-local-data", "--preserve-file-references",
+            "--source-data-dir", str(source), "--data-dir", str(target),
+            "--entries-json", json.dumps(["typedance.sqlite", "agent-host"]),
+        ])
+
+        with (
+            closing(sqlite3.connect(target / "typedance.sqlite")) as copied_data,
+            closing(sqlite3.connect(target / "agent-host/store.sqlite")) as copied_agent,
+        ):
+            for original, copied, query, expected in (
+                (data, copied_data, "SELECT * FROM template_styles", [("classic-a4", style, date)]),
+                (data, copied_data, "SELECT * FROM template_samples", [("sample", sample, date)]),
+                (data, copied_data, "SELECT * FROM resume_versions", [("resume", resume, date)]),
+                (agent, copied_agent, "SELECT * FROM conversations", [("conversation", conversation)]),
+                (agent, copied_agent, "SELECT * FROM messages", [("message", "conversation", message)]),
+            ):
+                assert [tuple(row) for row in original.execute(query)] == expected
+                assert copied.execute(query).fetchall() == expected

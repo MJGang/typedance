@@ -16,7 +16,7 @@ vi.mock("@/features/settings/AiSettingsPanel", () => ({ AiSettingsPanel: () => <
 function account(id = "A", status: AccountState["status"] = "ready"): AccountState {
   return {
     revision: getAccountView().state.revision + 1,
-    status, configured: true, providers: ["wechat", "google", "github"],
+    status, configured: true, providers: ["github"],
     user: status === "ready" ? { id, name: `账号 ${id}`, email: `${id}@example.invalid` } : null,
     session: status === "ready" ? testAccountSession(id) : null,
     error: null, legacy: null,
@@ -62,12 +62,14 @@ describe("sidebar account entry", () => {
     expect(screen.getByRole("button", { name: /账号菜单/ })).toHaveFocus()
   })
 
-  it("opens account security directly without a settings dialog", async () => {
-    mocks.invoke.mockResolvedValue(undefined)
+  it("opens local account settings with profile, GitHub and password controls", async () => {
     render(<AccountMenu />)
     fireEvent.click(within(await openMenu()).getByRole("menuitem", { name: "账号与安全" }))
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("open_account_center"))
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    const dialog = await screen.findByRole("dialog", { name: "账号与安全" })
+    expect(within(dialog).getByLabelText("昵称")).toHaveValue("账号 A")
+    expect(within(dialog).getByLabelText("本机登录邮箱")).toHaveValue("A@example.invalid")
+    expect(within(dialog).getByRole("button", { name: "绑定 GitHub" })).toBeInTheDocument()
+    expect(within(dialog).getByRole("button", { name: "设置或重置密码" })).toBeInTheDocument()
   })
 
   it("opens general settings from the menu with account controls removed", async () => {
@@ -92,11 +94,11 @@ describe("sidebar account entry", () => {
     expect(within(dialog).getByRole("tab", { name: "客户端更新" })).toHaveAttribute("data-state", "active")
   })
 
-  it.each([["切换账号", "sign_in_account"], ["退出登录", "sign_out_account"]])("routes %s through the existing save gate", async (label, command) => {
-    mocks.invoke.mockImplementation(async () => account("B", command === "sign_in_account" ? "ready" : "signed_out"))
+  it.each(["切换账号", "退出登录"])("routes %s through the existing save gate", async (label) => {
+    mocks.invoke.mockResolvedValue(account("A", "signed_out"))
     render(<AccountMenu />)
     fireEvent.click(within(await openMenu()).getByRole("menuitem", { name: label }))
-    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith(command, undefined))
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("sign_out_account", undefined))
     expect(mocks.flush).toHaveBeenCalledTimes(1)
     expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/account/pause"), expect.objectContaining({ method: "POST" }))
     await waitFor(() => expect(getAccountView().phase).toBe("idle"))

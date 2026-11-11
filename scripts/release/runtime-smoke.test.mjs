@@ -9,7 +9,7 @@ import { spawnSync } from "node:child_process"
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const powershell = process.env.SystemRoot ? join(process.env.SystemRoot, "System32/WindowsPowerShell/v1.0/powershell.exe") : "powershell"
 
-test("production login checks reject missing release inputs and locally configured clean installs", { skip: process.platform !== "win32" }, t => {
+test("production login checks require enabled GitHub device flow and a clean signed-out workspace", { skip: process.platform !== "win32" }, t => {
   const temporaryRoot = resolve(tmpdir())
   const directory = mkdtempSync(join(temporaryRoot, "typedance-account-release-"))
   t.after(() => {
@@ -28,15 +28,20 @@ foreach ($checkDefinition in @(@($ReleaseSource, "Assert-AccountReleaseInputs"),
   if (-not $definition) { throw "Missing production account check" }
   Invoke-Expression $definition.Extent.Text
 }
-Assert-AccountReleaseInputs -Endpoint "https://auth.example.com" -AppId "native-app" -Connectors @("github-id", "", "")
+function Invoke-RestMethod {
+  param($Method, $Uri, $TimeoutSec, $Headers, $Body)
+  if ($Method -ne "Post" -or $Uri -ne "https://github.com/login/device/code") { throw "Unexpected device flow request" }
+  if ($Body.client_id -ne "github_fixture") { throw "Device Flow disabled" }
+  return @{ device_code = "test-only" }
+}
+Assert-AccountReleaseInputs -GitHubClientId "github_fixture"
 foreach ($scenario in @(
-  { Assert-AccountReleaseInputs -Endpoint "" -AppId "native-app" -Connectors @("github-id") },
-  { Assert-AccountReleaseInputs -Endpoint "https://auth.example.com" -AppId " " -Connectors @("github-id") },
-  { Assert-AccountReleaseInputs -Endpoint "https://auth.example.com" -AppId "native-app" -Connectors @("", " ") }
+  { Assert-AccountReleaseInputs -GitHubClientId "" },
+  { Assert-AccountReleaseInputs -GitHubClientId "disabled_fixture" }
 )) {
   $rejected = $false
   try { & $scenario } catch {
-    if ($_.Exception.Message -notmatch "required for a release with working sign-in") { throw }
+    if ($_.Exception.Message -notmatch "must identify|Check Enable Device Flow") { throw }
     $rejected = $true
   }
   if (-not $rejected) { throw "Release accepted missing public login inputs" }
@@ -48,12 +53,6 @@ foreach ($diagnostics in @("Account startup gate: unconfigured", $good.Replace("
   try { Assert-FreshLoginGate -Diagnostics $diagnostics -DataDirectory $Directory } catch { $rejected = $true }
   if (-not $rejected) { throw "Fresh release accepted a missing login gate or channel" }
 }
-$localConfiguration = Join-Path $Directory "account-config.json"
-Set-Content -LiteralPath $localConfiguration -Value "{}"
-$rejected = $false
-try { Assert-FreshLoginGate -Diagnostics $good -DataDirectory $Directory } catch { $rejected = $true }
-if (-not $rejected) { throw "Fresh login smoke accepted local configuration masking missing embedded defaults" }
-Remove-Item -LiteralPath $localConfiguration
 New-Item -ItemType Directory -Path (Join-Path $Directory "profiles") | Out-Null
 $rejected = $false
 try { Assert-FreshLoginGate -Diagnostics $good -DataDirectory $Directory } catch { $rejected = $true }
@@ -79,10 +78,10 @@ foreach ($name in @("ConvertTo-WindowsArgument", "Start-IsolatedSmokeProcess", "
   Invoke-Expression $definition.Extent.Text
 }
 $env:DEEPSEEK_API_KEY = "inherited-test-key-must-not-reach-child"
-$env:TYPEDANCE_LOGTO_ENDPOINT = "https://must-not-reach-child.invalid"
+$env:TYPEDANCE_GITHUB_CLIENT_ID = "must_not_reach_child"
 Write-Output "Runtime probe: child arguments and isolated environment"
 $expected = @("path with spaces", 'literal"quote', 'C:\trailing\', '$() does not execute', ([string]::Join([char]10, @('first line', 'second line'))))
-$code = 'process.stdout.write(JSON.stringify({args:process.argv.slice(1),leaked:!!process.env.DEEPSEEK_API_KEY||!!process.env.TYPEDANCE_LOGTO_ENDPOINT,private:process.env.TYPEDANCE_TEST_MARKER}))'
+$code = 'process.stdout.write(JSON.stringify({args:process.argv.slice(1),leaked:!!process.env.DEEPSEEK_API_KEY||!!process.env.TYPEDANCE_GITHUB_CLIENT_ID,private:process.env.TYPEDANCE_TEST_MARKER}))'
 $child = Start-IsolatedSmokeProcess -FilePath $Node -Arguments (@("--eval", $code, "--") + $expected) -Environment @{ TYPEDANCE_TEST_MARKER = "present" }
 try {
   if (-not $child.Process.WaitForExit(10000) -or $child.Process.ExitCode -ne 0) { throw "Argument probe failed" }

@@ -1,20 +1,22 @@
 mod broker;
 mod config;
+mod github;
 mod import_claim;
 mod legacy;
-mod oidc;
-mod revocations;
+mod local;
+mod migration;
 mod token;
 mod vault;
 pub(crate) mod window;
 
 use broker::CredentialBroker;
-use config::{profile_key, AccountConfig, Provider};
+use config::Provider;
 use legacy::LegacySummary;
-use oidc::{Oidc, RefreshFailure, StoredRefresh, VerifiedSession};
+use local::{Account, Accounts};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
+    io::Write,
     net::TcpListener,
     path::{Path, PathBuf},
     sync::{
@@ -30,7 +32,7 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use vault::Vault;
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub(crate) struct AccountUser {
     pub(crate) id: String,
     pub(crate) name: String,
@@ -56,26 +58,13 @@ pub(crate) struct AccountState {
     session: Option<LocalSession>,
     error: Option<String>,
     legacy: Option<LegacySummary>,
-}
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RefreshReceipt {
-    issuer: String,
-    subject: String,
-    refresh: StoredRefresh,
-}
-#[derive(Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-struct ProfileReceipt {
-    issuer: String,
-    subject: String,
-    profile: String,
+    github_code: Option<String>,
+    github_bound: bool,
+    can_login: bool,
 }
 struct Current {
-    verified: VerifiedSession,
-    config: AccountConfig,
+    account: Account,
     broker: Option<CredentialBroker>,
-    stop: CancellationToken,
 }
 struct Inner {
     view: AccountState,
@@ -113,13 +102,20 @@ fn plain_directory(path: &Path) -> Result<(), String> {
 }
 
 fn write_json(path: &Path, value: &impl Serialize) -> Result<(), String> {
-    let temporary = path.with_extension("json.tmp");
-    fs::write(
-        &temporary,
-        serde_json::to_vec(value).map_err(|_| "账号资料标识无效。")?,
-    )
-    .map_err(|_| "无法保存账号资料标识。")?;
-    fs::rename(temporary, path).map_err(|_| "无法完成账号资料标识保存。".into())
+    let temporary = path.with_extension(format!("json.{}.tmp", random_token()));
+    let data = serde_json::to_vec(value).map_err(|_| "账号资料标识无效。")?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
+        .map_err(|_| "无法保存账号资料标识。")?;
+    let saved = file.write_all(&data).and_then(|_| file.sync_all());
+    drop(file);
+    if saved.and_then(|_| fs::rename(&temporary, path)).is_err() {
+        let _ = fs::remove_file(&temporary);
+        return Err("无法完成账号资料标识保存。".into());
+    }
+    Ok(())
 }
 
 fn legacy_entries(root: &Path) -> Vec<String> {
@@ -188,38 +184,27 @@ impl AccountManager {
         };
         fs::create_dir_all(&data).map_err(|_| "无法创建账号资料目录。")?;
         plain_directory(&data)?;
-        let config = AccountConfig::load(&data);
-        let (configured, providers, error) = match config {
-            Ok(Some(config)) => (true, config.connectors.keys().copied().collect(), None),
-            Ok(None) => (false, vec![], None),
-            Err(error) => (false, vec![], Some(error)),
-        };
-        eprintln!(
-            "Account startup gate: {}",
-            if configured {
-                "restoring"
-            } else {
-                "unconfigured"
-            }
-        );
+        let providers: Vec<_> = config::github_client_id()
+            .map(|_| Provider::Github)
+            .into_iter()
+            .collect();
+        eprintln!("Account startup gate: restoring");
         eprintln!("Account startup providers: {providers:?}");
         Ok(Arc::new(Self {
             data,
             inner: Mutex::new(Inner {
                 view: AccountState {
                     revision: 0,
-                    status: if configured {
-                        "restoring"
-                    } else {
-                        "unconfigured"
-                    }
-                    .into(),
-                    configured,
+                    status: "restoring".into(),
+                    configured: true,
                     providers,
                     user: None,
                     session: None,
-                    error,
+                    error: None,
                     legacy: None,
+                    github_code: None,
+                    github_bound: false,
+                    can_login: false,
                 },
                 current: None,
                 login_cancel: CancellationToken::new(),
@@ -240,16 +225,14 @@ impl AccountManager {
         let _ = app.emit("typedance-account-changed", state.clone());
     }
 
-    fn config(&self) -> Result<AccountConfig, String> {
-        AccountConfig::load(&self.data)?
-            .ok_or_else(|| "账号服务尚未配置，请配置 Logto Endpoint 和 Native 应用 ID。".into())
-    }
-
-    fn profile_dir(&self, verified: &VerifiedSession) -> Result<PathBuf, String> {
+    fn profile_dir(&self, id: &str) -> Result<PathBuf, String> {
+        if id.len() != 64 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err("本机工作区标识无效。".into());
+        }
         let profiles = self.data.join("profiles");
         fs::create_dir_all(&profiles).map_err(|_| "无法创建账号资料空间。")?;
         plain_directory(&profiles)?;
-        Ok(profiles.join(&verified.profile))
+        Ok(profiles.join(id))
     }
 
     fn legacy_sources(&self, profile: &str) -> Result<Vec<legacy::LegacyCandidate>, String> {
@@ -284,7 +267,6 @@ impl AccountManager {
         app.state::<crate::runtime::ManagedProcesses>().shutdown();
         let mut state = self.inner.lock().await;
         if let Some(current) = &mut state.current {
-            current.stop.cancel();
             if let Some(broker) = current.broker.take() {
                 broker.revoke();
             }
@@ -292,176 +274,109 @@ impl AccountManager {
         state.view.session = None;
     }
 
-    fn persist_refresh(
-        &self,
-        config: &AccountConfig,
-        verified: &VerifiedSession,
-    ) -> Result<(), String> {
-        let vault = Vault::new(config.vault_namespace())?;
-        let value = serde_json::to_string(&RefreshReceipt {
-            issuer: verified.issuer.clone(),
-            subject: verified.subject.clone(),
-            refresh: verified.refresh.clone(),
-        })
-        .map_err(|_| "登录凭据序列化失败。")?;
-        vault.write(&verified.profile, "refresh", &value)?;
-        write_json(&self.data.join("last-account.json"), &verified.profile)
-    }
-
     pub(crate) async fn restore(self: &Arc<Self>, app: &AppHandle) {
-        let manager = self.clone();
-        tauri::async_runtime::spawn(async move {
-            loop {
-                {
-                    let _operation = manager.operation.lock().await;
-                    let _ = revocations::retry(&manager.data).await;
-                }
-                tokio::time::sleep(Duration::from_secs(60)).await;
-            }
-        });
         let _operation = self.operation.lock().await;
-        let attempt = async {
-            let config = self.config()?;
-            let pointer = self.data.join("last-account.json");
-            if !pointer.is_file() {
-                return Ok::<_, String>(None);
-            }
-            let profile: String =
-                serde_json::from_slice(&fs::read(pointer).map_err(|_| "无法读取上次登录标识。")?)
-                    .map_err(|_| "上次登录标识无效。")?;
-            let vault = Vault::new(config.vault_namespace())?;
-            let Some(saved) = vault.read(&profile, "refresh")? else {
-                return Ok(None);
-            };
-            let receipt: RefreshReceipt =
-                serde_json::from_str(&saved).map_err(|_| "保存的登录凭据无效，请重新登录。")?;
-            if receipt.issuer != config.issuer()
-                || profile_key(&receipt.issuer, &receipt.subject) != profile
-            {
-                return Err("保存的身份与当前账号服务不匹配。".into());
-            }
-            let verified = match Oidc::discover(config.clone())
-                .await?
-                .refresh(&receipt.subject, receipt.refresh)
-                .await
-            {
-                Ok(verified) => verified,
-                Err(error) => {
-                    if let Some(rotated) = error.rotated {
-                        vault.write(
-                            &profile,
-                            "refresh",
-                            &serde_json::to_string(&RefreshReceipt {
-                                issuer: receipt.issuer,
-                                subject: receipt.subject,
-                                refresh: rotated,
-                            })
-                            .map_err(|_| "登录凭据序列化失败。")?,
-                        )?;
-                    }
-                    return Err(error.message);
-                }
-            };
-            self.accept(app, &config, verified).await?;
-            Ok(Some(()))
-        }
-        .await;
-        if !matches!(attempt, Ok(Some(()))) {
-            if self.inner.lock().await.current.is_some() {
-                self.logout_local(app, false).await;
-            }
+        {
             let mut state = self.inner.lock().await;
-            state.view.status = if state.view.configured {
-                "signed_out"
-            } else {
-                "unconfigured"
+            if state.view.status != "restoring"
+                && !(state.view.status == "error" && state.current.is_none())
+            {
+                return;
             }
-            .into();
-            if let Err(error) = attempt {
-                state.view.error = Some(match state.view.error.take() {
-                    Some(cleanup) => format!("{error} {cleanup}"),
-                    None => error,
-                });
-            }
+            state.view.status = "restoring".into();
+            state.view.error = None;
             Self::publish(app, &mut state.view);
         }
+        let result = async {
+            let mut accounts = Accounts::open(&self.data)?;
+            let account = if accounts.is_empty() {
+                migration::adopt(app, &self.data, &mut accounts).await?
+            } else {
+                local::remembered_account(&self.data)?
+                    .map(|id| accounts.find(&id))
+                    .transpose()?
+            };
+            if let Some(account) = account {
+                self.accept(app, account).await
+            } else {
+                let mut state = self.inner.lock().await;
+                state.view.status = "signed_out".into();
+                Self::publish(app, &mut state.view);
+                Ok(())
+            }
+        }
+        .await;
+        if let Err(error) = result {
+            self.report_startup_error(app, error).await;
+        }
     }
 
-    async fn accept(
-        self: &Arc<Self>,
-        app: &AppHandle,
-        config: &AccountConfig,
-        verified: VerifiedSession,
-    ) -> Result<(), String> {
-        let identity = verified.profile.clone();
-        let profile = {
+    async fn report_startup_error(&self, app: &AppHandle, error: String) {
+        let mut state = self.inner.lock().await;
+        state.view.can_login = state
+            .current
+            .as_ref()
+            .is_some_and(|current| current.account.can_log_in());
+        state.current = None;
+        state.view.status = "error".into();
+        state.view.user = None;
+        state.view.legacy = None;
+        state.view.github_bound = false;
+        state.view.error = Some(error);
+        Self::publish(app, &mut state.view);
+    }
+
+    async fn accept(&self, app: &AppHandle, account: Account) -> Result<(), String> {
+        let id = account.user.id.clone();
+        local::remember_account(&self.data, &id)?;
+        {
             let mut state = self.inner.lock().await;
-            state.view.user = Some(verified.user.clone());
+            state.view.user = Some(account.user.clone());
+            state.view.github_bound = account.github_bound();
+            state.view.can_login = account.can_log_in();
             state.current = Some(Current {
-                verified,
-                config: config.clone(),
+                account,
                 broker: None,
-                stop: CancellationToken::new(),
             });
-            self.profile_dir(&state.current.as_ref().ok_or("账号会话已结束。")?.verified)?
-        };
-        let sources = if !profile.join(".account-profile.json").is_file() {
-            self.legacy_sources(&identity)?
-        } else {
+        }
+        let profile = self.profile_dir(&id)?;
+        let marker = profile.join(".local-account.json");
+        let sources = if marker.is_file() {
             vec![]
+        } else {
+            self.legacy_sources(&id)?
         };
-        let summary = legacy::summarize(sources);
         {
             let mut state = self.inner.lock().await;
             state.view.error = None;
-            state.view.legacy = summary;
-            self.persist_refresh(
-                config,
-                &state.current.as_ref().ok_or("账号会话已结束。")?.verified,
-            )?;
+            state.view.legacy = legacy::summarize(sources);
             if state.view.legacy.is_some() {
                 state.view.status = "needs_import".into();
                 Self::publish(app, &mut state.view);
                 return Ok(());
             }
         }
-        self.activate(app, config).await
+        self.activate(app).await
     }
 
-    async fn activate(
-        self: &Arc<Self>,
-        app: &AppHandle,
-        config: &AccountConfig,
-    ) -> Result<(), String> {
-        let (profile, receipt) = {
-            let state = self.inner.lock().await;
-            let current = state.current.as_ref().ok_or("当前账号尚未验证。")?;
-            if current.verified.expires_at <= std::time::Instant::now() {
-                return Err("登录验证已过期，请重新登录后打开资料。".into());
-            }
-            (
-                self.profile_dir(&current.verified)?,
-                ProfileReceipt {
-                    issuer: current.verified.issuer.clone(),
-                    subject: current.verified.subject.clone(),
-                    profile: current.verified.profile.clone(),
-                },
-            )
-        };
+    async fn activate(&self, app: &AppHandle) -> Result<(), String> {
+        let id = self.current_id().await?;
+        let profile = self.profile_dir(&id)?;
         fs::create_dir_all(&profile).map_err(|_| "无法创建账号资料空间。")?;
         plain_directory(&profile)?;
-        let marker = profile.join(".account-profile.json");
+        let marker = profile.join(".local-account.json");
         if marker.is_file() {
-            let saved: ProfileReceipt =
-                serde_json::from_slice(&fs::read(&marker).map_err(|_| "无法读取账号资料标识。")?)
-                    .map_err(|_| "账号资料标识无效。")?;
-            if saved != receipt {
-                return Err("资料空间与已验证账号不匹配，已阻止访问。".into());
+            let saved: String =
+                serde_json::from_slice(&fs::read(&marker).map_err(|_| "无法读取本机工作区归属。")?)
+                    .map_err(|_| "本机工作区归属无效。")?;
+            if saved != id {
+                return Err("本机工作区与当前账号不匹配。".into());
             }
+        } else {
+            write_json(&marker, &id)?;
         }
-        write_json(&profile.join(".account-profile.json"), &receipt)?;
         let broker =
-            CredentialBroker::start(Vault::new(config.vault_namespace())?, receipt.profile).await?;
+            CredentialBroker::start(Vault::new(local::VAULT_NAMESPACE.into())?, id).await?;
         let sidecar_port = available_port()?;
         let mut host_port = available_port()?;
         while host_port == sidecar_port {
@@ -488,31 +403,14 @@ impl AccountManager {
             drop(processes);
             return Err("账号服务启动已取消。".into());
         }
-        if self
-            .inner
-            .lock()
-            .await
-            .current
-            .as_ref()
-            .is_none_or(|current| current.verified.expires_at <= std::time::Instant::now())
-        {
-            drop(processes);
-            return Err("登录验证已过期，请重新登录后打开资料。".into());
-        }
         app.state::<crate::runtime::ManagedProcesses>()
             .adopt(processes);
         {
             let mut state = self.inner.lock().await;
-            if state.login_cancel.is_cancelled()
-                || self.shutting_down.load(Ordering::SeqCst)
-                || state
-                    .current
-                    .as_ref()
-                    .is_none_or(|current| current.verified.expires_at <= std::time::Instant::now())
-            {
+            if state.login_cancel.is_cancelled() || self.shutting_down.load(Ordering::SeqCst) {
                 drop(state);
                 app.state::<crate::runtime::ManagedProcesses>().shutdown();
-                return Err("账号会话已取消或过期，服务已停止。".into());
+                return Err("账号服务启动已取消。".into());
             }
             state.current.as_mut().ok_or("账号会话已结束。")?.broker = Some(broker);
             state.view.session = Some(LocalSession {
@@ -526,109 +424,44 @@ impl AccountManager {
             state.view.legacy = None;
             Self::publish(app, &mut state.view);
         }
-        self.schedule_refresh(app.clone());
         Ok(())
     }
 
-    fn schedule_refresh(self: &Arc<Self>, app: AppHandle) {
-        let manager = self.clone();
-        tauri::async_runtime::spawn(async move {
-            loop {
-                let (delay, stop, expected) = {
-                    let state = manager.inner.lock().await;
-                    let Some(current) = &state.current else {
-                        break;
-                    };
-                    if state.view.status != "ready" {
-                        break;
-                    }
-                    (
-                        current.verified.refresh_after,
-                        current.stop.clone(),
-                        current.verified.profile.clone(),
-                    )
-                };
-                tokio::select! { _ = stop.cancelled() => break, _ = tokio::time::sleep(delay) => {} }
-                let _operation = manager.operation.lock().await;
-                let receipt = {
-                    let state = manager.inner.lock().await;
-                    let Some(current) = &state.current else {
-                        break;
-                    };
-                    if current.verified.profile != expected
-                        || state.view.status != "ready"
-                        || stop.is_cancelled()
-                    {
-                        break;
-                    }
-                    (
-                        current.verified.subject.clone(),
-                        current.verified.refresh.clone(),
-                        current.config.clone(),
-                    )
-                };
-                let refreshed = async {
-                    let config = receipt.2;
-                    let verified = Oidc::discover(config.clone())
-                        .await
-                        .map_err(RefreshFailure::unavailable)?
-                        .refresh(&receipt.0, receipt.1)
-                        .await?;
-                    if verified.profile != expected {
-                        return Err("登录续期返回的账号发生变化。".into());
-                    }
-                    manager.persist_refresh(&config, &verified)?;
-                    Ok::<_, RefreshFailure>(verified)
-                }
-                .await;
-                match refreshed {
-                    Ok(verified) => {
-                        if let Some(current) = &mut manager.inner.lock().await.current {
-                            current.verified = verified;
-                        }
-                    }
-                    Err(error) => {
-                        let mut retry = false;
-                        {
-                            let mut state = manager.inner.lock().await;
-                            if let Some(current) = &mut state.current {
-                                if let Some(rotated) = error.rotated {
-                                    current.verified.refresh = rotated;
-                                    if manager
-                                        .persist_refresh(&current.config, &current.verified)
-                                        .is_err()
-                                    {
-                                        drop(state);
-                                        manager
-                                            .begin_lock(
-                                                &app,
-                                                "续期凭据无法安全保存，请重新登录。".into(),
-                                            )
-                                            .await;
-                                        break;
-                                    }
-                                }
-                                if error.retryable {
-                                    let remaining = current
-                                        .verified
-                                        .expires_at
-                                        .saturating_duration_since(std::time::Instant::now());
-                                    if !remaining.is_zero() {
-                                        current.verified.refresh_after =
-                                            remaining.min(Duration::from_secs(15));
-                                        retry = true;
-                                    }
-                                }
-                            }
-                        }
-                        if !retry {
-                            manager.begin_lock(&app, error.message).await;
-                            break;
-                        }
-                    }
-                }
-            }
-        });
+    async fn current_id(&self) -> Result<String, String> {
+        self.inner
+            .lock()
+            .await
+            .current
+            .as_ref()
+            .map(|current| current.account.user.id.clone())
+            .ok_or_else(|| "本机账号会话已结束。".into())
+    }
+
+    async fn can_sign_in(&self) -> Result<(), String> {
+        if !matches!(
+            self.inner.lock().await.view.status.as_str(),
+            "signed_out" | "locked"
+        ) {
+            return Err("请先完成当前账号操作。".into());
+        }
+        if self.shutting_down.load(Ordering::SeqCst) {
+            return Err("客户端正在退出。".into());
+        }
+        Ok(())
+    }
+
+    async fn publish_profile(&self, app: &AppHandle, account: Account) -> Result<(), String> {
+        let mut state = self.inner.lock().await;
+        state.view.user = Some(account.user.clone());
+        state.view.github_bound = account.github_bound();
+        state.view.can_login = account.can_log_in();
+        state
+            .current
+            .as_mut()
+            .ok_or("本机账号会话已结束。")?
+            .account = account;
+        Self::publish(app, &mut state.view);
+        Ok(())
     }
 
     async fn begin_lock(&self, app: &AppHandle, reason: String) {
@@ -680,122 +513,107 @@ impl AccountManager {
         self.snapshot().await
     }
 
-    async fn sign_in(
-        self: &Arc<Self>,
+    async fn github_authorization(
+        &self,
         app: &AppHandle,
-        provider: Option<Provider>,
+        bind: bool,
     ) -> Result<AccountState, String> {
         let _operation = self.operation.lock().await;
-        if self.inner.lock().await.view.status == "locking" {
-            return Err("请先完成当前资料保存。".into());
-        }
-        let config = self.config()?;
-        self.logout_local(app, false).await;
+        let owner = if bind {
+            if self.inner.lock().await.view.status != "ready" {
+                return Err("请先登录要绑定的 TypeDance 账号。".into());
+            }
+            Some(self.current_id().await?)
+        } else {
+            self.can_sign_in().await?;
+            None
+        };
+        let client = github::Github::new(config::github_client_id().ok_or("GitHub 登录未配置。")?)?;
         let cancelled = CancellationToken::new();
         {
             let mut state = self.inner.lock().await;
             state.login_cancel = cancelled.clone();
-            state.view.status = "signing_in".into();
-            state.view.configured = true;
-            state.view.providers = config.connectors.keys().copied().collect();
             state.view.error = None;
+            if !bind {
+                state.view.status = "signing_in".into();
+            }
             Self::publish(app, &mut state.view);
         }
+
         let result = async {
-            let oidc = Oidc::discover(config.clone()).await?;
-            let verified = oidc
-                .sign_in(provider, cancelled.clone(), |url| {
-                    app.opener()
-                        .open_url(url, None::<&str>)
-                        .map_err(|_| "无法打开系统浏览器。".into())
-                })
-                .await?;
-            if cancelled.is_cancelled() {
-                let queued = revocations::enqueue(&self.data, &config, &verified.refresh.token);
-                if oidc.revoke(&verified.refresh.token).await.is_err() {
-                    return Err(if queued.is_ok() { "登录已取消，远端会话将在联网后自动撤销。".into() } else { "登录已取消，但远端会话撤销未确认且无法保存重试凭据，请通过账号服务撤销会话。".into() });
-                }
-                if queued.is_ok() { let _ = revocations::retry(&self.data).await; }
-                return Err("登录已取消。".to_string());
+            let code = tokio::select! {
+                _ = cancelled.cancelled() => return Err("GitHub 授权已取消。".into()),
+                code = client.begin() => code?,
+            };
+            {
+                let mut state = self.inner.lock().await;
+                state.view.github_code = Some(code.user_code.clone());
+                Self::publish(app, &mut state.view);
             }
-            self.accept(app, &config, verified).await
+            app.opener()
+                .open_url(github::VERIFY_URL, None::<&str>)
+                .map_err(|_| "无法打开 GitHub 授权页面。")?;
+            let subject = client.finish(code, &cancelled).await?;
+            if cancelled.is_cancelled() || self.shutting_down.load(Ordering::SeqCst) {
+                return Err("GitHub 授权已取消。".into());
+            }
+            let account = Accounts::open(&self.data)?.github(&subject, owner.as_deref())?;
+            if bind {
+                self.publish_profile(app, account).await
+            } else if let Err(error) = self.accept(app, account).await {
+                self.report_startup_error(app, error.clone()).await;
+                Err(error)
+            } else {
+                Ok(())
+            }
         }
         .await;
-        if let Err(error) = result {
-            self.logout_local(app, false).await;
-            let mut state = self.inner.lock().await;
-            state.current = None;
-            state.view.status = "signed_out".into();
-            state.view.user = None;
-            state.view.error = Some(match state.view.error.take() {
-                Some(cleanup) => format!("{error} {cleanup}"),
-                None => error,
-            });
-            Self::publish(app, &mut state.view);
-        }
-        Ok(self.snapshot().await)
-    }
 
-    async fn logout_local(&self, app: &AppHandle, browser: bool) {
-        self.stop_local(app).await;
-        let current = self.inner.lock().await.current.take();
-        let mut error = None;
-        if let Some(current) = current {
-            {
-                let config = current.config.clone();
-                let queued =
-                    revocations::enqueue(&self.data, &config, &current.verified.refresh.token);
-                if let Err(failure) = &queued {
-                    error = Some(failure.clone());
-                }
-                if let Ok(vault) = Vault::new(config.vault_namespace()) {
-                    if let Err(failure) = vault.delete(&current.verified.profile, "refresh") {
-                        error = Some(failure);
-                    }
-                }
-                match Oidc::discover(config).await {
-                    Ok(oidc) => {
-                        if let Err(failure) = oidc.revoke(&current.verified.refresh.token).await {
-                            error = Some(if queued.is_ok() {
-                                "本机已退出，远端会话将在联网后自动撤销。".into()
-                            } else {
-                                failure
-                            });
-                        } else {
-                            let _ = revocations::retry(&self.data).await;
-                        }
-                        if browser
-                            && app
-                                .opener()
-                                .open_url(
-                                    oidc.logout_url(current.verified.id_token_hint.as_deref())
-                                        .as_str(),
-                                    None::<&str>,
-                                )
-                                .is_err()
-                        {
-                            error = Some("本机已退出，浏览器会话未能结束，请重试。".into());
-                        }
-                    }
-                    Err(_) => {
-                        error = Some(if queued.is_ok() {
-                            "本机已退出，远端会话将在联网后自动撤销。".into()
-                        } else {
-                            "本机已退出，远端撤销未完成且无法保存重试凭据，请通过账号中心撤销会话。"
-                                .into()
-                        });
-                    }
-                }
+        let mut state = self.inner.lock().await;
+        state.view.github_code = None;
+        state.login_cancel = CancellationToken::new();
+        if !bind && state.view.status == "signing_in" {
+            state.view.status = "signed_out".into();
+        }
+        if !cancelled.is_cancelled() {
+            if let Err(error) = &result {
+                state.view.error = Some(error.clone());
             }
         }
-        let _ = fs::remove_file(self.data.join("last-account.json"));
-        let mut state = self.inner.lock().await;
-        state.view.user = None;
-        state.view.session = None;
-        state.view.legacy = None;
-        state.view.status = "signed_out".into();
-        state.view.error = error;
         Self::publish(app, &mut state.view);
+        if bind && !cancelled.is_cancelled() {
+            result?;
+        }
+        Ok(state.view.clone())
+    }
+
+    async fn logout_local(&self, app: &AppHandle) -> Result<(), String> {
+        if self
+            .inner
+            .lock()
+            .await
+            .current
+            .as_ref()
+            .is_some_and(|current| !current.account.can_log_in())
+        {
+            return Err(
+                "请先在「账号与安全」设置本机邮箱和密码，或绑定 GitHub，再退出登录。".into(),
+            );
+        }
+        local::forget_account(&self.data)?;
+        self.stop_local(app).await;
+        let mut state = self.inner.lock().await;
+        state.current = None;
+        state.login_cancel = CancellationToken::new();
+        state.view.user = None;
+        state.view.legacy = None;
+        state.view.github_code = None;
+        state.view.github_bound = false;
+        state.view.can_login = false;
+        state.view.status = "signed_out".into();
+        state.view.error = None;
+        Self::publish(app, &mut state.view);
+        Ok(())
     }
 
     async fn finish_setup(
@@ -812,22 +630,13 @@ impl AccountManager {
                 summary.ensure_skip_allowed()?;
             }
         }
-        let config = self
-            .inner
-            .lock()
-            .await
-            .current
-            .as_ref()
-            .ok_or("账号会话已结束。")?
-            .config
-            .clone();
         if let Some(source_id) = source {
             let (target, profile) = {
                 let state = self.inner.lock().await;
                 let current = state.current.as_ref().ok_or("账号会话已结束。")?;
                 (
-                    self.profile_dir(&current.verified)?,
-                    current.verified.profile.clone(),
+                    self.profile_dir(&current.account.user.id)?,
+                    current.account.user.id.clone(),
                 )
             };
             let selected = legacy::select(self.legacy_sources(&profile)?, &source_id)?;
@@ -901,7 +710,11 @@ impl AccountManager {
                     .and_then(serde_json::Value::as_str)
                     .filter(|key| !key.trim().is_empty())
                 {
-                    Vault::new(config.vault_namespace())?.write(&profile, "model-api-key", key)?;
+                    Vault::new(local::VAULT_NAMESPACE.into())?.write(
+                        &profile,
+                        "model-api-key",
+                        key,
+                    )?;
                     for path in credentials {
                         fs::remove_file(path)
                             .map_err(|_| "模型凭据已安全保存，但旧明文副本未能清理，请重试。")?;
@@ -911,7 +724,7 @@ impl AccountManager {
                 }
             }
         }
-        if let Err(error) = self.activate(app, &config).await {
+        if let Err(error) = self.activate(app).await {
             self.begin_lock(app, error).await;
         }
         Ok(self.snapshot().await)
@@ -924,19 +737,7 @@ impl AccountManager {
             return Ok(());
         }
         self.stop_local(app).await;
-        if let Some(current) = &mut self.inner.lock().await.current {
-            current.stop = CancellationToken::new();
-        }
-        let config = self
-            .inner
-            .lock()
-            .await
-            .current
-            .as_ref()
-            .ok_or("账号会话已结束。")?
-            .config
-            .clone();
-        let result = self.activate(app, &config).await;
+        let result = self.activate(app).await;
         if let Err(error) = &result {
             self.begin_lock(app, error.clone()).await;
         }
@@ -964,44 +765,18 @@ impl AccountManager {
 pub(crate) async fn get_account_state(
     state: State<'_, Arc<AccountManager>>,
 ) -> Result<AccountState, String> {
-    if let Ok(_operation) = state.operation.try_lock() {
-        let mut inner = state.inner.lock().await;
-        if inner.current.is_none()
-            && matches!(inner.view.status.as_str(), "unconfigured" | "signed_out")
-        {
-            match AccountConfig::load(&state.data) {
-                Ok(Some(config)) => {
-                    inner.view.configured = true;
-                    inner.view.providers = config.connectors.keys().copied().collect();
-                    if inner.view.status == "unconfigured" {
-                        inner.view.status = "signed_out".into();
-                        inner.view.error = None;
-                    }
-                }
-                Ok(None) => {
-                    inner.view.configured = false;
-                    inner.view.providers.clear();
-                    inner.view.status = "unconfigured".into();
-                }
-                Err(error) => {
-                    inner.view.configured = false;
-                    inner.view.status = "unconfigured".into();
-                    inner.view.error = Some(error);
-                }
-            }
-            inner.view.revision += 1;
-        }
-    }
     Ok(state.snapshot().await)
 }
 #[tauri::command]
 pub(crate) async fn sign_in_account(
     app: AppHandle,
     state: State<'_, Arc<AccountManager>>,
-    provider: Option<Provider>,
+    provider: Provider,
 ) -> Result<AccountState, String> {
     state.inner.lock().await.login_cancel.cancel();
-    state.sign_in(&app, provider).await
+    match provider {
+        Provider::Github => state.github_authorization(&app, false).await,
+    }
 }
 #[tauri::command]
 pub(crate) async fn cancel_account_sign_in(
@@ -1014,11 +789,19 @@ pub(crate) async fn sign_out_account(
     app: AppHandle,
     state: State<'_, Arc<AccountManager>>,
 ) -> Result<AccountState, String> {
+    state.inner.lock().await.login_cancel.cancel();
     let _operation = state.operation.lock().await;
-    if state.inner.lock().await.view.status == "locking" {
-        return Err("请先保存当前资料。".into());
+    {
+        let inner = state.inner.lock().await;
+        match inner.view.status.as_str() {
+            "ready" => {}
+            "error" if inner.view.can_login => {}
+            "locking" => return Err("请先保存当前资料。".into()),
+            _ => return Err("当前没有可退出的本机会话。".into()),
+        }
     }
-    state.logout_local(&app, true).await;
+    state.inner.lock().await.login_cancel = CancellationToken::new();
+    state.logout_local(&app).await?;
     Ok(state.snapshot().await)
 }
 #[tauri::command]
@@ -1057,25 +840,99 @@ pub(crate) async fn finish_account_lock(
     Ok(state.snapshot().await)
 }
 #[tauri::command]
-pub(crate) async fn open_account_center(
+pub(crate) async fn retry_account_restore(
     app: AppHandle,
     state: State<'_, Arc<AccountManager>>,
-) -> Result<(), String> {
-    if state.inner.lock().await.view.status != "ready" {
-        return Err("请先登录。".into());
+) -> Result<AccountState, String> {
+    state.inner.lock().await.login_cancel = CancellationToken::new();
+    state.inner().restore(&app).await;
+    Ok(state.snapshot().await)
+}
+
+#[tauri::command]
+pub(crate) async fn login_local_account(
+    app: AppHandle,
+    state: State<'_, Arc<AccountManager>>,
+    email: String,
+    password: String,
+) -> Result<AccountState, String> {
+    let _operation = state.operation.lock().await;
+    state.can_sign_in().await?;
+    let account = Accounts::open(&state.data)?.authenticate(&email, &password)?;
+    state.inner.lock().await.login_cancel = CancellationToken::new();
+    if let Err(error) = state.accept(&app, account).await {
+        state.report_startup_error(&app, error.clone()).await;
+        return Err(error);
     }
-    let config = state
-        .inner
-        .lock()
-        .await
-        .current
-        .as_ref()
-        .ok_or("账号会话已结束。")?
-        .config
-        .clone();
-    app.opener()
-        .open_url(config.account_center()?.as_str(), None::<&str>)
-        .map_err(|_| "无法打开账号管理页面。".into())
+    Ok(state.snapshot().await)
+}
+
+#[tauri::command]
+pub(crate) async fn register_local_account(
+    state: State<'_, Arc<AccountManager>>,
+    name: String,
+    email: String,
+    password: String,
+) -> Result<String, String> {
+    let _operation = state.operation.lock().await;
+    state.can_sign_in().await?;
+    Accounts::open(&state.data)?
+        .register(&name, &email, &password)
+        .map(|(_, recovery)| recovery)
+}
+
+#[tauri::command]
+pub(crate) async fn update_local_account(
+    app: AppHandle,
+    state: State<'_, Arc<AccountManager>>,
+    name: String,
+    email: String,
+    avatar: Option<String>,
+) -> Result<AccountState, String> {
+    let _operation = state.operation.lock().await;
+    if state.inner.lock().await.view.status != "ready" {
+        return Err("请先登录 TypeDance 账号。".into());
+    }
+    let id = state.current_id().await?;
+    let account = Accounts::open(&state.data)?.update(&id, &name, &email, avatar)?;
+    state.publish_profile(&app, account).await?;
+    Ok(state.snapshot().await)
+}
+
+#[tauri::command]
+pub(crate) async fn change_local_password(
+    app: AppHandle,
+    state: State<'_, Arc<AccountManager>>,
+    password: String,
+) -> Result<String, String> {
+    let _operation = state.operation.lock().await;
+    if state.inner.lock().await.view.status != "ready" {
+        return Err("请先登录 TypeDance 账号。".into());
+    }
+    let id = state.current_id().await?;
+    let (account, recovery) = Accounts::open(&state.data)?.change_password(&id, &password)?;
+    state.publish_profile(&app, account).await?;
+    Ok(recovery)
+}
+
+#[tauri::command]
+pub(crate) async fn recover_local_password(
+    state: State<'_, Arc<AccountManager>>,
+    email: String,
+    recovery: String,
+    password: String,
+) -> Result<String, String> {
+    let _operation = state.operation.lock().await;
+    state.can_sign_in().await?;
+    Accounts::open(&state.data)?.recover(&email, &recovery, &password)
+}
+
+#[tauri::command]
+pub(crate) async fn bind_github_account(
+    app: AppHandle,
+    state: State<'_, Arc<AccountManager>>,
+) -> Result<AccountState, String> {
+    state.github_authorization(&app, true).await
 }
 
 #[cfg(test)]
@@ -1098,6 +955,9 @@ mod tests {
                     session: None,
                     error: None,
                     legacy: None,
+                    github_code: None,
+                    github_bound: false,
+                    can_login: false,
                 },
                 current: None,
                 login_cancel: token.clone(),

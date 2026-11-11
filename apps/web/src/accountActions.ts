@@ -26,6 +26,10 @@ async function changeAccount(command: string, args?: Record<string, unknown>) {
     setAccountAction("idle", "请先保存当前资料，再重新登录。")
     return
   }
+  if (command === "sign_out_account" && getAccountView().state.can_login === false) {
+    setAccountAction("idle", "请先在「账号与安全」设置本机邮箱和密码，或绑定 GitHub，再退出登录。")
+    return
+  }
   return runAccountOperation(command, async () => {
     const hasWorkspace = getAccountView().state.status === "ready"
     const captured = hasWorkspace ? captureAccountSession() : null
@@ -56,12 +60,19 @@ async function changeAccount(command: string, args?: Record<string, unknown>) {
   })
 }
 
-export function signInAccount(provider?: AccountProvider) {
-  return changeAccount("sign_in_account", provider ? { provider } : undefined)
+export function signInAccount(provider: AccountProvider) {
+  return changeAccount("sign_in_account", { provider })
 }
 export function signOutAccount() { return changeAccount("sign_out_account") }
 export function importLocalAccountData(source: string) { return changeAccount("import_local_account_data", { source }) }
 export function skipLocalAccountData() { return changeAccount("skip_local_account_data") }
+
+export async function runLocalAccountAction<T>(command: string, args: Record<string, unknown>): Promise<T> {
+  if (updatePreparing || operation) throw new Error("请等待当前账号操作完成。")
+  let result!: T
+  await runAccountOperation(command, async () => { result = await invoke<T>(command, args) })
+  return result
+}
 
 let updateSession: ReturnType<typeof captureAccountSession> | null = null
 
@@ -87,7 +98,7 @@ export async function prepareAccountUpdate(): Promise<boolean> {
   try {
     if (operationCommand === "sign_in_account" && operation) await cancelPendingSignIn(operation)
     else if (getAccountView().state.status === "signing_in") await invoke("cancel_account_sign_in")
-    // 已经开始的数据导入必须完成；OAuth 取消后也要等原操作关闭回调端口。
+    // 等待已开始的数据导入或本机账号操作完成。
     await operation
     if (getAccountView().phase !== "idle" || getAccountView().state.status === "locking" || getAccountView().state.status === "restoring") {
       updatePreparing = false
@@ -139,9 +150,4 @@ export async function finishAccountLock() {
 export async function cancelAccountSignIn() {
   try { applyAccountState(await invoke("cancel_account_sign_in")) }
   catch (error) { setAccountAction("idle", error instanceof Error ? error.message : String(error)) }
-}
-
-export async function openAccountCenter() {
-  try { await invoke("open_account_center") }
-  catch { setAccountAction("idle", "账号管理页面暂时无法打开，请稍后重试。") }
 }

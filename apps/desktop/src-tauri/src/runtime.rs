@@ -414,16 +414,6 @@ pub(crate) fn start_account_services(
         paths.data_dir.join("logs").join("sidecar-process.log"),
     );
     processes.push(sidecar);
-    if let Err(error) = wait_for_health(
-        "Python Sidecar",
-        &format!("127.0.0.1:{}", spec.sidecar_port),
-        &spec.token,
-        Duration::from_secs(60),
-    ) {
-        processes.shutdown();
-        return Err(error);
-    }
-
     let agent_host = sidecar_command(app, "typedance-agent-host")?
         .env_clear()
         .envs(child_environment)
@@ -452,6 +442,15 @@ pub(crate) fn start_account_services(
         paths.data_dir.join("logs").join("agent-host.log"),
     );
     processes.push(agent_host);
+    if let Err(error) = wait_for_health(
+        "Python Sidecar",
+        &format!("127.0.0.1:{}", spec.sidecar_port),
+        &spec.token,
+        Duration::from_secs(60),
+    ) {
+        processes.shutdown();
+        return Err(error);
+    }
     if let Err(error) = wait_for_health(
         "Agent Host",
         &format!("127.0.0.1:{}", spec.host_port),

@@ -4,7 +4,7 @@ import { z } from "zod"
 import { isTauri } from "./tauri"
 import { setAccountSaveOnly, setAccountSession } from "./accountSession"
 
-export const accountProviderSchema = z.enum(["github", "google", "wechat"])
+export const accountProviderSchema = z.literal("github")
 export type AccountProvider = z.infer<typeof accountProviderSchema>
 
 const localServiceUrl = z.string().url().refine((value) => {
@@ -21,6 +21,9 @@ export const accountStateSchema = z.object({
   user: z.object({ id: z.string().min(1), name: z.string(), email: z.string().optional(), avatar: z.string().optional() }).nullable(),
   session: z.object({ id: z.string().min(1), sidecar_url: localServiceUrl, agent_host_url: localServiceUrl, token: z.string().min(32) }).nullable(),
   error: z.string().nullable(),
+  github_code: z.string().nullable().optional(),
+  github_bound: z.boolean().optional(),
+  can_login: z.boolean().optional(),
   legacy: z.object({ import_started: z.boolean(), sources: z.array(z.object({
     id: z.string().min(1), path: z.string().min(1), file_count: z.number().int().nonnegative(),
   })).min(1) }).nullable(),

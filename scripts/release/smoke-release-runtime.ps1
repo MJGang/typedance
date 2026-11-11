@@ -287,43 +287,58 @@ function Assert-FreshLoginGate {
     if (-not $Diagnostics.Contains("Account state: signed_out")) {
         throw "Fresh release did not reach its signed-out login page"
     }
-    if ($Diagnostics -notmatch 'Account startup providers: \[(Github|Google|Wechat)(, (Github|Google|Wechat))*\]') {
+    if (-not $Diagnostics.Contains("Account startup providers: [Github]")) {
         throw "Fresh release did not provide a sign-in channel"
-    }
-    if (Test-Path -LiteralPath (Join-Path $DataDirectory "account-config.json")) {
-        throw "Fresh release used a local account configuration file"
     }
     if (Test-Path -LiteralPath (Join-Path $DataDirectory "profiles")) {
         throw "Fresh release created account business storage before login"
     }
 }
 
-function Invoke-FreshDesktopSmoke {
+function Invoke-DesktopSmoke {
+    param([string]$MigrationData)
     if ((Get-WindowsExecutableSubsystem $executablePath) -ne 2) { throw "Release desktop must use the Windows GUI subsystem (2)" }
     $desktop = $null
     $desktopFailure = $null
-    $desktopData = Join-Path $smokeRoot "fresh-account-data"
+    $desktopData = if ($MigrationData) { $MigrationData } else { Join-Path $smokeRoot "fresh-account-data" }
+    $settings = @{
+        TYPEDANCE_ACCOUNT_DATA_DIR = $desktopData
+        TYPEDANCE_RELEASE_SMOKE_EXIT_AFTER_MS = "12000"
+        WEBVIEW2_USER_DATA_FOLDER = (Join-Path $smokeRoot "webview-data")
+    }
+    if ($MigrationData) {
+        $settings.TYPEDANCE_RELEASE_SMOKE_EXIT_AFTER_MS = "25000"
+    }
     try {
-        $desktop = Start-IsolatedSmokeProcess -FilePath $executablePath -ShowWindow -Environment @{
-            TYPEDANCE_ACCOUNT_DATA_DIR = $desktopData
-            TYPEDANCE_RELEASE_SMOKE_EXIT_AFTER_MS = "12000"
-            WEBVIEW2_USER_DATA_FOLDER = (Join-Path $smokeRoot "webview-data")
-        }
+        $desktop = Start-IsolatedSmokeProcess -FilePath $executablePath -ShowWindow -Environment $settings
         $watch = [Diagnostics.Stopwatch]::StartNew()
         $guiSeen = $false
-        while (-not $desktop.Process.HasExited -and $watch.Elapsed -lt [TimeSpan]::FromSeconds(35)) {
+        $visibleAfterMs = $null
+        while (-not $desktop.Process.HasExited -and $watch.Elapsed -lt [TimeSpan]::FromSeconds(50)) {
             $desktop.Process.Refresh()
-            if ($desktop.Process.MainWindowHandle -ne [IntPtr]::Zero) { $guiSeen = $true }
-            $children = @(Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $desktop.Process.Id -and $_.Name -in @("typedance-sidecar.exe", "typedance-agent-host.exe", "typedance-markdown-converter.exe") })
-            if ($children.Count) { throw "Fresh desktop started a business service before login" }
+            if (-not $guiSeen -and $desktop.Process.MainWindowHandle -ne [IntPtr]::Zero) {
+                $guiSeen = $true
+                $visibleAfterMs = $watch.ElapsedMilliseconds
+            }
+            if (-not $MigrationData) {
+                $children = @(Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $desktop.Process.Id -and $_.Name -in @("typedance-sidecar.exe", "typedance-agent-host.exe", "typedance-markdown-converter.exe") })
+                if ($children.Count) { throw "Fresh desktop started a business service before login" }
+            }
             Start-Sleep -Milliseconds 150
         }
-        if (-not $guiSeen) { throw "Fresh desktop did not create its GUI window" }
-        if (-not $desktop.Process.HasExited -or $desktop.Process.ExitCode -ne 0) { throw "Fresh desktop did not complete clean automatic shutdown" }
+        $diagnostics = Read-SmokeOutput $desktop.Error
+        if (-not $guiSeen) { throw "Desktop did not create its GUI window: $diagnostics" }
+        if (-not $desktop.Process.HasExited -or $desktop.Process.ExitCode -ne 0) { throw "Desktop did not complete clean automatic shutdown: $diagnostics" }
         Write-Host "[smoke-runtime] desktop exited cleanly; waiting for WebView process shutdown"
         Wait-SmokeChildrenExit $desktop.Process
-        $diagnostics = Read-SmokeOutput $desktop.Error
-        Assert-FreshLoginGate -Diagnostics $diagnostics -DataDirectory $desktopData
+        if ($MigrationData) {
+            if ($diagnostics -notmatch "Account state: ready" -or $diagnostics -match "Account state: (signed_out|error|needs_import)") {
+                throw "Desktop did not enter the saved workspace directly: $diagnostics"
+            }
+            Write-Host "[smoke-runtime] workspace window appeared after ${visibleAfterMs}ms"
+        } else {
+            Assert-FreshLoginGate -Diagnostics $diagnostics -DataDirectory $desktopData
+        }
     } catch {
         $desktopFailure = $_
         throw
@@ -348,7 +363,73 @@ function Invoke-FreshDesktopSmoke {
             Write-Warning "Desktop smoke cleanup also failed: $($_.Exception.Message)"
         }
     }
-    Write-Host "[smoke-runtime] embedded account configuration, fresh signed-out login and clean managed shutdown passed"
+    if (-not $MigrationData) {
+        Write-Host "[smoke-runtime] embedded account configuration, fresh signed-out login and clean managed shutdown passed"
+    }
+}
+
+function Invoke-AccountMigrationSmoke {
+    $fixture = Join-Path (Split-Path -Parent $TokenGenerator) "account-migration-fixture.exe"
+    if (-not (Test-Path -LiteralPath $fixture)) { throw "Build the account migration fixture with pnpm release:rust-test" }
+    $data = Join-Path $smokeRoot "migration-account-data"
+    try {
+        $id = & $fixture $data
+        if ($LASTEXITCODE -ne 0 -or $id -cnotmatch '^[0-9a-f]{64}$') { throw "Could not prepare the isolated legacy account" }
+        $profile = Join-Path (Join-Path $data "profiles") $id
+        $db = Join-Path $profile "typedance.sqlite"
+        @'
+import { DatabaseSync } from "node:sqlite";
+const db = new DatabaseSync(process.argv[2]);
+const updatedAt = "2026-11-11T00:00:00Z";
+const style = {
+  template_id: "classic-a4",
+  preset: "classic-a4",
+  theme: { accentColor: "#234567" },
+  blocks: {
+    heading1: {},
+    heading2: { decorationStyle: "minimal-line" },
+    heading3: {},
+    paragraph: { fontSize: "11pt" },
+    bulletList: {},
+    orderedList: {},
+  },
+  updated_at: updatedAt,
+};
+db.exec("CREATE TABLE template_styles (template_id TEXT PRIMARY KEY, payload TEXT NOT NULL, updated_at TEXT NOT NULL)");
+db.prepare("INSERT INTO template_styles VALUES (?, ?, ?)").run(style.template_id, JSON.stringify(style), updatedAt);
+db.close();
+'@ | node --input-type=module - $db
+        if ($LASTEXITCODE -ne 0) { throw "Could not seed the legacy template database" }
+        Invoke-DesktopSmoke -MigrationData $data
+        Invoke-DesktopSmoke -MigrationData $data
+        & $fixture $data verify
+        if ($LASTEXITCODE -ne 0) { throw "The installed desktop did not preserve the migrated credentials" }
+        $backups = @(Get-ChildItem -LiteralPath (Join-Path $data "account-backups") -Directory)
+        if ($backups.Count -ne 1) { throw "The signed-in workspace must be backed up exactly once" }
+        $account = Get-Content -LiteralPath (Join-Path $data "local-accounts.json") -Raw | ConvertFrom-Json
+        if ($account.accounts.Count -ne 1 -or $account.accounts[0].user.id -ne $id) {
+            throw "Migration did not keep the original workspace identity"
+        }
+        @'
+import { DatabaseSync } from "node:sqlite";
+for (const path of process.argv.slice(2)) {
+  const db = new DatabaseSync(path, { readOnly: true });
+  const value = db.prepare("SELECT payload FROM template_styles WHERE template_id = ?").get("classic-a4");
+  db.close();
+  const style = JSON.parse(value?.payload ?? "{}");
+  if (style.theme?.accentColor !== "#234567" || style.blocks?.paragraph?.fontSize !== "11pt") {
+    throw new Error("The saved template is missing from the workspace or its backup");
+  }
+}
+'@ | node --input-type=module - $db (Join-Path $backups[0].FullName "typedance.sqlite")
+        if ($LASTEXITCODE -ne 0) { throw "The saved template failed the migration comparison" }
+        Write-Host "[smoke-runtime] packaged migration preserved the workspace and template; cold start reopened the workspace"
+    } finally {
+        if (Test-Path -LiteralPath $data) {
+            & $fixture $data cleanup
+            if ($LASTEXITCODE -ne 0) { throw "Could not clear isolated smoke credentials" }
+        }
+    }
 }
 
 $releaseProcessNames = @("typedance_desktop.exe", "typedance-sidecar.exe", "typedance-agent-host.exe", "typedance-markdown-converter.exe")
@@ -356,7 +437,10 @@ try {
     $existing = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -in $releaseProcessNames })
     if ($existing.Count) { throw "TypeDance processes are already running; smoke will not interfere with a user session" }
     Invoke-PackagedServicesSmoke
-    if (-not $ServicesOnly) { Invoke-FreshDesktopSmoke }
+    if (-not $ServicesOnly) {
+        Invoke-DesktopSmoke
+        Invoke-AccountMigrationSmoke
+    }
 } finally {
     $resolvedSmoke = [IO.Path]::GetFullPath($smokeRoot)
     $allowedTemp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'

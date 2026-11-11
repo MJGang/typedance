@@ -1,6 +1,6 @@
 import { useRef, useState } from "react"
 import { ArrowRightLeft, ChevronRight, LogOut, Settings, ShieldCheck } from "lucide-react"
-import { openAccountCenter, signInAccount, signOutAccount } from "@/accountActions"
+import { signOutAccount } from "@/accountActions"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -16,6 +16,7 @@ import {
 import { SettingsDialog } from "@/features/settings/SettingsDialog"
 import { useClientUpdater } from "@/features/settings/useClientUpdater"
 import { useAccount } from "./useAccount"
+import { LocalAccountSettings } from "./LocalAccountSettings"
 
 function AccountAvatar({ name, avatar }: { name: string; avatar?: string }) {
   return (
@@ -30,6 +31,7 @@ export function AccountMenu() {
   const { state, phase, actionError } = useAccount()
   const { phase: updatePhase, update } = useClientUpdater()
   const [settingsTab, setSettingsTab] = useState<"ai" | "updates" | null>(null)
+  const [accountSettings, setAccountSettings] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const user = state.user
   if (!user) return null
@@ -68,7 +70,7 @@ export function AccountMenu() {
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
-            <DropdownMenuItem disabled={busy} onSelect={() => void openAccountCenter()}><ShieldCheck />账号与安全</DropdownMenuItem>
+            <DropdownMenuItem disabled={busy} onSelect={() => setAccountSettings(true)}><ShieldCheck />账号与安全</DropdownMenuItem>
             <DropdownMenuItem disabled={busy} onSelect={() => setSettingsTab(hasUpdate ? "updates" : "ai")}>
               <Settings />设置
               {hasUpdate ? <Badge variant="secondary" className="ml-auto">有更新</Badge> : null}
@@ -76,7 +78,7 @@ export function AccountMenu() {
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
-            <DropdownMenuItem disabled={busy} onSelect={() => void signInAccount()}><ArrowRightLeft />切换账号</DropdownMenuItem>
+            <DropdownMenuItem disabled={busy} onSelect={() => void signOutAccount()}><ArrowRightLeft />切换账号</DropdownMenuItem>
             <DropdownMenuItem disabled={busy} variant="destructive" onSelect={() => void signOutAccount()}><LogOut />退出登录</DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
@@ -84,6 +86,8 @@ export function AccountMenu() {
         </DropdownMenuContent>
       </DropdownMenu>
       {actionError ? <p role="alert" className="px-3 pt-2 text-xs leading-5 break-words text-destructive">{actionError}</p> : null}
+      {accountSettings ? <LocalAccountSettings key={user.id} user={user} onClose={() => setAccountSettings(false)}
+        onCloseAutoFocus={(event) => { event.preventDefault(); triggerRef.current?.focus() }} /> : null}
       {settingsTab ? <SettingsDialog open initialTab={settingsTab}
         onOpenChange={(open) => { if (!open) setSettingsTab(null) }}
         onCloseAutoFocus={(event) => { event.preventDefault(); triggerRef.current?.focus() }} /> : null}
