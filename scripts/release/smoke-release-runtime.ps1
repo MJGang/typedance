@@ -290,9 +290,6 @@ function Assert-FreshLoginGate {
     if (-not $Diagnostics.Contains("Account startup providers: [Github]")) {
         throw "Fresh release did not provide a sign-in channel"
     }
-    if (Test-Path -LiteralPath (Join-Path $DataDirectory "account-config.json")) {
-        throw "Fresh release used a local account configuration file"
-    }
     if (Test-Path -LiteralPath (Join-Path $DataDirectory "profiles")) {
         throw "Fresh release created account business storage before login"
     }
@@ -310,8 +307,6 @@ function Invoke-DesktopSmoke {
         WEBVIEW2_USER_DATA_FOLDER = (Join-Path $smokeRoot "webview-data")
     }
     if ($MigrationData) {
-        $settings.TYPEDANCE_MIGRATION_LOGTO_ENDPOINT = "https://typedance-migration-fixture.invalid"
-        $settings.TYPEDANCE_MIGRATION_LOGTO_APP_ID = "fixture-app"
         $settings.TYPEDANCE_RELEASE_SMOKE_EXIT_AFTER_MS = "25000"
     }
     try {

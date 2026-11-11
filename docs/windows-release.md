@@ -38,7 +38,7 @@ $env:TYPEDANCE_UPDATE_REPOSITORY = "MJGang/typedance"
 
 该配置会在构建时写入客户端，用于更新清单和更新日志地址。未配置的开发构建显示「更新服务尚未配置」；正式构建缺少配置或仓库不能匿名访问时会直接中止。
 
-正式发布需要 GitHub OAuth App 的公开 `TYPEDANCE_GITHUB_CLIENT_ID`，并要求该应用已启用 Device Flow。构建还需要 `TYPEDANCE_MIGRATION_LOGTO_ENDPOINT` 和 `TYPEDANCE_MIGRATION_LOGTO_APP_ID` 用于旧资料的本机迁移。GitHub Actions 从仓库变量注入这些公开参数。
+正式发布需要 GitHub OAuth App 的公开 `TYPEDANCE_GITHUB_CLIENT_ID`，并要求该应用已启用 Device Flow。GitHub Actions 从仓库变量注入此公开参数。旧资料通过本机保存的账号信息和 Windows 凭据迁移。
 
 先配置更新签名私钥。当前开发机的私钥保存在仓库外的 `%USERPROFILE%\.typedance\release-keys\updater.key`，对应公钥已配置在 `apps/desktop/src-tauri/tauri.conf.json`。不要提交私钥，也不要为每次构建重新生成密钥。
 

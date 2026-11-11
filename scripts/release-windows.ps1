@@ -65,13 +65,7 @@ function Read-ReleaseVersion {
 }
 
 function Assert-AccountReleaseInputs {
-    param([string]$Endpoint, [string]$AppId, [string]$GitHubClientId)
-    if ([string]::IsNullOrWhiteSpace($Endpoint)) {
-        throw "TYPEDANCE_MIGRATION_LOGTO_ENDPOINT is required to adopt existing local workspaces"
-    }
-    if ([string]::IsNullOrWhiteSpace($AppId)) {
-        throw "TYPEDANCE_MIGRATION_LOGTO_APP_ID is required to adopt existing local workspaces"
-    }
+    param([string]$GitHubClientId)
     if ($GitHubClientId -notmatch '^[A-Za-z0-9_]{1,128}$') {
         throw "TYPEDANCE_GITHUB_CLIENT_ID must identify the TypeDance GitHub OAuth App"
     }
@@ -120,8 +114,7 @@ function Get-ReleaseSha256 {
 if ($env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
     throw "Windows x64 is required to build the NSIS release"
 }
-Assert-AccountReleaseInputs -Endpoint $env:TYPEDANCE_MIGRATION_LOGTO_ENDPOINT `
-    -AppId $env:TYPEDANCE_MIGRATION_LOGTO_APP_ID -GitHubClientId $env:TYPEDANCE_GITHUB_CLIENT_ID
+Assert-AccountReleaseInputs -GitHubClientId $env:TYPEDANCE_GITHUB_CLIENT_ID
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
     throw "uv is required to provision the Python 3.11 release environment"
 }

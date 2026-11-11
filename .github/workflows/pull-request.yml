@@ -73,7 +73,5 @@ jobs:
         shell: pwsh
         env:
           TYPEDANCE_UPDATE_REPOSITORY: ${{ vars.TYPEDANCE_UPDATE_REPOSITORY }}
-          TYPEDANCE_MIGRATION_LOGTO_ENDPOINT: ${{ vars.TYPEDANCE_LOGTO_ENDPOINT }}
-          TYPEDANCE_MIGRATION_LOGTO_APP_ID: ${{ vars.TYPEDANCE_LOGTO_APP_ID }}
           TYPEDANCE_GITHUB_CLIENT_ID: ${{ vars.TYPEDANCE_GITHUB_CLIENT_ID }}
         run: pnpm release:rust-test

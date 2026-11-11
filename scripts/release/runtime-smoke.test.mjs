@@ -9,7 +9,7 @@ import { spawnSync } from "node:child_process"
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const powershell = process.env.SystemRoot ? join(process.env.SystemRoot, "System32/WindowsPowerShell/v1.0/powershell.exe") : "powershell"
 
-test("production login checks reject missing release inputs and locally configured clean installs", { skip: process.platform !== "win32" }, t => {
+test("production login checks require enabled GitHub device flow and a clean signed-out workspace", { skip: process.platform !== "win32" }, t => {
   const temporaryRoot = resolve(tmpdir())
   const directory = mkdtempSync(join(temporaryRoot, "typedance-account-release-"))
   t.after(() => {
@@ -34,16 +34,14 @@ function Invoke-RestMethod {
   if ($Body.client_id -ne "github_fixture") { throw "Device Flow disabled" }
   return @{ device_code = "test-only" }
 }
-Assert-AccountReleaseInputs -Endpoint "https://auth.example.com" -AppId "native-app" -GitHubClientId "github_fixture"
+Assert-AccountReleaseInputs -GitHubClientId "github_fixture"
 foreach ($scenario in @(
-  { Assert-AccountReleaseInputs -Endpoint "" -AppId "native-app" -GitHubClientId "github_fixture" },
-  { Assert-AccountReleaseInputs -Endpoint "https://auth.example.com" -AppId " " -GitHubClientId "github_fixture" },
-  { Assert-AccountReleaseInputs -Endpoint "https://auth.example.com" -AppId "native-app" -GitHubClientId "" },
-  { Assert-AccountReleaseInputs -Endpoint "https://auth.example.com" -AppId "native-app" -GitHubClientId "disabled_fixture" }
+  { Assert-AccountReleaseInputs -GitHubClientId "" },
+  { Assert-AccountReleaseInputs -GitHubClientId "disabled_fixture" }
 )) {
   $rejected = $false
   try { & $scenario } catch {
-    if ($_.Exception.Message -notmatch "required to adopt|must identify|Check Enable Device Flow") { throw }
+    if ($_.Exception.Message -notmatch "must identify|Check Enable Device Flow") { throw }
     $rejected = $true
   }
   if (-not $rejected) { throw "Release accepted missing public login inputs" }
@@ -55,12 +53,6 @@ foreach ($diagnostics in @("Account startup gate: unconfigured", $good.Replace("
   try { Assert-FreshLoginGate -Diagnostics $diagnostics -DataDirectory $Directory } catch { $rejected = $true }
   if (-not $rejected) { throw "Fresh release accepted a missing login gate or channel" }
 }
-$localConfiguration = Join-Path $Directory "account-config.json"
-Set-Content -LiteralPath $localConfiguration -Value "{}"
-$rejected = $false
-try { Assert-FreshLoginGate -Diagnostics $good -DataDirectory $Directory } catch { $rejected = $true }
-if (-not $rejected) { throw "Fresh login smoke accepted local configuration masking missing embedded defaults" }
-Remove-Item -LiteralPath $localConfiguration
 New-Item -ItemType Directory -Path (Join-Path $Directory "profiles") | Out-Null
 $rejected = $false
 try { Assert-FreshLoginGate -Diagnostics $good -DataDirectory $Directory } catch { $rejected = $true }

@@ -1,5 +1,5 @@
 use super::{
-    config::{profile_key, MigrationConfig},
+    config::profile_key,
     legacy_entries,
     local::{self, Account, Accounts},
     plain_directory,
@@ -23,9 +23,8 @@ struct PreviousSession {
 }
 
 impl PreviousProfile {
-    fn belongs_to(&self, id: &str, issuer: &str, saved: &PreviousSession) -> bool {
+    fn belongs_to(&self, id: &str, saved: &PreviousSession) -> bool {
         self.profile == id
-            && self.issuer == issuer
             && saved.issuer == self.issuer
             && saved.subject == self.subject
             && profile_key(&self.issuer, &self.subject) == id
@@ -53,25 +52,29 @@ pub(super) async fn adopt(
         }
         return Ok(None);
     }
-    let config = MigrationConfig::load(root)?;
     let id: String = read_json(&pointer)?;
     if id.len() != 64 || !id.bytes().all(|value| value.is_ascii_hexdigit()) {
         return Err("旧账号的工作区标识无效。".into());
     }
-    let legacy_vault = Vault::new(config.namespace())?;
-    let stored = legacy_vault
-        .read(&id, "refresh")?
-        .ok_or("请在旧版客户端登录原账号后重试迁移。")?;
-    let stored: PreviousSession =
-        serde_json::from_str(stored.as_str()).map_err(|_| "旧账号的本机凭据无效。")?;
     let profiles = root.join("profiles");
     plain_directory(&profiles)?;
     let profile = profiles.join(&id);
     plain_directory(&profile)?;
     let owner: PreviousProfile = read_json(&profile.join(".account-profile.json"))?;
-    if !owner.belongs_to(&id, &config.issuer(), &stored) {
-        return Err("旧凭据与工作区归属不匹配，已保留原资料。".into());
+    let mut legacy_vault = None;
+    for candidate in Vault::previous_account_vaults(&id)? {
+        let Some(stored) = candidate.read(&id, "refresh")? else {
+            continue;
+        };
+        let Ok(stored) = serde_json::from_str::<PreviousSession>(stored.as_str()) else {
+            continue;
+        };
+        if owner.belongs_to(&id, &stored) && legacy_vault.replace(candidate).is_some() {
+            return Err("发现多份匹配的旧账号凭据，已保留原工作区。".into());
+        }
     }
+    let legacy_vault =
+        legacy_vault.ok_or("找不到与旧工作区匹配的本机凭据。请在旧版客户端登录原账号后重试。")?;
 
     let backup_root = root.join("account-backups");
     fs::create_dir_all(&backup_root).map_err(|_| "无法创建资料备份目录。")?;
@@ -128,10 +131,12 @@ mod tests {
             issuer: issuer.into(),
             subject: "old-user".into(),
         };
-        assert!(profile.belongs_to(&id, issuer, &session));
-        assert!(!profile.belongs_to(&id, "https://other.example.test/oidc", &session));
-        assert!(!profile.belongs_to(&profile_key(issuer, "other-user"), issuer, &session));
+        assert!(profile.belongs_to(&id, &session));
+        assert!(!profile.belongs_to(&profile_key(issuer, "other-user"), &session));
         session.subject = "other-user".into();
-        assert!(!profile.belongs_to(&id, issuer, &session));
+        assert!(!profile.belongs_to(&id, &session));
+        session.subject = "old-user".into();
+        session.issuer = "https://other.example.test/oidc".into();
+        assert!(!profile.belongs_to(&id, &session));
     }
 }

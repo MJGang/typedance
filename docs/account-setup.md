@@ -18,6 +18,6 @@
 
 在 TypeDance 的 GitHub OAuth App 设置中启用 Device Flow。正式构建通过 `TYPEDANCE_GITHUB_CLIENT_ID` 注入公开 Client ID。授权时，用户在 GitHub 页面输入客户端展示的设备码。客户端以 GitHub 的数字用户 ID 确认绑定关系。
 
-`TYPEDANCE_MIGRATION_LOGTO_ENDPOINT` 和 `TYPEDANCE_MIGRATION_LOGTO_APP_ID` 是一次性迁移所需的旧版公开参数，用来定位旧版 Windows 凭据。迁移在本机完成。
+旧账号迁移只在本机检查与旧工作区匹配的 TypeDance Windows 凭据，确认归属后才接管资料。
 
 开发和测试使用独立的绝对路径 `TYPEDANCE_ACCOUNT_DATA_DIR`。并行启动已安装版与测试版时，需要不同的应用标识和前端开发端口。
