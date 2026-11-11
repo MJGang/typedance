@@ -75,7 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "issuer": issuer, "subject": subject, "refresh": {"token": "fixture-token", "nonce": "fixture"},
     }).to_string())?;
     legacy.write(&id, "model-api-key", "fixture-only-model-key")?;
-    if Vault::previous_account_vaults(&id)?.len() != 1 {
+    if vault::Vault::previous_account_vaults(&id)?.len() != 1 {
         return Err("The isolated previous credential could not be identified".into());
     }
     println!("{id}");
