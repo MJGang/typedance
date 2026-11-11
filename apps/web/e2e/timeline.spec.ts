@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process"
 import { resolve } from "node:path"
 import { readFileSync } from "node:fs"
 import { expect, test, type Page } from "@playwright/test"
-import type { CanvasPrintSnapshot } from "@typedance/contracts"
+import type { CanvasPrintSnapshot, EditorRequest } from "@typedance/contracts"
 
 const root = resolve(import.meta.dirname, "../../..")
 const richTimeline = JSON.parse(readFileSync(resolve(root, "services/sidecar/tests/fixtures/timeline_rich.json"), "utf8"))
@@ -25,6 +25,71 @@ function longRichDoc() {
   const doc = structuredClone(richTimeline)
   doc.content[1].content[1].content[1].content.push(...Array.from({ length: 26 }, (_, index) => ({ type: "listItem", content: [p(`跨页成果 ${index + 1}：复杂表格、查询面板与数据分析需要保持嵌套列表和三栏表头完整，正文宽高随内容调整。`)] })))
   return doc
+}
+
+async function openPageBreakPreview(page: Page, preview: "template" | "transaction") {
+  const doc = { type: "doc", content: [
+    ...Array.from({ length: 25 }, (_, index) => p(`前一页内容 ${index + 1}`)),
+    { type: "timeline", content: [richTimeline.content[1].content[0]] },
+  ] }
+  const request: EditorRequest = {
+    id: "request", document_id: "doc", editor_session_id: "session", kind: "transaction", mode: "review",
+    transaction: { id: "transaction", document_id: "doc", editor_session_id: "session", content_revision: 1,
+      before_doc_json: initial, doc_json: doc, catalog_revision: "current", summary: "调整项目标题",
+      effects: [], node_origins: [], text_origins: [] },
+  }
+  await page.route("**/__timeline-preview-test", (route) => route.fulfill({ contentType: "text/html", body: `
+    <!doctype html><html><head><meta charset="utf-8"></head><body><div id="test-root"></div>
+    <script type="module">
+    import RefreshRuntime from '/@react-refresh';
+    RefreshRuntime.injectIntoGlobalHook(window);
+    window.$RefreshReg$=()=>{}; window.$RefreshSig$=()=>type=>type;
+    window.__vite_plugin_react_preamble_installed__=true;
+    </script><script type="module">
+    import React from '/node_modules/.vite/deps/react.js';
+    import ReactDOM from '/node_modules/.vite/deps/react-dom_client.js';
+    import '/src/styles.css';
+    import {TooltipProvider} from '/src/components/ui/tooltip.tsx';
+    import {builtInSamples,defaultClassicA4Style} from '/src/features/templates/data.ts';
+    const h=React.createElement;
+    let content;
+    if (${JSON.stringify(preview)} === 'template') {
+      const {TemplateDetail}=await import('/src/features/templates/components/TemplateDetail.tsx');
+      const theme={id:'classic-a4',title:'经典 A4',source:'default',styleConfig:defaultClassicA4Style};
+      const noop=()=>{};
+      content=h(TemplateDetail,{theme,themes:[theme],sample:builtInSamples['sample-tech-zh'],uiLanguage:'zh-CN',
+        previewId:'fixture',previewDocJson:${JSON.stringify(doc)},previewLoading:false,
+        sampleStatus:'',styleStatus:'主题已同步',hasUnsavedStyleChanges:false,isSavingStyle:false,
+        onThemeChange:noop,onStyleChange:noop,onSaveStyle:async()=>true,onSaveAsTemplate:noop,onRetryPreview:noop});
+    } else {
+      const {EditorRequestCard}=await import('/src/features/revision/EditorRequestCard.tsx');
+      content=h('div',{style:{width:480}},h(EditorRequestCard,{runId:'run',request:${JSON.stringify(request)},events:[],active:true}));
+    }
+    ReactDOM.createRoot(document.getElementById('test-root')).render(h(TooltipProvider,null,content));
+    </script></body></html>` }))
+  await page.goto("/__timeline-preview-test")
+  if (preview === "transaction") await page.getByRole("button", { name: "查看修改预览" }).click()
+  return page.getByLabel(preview === "template" ? "主题演示简历预览" : "修改后的简历预览")
+}
+
+for (const mode of ["template", "transaction"] as const) {
+  test(`${mode} preview keeps a three-column timeline header together at a page break`, async ({ page }) => {
+    const preview = await openPageBreakPreview(page, mode)
+    const row = preview.locator(".td-timeline-body .td-columns-content")
+    await expect(row).toContainText("示例科技有限公司")
+    await expect(row).toContainText("2023.02 - 2026.02")
+    await expect(preview.locator(".rm-page-break")).toHaveCount(2)
+
+    const layout = await row.evaluate((element) => {
+      const rect = element.getBoundingClientRect()
+      const body = element.closest(".td-timeline-body")!.getBoundingClientRect()
+      const gap = element.closest(".ProseMirror")!.querySelector(".rm-page-break > .breaker")!.getBoundingClientRect()
+      return { rowLeft: rect.left, rowWidth: rect.width, rowTop: rect.top, bodyLeft: body.left, bodyWidth: body.width, gapBottom: gap.bottom }
+    })
+    expect(layout.rowTop).toBeGreaterThanOrEqual(layout.gapBottom - 1)
+    expect(layout.rowLeft).toBeCloseTo(layout.bodyLeft, 0)
+    expect(layout.rowWidth).toBeCloseTo(layout.bodyWidth, 0)
+  })
 }
 
 async function openEditor(page: Page, doc: unknown = initial, showStylePanel = false) {

@@ -1594,6 +1594,12 @@ body.td-column-reordering .td-columns-resize-overlay {
   background: #fff;
 }
 
+/* 栅栏行占满内容宽度，跨页时整行避开分页浮动区。 */
+.td-rich-editor-prosemirror.rm-with-pagination .td-columns-editor {
+  display: table;
+  width: 100%;
+}
+
 .td-rich-editor-content > .ProseMirror.rm-with-pagination {
   background: #fff;
   background-color: #fff;
@@ -1787,12 +1793,6 @@ body.td-column-reordering .td-source-resume-canvas .rm-with-pagination .page * {
 
 .td-source-resume-canvas .rm-with-pagination .page {
   margin-bottom: 0;
-}
-
-/* 栅栏行占满内容宽度，跨页时整行避开分页浮动区。 */
-.td-source-resume-canvas .td-columns-editor {
-  display: table;
-  width: 100%;
 }
 
 /* 标题及其装饰作为整体避开分页浮动区，防止背景跨页拉长。 */
