@@ -38,6 +38,7 @@ describe("model settings schemas", () => {
       provider: "deepseek",
       model: "deepseek-v4-flash",
       base_url: "https://api.deepseek.com",
+      api_protocol: "responses",
       api_key: { configured: true, preview: "...a9f2" },
     });
 
@@ -47,6 +48,7 @@ describe("model settings schemas", () => {
         provider: "deepseek",
         model: "deepseek-v4-flash",
         base_url: "https://api.deepseek.com",
+        api_protocol: "responses",
         api_key: { configured: true, preview: "...a9f2", value: "sk-secret" },
       })
     ).toThrow();

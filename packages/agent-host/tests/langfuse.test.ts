@@ -33,7 +33,7 @@ function metadata(span: ReadableSpan, key: string) {
   const value = span.attributes[`${Attr.OBSERVATION_METADATA}.${key}`];
   return typeof value === "string" ? JSON.parse(value) : value;
 }
-function sse(chunks: unknown[]) { return new Response(chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n"); }
+function sse(chunks: unknown[]) { return new Response(chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")); }
 
 describe("Langfuse agent tracing", () => {
   it("aggregates progress while retaining runtime events and summarizes images only in exported inputs", async () => {
@@ -70,12 +70,14 @@ describe("Langfuse agent tracing", () => {
     const model = createDeepSeekModelAdapter({
       resolveSettings: () => ({ apiKey: "sk-provider-secret", baseUrl: "https://example.test", defaultModel: "deepseek-test" }),
       fetch: vi.fn(async () => ++pass === 1 ? sse([
-        { choices: [{ delta: { reasoning_content: "planning" } }] },
-        { choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1", function: { name: "test_tool", arguments: '{"api_key":"private-value"}' } }] } }] },
-        { choices: [], usage: { prompt_tokens: 100, completion_tokens: 30, total_tokens: 130, prompt_cache_hit_tokens: 20, prompt_cache_miss_tokens: 80, completion_tokens_details: { reasoning_tokens: 10 } } },
+        { type: "response.reasoning_text.delta", delta: "planning" },
+        { type: "response.completed", response: {
+          output: [{ type: "function_call", call_id: "call_1", name: "test_tool", arguments: '{"api_key":"private-value"}' }],
+          usage: { input_tokens: 100, output_tokens: 30, total_tokens: 130, input_tokens_details: { cached_tokens: 20 }, output_tokens_details: { reasoning_tokens: 10 } },
+        } },
       ]) : sse([
-        { choices: [{ delta: { content: "recovered" } }] },
-        { choices: [{ delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 150, completion_tokens: 5, total_tokens: 155 } },
+        { type: "response.output_text.delta", delta: "recovered" },
+        { type: "response.completed", response: { output: [], usage: { input_tokens: 150, output_tokens: 5, total_tokens: 155 } } },
       ])) as typeof fetch,
     });
     const { runtime, host, start } = setup(instance, model);

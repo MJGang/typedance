@@ -29,6 +29,7 @@ import { isSea } from "node:sea";
 import { dirname } from "node:path";
 import { JsonFileHarnessCheckpointStore } from "./checkpoint-store";
 import { migrateRetiredModelId } from "./migrations/model-id";
+import { migrateModelApiProtocol } from "./model-settings";
 import { createModelRuntimeConfiguration } from "./model-catalog";
 import { requireLocalToken } from "./local-access";
 
@@ -57,6 +58,7 @@ async function main(): Promise<void> {
   const storeFile = join(dataDir, "agent-host", "store.sqlite");
   const sidecarUrl = env.TYPEDANCE_SIDECAR_URL || "http://127.0.0.1:4317";
   await migrateRetiredModelId(dataDir, env);
+  await migrateModelApiProtocol(dataDir);
   const modelSettings = createFileModelSettings(dataDir, credentials, env);
   const pluginLoader = env.TYPEDANCE_PLUGIN_ROOT
     ? createResumePluginLoader(env.TYPEDANCE_PLUGIN_ROOT)
@@ -77,6 +79,7 @@ async function main(): Promise<void> {
         return {
           apiKey: settings.apiKey,
           baseUrl: settings.baseUrl,
+          apiProtocol: settings.apiProtocol,
           defaultModel: settings.model,
           reasoningEffort: settings.reasoningEffort,
         };

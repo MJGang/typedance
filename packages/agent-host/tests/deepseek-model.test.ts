@@ -4,15 +4,20 @@ import type {
   HarnessModelRequest,
 } from "@typedance/harness-core";
 import { describe, expect, it, vi } from "vitest";
-import {
-  createDeepSeekModelAdapter,
-} from "../src/model/deepseek";
+import { createDeepSeekModelAdapter } from "../src/model/deepseek";
 import { buildAgentHostPromptBundle } from "../src/prompt";
 
-describe("DeepSeek model adapter", () => {
+function createChatCompletionsAdapter(options: Parameters<typeof createDeepSeekModelAdapter>[0]) {
+  return createDeepSeekModelAdapter({
+    ...options,
+    resolveSettings: async () => ({ ...await options.resolveSettings(), apiProtocol: "chat_completions" }),
+  });
+}
+
+describe("DeepSeek Chat Completions", () => {
   it("keeps the run model and reasoning mode pinned when saved selections change", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => new Response(sse("data: [DONE]\n\n")));
-    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "current-test-key", baseUrl: "https://original.example/v1/", defaultModel: "deepseek-v4-pro", reasoningEffort: "high" }), fetch: fetchMock });
+    const adapter = createChatCompletionsAdapter({ resolveSettings: () => ({ apiKey: "current-test-key", baseUrl: "https://original.example/v1/", defaultModel: "deepseek-v4-pro", reasoningEffort: "high" }), fetch: fetchMock });
     await drain(adapter.stream({ ...makeRequest({ runId: "pinned", agentId: "a", model: "deepseek-flash", messages: [] }),
       modelOptions: { providerBaseUrl: "https://original.example/v1", reasoningEffort: "low" }, maxOutputTokens: 8192 }));
     expect(fetchMock.mock.calls[0][0]).toBe("https://original.example/v1/chat/completions");
@@ -21,7 +26,7 @@ describe("DeepSeek model adapter", () => {
 
   it("stops before sending a newly configured credential to a previous run endpoint", async () => {
     const fetchMock = vi.fn<typeof fetch>();
-    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "new-service-test-key", baseUrl: "https://new.example/v1", defaultModel: "deepseek-flash" }), fetch: fetchMock });
+    const adapter = createChatCompletionsAdapter({ resolveSettings: () => ({ apiKey: "new-service-test-key", baseUrl: "https://new.example/v1", defaultModel: "deepseek-flash" }), fetch: fetchMock });
     await expect(drain(adapter.stream({ ...makeRequest({ runId: "changed-endpoint", agentId: "a", messages: [] }),
       modelOptions: { providerBaseUrl: "https://original.example/v1" } }))).rejects.toThrow("模型服务地址已改变");
     expect(fetchMock).not.toHaveBeenCalled();
@@ -29,7 +34,7 @@ describe("DeepSeek model adapter", () => {
 
   it("keeps tool schemas, choices and collision mappings stable for compaction and registration order", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => new Response(sse("data: [DONE]\n\n")));
-    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test", baseUrl: undefined, defaultModel: "deepseek-flash" }), fetch: fetchMock });
+    const adapter = createChatCompletionsAdapter({ resolveSettings: () => ({ apiKey: "test", baseUrl: undefined, defaultModel: "deepseek-flash" }), fetch: fetchMock });
     const tools = ["a.b", "a_b", "z"].map((name) => ({ name, origin: "plugin" as const, description: name, inputSchema: { type: "object", properties: {} } }));
     const request = makeRequest({ runId: "cache", agentId: "a", messages: [
       { role: "assistant", content: "", reasoningContent: "preserve exactly", toolCalls: [{ id: "c", name: "a_b", origin: "plugin", input: {} }] },
@@ -49,7 +54,7 @@ describe("DeepSeek model adapter", () => {
   });
 
   it.each([401, 402, 429, 500, 503])("classifies HTTP %i without exposing the credential", async (status) => {
-    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test-secret-key", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-v4-flash" }),
+    const adapter = createChatCompletionsAdapter({ resolveSettings: () => ({ apiKey: "test-secret-key", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-v4-flash" }),
       fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response("test-secret-key upstream error", { status, headers: { "retry-after": "2" } })) });
     await expect(drain(adapter.stream(makeRequest({ runId: "error", agentId: "a", messages: [] })))).rejects.toMatchObject({
       retryable: [429, 500, 503].includes(status), retryAfterMs: 2000, message: `DeepSeek chat completion failed: ${status} [redacted] upstream error`,
@@ -57,7 +62,7 @@ describe("DeepSeek model adapter", () => {
   });
   it("preserves user image parts and document text in provider requests", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(sse("data: [DONE]\n\n")));
-    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-flash" }), fetch: fetchMock });
+    const adapter = createChatCompletionsAdapter({ resolveSettings: () => ({ apiKey: "test", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-flash" }), fetch: fetchMock });
     await drain(adapter.stream(makeRequest({ runId: "user-images", agentId: "agent", messages: [{ role: "user", content: [
       { type: "text", text: "请阅读图片和文档" }, { type: "image", image_url: "data:image/png;base64,aGVsbG8=" }, { type: "text", text: "附件：项目说明.md\nPostgreSQL" },
     ] }] })));
@@ -68,7 +73,7 @@ describe("DeepSeek model adapter", () => {
   });
   it("sends tool images as real provider image parts with their call ID", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(sse("data: [DONE]\n\n")));
-    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-flash" }), fetch: fetchMock });
+    const adapter = createChatCompletionsAdapter({ resolveSettings: () => ({ apiKey: "test", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-flash" }), fetch: fetchMock });
     await drain(adapter.stream(makeRequest({ runId: "images", agentId: "agent", messages: [
       { role: "assistant", content: "", toolCalls: [{ id: "call", name: "view", origin: "plugin", input: {} }] },
       { role: "tool", toolCallId: "call", toolName: "view", content: [{ type: "text", text: "page 2" }, { type: "image", image_url: "data:image/png;base64,aGVsbG8=", detail: "high" }] },
@@ -81,7 +86,7 @@ describe("DeepSeek model adapter", () => {
   it("resolves credentials when each run starts", async () => {
     const credentials: { apiKey: string | undefined } = { apiKey: undefined };
     const fetchMock = vi.fn(async () => new Response(sse("data: [DONE]\n\n"), { status: 200 }));
-    const adapter = createDeepSeekModelAdapter({
+    const adapter = createChatCompletionsAdapter({
       resolveSettings: async () => ({
         apiKey: credentials.apiKey,
         baseUrl: "https://api.deepseek.com",
@@ -103,7 +108,7 @@ describe("DeepSeek model adapter", () => {
   });
 
   it("reports a controlled configuration error without an API key", async () => {
-    const adapter = createDeepSeekModelAdapter({
+    const adapter = createChatCompletionsAdapter({
       resolveSettings: async () => ({
         apiKey: undefined,
         baseUrl: "https://api.deepseek.com",
@@ -127,7 +132,7 @@ describe("DeepSeek model adapter", () => {
       "data: [DONE]",
       "",
     ].join("\n")), { status: 200 }));
-    const adapter = createDeepSeekModelAdapter({
+    const adapter = createChatCompletionsAdapter({
       resolveSettings: async () => ({
         apiKey: "test-key",
         baseUrl: "https://api.deepseek.com",
@@ -159,7 +164,7 @@ describe("DeepSeek model adapter", () => {
 
   it("rejects a disconnected stream instead of emitting a successful final event", async () => {
     const fetchMock = vi.fn(async () => new Response(sse('data: {"choices":[{"delta":{"content":"unfinished"}}]}\n\n'), { status: 200 }));
-    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test-key", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-flash" }), fetch: fetchMock as unknown as typeof fetch });
+    const adapter = createChatCompletionsAdapter({ resolveSettings: () => ({ apiKey: "test-key", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-flash" }), fetch: fetchMock as unknown as typeof fetch });
     const events = [];
     const collect = async () => { for await (const event of adapter.stream(makeRequest({ runId: "broken", agentId: "agent", messages: [] }))) events.push(event); };
     await expect(collect()).rejects.toThrow("completion marker");
@@ -174,7 +179,7 @@ describe("DeepSeek model adapter", () => {
         controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'));
       } else controller.error(new TypeError("terminated test-secret-key", { cause: { code: "UND_ERR_SOCKET", address: "private" } }));
     } }, { highWaterMark: 0 });
-    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test-secret-key", defaultModel: "deepseek-flash", baseUrl: undefined }),
+    const adapter = createChatCompletionsAdapter({ resolveSettings: () => ({ apiKey: "test-secret-key", defaultModel: "deepseek-flash", baseUrl: undefined }),
       fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response(stream)) });
     const events = [];
     const collect = async () => { for await (const event of adapter.stream(makeRequest({ runId: "transport", agentId: "a", messages: [] }))) events.push(event); };
@@ -186,7 +191,7 @@ describe("DeepSeek model adapter", () => {
   it("preserves stream cancellation as cancellation", async () => {
     const abort = new DOMException("canceled", "AbortError");
     const stream = new ReadableStream<Uint8Array>({ start(controller) { controller.error(abort); } });
-    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test", defaultModel: "deepseek-flash", baseUrl: undefined }),
+    const adapter = createChatCompletionsAdapter({ resolveSettings: () => ({ apiKey: "test", defaultModel: "deepseek-flash", baseUrl: undefined }),
       fetch: vi.fn<typeof fetch>().mockResolvedValue(new Response(stream)) });
     await expect(drain(adapter.stream(makeRequest({ runId: "cancel", agentId: "a", messages: [] })))).rejects.toBe(abort);
   });
@@ -196,7 +201,7 @@ describe("DeepSeek model adapter", () => {
       'data: {"choices":[{"delta":{"content":"partial handoff"},"finish_reason":"length"}]}',
       "", "data: [DONE]", "",
     ].join("\n")), { status: 200 }));
-    const adapter = createDeepSeekModelAdapter({ resolveSettings: () => ({ apiKey: "test-key", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-flash" }), fetch: fetchMock as unknown as typeof fetch });
+    const adapter = createChatCompletionsAdapter({ resolveSettings: () => ({ apiKey: "test-key", baseUrl: "https://api.deepseek.com", defaultModel: "deepseek-flash" }), fetch: fetchMock as unknown as typeof fetch });
     const request = makeRequest({ runId: "summary", agentId: "agent", messages: [{ role: "user", content: "Summarize" }] });
     request.maxOutputTokens = 256; request.purpose = "compaction";
     const events = [];
@@ -212,7 +217,7 @@ describe("DeepSeek model adapter", () => {
       "data: [DONE]",
       "",
     ].join("\n")), { status: 200 }));
-    const adapter = createDeepSeekModelAdapter({
+    const adapter = createChatCompletionsAdapter({
       resolveSettings: async () => ({
         apiKey: "test-key",
         baseUrl: "https://api.deepseek.com",
@@ -264,7 +269,7 @@ describe("DeepSeek model adapter", () => {
       "data: [DONE]",
       "",
     ].join("\n")), { status: 200 }));
-    const adapter = createDeepSeekModelAdapter({
+    const adapter = createChatCompletionsAdapter({
       resolveSettings: async () => ({
         apiKey: "test-key",
         baseUrl: "https://api.deepseek.com",
@@ -309,7 +314,7 @@ describe("DeepSeek model adapter", () => {
 
   it("uses the caller supplied model instead of an adapter fallback", async () => {
     const fetchMock = vi.fn(async () => new Response(sse("data: [DONE]\n\n"), { status: 200 }));
-    const adapter = createDeepSeekModelAdapter({
+    const adapter = createChatCompletionsAdapter({
       resolveSettings: async () => ({
         apiKey: "test-key",
         baseUrl: "https://api.deepseek.com",
@@ -329,7 +334,7 @@ describe("DeepSeek model adapter", () => {
   });
 
   it("requires a model from the request or adapter configuration", async () => {
-    const adapter = createDeepSeekModelAdapter({
+    const adapter = createChatCompletionsAdapter({
       resolveSettings: async () => ({
         apiKey: "test-key",
         baseUrl: "https://api.deepseek.com",

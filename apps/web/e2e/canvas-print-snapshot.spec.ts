@@ -108,7 +108,7 @@ async function openWorkspace(page: Page, blankCount: number, templateStyles: Tem
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response) })
   })
   await page.route("http://127.0.0.1:4318/**", (route) => route.fulfill({ json: route.request().url().endsWith("/settings/model")
-    ? { provider: "deepseek", model: "test-model", base_url: "https://example.com", api_key: { configured: false, preview: null } } : [] }))
+    ? { provider: "deepseek", model: "test-model", base_url: "https://example.com", api_protocol: "responses", api_key: { configured: false, preview: null } } : [] }))
   await page.goto("/")
   await page.getByRole("link", { name: "打开简历 Synthetic print fixture", exact: true }).click()
   await expect(page.locator(".td-source-resume-canvas .ProseMirror h1")).toHaveText("Synthetic resume")

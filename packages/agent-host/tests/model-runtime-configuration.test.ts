@@ -5,10 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHarnessRuntime, type HarnessModelRequest } from "@typedance/harness-core";
 import { createAgentHost, createSqliteAgentHostStore, JsonFileHarnessCheckpointStore } from "../src/index";
+import type { ModelApiProtocol } from "@typedance/contracts";
 
 describe("run model configuration", () => {
   it("refreshes the saved effort for the next call while preserving the run model and endpoint", async () => {
-    const settings = { model: "deepseek-flash", baseUrl: "https://api.deepseek.com/", reasoningEffort: "off" as "off" | "high" };
+    const settings = { model: "deepseek-flash", baseUrl: "https://api.deepseek.com/", apiProtocol: "responses" as ModelApiProtocol, reasoningEffort: "off" as "off" | "high" };
     const configuration = await createModelRuntimeConfiguration(undefined, () => settings);
     expect(configuration.modelOptions).toMatchObject({ reasoningEffort: "off" });
     settings.model = "deepseek-v4-pro";
@@ -16,6 +17,9 @@ describe("run model configuration", () => {
     const refreshed = await configuration.refresh!();
     expect(refreshed).toEqual(modelRuntimeConfiguration("deepseek-flash", "high"));
     expect(refreshed.modelConfigurationKey).not.toBe(configuration.modelConfigurationKey);
+    settings.apiProtocol = "chat_completions";
+    await expect(configuration.refresh!()).rejects.toThrow("模型 API 协议已改变");
+    settings.apiProtocol = "responses";
     settings.baseUrl = "https://new.example/v1";
     await expect(configuration.refresh!()).rejects.toThrow("模型服务地址已改变");
   });
@@ -31,19 +35,20 @@ describe("run model configuration", () => {
     expect(modelRuntimeConfiguration("custom-model").contextWindow).not.toHaveProperty("modelContextTokens");
   });
 
-  it("binds measurement reuse to the effective model, reasoning mode and normalized provider endpoint", () => {
+  it("binds measurement reuse to the effective model, reasoning mode, protocol and provider endpoint", () => {
     const original = modelRuntimeConfiguration("deepseek-flash", "low", "https://api.deepseek.com/");
     expect(original).toEqual(modelRuntimeConfiguration("deepseek-flash", "low", "https://api.deepseek.com"));
     for (const changed of [
       modelRuntimeConfiguration("deepseek-v4-pro", "low"),
       modelRuntimeConfiguration("deepseek-flash", "off"),
       modelRuntimeConfiguration("deepseek-flash", "low", "https://gateway.example/v1"),
+      modelRuntimeConfiguration("deepseek-flash", "low", "https://api.deepseek.com", "chat_completions"),
     ]) expect(changed.modelConfigurationKey).not.toBe(original.modelConfigurationKey);
-    expect(original.modelOptions).toEqual({ reasoningEffort: "low", providerBaseUrl: "https://api.deepseek.com" });
+    expect(original.modelOptions).toEqual({ reasoningEffort: "low", providerBaseUrl: "https://api.deepseek.com", providerApiProtocol: "responses" });
   });
 
   it("applies a saved effort change after a running tool and invalidates the previous measurement", async () => {
-    const settings = { model: "deepseek-flash", baseUrl: "https://api.deepseek.com", reasoningEffort: "off" as "off" | "high" };
+    const settings = { model: "deepseek-flash", baseUrl: "https://api.deepseek.com", apiProtocol: "responses" as const, reasoningEffort: "off" as "off" | "high" };
     const requests: HarnessModelRequest[] = [];
     const runtime = createHarnessRuntime({ model: { async *stream(request) {
       requests.push(request);

@@ -84,7 +84,7 @@ async function openCanvas(page: Page, precedingParagraphs = 0) {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) })
   })
   await page.route("http://127.0.0.1:4327/**", (route) => route.fulfill({ json: route.request().url().endsWith("/settings/model")
-    ? { provider: "deepseek", model: "test-model", base_url: "https://example.com", api_key: { configured: false, preview: null } } : [] }))
+    ? { provider: "deepseek", model: "test-model", base_url: "https://example.com", api_protocol: "responses", api_key: { configured: false, preview: null } } : [] }))
   await page.goto("/")
   await page.getByRole("link", { name: "打开简历 源码交互验收", exact: true }).click()
   await expect(page.locator(".td-rich-editor-prosemirror h2")).toHaveText("项目背景")
