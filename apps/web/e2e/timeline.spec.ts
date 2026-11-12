@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process"
 import { resolve } from "node:path"
 import { readFileSync } from "node:fs"
 import { expect, test, type Locator, type Page } from "@playwright/test"
-import type { CanvasPrintSnapshot, EditorRequest } from "@typedance/contracts"
+import type { CanvasPrintSnapshot, EditorRequest, EditorSnapshot } from "@typedance/contracts"
 
 const root = resolve(import.meta.dirname, "../../..")
 const richTimeline = JSON.parse(readFileSync(resolve(root, "services/sidecar/tests/fixtures/timeline_rich.json"), "utf8"))
@@ -32,10 +32,10 @@ const pageBreakDoc = { type: "doc", content: [
   { type: "timeline", content: [richTimeline.content[1].content[0]] },
 ] }
 
-async function openPageBreakPreview(page: Page, preview: "template" | "transaction") {
+async function openPageBreakPreview(page: Page, preview: "template" | "transaction", transaction?: EditorRequest["transaction"]) {
   const request: EditorRequest = {
     id: "request", document_id: "doc", editor_session_id: "session", kind: "transaction", mode: "review",
-    transaction: { id: "transaction", document_id: "doc", editor_session_id: "session", content_revision: 1,
+    transaction: transaction ?? { id: "transaction", document_id: "doc", editor_session_id: "session", content_revision: 1,
       before_doc_json: initial, doc_json: pageBreakDoc, catalog_revision: "current", summary: "调整项目标题",
       effects: [], node_origins: [], text_origins: [] },
   }
@@ -64,12 +64,29 @@ async function openPageBreakPreview(page: Page, preview: "template" | "transacti
         onThemeChange:noop,onStyleChange:noop,onSaveStyle:async()=>true,onSaveAsTemplate:noop,onRetryPreview:noop});
     } else {
       const {EditorRequestCard}=await import('/src/features/revision/EditorRequestCard.tsx');
-      content=h('div',{style:{width:480}},h(EditorRequestCard,{runId:'run',request:${JSON.stringify(request)},events:[],active:true}));
+      const {DraftCanvas}=await import('/src/features/revision/DraftCanvas.tsx');
+      const {EditorReferencesProvider,useEditorReferences}=await import('/src/features/revision/references/EditorReferences.tsx');
+      const {useSourceCanvasAutosave}=await import('/src/features/revision/useSourceCanvasAutosave.ts');
+      const {setAccountSession}=await import('/src/accountSession.ts');
+      setAccountSession({id:'preview-test',sidecar_url:'http://127.0.0.1:4317',agent_host_url:'http://127.0.0.1:4318',token:'synthetic-preview-test'});
+      const request=${JSON.stringify(request)};
+      const canvas={id:'source',document_id:request.document_id,old_resume_source_id:'source',version:1,
+        doc_json:request.transaction.before_doc_json,node_map:[],module_anchors:[],source_snapshot_hash:'fixture',
+        created_at:'2026-11-12T00:00:00Z',updated_at:'2026-11-12T00:00:00Z'};
+      function Workspace() {
+        const references=useEditorReferences();
+        const autosave=useSourceCanvasAutosave(canvas.document_id,()=>{});
+        window.readSourceCanvas=()=>references.getPayload().then(result=>result.snapshot);
+        return h('div',{style:{height:'100vh',display:'grid',gridTemplateColumns:'minmax(850px,1fr) 380px'}},
+          h(DraftCanvas,{canvas,onChange:autosave.handleChange,saveStatus:autosave.saveStatus}),
+          h('aside',null,h(EditorRequestCard,{runId:'run',request,events:[],active:true})));
+      }
+      content=h(EditorReferencesProvider,{documentId:canvas.document_id},h(Workspace));
     }
     ReactDOM.createRoot(document.getElementById('test-root')).render(h(TooltipProvider,null,content));
     </script></body></html>` }))
   await page.goto("/__timeline-preview-test")
-  if (preview === "transaction") await page.getByRole("button", { name: "查看修改预览" }).click()
+  if (preview === "transaction" && !transaction) await page.getByRole("button", { name: "查看修改预览" }).click()
   return page.getByLabel(preview === "template" ? "主题演示简历预览" : "修改后的简历预览")
 }
 
@@ -111,6 +128,92 @@ for (const mode of ["template", "transaction"] as const) {
     expect(layout.rowWidth).toBeCloseTo(layout.bodyWidth, 0)
   })
 }
+
+test("画布预览按真实分页标记改动范围，取消和反复预览不保存原稿", async ({ page }) => {
+  const errors: string[] = []
+  page.on("pageerror", error => errors.push(error.message))
+  const longText = "项目资料。" + "跨页工作说明覆盖需求评审、联调和交付后的反馈整理。".repeat(102)
+  const before = { type: "doc", content: [
+    p("项目一"), p("项目一说明"), p("项目二"), p("项目二说明"), p("保留的普通正文"),
+    p("工作经历一"), p("工作经历二"),
+    { type: "columns", attrs: { count: 3 }, content: ["版本管理", "工具调用", "混合检索"].map(text => ({ type: "column", content: [p(text)] })) },
+    p(longText),
+  ] }
+  const operations = [
+    { capability: "blocks.move", parameters: { paths: [[2], [3]], before: [0] } },
+    { capability: "blocks.insert", parameters: { parent: [], index: 2, kind: "horizontalRule" } },
+    { capability: "timeline.wrap", parameters: { paths: [[6], [7]] } },
+    { capability: "timeline.split", parameters: { path: [6, 0, 1] } },
+    { capability: "text.replace", parameters: { path: [7, 1, 0], text: "工具调用", replacement: "工具编排" } },
+    { capability: "text.replace", parameters: { path: [8], text: "项目资料", replacement: "验收清单" } },
+  ]
+  const catalog = JSON.parse(backend())
+  const result = JSON.parse(backend({ doc_json: before, operations, catalog_revision: catalog.revision }))
+  const transaction: NonNullable<EditorRequest["transaction"]> = {
+    ...result, id: "scope-test", document_id: "doc", editor_session_id: "session",
+    content_revision: 0, summary: "调整项目顺序、分栏和工作经历", before_doc_json: before,
+  }
+  let writes = 0
+  await page.route("http://127.0.0.1:4317/**", route => {
+    if (route.request().method() === "PUT") writes++
+    return route.fulfill({ status: 409, json: { detail: "此用例中画布不应保存" } })
+  })
+  const preview = await openPageBreakPreview(page, "transaction", transaction)
+  const readSource = () => page.evaluate(async () => {
+    const snapshot = await (window as Window & { readSourceCanvas: () => Promise<EditorSnapshot | undefined> }).readSourceCanvas()
+    if (!snapshot) return undefined
+    return { doc: snapshot.doc_json, revision: snapshot.content_revision, version: snapshot.canvas_version, session: snapshot.editor_session_id }
+  })
+  await expect(page.getByLabel("原始简历编辑区")).toBeVisible()
+  await expect.poll(readSource).toBeDefined()
+  const source = await readSource()
+  await page.getByRole("button", { name: "查看修改预览" }).click()
+  await expect(preview).toBeVisible()
+  await expect(preview).toHaveAttribute("contenteditable", "false")
+  await expect(page.locator("[data-td-live-canvas]")).toHaveAttribute("inert", "")
+  await expect(preview.locator(".td-timeline-entry")).toHaveCount(2)
+  await expect(preview).toContainText("工具编排")
+  await expect(preview).toContainText("验收清单")
+  await expect(preview.locator("hr")).toHaveCount(1)
+  const overlay = page.locator("[data-td-preview-overlay]")
+  await expect(overlay.locator(".td-preview-ink")).toHaveCount(2)
+  const geometry = await preview.evaluate(editor => {
+    const rect = (element: Element) => element.getBoundingClientRect()
+    const cards = Array.from(editor.closest("[data-td-canvas-preview]")!.querySelectorAll("[data-td-preview-region]"), rect)
+    const paragraphs = Array.from(editor.querySelectorAll("p"))
+    const unchanged = rect(paragraphs.find(p => p.textContent === "保留的普通正文")!)
+    const long = rect(paragraphs.find(p => p.textContent?.startsWith("验收清单"))!)
+    const columns = rect(editor.querySelector(".td-columns-editor")!)
+    const divider = rect(editor.querySelector("hr")!)
+    const timeline = rect(editor.querySelector(".td-timeline")!)
+    const covers = (target: DOMRect) => cards.some(card => card.top <= target.top + 1 && card.bottom >= target.bottom - 1
+      && card.left <= target.left + 1 && card.right >= target.right - 1)
+    const gaps = Array.from(editor.querySelectorAll(".rm-page-break > .breaker"), rect).filter(gap => gap.height > 0)
+    return {
+      unchanged: cards.some(card => card.top <= unchanged.top + unchanged.height / 2 && card.bottom >= unchanged.top + unchanged.height / 2),
+      crossing: cards.filter(card => card.bottom > long.top + 4 && card.top < long.bottom - 4).length,
+      inGaps: cards.some(card => gaps.some(gap => card.top < gap.bottom - 1 && card.bottom > gap.top + 1)),
+      row: covers(columns), divider: covers(divider), timeline: covers(timeline),
+      order: (paragraphs.findIndex(p => p.textContent === "项目二") < paragraphs.findIndex(p => p.textContent === "项目一")),
+    }
+  })
+  expect(geometry).toMatchObject({ unchanged: false, inGaps: false, row: true, divider: true, timeline: true, order: true })
+  expect(geometry.crossing).toBeGreaterThan(1)
+  await page.screenshot({ path: test.info().outputPath("canvas-preview.png") })
+  expect(await readSource()).toEqual(source)
+  await page.keyboard.type("禁止写入")
+  await page.locator("[data-td-canvas-preview]").getByRole("button", { name: "取消预览" }).click()
+  await expect(preview).toHaveCount(0)
+  await page.getByRole("button", { name: "查看修改预览" }).click()
+  await expect(preview).toBeVisible()
+  await page.getByTestId("editor-transaction").getByRole("button", { name: "取消预览" }).click()
+  await expect(preview).toHaveCount(0)
+  await expect(page.getByLabel("原始简历编辑区")).toHaveAttribute("contenteditable", "true")
+  await page.waitForTimeout(700)
+  expect(await readSource()).toEqual(source)
+  expect(writes).toBe(0)
+  expect(errors).toEqual([])
+})
 
 async function openEditor(page: Page, doc: unknown = initial, showStylePanel = false) {
   page.on("pageerror", (error) => console.error(error.message))

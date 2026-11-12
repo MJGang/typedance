@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Undo2 } from "lucide-react"
 import { editorRequestSchema, type AgentRunEvent, type EditorRequest, type EditorResponse } from "@typedance/contracts"
 import { beginEditorRequest, getEditorRequest, respondToEditorRequest } from "@/agentHost"
@@ -7,8 +7,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useEditorReferences } from "./references/EditorReferences"
-
-const TransactionPreview = lazy(() => import("./EditorTransactionPreview"))
 
 export function editorRequests(events: AgentRunEvent[]): EditorRequest[] {
   return events.flatMap((event) => {
@@ -24,7 +22,6 @@ export function EditorRequestCard({ runId, request, events, active }: { runId: s
   const [status, setStatus] = useState<string | undefined>()
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
-  const [previewOpen, setPreviewOpen] = useState(false)
   const [undone, setUndone] = useState(false)
   const inFlight = useRef(false)
   const resultRef = useRef<EditorResponse | undefined>(undefined)
@@ -64,6 +61,7 @@ export function EditorRequestCard({ runId, request, events, active }: { runId: s
   if (request.kind === "snapshot") return error ? <div><p role="alert" className="text-sm text-destructive">{error}</p>{active ? <Button variant="outline" size="sm" disabled={busy} onClick={() => { void submit(true) }}>重试读取画布</Button> : null}</div> : null
   const transaction = request.transaction
   if (!transaction) return null
+  const previewOpen = context?.preview?.id === transaction.id
   const executing = events.some((event) => event.type === "editor_execution_started" && event.payload.request_id === request.id)
   const state = undone ? "undone" : String(resolved?.payload.status ?? status ?? (active ? executing ? "applying" : "pending" : "ended"))
   const label = { pending: request.mode === "solo" ? "正在应用" : "等待你应用修改", applying: "正在应用", applied: "已应用", unchanged: "已符合要求", rejected: "保留原文", failed: "未能应用", undone: "已撤销", ended: "请求已结束" }[state] ?? state
@@ -75,8 +73,7 @@ export function EditorRequestCard({ runId, request, events, active }: { runId: s
     <CardContent className="flex flex-col gap-3">
       <p className="text-xs text-muted-foreground">仅修改当前简历，模板样式调整不会影响其他简历。</p>
       {state === "pending" && request.mode === "review" ? <p className="text-xs text-muted-foreground">可以稍后再确认，等待期间不会自动应用或重复提交修改。</p> : null}
-      <Button type="button" variant="outline" size="sm" onClick={() => setPreviewOpen((open) => !open)}>{previewOpen ? "收起预览" : "查看修改预览"}</Button>
-      {previewOpen ? <Suspense fallback={<p className="text-xs text-muted-foreground">正在准备预览…</p>}><TransactionPreview transaction={transaction} /></Suspense> : null}
+      {context?.documentId === transaction.document_id ? <Button type="button" variant="outline" size="sm" aria-pressed={previewOpen} onClick={() => context.togglePreview(transaction)}>{previewOpen ? "取消预览" : "查看修改预览"}</Button> : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       {(state === "failed" || state === "applied") && resolved?.payload.error ? <p role="alert" className="text-sm text-destructive">{String(resolved.payload.error)}</p> : null}
     </CardContent>

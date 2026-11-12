@@ -356,7 +356,7 @@ describe("DraftCanvas", () => {
   it("applies the classic template typography to the source canvas editor", () => {
     render(<DraftCanvas canvas={canvas} onChange={vi.fn()} saveStatus="idle" />)
 
-    expect(editorMocks.props?.cssText).toContain(".td-source-resume-canvas .rm-with-pagination p")
+    expect(editorMocks.props?.cssText).toContain("[data-td-live-canvas] .rm-with-pagination p")
     expect(editorMocks.props?.cssText).toContain(`font-family: ${MICROSOFT_YAHEI_FONT_STACK};`)
     expect(editorMocks.props?.cssText).toContain("font-size: 16px;")
     expect(editorMocks.props?.cssText).toContain("line-height: 1.62;")
