@@ -92,7 +92,8 @@ function AccountScreen() {
                 退出当前账号
               </Button> : null}
             </> : state.configured && !installingUpdate ?
-              <LocalAccountForm onGithubSignIn={state.providers.includes("github") ? () => void signInAccount("github") : undefined} />
+              <LocalAccountForm key={state.login_target ?? ""} loginTarget={state.login_target}
+                onGithubSignIn={state.providers.includes("github") ? (target) => void (target ? signInAccount("github", target) : signInAccount("github")) : undefined} />
             : installingUpdate ? <p role="status" className="text-sm text-muted-foreground">正在安装客户端更新…</p>
             : <>
               <p className="text-sm leading-6 text-muted-foreground">登录服务尚未配置，请联系应用提供方完成设置后重试。</p>
@@ -146,10 +147,10 @@ export function AccountGate({ children }: { children: ReactNode }) {
       for (const [element, previous] of changed) { element.inert = previous.inert; element.hidden = previous.hidden }
     }
   }, [phase, state.status])
-  const keepWorkspace = (state.status === "ready" || state.status === "locking") && state.session && phase !== "switching"
+  const keepWorkspace = (state.status === "ready" || state.status === "locking") && state.session
   const workspaceKey = keepWorkspace ? `${state.session!.id}:${captureAccountSession().epoch}` : undefined
   return <div data-account-shell>
-    {keepWorkspace ? <div key={workspaceKey} hidden={state.status === "locking"} inert={phase === "saving" || state.status === "locking"} aria-hidden={state.status === "locking" || undefined}>
+    {keepWorkspace ? <div key={workspaceKey} hidden={phase === "switching" || state.status === "locking"} inert={phase !== "idle" || state.status === "locking"}>
       {children}
     </div> : null}
     {state.status === "restoring" ? <div data-account-screen className="grid h-svh place-items-center bg-background text-sm text-muted-foreground" role="status">

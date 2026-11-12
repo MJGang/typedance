@@ -94,14 +94,35 @@ describe("sidebar account entry", () => {
     expect(within(dialog).getByRole("tab", { name: "客户端更新" })).toHaveAttribute("data-state", "active")
   })
 
-  it.each(["切换账号", "退出登录"])("routes %s through the existing save gate", async (label) => {
+  it("routes logout through the existing save gate", async () => {
     mocks.invoke.mockResolvedValue(account("A", "signed_out"))
     render(<AccountMenu />)
-    fireEvent.click(within(await openMenu()).getByRole("menuitem", { name: label }))
+    fireEvent.click(within(await openMenu()).getByRole("menuitem", { name: "退出登录" }))
     await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("sign_out_account", undefined))
     expect(mocks.flush).toHaveBeenCalledTimes(1)
     expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/account/pause"), expect.objectContaining({ method: "POST" }))
     await waitFor(() => expect(getAccountView().phase).toBe("idle"))
+  })
+
+  it.each([true, false])("shows historical accounts before saving and switching (saved: %s)", async (saved) => {
+    const history = [
+      { id: "A", name: "账号 A", email: "a@example.invalid", password_login: true, password_saved: true, github_bound: false },
+      { id: "B", name: "账号 B", email: "b@example.invalid", password_login: true, password_saved: saved, github_bound: false },
+    ]
+    mocks.invoke.mockImplementation((command) => command === "list_login_accounts" ? Promise.resolve(history)
+      : Promise.resolve(saved ? account("B") : { ...account("B", "signed_out"), login_target: "B" }))
+    render(<AccountMenu />)
+    fireEvent.click(within(await openMenu()).getByRole("menuitem", { name: "切换账号" }))
+    const dialog = await screen.findByRole("dialog", { name: "切换账号" })
+    const target = await within(dialog).findByRole("button", { name: /账号 B/ })
+    expect(target).toHaveTextContent(saved ? "直接切换" : "需要登录")
+    expect(within(dialog).queryByRole("button", { name: /账号 A/ })).not.toBeInTheDocument()
+    expect(mocks.flush).not.toHaveBeenCalled()
+    fireEvent.click(target)
+    await waitFor(() => expect(getAccountView().state.status).toBe(saved ? "ready" : "signed_out"))
+    expect(mocks.flush).toHaveBeenCalledOnce()
+    expect(mocks.invoke).toHaveBeenCalledWith("switch_local_account", { target: "B" })
+    expect(getAccountView().state.user?.id ?? getAccountView().state.login_target).toBe("B")
   })
 
   it("leaves save failures visible in the sidebar and retains the current account", async () => {

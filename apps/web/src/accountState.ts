@@ -24,6 +24,7 @@ export const accountStateSchema = z.object({
   github_code: z.string().nullable().optional(),
   github_bound: z.boolean().optional(),
   can_login: z.boolean().optional(),
+  login_target: z.string().nullable().optional(),
   legacy: z.object({ import_started: z.boolean(), sources: z.array(z.object({
     id: z.string().min(1), path: z.string().min(1), file_count: z.number().int().nonnegative(),
   })).min(1) }).nullable(),
