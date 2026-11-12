@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { DEFAULT_MODEL_API_PROTOCOL } from "@typedance/contracts";
 
 /** 启动时执行一次数据迁移；模型目录和适配器不保留退役 ID 的兼容分支。 */
 export async function migrateRetiredModelId(dataDir: string, environment: Record<string, string | undefined>): Promise<void> {
@@ -12,7 +13,8 @@ export async function migrateRetiredModelId(dataDir: string, environment: Record
   if (model === "deepseek-v4-flash" || model === "deepseek-v4-flash-vision-exp") {
     await mkdir(directory, { recursive: true });
     const temporary = `${path}.migration.tmp`;
-    await writeFile(temporary, JSON.stringify({ provider: "deepseek", base_url: environment.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com", ...config, model: "deepseek-flash" }, null, 2) + "\n", { mode: 0o600 });
+    await writeFile(temporary, JSON.stringify({ provider: "deepseek", base_url: environment.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com",
+      api_protocol: DEFAULT_MODEL_API_PROTOCOL, ...config, model: "deepseek-flash" }, null, 2) + "\n", { mode: 0o600 });
     await rename(temporary, path);
   }
   await mkdir(join(directory, "migrations"), { recursive: true });

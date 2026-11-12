@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createFileModelSettings, credentialsFor, memoryCredentials } from "./helpers/model-credentials";
-import { createFileModelSettings as createSettingsWithCredentials } from "../src/model-settings";
+import { createFileModelSettings as createSettingsWithCredentials, migrateModelApiProtocol } from "../src/model-settings";
 import { migrateRetiredModelId } from "../src/migrations/model-id";
 
 const tempDirectories: string[] = [];
@@ -13,18 +13,24 @@ afterEach(async () => {
 });
 
 describe("file model settings", () => {
-  it("uses Responses for an existing config without a protocol and persists an explicit switch", async () => {
+  it("migrates the protocol once while preserving saved model settings and credentials", async () => {
     const dataDir = await mkdtemp(join(tmpdir(), "typedance-model-protocol-"));
     tempDirectories.push(dataDir);
     const directory = join(dataDir, "agent-host");
     await mkdir(directory);
     const model = "deepseek-flash";
     const base_url = "https://api.deepseek.com";
-    await writeFile(join(directory, "config.json"), JSON.stringify({ provider: "deepseek", model, base_url }));
+    const configPath = join(directory, "config.json");
+    const legacy = { provider: "deepseek", model, base_url, reasoning_effort: "low" };
+    await writeFile(configPath, JSON.stringify(legacy));
+    await credentialsFor(dataDir).set("test-credential");
+    await migrateModelApiProtocol(dataDir);
+    expect(JSON.parse(await readFile(configPath, "utf8"))).toEqual({ ...legacy, api_protocol: "responses" });
     const settings = createFileModelSettings(dataDir, {});
     expect(await settings.get()).toMatchObject({ api_protocol: "responses" });
-    await settings.update({ model, base_url, api_protocol: "chat_completions", api_key: "test-credential" });
+    await settings.update({ model, base_url, api_protocol: "chat_completions" });
     await settings.updateSelection({ model: "deepseek-v4-pro", reasoning_effort: "low" });
+    await migrateModelApiProtocol(dataDir);
     expect(await createFileModelSettings(dataDir, {}).resolve()).toMatchObject({
       apiProtocol: "chat_completions", model: "deepseek-v4-pro", apiKey: "test-credential",
     });

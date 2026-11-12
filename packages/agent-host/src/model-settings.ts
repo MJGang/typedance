@@ -45,6 +45,15 @@ export type ModelSettingsService = {
   updateSelection(input: { model: string; reasoning_effort: ReasoningEffort | null }): Promise<ModelSelection>;
 };
 
+export async function migrateModelApiProtocol(dataDir: string): Promise<void> {
+  const configPath = join(dataDir, "agent-host", "config.json");
+  const value = await readOptionalJson(configPath);
+  if (value === undefined) return;
+  const config = objectRecord(value, "model config");
+  if ("api_protocol" in config) return;
+  await writeJsonAtomic(configPath, { ...config, api_protocol: DEFAULT_MODEL_API_PROTOCOL });
+}
+
 export function createFileModelSettings(
   dataDir: string,
   credentials: ModelCredentialStore,
@@ -174,7 +183,7 @@ async function readConfig(path: string, defaults: ModelConfigFile): Promise<Mode
   }
   const effort = record.reasoning_effort === undefined ? undefined : reasoningEffortSchema.parse(record.reasoning_effort);
   return { provider: "deepseek", model: record.model, base_url: record.base_url,
-    api_protocol: modelApiProtocolSchema.default(defaults.api_protocol).parse(record.api_protocol),
+    api_protocol: modelApiProtocolSchema.parse(record.api_protocol),
     ...(effort !== undefined ? { reasoning_effort: effort } : {}) };
 }
 
