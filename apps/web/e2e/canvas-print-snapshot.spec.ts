@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test"
-import type { CanvasPrintSnapshot, SourceResumeCanvas, TemplateStyleConfig, WorkspaceView } from "@typedance/contracts"
+import type { CanvasPrintSnapshot, EditorRequest, SourceResumeCanvas, TemplateStyleConfig, WorkspaceView } from "@typedance/contracts"
 import { defaultClassicA4Style } from "../src/features/templates/data"
 
 const DOCUMENT_ID = "doc_print_layout"
@@ -67,8 +67,20 @@ function buildWorkspace(blankCount: number): WorkspaceView {
   }
 }
 
-async function openWorkspace(page: Page, blankCount: number, templateStyles: TemplateStyleConfig[] = []) {
+async function openWorkspace(page: Page, blankCount: number, templateStyles: TemplateStyleConfig[] = [], preview = false) {
   const workspace = buildWorkspace(blankCount)
+  const conversation = { id: "preview-conversation", workspace_id: DOCUMENT_ID, name: "预览布局验收", created_at: NOW, updated_at: NOW }
+  const runId = "preview-run"
+  const source = workspace.source_resume_canvas!.doc_json
+  const edited = structuredClone(source)
+  const content = edited.content as { content?: { text: string }[] }[]
+  content[0].content![0].text = "Modified resume"
+  const request: EditorRequest = {
+    id: "preview-request", document_id: DOCUMENT_ID, editor_session_id: "preview-session", kind: "transaction", mode: "review",
+    transaction: { id: "preview-transaction", document_id: DOCUMENT_ID, editor_session_id: "preview-session",
+      content_revision: 0, before_doc_json: source, doc_json: edited, catalog_revision: "current", summary: "修改简历标题",
+      effects: [], node_origins: content.map((_, index) => ({ before_path: [index], after_path: [index] })), text_origins: [] },
+  }
   await page.addInitScript(() => {
     Object.defineProperty(window, "showSaveFilePicker", { value: undefined, configurable: true })
     // 使用测试账号会话进入真实工作台，不依赖本机桌面登录或用户资料。
@@ -107,13 +119,70 @@ async function openWorkspace(page: Page, blankCount: number, templateStyles: Tem
       : path.endsWith("/source-resume-canvas") ? workspace.source_resume_canvas : []
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response) })
   })
-  await page.route("http://127.0.0.1:4318/**", (route) => route.fulfill({ json: route.request().url().endsWith("/settings/model")
-    ? { provider: "deepseek", model: "test-model", base_url: "https://example.com", api_protocol: "responses", api_key: { configured: false, preview: null } } : [] }))
+  await page.route("http://127.0.0.1:4318/**", (route) => {
+    const path = new URL(route.request().url()).pathname
+    if (path.endsWith("/settings/model")) return route.fulfill({ json: { provider: "deepseek", model: "test-model", base_url: "https://example.com", api_protocol: "responses", api_key: { configured: false, preview: null } } })
+    if (preview && path === `/workspaces/${DOCUMENT_ID}/conversations`) return route.fulfill({ json: [conversation] })
+    if (preview && path === `/conversations/${conversation.id}/active-run`) return route.fulfill({ body: "null", contentType: "application/json" })
+    if (preview && path === `/conversations/${conversation.id}/messages`) return route.fulfill({ json: [
+      { id: "preview-message", conversation_id: conversation.id, run_id: runId, role: "assistant", content: "已准备修改。", created_at: NOW },
+    ] })
+    if (preview && path === `/agent-runs/${runId}/events`) return route.fulfill({ json: [
+      { id: "preview-event", run_id: runId, sequence: 0, type: "editor_request", payload: { request }, created_at: NOW },
+      { id: "preview-done", run_id: runId, sequence: 1, type: "run_completed", payload: {}, created_at: NOW },
+    ] })
+    return route.fulfill({ json: [] })
+  })
   await page.goto("/")
   await page.getByRole("link", { name: "打开简历 Synthetic print fixture", exact: true }).click()
   await expect(page.locator(".td-source-resume-canvas .ProseMirror h1")).toHaveText("Synthetic resume")
   await expect.poll(() => page.locator(".td-source-resume-canvas .rm-pagination-gap").count()).toBeGreaterThan(1)
 }
+
+test("预览控件位于原顶栏，开关预览时顶栏和滚动容器高度不变", async ({ page }) => {
+  await openWorkspace(page, 0, [], true)
+  await page.getByRole("button", { name: "预览布局验收" }).click()
+  const titlebar = page.getByTestId("revision-workspace-titlebar")
+  const scroller = page.locator(".td-editor-print-wrapper")
+  const measure = async () => ({
+    titlebar: await titlebar.boundingBox(),
+    scroller: await scroller.boundingBox(),
+    gutter: await scroller.evaluate(el => el.offsetWidth - el.clientWidth),
+  })
+  const before = await measure()
+  await page.getByRole("button", { name: "查看修改预览" }).click()
+  await expect(titlebar.getByRole("status")).toHaveText("预览中 · 只读")
+  await expect(page.getByLabel("修改后的简历预览")).toBeVisible()
+  await expect(scroller).toHaveCount(1)
+  expect(await measure()).toEqual(before)
+  await expect(titlebar.getByRole("button", { name: "取消预览" })).toHaveCount(0)
+
+  let exported: CanvasPrintSnapshot | undefined
+  await page.route(`http://127.0.0.1:4317/documents/${DOCUMENT_ID}/canvas-export/html`, async route => {
+    exported = route.request().postDataJSON().print_snapshot
+    await route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Fixture export</title>" })
+  })
+  await titlebar.getByRole("button", { name: "导出", exact: true }).click()
+  await page.getByRole("menuitem", { name: "导出 HTML" }).click()
+  await expect.poll(() => exported).toBeDefined()
+  expect(exported!.html).toContain("Synthetic resume")
+  expect(exported!.html).not.toContain("Modified resume")
+  const standalone = await page.context().newPage()
+  await standalone.setContent(exported!.html)
+  await expect(standalone.getByRole("heading", { name: "Synthetic resume" })).toBeVisible()
+  await standalone.close()
+
+  await page.getByRole("button", { name: "取消预览" }).click()
+  await expect(titlebar.getByRole("status")).toHaveCount(0)
+  await expect(page.getByLabel("原始简历编辑区")).toBeVisible()
+  expect(await measure()).toEqual(before)
+
+  await page.getByRole("button", { name: "查看修改预览" }).click()
+  await expect(page.getByLabel("修改后的简历预览")).toBeVisible()
+  await page.getByRole("button", { name: "隐藏 AI 面板" }).click()
+  await expect(titlebar.getByRole("status")).toHaveCount(0)
+  await expect(page.getByLabel("原始简历编辑区")).toBeVisible()
+})
 
 async function captureSnapshot(page: Page): Promise<CanvasPrintSnapshot> {
   return page.evaluate(async () => {

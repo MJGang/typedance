@@ -218,7 +218,7 @@ function getFirstPageBounds(root: HTMLElement): PageBounds | null {
 function getPageNavigationState(root: HTMLElement): PageNavigationState {
   const printWrapper = getEditorPrintWrapper(root)
   const paginatedEditor = root.querySelector<HTMLElement>(".rm-with-pagination")
-  const pageBreakElements = Array.from(root.querySelectorAll<HTMLElement>(".rm-with-pagination .page"))
+  const pageBreakElements = Array.from(paginatedEditor?.querySelectorAll<HTMLElement>(".page") ?? [])
   if (!printWrapper || !paginatedEditor || pageBreakElements.length === 0) {
     return { currentPageIndex: 0, pageTops: [] }
   }
@@ -383,10 +383,28 @@ function DraftCanvasWorkspace({
   toolbarVisible = true,
   toolbarEnd,
 }: DraftCanvasProps) {
-  const references = useEditorReferences()
-  const preview = references?.preview
+  const preview = useEditorReferences()?.preview ?? null
+  const [readyPreview, setReadyPreview] = useState<typeof preview>(null)
+  const showingPreview = Boolean(preview && readyPreview === preview)
   const editorRef = useRef<ResumeRichTextEditorHandle>(null)
   const canvasRootRef = useRef<HTMLDivElement>(null)
+  const originalScrollTop = useRef<number | null>(null)
+  const previewActive = Boolean(preview)
+  // The editor remains mounted while the preview borrows its scroll container.
+  // Cancel restores the position even if the preview has a different page count.
+  useLayoutEffect(() => {
+    const root = canvasRootRef.current
+    const scroller = root && getEditorPrintWrapper(root)
+    if (!scroller) return
+    if (previewActive) {
+      originalScrollTop.current ??= scroller.scrollTop
+    } else if (originalScrollTop.current !== null) {
+      scroller.scrollTop = originalScrollTop.current
+      originalScrollTop.current = null
+      setReadyPreview(null)
+    }
+  }, [previewActive])
+  const onPreviewReady = useCallback(() => setReadyPreview(preview), [preview])
   const frameRef = useRef<number | null>(null)
   const [currentDocJson, setCurrentDocJson] = useState<ResumeDocJson>(
     () => canvas.doc_json as ResumeDocJson,
@@ -401,7 +419,7 @@ function DraftCanvasWorkspace({
   const sourceCanvasCss = useMemo(
     () => generateWorkspaceTemplateCSS(
       effectiveTemplateStyle,
-      "[data-td-live-canvas] .rm-with-pagination",
+      "[data-td-editor-document] .rm-with-pagination",
     ),
     [effectiveTemplateStyle],
   )
@@ -594,23 +612,24 @@ function DraftCanvasWorkspace({
   }, [scheduleMeasure])
 
   const handleCanvasPointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
-    if (!outlineExpanded) return
+    if (!outlineExpanded || previewActive) return
     const target = event.target
     if (!(target instanceof Element)) return
     if (!target.closest(".td-editor-print-wrapper")) return
 
     setOutlineExpanded(false)
-  }, [outlineExpanded])
+  }, [outlineExpanded, previewActive])
 
   useEffect(() => {
     if (!patchFlash) return
     const root = canvasRootRef.current
     if (!root) return
 
-    const targets = getCanvasPatchFlashTargets(root, patchFlash)
+    const documentRoot = root.querySelector<HTMLElement>("[data-td-editor-document]") ?? root
+    const targets = getCanvasPatchFlashTargets(documentRoot, patchFlash)
     const flashTargets = targets.length > 0
       ? targets
-      : [root.querySelector<HTMLElement>(".td-rich-editor-content") ?? root]
+      : [documentRoot.querySelector<HTMLElement>(".td-rich-editor-content") ?? documentRoot]
     for (const target of flashTargets) {
       target.classList.remove("td-ai-canvas-flash")
       void target.offsetWidth
@@ -629,11 +648,9 @@ function DraftCanvasWorkspace({
     }
   }, [patchFlash])
 
-  const liveCanvas = (
+  return (
     <div
       ref={canvasRootRef}
-      inert={Boolean(preview)}
-      data-td-live-canvas=""
       className="td-source-resume-canvas relative flex h-full min-h-0 flex-col overflow-hidden"
       data-outline-layout={outlineLayout.docked ? "docked" : "floating"}
       data-outline-expanded={outlineReservedWidth > 0 ? "true" : undefined}
@@ -661,8 +678,15 @@ function DraftCanvasWorkspace({
         onPageMarginGuidesVisibleChange={setPageMarginGuidesVisible}
         onSourceCanvasModuleChange={setActiveModuleId}
         toolbarEnd={toolbarEnd}
+        showingDocumentPreview={showingPreview}
+        documentPreview={preview ? (
+          <Suspense fallback={null}>
+            <EditorTransactionPreview key={preview.id} transaction={preview} templateStyle={templateStyle}
+              onReady={onPreviewReady} ready={showingPreview} />
+          </Suspense>
+        ) : null}
       />
-      {pageMarginGuidesVisible && pageBounds ? (
+      {!preview && pageMarginGuidesVisible && pageBounds ? (
         <PageMarginGuides
           margins={pageMargins}
           pageBounds={pageBounds}
@@ -671,7 +695,7 @@ function DraftCanvasWorkspace({
           onMarginsCommit={(margins) => { void commitPageMargins(margins) }}
         />
       ) : null}
-      {!outlineVisible && saveStatus === "error" ? (
+      {!preview && !outlineVisible && saveStatus === "error" ? (
         <div
           className="absolute left-3 z-20 flex items-center gap-2 rounded-md border border-destructive/30 bg-background px-3 py-1 text-xs text-destructive shadow-sm"
           style={{ top: outlineTop }}
@@ -685,7 +709,7 @@ function DraftCanvasWorkspace({
           ) : null}
         </div>
       ) : null}
-      {outlineVisible ? (
+      {!preview && outlineVisible ? (
         <DraggableModuleOutline
           anchors={anchors}
           activeModuleId={activeModuleId}
@@ -702,7 +726,7 @@ function DraftCanvasWorkspace({
           onScrollToAnchor={scrollToAnchor}
         />
       ) : null}
-      {pageNavigatorVisible && pageBounds ? (
+      {!preview && pageNavigatorVisible && pageBounds ? (
         <SourceCanvasPageNavigator
           currentPageIndex={pageNavigationState.currentPageIndex}
           left={pageNavigatorLeft}
@@ -711,20 +735,6 @@ function DraftCanvasWorkspace({
           top={outlineTop}
           onJumpToPage={scrollToPage}
         />
-      ) : null}
-    </div>
-  )
-
-  return (
-    <div className="relative h-full min-h-0">
-      {liveCanvas}
-      {preview && references ? (
-        <Suspense fallback={<div className="absolute inset-0 z-30 grid place-content-center gap-2 bg-background" aria-live="polite">
-          <p className="text-sm text-muted-foreground">正在准备修改预览…</p>
-          <Button variant="outline" size="sm" onClick={references.closePreview}>取消预览</Button>
-        </div>}>
-          <EditorTransactionPreview key={preview.id} transaction={preview} templateStyle={templateStyle} onClose={references.closePreview} />
-        </Suspense>
       ) : null}
     </div>
   )

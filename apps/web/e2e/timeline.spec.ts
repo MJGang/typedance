@@ -32,7 +32,7 @@ const pageBreakDoc = { type: "doc", content: [
   { type: "timeline", content: [richTimeline.content[1].content[0]] },
 ] }
 
-async function openPageBreakPreview(page: Page, preview: "template" | "transaction", transaction?: EditorRequest["transaction"]) {
+async function openPageBreakPreview(page: Page, preview: "template" | "transaction", transaction?: EditorRequest["transaction"], toolbarVisible = true) {
   const request: EditorRequest = {
     id: "request", document_id: "doc", editor_session_id: "session", kind: "transaction", mode: "review",
     transaction: transaction ?? { id: "transaction", document_id: "doc", editor_session_id: "session", content_revision: 1,
@@ -78,7 +78,7 @@ async function openPageBreakPreview(page: Page, preview: "template" | "transacti
         const autosave=useSourceCanvasAutosave(canvas.document_id,()=>{});
         window.readSourceCanvas=()=>references.getPayload().then(result=>result.snapshot);
         return h('div',{style:{height:'100vh',display:'grid',gridTemplateColumns:'minmax(850px,1fr) 380px'}},
-          h(DraftCanvas,{canvas,onChange:autosave.handleChange,saveStatus:autosave.saveStatus}),
+          h(DraftCanvas,{canvas,onChange:autosave.handleChange,saveStatus:autosave.saveStatus,toolbarVisible:${toolbarVisible}}),
           h('aside',null,h(EditorRequestCard,{runId:'run',request,events:[],active:true})));
       }
       content=h(EditorReferencesProvider,{documentId:canvas.document_id},h(Workspace));
@@ -170,7 +170,7 @@ test("画布预览按真实分页标记改动范围，取消和反复预览不�
   await page.getByRole("button", { name: "查看修改预览" }).click()
   await expect(preview).toBeVisible()
   await expect(preview).toHaveAttribute("contenteditable", "false")
-  await expect(page.locator("[data-td-live-canvas]")).toHaveAttribute("inert", "")
+  await expect(page.locator("[data-td-editor-document]")).toHaveAttribute("inert", "")
   await expect(preview.locator(".td-timeline-entry")).toHaveCount(2)
   await expect(preview).toContainText("工具编排")
   await expect(preview).toContainText("验收清单")
@@ -202,7 +202,7 @@ test("画布预览按真实分页标记改动范围，取消和反复预览不�
   await page.screenshot({ path: test.info().outputPath("canvas-preview.png") })
   expect(await readSource()).toEqual(source)
   await page.keyboard.type("禁止写入")
-  await page.locator("[data-td-canvas-preview]").getByRole("button", { name: "取消预览" }).click()
+  await page.getByTestId("editor-transaction").getByRole("button", { name: "取消预览" }).click()
   await expect(preview).toHaveCount(0)
   await page.getByRole("button", { name: "查看修改预览" }).click()
   await expect(preview).toBeVisible()
@@ -213,6 +213,135 @@ test("画布预览按真实分页标记改动范围，取消和反复预览不�
   expect(await readSource()).toEqual(source)
   expect(writes).toBe(0)
   expect(errors).toEqual([])
+})
+
+for (const { toolbarVisible, fits, name } of [
+  { toolbarVisible: false, fits: true, name: "单页恰好装入画布" },
+  { toolbarVisible: false, fits: false, name: "单页已滚动" },
+  { toolbarVisible: true, fits: false, name: "多页且格式栏展开" },
+]) {
+  test(`预览切换时滚动条与纸张坐标保持稳定，${name}`, async ({ page }) => {
+    const doc = { type: "doc", content: Array.from({ length: toolbarVisible ? 45 : 3 }, (_, index) => p(`第 ${index + 1} 段：用于检查滚动条的项目文档。`)) }
+    const result = JSON.parse(backend({
+      doc_json: doc,
+      operations: (fits ? [0] : toolbarVisible ? [0, 12] : [1]).map(index => ({
+        capability: "text.replace", parameters: { path: [index], text: "项目文档", replacement: "验收清单" },
+      })),
+      catalog_revision: JSON.parse(backend()).revision,
+    }))
+    const preview = await openPageBreakPreview(page, "transaction", {
+      ...result, id: "stable-scroll", document_id: "doc", editor_session_id: "session", content_revision: 0,
+      before_doc_json: doc, summary: "修改项目文档",
+    }, toolbarVisible)
+    const scroller = page.locator(".td-editor-print-wrapper")
+    const source = page.getByLabel("原始简历编辑区")
+    await expect(source).toBeVisible()
+    await expect(source.locator(".rm-page-break")).toHaveCount(toolbarVisible ? 2 : 1)
+    if (fits) {
+      const requiredHeight = await scroller.evaluate(el => el.scrollHeight + 8)
+      await page.setViewportSize({ width: 1366, height: requiredHeight })
+    } else {
+      await scroller.evaluate((el, offset) => { el.scrollTop = offset }, toolbarVisible ? 320 : 100)
+    }
+    const samples = scroller.evaluate(async (el) => {
+      const read = () => {
+        const view = el.querySelector('[data-preview-ready="true"] .ProseMirror') ?? el.querySelector(".ProseMirror")!
+        const { x, y, width } = view.getBoundingClientRect()
+        return {
+          x, y, width, scrollTop: el.scrollTop, clientWidth: el.clientWidth, clientHeight: el.clientHeight,
+          scrollHeight: el.scrollHeight, gutter: el.offsetWidth - el.clientWidth,
+          hasScrollbar: el.scrollHeight > el.clientHeight,
+          sameScroller: el === document.querySelector(".td-editor-print-wrapper") && document.querySelectorAll(".td-editor-print-wrapper").length === 1,
+        }
+      }
+      const start = read()
+      const frames = []
+      let previewStartedAt: number | undefined
+      const deadline = performance.now() + 7000
+      while (performance.now() < deadline) {
+        await new Promise(requestAnimationFrame)
+        frames.push(read())
+        if (el.querySelector('[data-preview-ready="true"]')) previewStartedAt ??= performance.now()
+        if (previewStartedAt !== undefined && performance.now() - previewStartedAt >= 1650) break
+      }
+      return { start, frames, previewStarted: previewStartedAt !== undefined }
+    })
+    await page.getByRole("button", { name: "查看修改预览" }).click()
+    const measured = await samples
+    await expect(preview).toBeVisible()
+    expect(measured.previewStarted).toBe(true)
+    expect(measured.start.scrollTop).toBe(fits ? 0 : toolbarVisible ? 320 : 100)
+    expect(measured.start.hasScrollbar).toBe(!fits)
+    expect(measured.start.sameScroller).toBe(true)
+    for (const frame of measured.frames) expect(frame).toEqual(measured.start)
+    await scroller.evaluate(el => { el.scrollTop -= 80 })
+    await page.getByRole("button", { name: "取消预览" }).click()
+    await expect(preview).toHaveCount(0)
+    expect(await scroller.evaluate(el => el.scrollTop)).toBe(measured.start.scrollTop)
+    await expect(source).toHaveAttribute("contenteditable", "true")
+  })
+}
+
+test("当前窗口看不到任何改动时定位到首处，取消后恢复原位置", async ({ page }) => {
+  const doc = { type: "doc", content: Array.from({ length: 80 }, (_, index) => p(`第 ${index + 1} 段：项目文档。`)) }
+  const result = JSON.parse(backend({
+    doc_json: doc,
+    operations: [50, 65].map(index => ({
+      capability: "text.replace", parameters: { path: [index], text: "项目文档", replacement: "验收清单" },
+    })),
+    catalog_revision: JSON.parse(backend()).revision,
+  }))
+  const preview = await openPageBreakPreview(page, "transaction", {
+    ...result, id: "offscreen-change", document_id: "doc", editor_session_id: "session", content_revision: 0,
+    before_doc_json: doc, summary: "修改页外项目文档",
+  }, false)
+  const scroller = page.locator(".td-editor-print-wrapper")
+  await expect(page.getByLabel("原始简历编辑区")).toBeVisible()
+  await expect(page.getByLabel("原始简历编辑区").locator(".rm-page-break").nth(1)).toBeAttached()
+  await scroller.evaluate(el => { el.scrollTop = 150 })
+  const before = await scroller.evaluate(el => ({ top: el.scrollTop, height: el.clientHeight, gutter: el.offsetWidth - el.clientWidth }))
+  expect(before.top).toBe(150)
+  const playback = scroller.evaluate(async el => {
+    let scrollingWithoutAnimation = false
+    let lastPosition = el.scrollTop
+    let lastMovement = performance.now()
+    const deadline = lastMovement + 7000
+    while (performance.now() < deadline) {
+      const now = await new Promise<number>(requestAnimationFrame)
+      const playing = el.querySelector('[data-preview-playing="true"]') !== null
+      if (el.scrollTop !== lastPosition) {
+        lastPosition = el.scrollTop
+        lastMovement = now
+        if (!playing) scrollingWithoutAnimation = true
+      }
+      if (playing) return { scrollingWithoutAnimation, settleTime: now - lastMovement }
+    }
+    return null
+  })
+  await page.getByRole("button", { name: "查看修改预览" }).click()
+  await expect(preview).toBeVisible()
+  const timing = await playback
+  expect(timing?.scrollingWithoutAnimation).toBe(true)
+  expect(timing?.settleTime).toBeGreaterThanOrEqual(150)
+  const after = await scroller.evaluate(el => {
+    const bounds = el.getBoundingClientRect()
+    const first = el.querySelector("[data-td-preview-region]")!.getBoundingClientRect()
+    return { top: el.scrollTop, height: el.clientHeight, gutter: el.offsetWidth - el.clientWidth, first: first.top - bounds.top }
+  })
+  expect(after.top).toBeGreaterThan(before.top)
+  expect(after.first).toBeCloseTo(before.height * 0.2, 0)
+  expect(after.height).toBe(before.height)
+  expect(after.gutter).toBe(before.gutter)
+  await page.getByRole("button", { name: "取消预览" }).click()
+  await expect(preview).toHaveCount(0)
+  expect(await scroller.evaluate(el => el.scrollTop)).toBe(before.top)
+
+  await page.getByRole("button", { name: "查看修改预览" }).click()
+  await expect.poll(() => scroller.evaluate(el => el.scrollTop)).toBeGreaterThan(before.top)
+  await expect(page.locator("[data-td-preview-overlay]")).toHaveAttribute("data-preview-playing", "false")
+  await page.getByRole("button", { name: "取消预览" }).click()
+  await expect(preview).toHaveCount(0)
+  await expect.poll(() => scroller.evaluate(el => el.scrollTop)).toBe(before.top)
 })
 
 async function openEditor(page: Page, doc: unknown = initial, showStylePanel = false) {

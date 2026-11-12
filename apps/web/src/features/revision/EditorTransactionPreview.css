@@ -2,6 +2,10 @@
   background: linear-gradient(135deg, #f6f0e7a8, #ecdfcca3);
   box-shadow: 0 1px 3px #4d39271e, 0 5px 11px -5px #4d39272b;
   mix-blend-mode: multiply;
+  opacity: 0;
+}
+
+[data-preview-playing="true"] .td-preview-region {
   animation: td-preview-surface 360ms ease-out both;
 }
 
@@ -23,6 +27,10 @@
   mask-image: radial-gradient(ellipse 34% 92% at 50% 64%, black 8%, transparent 100%);
   mask-size: 70% 140%;
   mask-repeat: no-repeat;
+  opacity: 0;
+}
+
+[data-preview-playing="true"] .td-preview-region::after {
   animation: td-preview-dot-wave 1.55s ease-in-out both;
 }
 
@@ -39,7 +47,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .td-preview-region { animation: none; }
+  [data-preview-playing="true"] .td-preview-region { opacity: 1; animation: none; }
   .td-preview-region::after { display: none; }
 }
 

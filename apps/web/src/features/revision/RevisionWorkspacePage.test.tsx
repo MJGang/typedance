@@ -161,9 +161,9 @@ vi.mock("./DraftCanvas", () => ({
     toolbarEnd?: ReactNode
   }) => (
     draftCanvasMocks.render({ canvas, templateStyle, toolbarVisible }),
-    <section aria-label="原始简历画布" data-td-live-canvas="">
+    <section aria-label="原始简历画布">
       {toolbarVisible ? <div role="toolbar" aria-label="简历格式工具栏">{toolbarEnd}</div> : null}
-      <div className="ProseMirror"><p>{canvasText(canvas?.doc_json)}</p></div>
+      <div data-td-editor-document=""><div className="ProseMirror"><p>{canvasText(canvas?.doc_json)}</p></div></div>
       {canvas?.module_anchors.map((anchor) => <button key={anchor.module_id} type="button">{anchor.title}</button>)}
       <button
         type="button"

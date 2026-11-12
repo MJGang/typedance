@@ -75,10 +75,10 @@ const LINE_HEIGHT_OPTIONS: Array<{ value: ToolbarLineHeight; label: string }> = 
   { value: "3", label: "3" },
 ]
 
-export function EditorToolbar({ children }: { children: ReactNode }) {
+export function EditorToolbar({ children, inert }: { children: ReactNode; inert?: boolean }) {
   return (
     <TooltipProvider delayDuration={500}>
-      <div className="td-rich-editor-toolbar" role="toolbar" aria-label="简历格式工具栏">
+      <div className="td-rich-editor-toolbar" role="toolbar" aria-label="简历格式工具栏" inert={inert}>
         {children}
       </div>
     </TooltipProvider>
