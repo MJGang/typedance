@@ -81,7 +81,7 @@ function AccountScreen() {
               {phase === "saving" ? <p role="status" className="flex items-center gap-2 text-sm"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" />正在保存资料…</p>
                 : <Button className="h-12 w-full rounded-xl" onClick={() => void finishAccountLock()}>重试保存</Button>}
             </> : needsImport && state.legacy ? <LocalDataSetup key={state.user?.id} sources={state.legacy.sources} importStarted={state.legacy.import_started} disabled={phase !== "idle" || installingUpdate} /> : loading ? <>
-              <p role="status" className="flex items-start gap-2.5 text-sm leading-6 text-muted-foreground"><Loader2 className="mt-1 size-4 shrink-0 animate-spin motion-reduce:animate-none" />{signingIn ? "请在 GitHub 页面输入下方设备码。" : "正在更新账号状态…"}</p>
+              <p role="status" className="flex items-start justify-center gap-2.5 text-center text-sm leading-6 text-muted-foreground"><Loader2 className="mt-1 size-4 shrink-0 animate-spin motion-reduce:animate-none" />{signingIn ? "请在 GitHub 页面输入下方设备码。" : "正在更新账号状态…"}</p>
               {state.github_code ? <code className="select-all text-center text-xl tracking-wide">{state.github_code}</code> : null}
               {signingIn ? <Button className="h-12 w-full rounded-xl" variant="outline" onClick={() => void cancelAccountSignIn()}>取消登录</Button> : null}
             </> : state.status === "error" ? <>
@@ -94,7 +94,7 @@ function AccountScreen() {
             </> : state.configured && !installingUpdate ?
               <LocalAccountForm key={state.login_target ?? ""} loginTarget={state.login_target}
                 onGithubSignIn={state.providers.includes("github") ? (target) => void (target ? signInAccount("github", target) : signInAccount("github")) : undefined} />
-            : installingUpdate ? <p role="status" className="text-sm text-muted-foreground">正在安装客户端更新…</p>
+            : installingUpdate ? <p role="status" className="text-center text-sm text-muted-foreground">正在安装客户端更新…</p>
             : <>
               <p className="text-sm leading-6 text-muted-foreground">登录服务尚未配置，请联系应用提供方完成设置后重试。</p>
               <Button className="h-12 w-full gap-2 rounded-xl" variant="outline" onClick={() => void refreshAccountState().catch(() => {})}><RefreshCw data-icon="inline-start" />重新检查</Button>

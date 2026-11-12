@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { resolve } from "node:path"
 import { readFileSync } from "node:fs"
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Locator, type Page } from "@playwright/test"
 import type { CanvasPrintSnapshot, EditorRequest } from "@typedance/contracts"
 
 const root = resolve(import.meta.dirname, "../../..")
@@ -27,15 +27,16 @@ function longRichDoc() {
   return doc
 }
 
+const pageBreakDoc = { type: "doc", content: [
+  ...Array.from({ length: 25 }, (_, index) => p(`前一页内容 ${index + 1}`)),
+  { type: "timeline", content: [richTimeline.content[1].content[0]] },
+] }
+
 async function openPageBreakPreview(page: Page, preview: "template" | "transaction") {
-  const doc = { type: "doc", content: [
-    ...Array.from({ length: 25 }, (_, index) => p(`前一页内容 ${index + 1}`)),
-    { type: "timeline", content: [richTimeline.content[1].content[0]] },
-  ] }
   const request: EditorRequest = {
     id: "request", document_id: "doc", editor_session_id: "session", kind: "transaction", mode: "review",
     transaction: { id: "transaction", document_id: "doc", editor_session_id: "session", content_revision: 1,
-      before_doc_json: initial, doc_json: doc, catalog_revision: "current", summary: "调整项目标题",
+      before_doc_json: initial, doc_json: pageBreakDoc, catalog_revision: "current", summary: "调整项目标题",
       effects: [], node_origins: [], text_origins: [] },
   }
   await page.route("**/__timeline-preview-test", (route) => route.fulfill({ contentType: "text/html", body: `
@@ -58,7 +59,7 @@ async function openPageBreakPreview(page: Page, preview: "template" | "transacti
       const theme={id:'classic-a4',title:'经典 A4',source:'default',styleConfig:defaultClassicA4Style};
       const noop=()=>{};
       content=h(TemplateDetail,{theme,themes:[theme],sample:builtInSamples['sample-tech-zh'],uiLanguage:'zh-CN',
-        previewId:'fixture',previewDocJson:${JSON.stringify(doc)},previewLoading:false,
+        previewId:'fixture',previewDocJson:${JSON.stringify(pageBreakDoc)},previewLoading:false,
         sampleStatus:'',styleStatus:'主题已同步',hasUnsavedStyleChanges:false,isSavingStyle:false,
         onThemeChange:noop,onStyleChange:noop,onSaveStyle:async()=>true,onSaveAsTemplate:noop,onRetryPreview:noop});
     } else {
@@ -72,13 +73,32 @@ async function openPageBreakPreview(page: Page, preview: "template" | "transacti
   return page.getByLabel(preview === "template" ? "主题演示简历预览" : "修改后的简历预览")
 }
 
+async function firstPageLayout(editor: Locator) {
+  await expect(editor.locator(".rm-page-break")).toHaveCount(2)
+  return editor.evaluate((element) => {
+    const paper = element.getBoundingClientRect()
+    const firstParagraph = element.querySelector(":scope > p")!.getBoundingClientRect()
+    const pageBreak = element.querySelector(".rm-page-break > .breaker")!.getBoundingClientRect()
+    const pageGap = element.querySelector(".rm-pagination-gap")!.getBoundingClientRect()
+    return {
+      bodyTop: Math.round(firstParagraph.top - paper.top),
+      bodyLeft: Math.round(firstParagraph.left - paper.left),
+      bodyRight: Math.round(paper.right - firstParagraph.right),
+      bodyEnd: Math.round(pageBreak.top - paper.top),
+      pageEnd: Math.round(pageGap.top - paper.top),
+    }
+  })
+}
+
 for (const mode of ["template", "transaction"] as const) {
-  test(`${mode} preview keeps a three-column timeline header together at a page break`, async ({ page }) => {
+  test(`${mode} preview matches canvas pagination and keeps the timeline header together`, async ({ page }) => {
+    await openEditor(page, pageBreakDoc)
+    const canvasLayout = await firstPageLayout(page.getByLabel("时间轴验收画布"))
     const preview = await openPageBreakPreview(page, mode)
     const row = preview.locator(".td-timeline-body .td-columns-content")
     await expect(row).toContainText("示例科技有限公司")
     await expect(row).toContainText("2023.02 - 2026.02")
-    await expect(preview.locator(".rm-page-break")).toHaveCount(2)
+    expect(await firstPageLayout(preview)).toEqual(canvasLayout)
 
     const layout = await row.evaluate((element) => {
       const rect = element.getBoundingClientRect()

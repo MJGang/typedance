@@ -1587,11 +1587,27 @@ body.td-column-reordering .td-columns-resize-overlay {
   min-height: 1px;
 }
 
-/* PaginationPlus 样式微调 */
+/* 纸框使用轮廓线，保持画布和预览的 A4 正文宽度一致。 */
+.td-rich-editor-prosemirror.rm-with-pagination {
+  border: 0 !important;
+  outline: 1px solid #e5e5e5;
+}
+
 .rm-with-pagination .page {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-  margin-bottom: 4px;
+  margin-bottom: 0;
   background: #fff;
+}
+
+/* 块级页眉页脚避免行内基线产生额外留白。 */
+.td-rich-editor-prosemirror.rm-with-pagination :is(.rm-page-header, .rm-page-footer) {
+  display: flex !important;
+}
+
+/* 标题及其装饰作为整体避开分页浮动区，防止背景跨页拉长。 */
+.td-rich-editor-prosemirror.rm-with-pagination :is(h1, h2, h3) {
+  display: table !important;
+  width: 100%;
 }
 
 /* 栅栏行占满内容宽度，跨页时整行避开分页浮动区。 */
@@ -1778,27 +1794,6 @@ body.td-column-reordering .td-source-resume-canvas .rm-with-pagination .page * {
 .td-source-resume-canvas[data-outline-layout="docked"][data-outline-expanded="true"] .td-editor-print-wrapper {
   padding-left: var(--td-module-outline-reserved-width);
   padding-right: 1.5rem;
-}
-
-.td-source-resume-canvas .rm-with-pagination .rm-page-header,
-.td-source-resume-canvas .rm-with-pagination .rm-page-footer {
-  display: flex !important;
-}
-
-/* 页框和页间距只作装饰，不能挤占 A4 的排版尺寸。 */
-.td-source-resume-canvas .rm-with-pagination {
-  border: 0 !important;
-  outline: 1px solid #e5e5e5;
-}
-
-.td-source-resume-canvas .rm-with-pagination .page {
-  margin-bottom: 0;
-}
-
-/* 标题及其装饰作为整体避开分页浮动区，防止背景跨页拉长。 */
-.td-source-resume-canvas .rm-with-pagination :is(h1, h2, h3) {
-  display: table !important;
-  width: 100%;
 }
 
 @media print {
