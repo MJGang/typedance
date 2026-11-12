@@ -262,6 +262,7 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
         if ($preflight.StatusCode -ne 204 -or $methods.Trim() -notcontains "PUT" -or $allowedHeaders.Trim() -notcontains "authorization") { throw "Packaged Agent Host rejected authenticated Tauri CORS preflight" }
         $settings = Invoke-RestMethod "$agentHostUrl/settings/model" -Headers @{ Origin = $tauriOrigin; Authorization = "Bearer $token" } -TimeoutSec 5
         if ($settings.api_key.configured -ne $false) { throw "Isolated runtime inherited a model API key or returned invalid credential state" }
+        if ($settings.api_protocol -ne "responses") { throw "Packaged Agent Host did not default to the Responses API" }
         $documents = Invoke-WebRequest "$sidecarUrl/documents" -Headers @{ Origin = $tauriOrigin; Authorization = "Bearer $token" } -UseBasicParsing -TimeoutSec 3
         if ($documents.Headers["Access-Control-Allow-Origin"] -ne $tauriOrigin) { throw "Packaged Sidecar rejected Tauri CORS" }
         Invoke-MarkdownImportSmoke -Origin $tauriOrigin -SidecarUrl $sidecarUrl -Token $token

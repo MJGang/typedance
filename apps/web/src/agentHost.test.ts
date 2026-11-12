@@ -9,7 +9,7 @@ describe("authenticated Agent Host requests", () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url.endsWith("/session")) return Response.json({ token: "test-process-token-01234567890123456789" })
       if (url.endsWith("/selection")) return Response.json({ model: "deepseek-v4-pro", reasoning_effort: "low", models: [] })
-      return Response.json({ provider: "deepseek", model: "deepseek-v4-pro", base_url: "https://api.deepseek.com", api_key: { configured: true, preview: "...test" } })
+      return Response.json({ provider: "deepseek", model: "deepseek-v4-pro", base_url: "https://api.deepseek.com", api_protocol: "responses", api_key: { configured: true, preview: "...test" } })
     })
     vi.stubGlobal("fetch", fetchMock)
     const { subscribeModelSettings } = await import("./modelSettingsEvents")

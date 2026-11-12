@@ -1,10 +1,13 @@
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import {
+  DEFAULT_MODEL_API_PROTOCOL,
+  modelApiProtocolSchema,
   modelSettingsUpdateSchema,
   modelSelectionUpdateSchema,
   reasoningEffortSchema,
   type ModelSelection,
+  type ModelApiProtocol,
   type ReasoningEffort,
   type ModelSettingsResponse,
   type ModelSettingsUpdate,
@@ -20,6 +23,7 @@ type ModelConfigFile = {
   provider: "deepseek";
   model: string;
   base_url: string;
+  api_protocol: ModelApiProtocol;
   reasoning_effort?: ReasoningEffort;
 };
 
@@ -27,6 +31,7 @@ export type ResolvedModelSettings = {
   provider: "deepseek";
   model: string;
   baseUrl: string;
+  apiProtocol: ModelApiProtocol;
   apiKey: string | undefined;
   reasoningEffort?: ReasoningEffort;
 };
@@ -53,6 +58,7 @@ export function createFileModelSettings(
     provider: "deepseek",
     model: environment.AGENT_MODEL?.trim() || environment.DEEPSEEK_MODEL?.trim() || environment.VITE_DEFAULT_AGENT_MODEL?.trim() || DEFAULT_MODEL,
     base_url: environment.DEEPSEEK_BASE_URL?.trim() || DEFAULT_BASE_URL,
+    api_protocol: DEFAULT_MODEL_API_PROTOCOL,
   };
   const environmentEffort = environment.DEEPSEEK_REASONING_EFFORT ? reasoningEffortSchema.parse(environment.DEEPSEEK_REASONING_EFFORT) : undefined;
 
@@ -92,6 +98,7 @@ export function createFileModelSettings(
       provider: "deepseek",
       model: config.model,
       baseUrl: config.base_url,
+      apiProtocol: config.api_protocol,
       apiKey,
       ...(effort !== undefined ? { reasoningEffort: effort } : {}),
     };
@@ -103,6 +110,7 @@ export function createFileModelSettings(
       provider: settings.provider,
       model: settings.model,
       base_url: settings.baseUrl,
+      api_protocol: settings.apiProtocol,
       api_key: {
         configured: Boolean(settings.apiKey),
         preview: apiKeyPreview(settings.apiKey),
@@ -135,6 +143,7 @@ export function createFileModelSettings(
         provider: "deepseek",
         model: parsed.model,
         base_url: parsed.base_url,
+        api_protocol: parsed.api_protocol ?? config.api_protocol,
         ...(config.reasoning_effort ? { reasoning_effort: config.reasoning_effort } : {}),
       } satisfies ModelConfigFile);
       await unlink(pendingPath);
@@ -165,6 +174,7 @@ async function readConfig(path: string, defaults: ModelConfigFile): Promise<Mode
   }
   const effort = record.reasoning_effort === undefined ? undefined : reasoningEffortSchema.parse(record.reasoning_effort);
   return { provider: "deepseek", model: record.model, base_url: record.base_url,
+    api_protocol: modelApiProtocolSchema.default(defaults.api_protocol).parse(record.api_protocol),
     ...(effort !== undefined ? { reasoning_effort: effort } : {}) };
 }
 

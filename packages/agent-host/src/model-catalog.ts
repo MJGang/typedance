@@ -1,4 +1,4 @@
-import type { ModelSelection, ReasoningEffort } from "@typedance/contracts";
+import { DEFAULT_MODEL_API_PROTOCOL, type ModelApiProtocol, type ModelSelection, type ReasoningEffort } from "@typedance/contracts";
 import { createHash } from "node:crypto";
 import type { AgentHostModelRuntimeConfiguration } from "./index";
 import type { ResolvedModelSettings } from "./model-settings";
@@ -13,6 +13,7 @@ export function modelRuntimeConfiguration(
   model: string,
   effort?: ReasoningEffort,
   providerOrigin = "https://api.deepseek.com",
+  apiProtocol: ModelApiProtocol = DEFAULT_MODEL_API_PROTOCOL,
 ): AgentHostModelRuntimeConfiguration {
   const capacity = DEEPSEEK_MODELS.find((entry) => entry.id === model)?.context_window;
   const baseUrl = providerOrigin.replace(/\/+$/, "");
@@ -27,25 +28,27 @@ export function modelRuntimeConfiguration(
       reservedOutputTokens: effectiveEffort === "off" ? 8_192 : effectiveEffort === "max" ? 131_072 : 65_536,
       growthHeadroomTokens: 8_192,
     },
-    modelConfigurationKey: createHash("sha256").update(JSON.stringify({ protocol: "deepseek-chat-v1", baseUrl, model, effort: effectiveEffort })).digest("hex"),
-    modelOptions: { reasoningEffort: effectiveEffort, providerBaseUrl: baseUrl },
+    modelConfigurationKey: createHash("sha256").update(JSON.stringify({ protocol: apiProtocol, baseUrl, model, effort: effectiveEffort })).digest("hex"),
+    modelOptions: { reasoningEffort: effectiveEffort, providerBaseUrl: baseUrl, providerApiProtocol: apiProtocol },
   };
 }
 
-/** 模型和服务地址属于本轮；推理强度在下一次模型调用边界读取当前保存值。 */
+/** 模型、服务地址和协议属于本轮；推理强度在下一次模型调用边界读取当前保存值。 */
 export async function createModelRuntimeConfiguration(
   requestedModel: string | undefined,
-  resolveSettings: () => Pick<ResolvedModelSettings, "model" | "baseUrl" | "reasoningEffort"> | Promise<Pick<ResolvedModelSettings, "model" | "baseUrl" | "reasoningEffort">>,
+  resolveSettings: () => Pick<ResolvedModelSettings, "model" | "baseUrl" | "apiProtocol" | "reasoningEffort"> | Promise<Pick<ResolvedModelSettings, "model" | "baseUrl" | "apiProtocol" | "reasoningEffort">>,
 ): Promise<AgentHostModelRuntimeConfiguration> {
   const settings = await resolveSettings();
   const model = requestedModel ?? settings.model;
   const baseUrl = settings.baseUrl.replace(/\/+$/, "");
+  const apiProtocol = settings.apiProtocol;
   return {
-    ...modelRuntimeConfiguration(model, settings.reasoningEffort, baseUrl),
+    ...modelRuntimeConfiguration(model, settings.reasoningEffort, baseUrl, apiProtocol),
     refresh: async () => {
       const updated = await resolveSettings();
       if (updated.baseUrl.replace(/\/+$/, "") !== baseUrl) throw new Error("模型服务地址已改变，请重新开始本轮任务");
-      return modelRuntimeConfiguration(model, updated.reasoningEffort, baseUrl);
+      if (updated.apiProtocol !== apiProtocol) throw new Error("模型 API 协议已改变，请重新开始本轮任务");
+      return modelRuntimeConfiguration(model, updated.reasoningEffort, baseUrl, apiProtocol);
     },
   };
 }

@@ -8,8 +8,9 @@ import type {
   HarnessModelContent,
 } from "@typedance/harness-core";
 import { renderAgentHostPromptSections } from "../prompt";
-import { reasoningEffortSchema } from "@typedance/contracts";
+import { DEFAULT_MODEL_API_PROTOCOL, reasoningEffortSchema, type ModelApiProtocol } from "@typedance/contracts";
 import { HarnessModelError } from "@typedance/harness-core";
+import { buildDeepSeekResponsesInput, streamDeepSeekResponses } from "./deepseek-responses";
 
 export type DeepSeekModelAdapterOptions = {
   resolveSettings: () => DeepSeekRuntimeSettings | Promise<DeepSeekRuntimeSettings>;
@@ -21,6 +22,7 @@ export type DeepSeekModelAdapterOptions = {
 export type DeepSeekRuntimeSettings = {
   apiKey: string | undefined;
   baseUrl: string | undefined;
+  apiProtocol?: ModelApiProtocol;
   defaultModel: string | undefined;
   reasoningEffort?: "off" | "low" | "high" | "max";
 };
@@ -74,7 +76,7 @@ type DeepSeekToolCallDelta = {
   };
 };
 
-type DeepSeekMessage =
+export type DeepSeekMessage =
   | {
       role: "system";
       content: string;
@@ -92,7 +94,7 @@ type DeepSeekMessage =
       content: DeepSeekContent;
     };
 
-type DeepSeekContent = string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail?: string } }>;
+export type DeepSeekContent = string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail?: string } }>;
 
 function toDeepSeekContent(content: HarnessModelContent): DeepSeekContent {
   return typeof content === "string" ? content : content.map((part) => part.type === "text"
@@ -117,6 +119,11 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
       if (pinnedBaseUrl !== undefined && pinnedBaseUrl.replace(/\/+$/, "") !== baseUrl) {
         throw new Error("模型服务地址已改变，请重新开始本轮任务");
       }
+      const protocol = settings.apiProtocol ?? DEFAULT_MODEL_API_PROTOCOL;
+      const pinnedProtocol = request.modelOptions?.providerApiProtocol;
+      if (pinnedProtocol !== undefined && pinnedProtocol !== protocol) {
+        throw new Error("模型 API 协议已改变，请重新开始本轮任务");
+      }
       const defaultModel = settings.defaultModel?.trim();
       const model = resolveModelName(request, defaultModel);
       const requestedEffort = request.modelOptions?.reasoningEffort;
@@ -125,24 +132,41 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
       const orderedTools = [...request.availableTools].sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
       const toolNameMap = createProviderToolNameMap(orderedTools);
       const tools = buildDeepSeekTools(orderedTools, toolNameMap);
+      const messages = buildDeepSeekMessages(request, toolNameMap);
+      const thinkingDisabled = effort === "off" || options.thinking === false;
+      const responsesApi = protocol === "responses";
+      const endpoint = responsesApi ? "responses" : "chat/completions";
+      const apiName = responsesApi ? "responses" : "chat completion";
+      const body = responsesApi ? {
+        model,
+        input: buildDeepSeekResponsesInput(messages),
+        stream: true,
+        store: false,
+        ...(request.maxOutputTokens ? { max_output_tokens: request.maxOutputTokens } : {}),
+        ...(tools.length > 0 ? {
+          tools: tools.map(({ type, function: definition }) => ({ type, ...definition, strict: false })),
+          tool_choice: "auto",
+        } : {}),
+        ...(thinkingDisabled || effort ? { reasoning: { effort: thinkingDisabled ? "none" : effort } } : {}),
+      } : {
+        model,
+        messages,
+        stream: true,
+        stream_options: { include_usage: true },
+        ...(request.maxOutputTokens ? { max_tokens: request.maxOutputTokens } : {}),
+        ...(tools.length > 0 ? { tools, tool_choice: "auto" } : {}),
+        thinking: { type: thinkingDisabled ? "disabled" : "enabled" },
+        ...(effort ? { reasoning_effort: effort === "off" ? "none" : effort } : {}),
+      };
 
-      const response = await fetchImpl(`${baseUrl}/chat/completions`, {
+      const response = await fetchImpl(`${baseUrl}/${endpoint}`, {
         signal: request.signal,
         method: "POST",
         headers: {
           authorization: `Bearer ${apiKey}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          model,
-          messages: buildDeepSeekMessages(request, toolNameMap),
-          stream: true,
-          stream_options: { include_usage: true },
-          ...(request.maxOutputTokens ? { max_tokens: request.maxOutputTokens } : {}),
-          ...(tools.length > 0 ? { tools, tool_choice: "auto" } : {}),
-          thinking: { type: effort === "off" || options.thinking === false ? "disabled" : "enabled" },
-          ...(effort ? { reasoning_effort: effort === "off" ? "none" : effort } : {}),
-        }),
+        body: JSON.stringify(body),
       }).catch((error: unknown) => {
         request.signal.throwIfAborted();
         if (error instanceof TypeError) throw new HarnessModelError("DeepSeek connection failed", true);
@@ -154,19 +178,36 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
         const retryAfter = response.headers.get("retry-after");
         const retryAfterMs = retryAfter === null ? undefined : /^\d+(\.\d+)?$/.test(retryAfter)
           ? Number(retryAfter) * 1000 : Math.max(0, Date.parse(retryAfter) - Date.now());
-        throw new HarnessModelError(`DeepSeek chat completion failed: ${response.status} ${text.replaceAll(apiKey, "[redacted]").slice(0, 500)}`.trim(),
+        throw new HarnessModelError(`DeepSeek ${apiName} failed: ${response.status} ${text.replaceAll(apiKey, "[redacted]").slice(0, 500)}`.trim(),
           response.status === 429 || [500, 502, 503, 504].includes(response.status), retryAfterMs);
       }
       if (!response.body) {
-        throw new Error("DeepSeek chat completion response did not include a stream body");
+        throw new Error(`DeepSeek ${apiName} response did not include a stream body`);
+      }
+
+      const stream = parseDeepSeekSse(response.body);
+      function resolveToolCall(id: string, providerName: string, args: string) {
+        const name = toolNameMap.toHarnessName.get(providerName) ?? providerName;
+        return { id, name, origin: orderedTools.find((tool) => tool.name === name)?.origin ?? "plugin" as const,
+          input: parseToolArguments(args) };
+      }
+      if (responsesApi) {
+        yield* streamDeepSeekResponses(stream, { model, runId: request.runId, apiKey, resolveToolCall });
+        return;
       }
 
       let emittedAssistantContent = false;
       let usage: HarnessModelUsage | undefined;
       let finishReason: string | undefined;
       let firstToken = false;
+      let completed = false;
       const toolCalls = new Map<number, DeepSeekToolCall>();
-      for await (const chunk of parseDeepSeekSse(response.body)) {
+      for await (const data of stream) {
+        if (data === "[DONE]") {
+          completed = true;
+          break;
+        }
+        const chunk = JSON.parse(data) as DeepSeekStreamChunk;
         finishReason = chunk.choices?.[0]?.finish_reason ?? finishReason;
         if (chunk.usage) {
           usage = {
@@ -220,17 +261,12 @@ export function createDeepSeekModelAdapter(options: DeepSeekModelAdapterOptions)
           if (fragment) yield { type: "tool_call_delta", callId: current.id, delta: fragment };
         }
       }
+      if (!completed) throw new Error("DeepSeek stream ended before its completion marker; the response is incomplete");
 
       for (const toolCall of [...toolCalls.entries()].sort(([left], [right]) => left - right).map(([, call]) => call)) {
-        const name = toolNameMap.toHarnessName.get(toolCall.function.name) ?? toolCall.function.name;
         yield {
           type: "tool_call",
-          call: {
-            id: toolCall.id,
-            name,
-            origin: request.availableTools.find((tool) => tool.name === name)?.origin ?? "plugin",
-            input: parseToolArguments(toolCall.function.arguments),
-          },
+          call: resolveToolCall(toolCall.id, toolCall.function.name, toolCall.function.arguments),
         };
       }
 
@@ -348,7 +384,7 @@ function normalizeToolInputSchema(schema: Record<string, unknown> | undefined): 
   };
 }
 
-async function* parseDeepSeekSse(stream: ReadableStream<Uint8Array>): AsyncIterable<DeepSeekStreamChunk> {
+async function* parseDeepSeekSse(stream: ReadableStream<Uint8Array>): AsyncIterable<string> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -367,30 +403,25 @@ async function* parseDeepSeekSse(stream: ReadableStream<Uint8Array>): AsyncItera
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() ?? "";
       for (const line of lines) {
-        const chunk = parseSseLine(line);
-        if (chunk === "done") return;
-        if (chunk) yield chunk;
+        const data = parseSseLine(line);
+        if (data) yield data;
       }
     }
     buffer += decoder.decode();
     for (const line of buffer.split(/\r?\n/)) {
-      const chunk = parseSseLine(line);
-      if (chunk === "done") return;
-      if (chunk) yield chunk;
+      const data = parseSseLine(line);
+      if (data) yield data;
     }
-    throw new Error("DeepSeek stream ended before its completion marker; the response is incomplete");
   } finally {
+    await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
 }
 
-function parseSseLine(line: string): DeepSeekStreamChunk | "done" | undefined {
+function parseSseLine(line: string): string | undefined {
   const trimmed = line.trim();
   if (!trimmed.startsWith("data:")) return undefined;
-  const data = trimmed.slice("data:".length).trim();
-  if (data === "[DONE]") return "done";
-  if (!data) return undefined;
-  return JSON.parse(data) as DeepSeekStreamChunk;
+  return trimmed.slice("data:".length).trim();
 }
 
 function normalizeDelta(value: string | null | undefined): string {

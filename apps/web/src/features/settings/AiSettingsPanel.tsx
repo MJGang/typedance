@@ -15,12 +15,14 @@ import {
 import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import type { ModelSettingsResponse } from "@typedance/contracts"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { DEFAULT_MODEL_API_PROTOCOL, modelApiProtocolSchema, type ModelApiProtocol, type ModelSettingsResponse } from "@typedance/contracts"
 
 export function AiSettingsPanel() {
   const [settings, setSettings] = useState<ModelSettingsResponse | null>(null)
   const [model, setModel] = useState("")
   const [baseUrl, setBaseUrl] = useState("")
+  const [apiProtocol, setApiProtocol] = useState<ModelApiProtocol>(DEFAULT_MODEL_API_PROTOCOL)
   const [apiKey, setApiKey] = useState("")
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -50,6 +52,7 @@ export function AiSettingsPanel() {
     setSettings(value)
     setModel(value.model)
     setBaseUrl(value.base_url)
+    setApiProtocol(value.api_protocol)
     setApiKey("")
   }
 
@@ -61,6 +64,7 @@ export function AiSettingsPanel() {
       const value = await updateModelSettings({
         model: model.trim(),
         base_url: baseUrl.trim(),
+        api_protocol: apiProtocol,
         ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
       })
       applySettings(value)
@@ -113,6 +117,18 @@ export function AiSettingsPanel() {
                   disabled={loading}
                   onChange={(event) => setBaseUrl(event.target.value)}
                 />
+              </Field>
+              <Field data-disabled={loading}>
+                <FieldLabel htmlFor="ai-settings-api-protocol">API 协议</FieldLabel>
+                <Select value={apiProtocol} disabled={loading || saving || clearing} onValueChange={(value) => setApiProtocol(modelApiProtocolSchema.parse(value))}>
+                  <SelectTrigger id="ai-settings-api-protocol" className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="responses">Responses API</SelectItem>
+                      <SelectItem value="chat_completions">Chat Completions API</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
               </Field>
               <Field data-disabled={loading}>
                 <FieldLabel htmlFor="ai-settings-api-key">API Key</FieldLabel>

@@ -13,6 +13,23 @@ afterEach(async () => {
 });
 
 describe("file model settings", () => {
+  it("uses Responses for an existing config without a protocol and persists an explicit switch", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "typedance-model-protocol-"));
+    tempDirectories.push(dataDir);
+    const directory = join(dataDir, "agent-host");
+    await mkdir(directory);
+    const model = "deepseek-flash";
+    const base_url = "https://api.deepseek.com";
+    await writeFile(join(directory, "config.json"), JSON.stringify({ provider: "deepseek", model, base_url }));
+    const settings = createFileModelSettings(dataDir, {});
+    expect(await settings.get()).toMatchObject({ api_protocol: "responses" });
+    await settings.update({ model, base_url, api_protocol: "chat_completions", api_key: "test-credential" });
+    await settings.updateSelection({ model: "deepseek-v4-pro", reasoning_effort: "low" });
+    expect(await createFileModelSettings(dataDir, {}).resolve()).toMatchObject({
+      apiProtocol: "chat_completions", model: "deepseek-v4-pro", apiKey: "test-credential",
+    });
+  });
+
   it("keeps a partially saved key unavailable after restarting and requires an explicit key to recover", async () => {
     const dataDir = await mkdtemp(join(tmpdir(), "typedance-model-transaction-"));
     tempDirectories.push(dataDir);
@@ -172,12 +189,14 @@ describe("file model settings", () => {
       provider: "deepseek",
       model: "deepseek-v4-flash",
       base_url: "https://api.deepseek.com",
+      api_protocol: "responses",
       api_key: { configured: true, preview: "...a9f2" },
     });
     expect(await settings.resolve()).toEqual({
       provider: "deepseek",
       model: "deepseek-v4-flash",
       baseUrl: "https://api.deepseek.com",
+      apiProtocol: "responses",
       apiKey: "sk-secret-a9f2",
     });
     expect(await readFile(join(dataDir, "agent-host", "config.json"), "utf8")).not.toContain("sk-secret-a9f2");
@@ -211,6 +230,7 @@ describe("file model settings", () => {
       provider: "deepseek",
       model: "deepseek-chat",
       base_url: "https://example.com/v1",
+      api_protocol: "responses",
       api_key: { configured: false, preview: null },
     });
   });

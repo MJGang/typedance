@@ -77,6 +77,7 @@ async function main(): Promise<void> {
         return {
           apiKey: settings.apiKey,
           baseUrl: settings.baseUrl,
+          apiProtocol: settings.apiProtocol,
           defaultModel: settings.model,
           reasoningEffort: settings.reasoningEffort,
         };

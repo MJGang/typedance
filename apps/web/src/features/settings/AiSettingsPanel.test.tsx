@@ -19,11 +19,13 @@ const configuredSettings = {
   provider: "deepseek" as const,
   model: "deepseek-v4-flash",
   base_url: "https://api.deepseek.com",
+  api_protocol: "responses" as const,
   api_key: { configured: true, preview: "...a9f2" },
 }
 
 describe("AiSettingsPanel", () => {
   beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() })
     Object.values(agentHostMocks).forEach((mock) => mock.mockReset())
     agentHostMocks.getModelSettings.mockResolvedValue(configuredSettings)
     agentHostMocks.updateModelSettings.mockResolvedValue(configuredSettings)
@@ -39,6 +41,7 @@ describe("AiSettingsPanel", () => {
     expect(await screen.findByText("已配置 ...a9f2")).toBeInTheDocument()
     expect(screen.getByLabelText("模型")).toHaveValue("deepseek-v4-flash")
     expect(screen.getByLabelText("Base URL")).toHaveValue("https://api.deepseek.com")
+    expect(screen.getByRole("combobox", { name: "API 协议" })).toHaveTextContent("Responses API")
     expect(screen.getByLabelText("API Key")).toHaveValue("")
 
     fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "sk-new" } })
@@ -47,6 +50,7 @@ describe("AiSettingsPanel", () => {
     await waitFor(() => expect(agentHostMocks.updateModelSettings).toHaveBeenCalledWith({
       model: "deepseek-v4-flash",
       base_url: "https://api.deepseek.com",
+      api_protocol: "responses",
       api_key: "sk-new",
     }))
     expect(screen.getByLabelText("API Key")).toHaveValue("")
@@ -61,5 +65,22 @@ describe("AiSettingsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "确认清除" }))
 
     await waitFor(() => expect(agentHostMocks.clearModelApiKey).toHaveBeenCalledTimes(1))
+  })
+
+  it("saves a protocol change without replacing the key", async () => {
+    agentHostMocks.updateModelSettings.mockResolvedValue({ ...configuredSettings, api_protocol: "chat_completions" })
+    render(<AiSettingsPanel />)
+    await screen.findByText("已配置 ...a9f2")
+
+    const protocol = screen.getByRole("combobox", { name: "API 协议" })
+    fireEvent.keyDown(protocol, { key: "ArrowDown" })
+    fireEvent.keyDown(await screen.findByRole("option", { name: "Chat Completions API" }), { key: "Enter" })
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+
+    await waitFor(() => expect(agentHostMocks.updateModelSettings).toHaveBeenCalledWith({
+      model: "deepseek-v4-flash",
+      base_url: "https://api.deepseek.com",
+      api_protocol: "chat_completions",
+    }))
   })
 })

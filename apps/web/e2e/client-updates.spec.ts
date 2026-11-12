@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
   await page.route("http://127.0.0.1:4317/documents", (route) => route.fulfill({ json: [] }))
   await page.route("http://127.0.0.1:4317/template-styles", (route) => route.fulfill({ json: [] }))
   await page.route("http://127.0.0.1:4327/settings/model", (route) => route.fulfill({ json: {
-    provider: "deepseek", model: "test-model", base_url: "https://example.com", api_key: { configured: false, preview: null },
+    provider: "deepseek", model: "test-model", base_url: "https://example.com", api_protocol: "responses", api_key: { configured: false, preview: null },
   } }))
 })
 
