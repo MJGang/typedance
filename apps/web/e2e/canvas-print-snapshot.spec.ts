@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
-import type { CanvasPrintSnapshot, SourceResumeCanvas, WorkspaceView } from "@typedance/contracts"
+import type { CanvasPrintSnapshot, SourceResumeCanvas, TemplateStyleConfig, WorkspaceView } from "@typedance/contracts"
+import { defaultClassicA4Style } from "../src/features/templates/data"
 
 const DOCUMENT_ID = "doc_print_layout"
 const NOW = "2026-09-26T08:00:00.000Z"
@@ -66,7 +67,7 @@ function buildWorkspace(blankCount: number): WorkspaceView {
   }
 }
 
-async function openWorkspace(page: Page, blankCount: number) {
+async function openWorkspace(page: Page, blankCount: number, templateStyles: TemplateStyleConfig[] = []) {
   const workspace = buildWorkspace(blankCount)
   await page.addInitScript(() => {
     Object.defineProperty(window, "showSaveFilePicker", { value: undefined, configurable: true })
@@ -98,6 +99,10 @@ async function openWorkspace(page: Page, blankCount: number) {
   })
   await page.route("http://127.0.0.1:4317/**", async (route) => {
     const path = new URL(route.request().url()).pathname
+    if (path === "/template-styles") {
+      await route.fulfill({ json: templateStyles })
+      return
+    }
     const response = path === "/documents" ? [workspace.document] : path.endsWith("/workspace-view") ? workspace
       : path.endsWith("/source-resume-canvas") ? workspace.source_resume_canvas : []
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(response) })
@@ -196,6 +201,33 @@ for (const blankCount of [0, 1, 4]) {
     await standalone.close()
   })
 }
+
+test("导出时将主题色渐变合成到白底，避免 PDF 阅读器显示粉色", async ({ page, context }, testInfo) => {
+  await openWorkspace(page, 0, [{
+    ...defaultClassicA4Style,
+    theme: { accentColor: "#1677ff" },
+    blocks: {
+      ...defaultClassicA4Style.blocks,
+      heading2: { ...defaultClassicA4Style.blocks.heading2, decorationStyle: "accent-wash" },
+    },
+  }])
+  const heading = page.locator('.ProseMirror h2[data-heading-style="accent-wash"]')
+  const liveGradient = "linear-gradient(90deg, rgb(227, 239, 255), rgba(0, 0, 0, 0))"
+  await expect(heading.locator(".td-heading-suffix")).toHaveCSS("background-image", liveGradient)
+
+  const snapshot = await captureSnapshot(page)
+  const standalone = await context.newPage()
+  await standalone.setContent(snapshot.html)
+  const exportedHeading = standalone.locator("h2")
+  await expect(exportedHeading).toHaveText("Project experience")
+  await expect(exportedHeading.locator(".td-heading-suffix")).toHaveCSS(
+    "background-image", "linear-gradient(90deg, rgb(227, 239, 255), rgb(255, 255, 255))",
+  )
+  await expect(exportedHeading.locator(".td-heading-prefix")).toHaveCSS("background-color", "rgb(22, 119, 255)")
+  await expect(heading.locator(".td-heading-suffix")).toHaveCSS("background-image", liveGradient)
+  await testInfo.attach("accent-wash-snapshot", { body: JSON.stringify(snapshot), contentType: "application/json" })
+  await standalone.close()
+})
 
 for (const format of ["pdf", "html"] as const) {
   test(`the ${format.toUpperCase()} export button submits the current measured canvas snapshot`, async ({ page }) => {

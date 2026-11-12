@@ -1,4 +1,5 @@
 import { canvasPrintSnapshotSchema, type CanvasPrintSnapshot } from "@typedance/contracts"
+import { HEADING_SUFFIX_CLASS } from "@typedance/resume-renderer"
 import { TRAILING_PARAGRAPH_PLACEHOLDER_ATTRIBUTE } from "../workspace/editor/TrailingParagraphPlaceholder"
 
 const OMIT = `button,script,style,iframe,svg,[data-editor-reference-marker],[${TRAILING_PARAGRAPH_PLACEHOLDER_ATTRIBUTE}],.td-columns-resize-overlay,.td-columns-controls-overlay,.td-column-resize-handle,.td-column-grip,.td-column-delete,.td-column-add-button,.td-module-interaction-only`
@@ -32,6 +33,11 @@ function clonePrintElement(source: HTMLElement): HTMLElement | null {
   }
   const computed = getComputedStyle(source)
   for (const property of PROPERTIES) clone.style.setProperty(property, computed.getPropertyValue(property))
+  if (source.matches(`h2[data-heading-style="accent-wash"] > .${HEADING_SUFFIX_CLASS}`)) {
+    // 在白色纸面上合成渐变，避免 Chromium 为透明色标生成部分 PDF 阅读器不支持的着色类型。
+    const accent = computed.getPropertyValue("--td-heading-accent-soft").trim()
+    clone.style.backgroundImage = `linear-gradient(90deg, ${accent}, white)`
+  }
   // 保留无单位行高。转成 CSSOM 的 px 字符串会改变子像素舍入，累积后提前换页。
   const lineHeight = source.computedStyleMap().get("line-height")
   if (lineHeight) clone.style.lineHeight = lineHeight.toString()
