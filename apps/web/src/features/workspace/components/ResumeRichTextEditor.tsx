@@ -76,6 +76,7 @@ type ResumeRichTextEditorProps = {
   onPageNavigatorVisibleChange?: (visible: boolean) => void
   toolbarVisible?: boolean
   toolbarEnd?: ReactNode
+  renderDocumentOverlay?: (editor: Editor) => ReactNode
 }
 
 export type ResumeSelectionContext = {
@@ -661,6 +662,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       onPageNavigatorVisibleChange,
       toolbarVisible = true,
       toolbarEnd,
+      renderDocumentOverlay,
     },
     ref,
   ) {
@@ -1064,6 +1066,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
     }
     const increaseIndent = () => updateCurrentBlockStyle({ indent: Math.min(MAX_INDENT, toolbarState.indent + 1) })
     const decreaseIndent = () => updateCurrentBlockStyle({ indent: Math.max(0, toolbarState.indent - 1) })
+    const editorContent = <EditorContent editor={editor} className="td-rich-editor-content" />
 
     return (
       <div
@@ -1283,7 +1286,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
           </DragHandle>
         )}
         <div ref={printWrapperRef} className="td-editor-print-wrapper">
-          <EditorContent editor={editor} className="td-rich-editor-content" />
+          {editor && renderDocumentOverlay ? <div className="relative">{editorContent}{renderDocumentOverlay(editor)}</div> : editorContent}
         </div>
         {editable ? <CanvasReferences editor={editor} canvasVersion={canvasVersion} templateStyle={templateStyle} /> : null}
       </div>

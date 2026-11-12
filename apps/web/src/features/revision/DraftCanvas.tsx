@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -35,6 +37,9 @@ import {
   type PageMargins,
 } from "./pageMargins"
 import { documentMargins, documentTemplateStyle } from "./documentLayout"
+import { useEditorReferences } from "./references/EditorReferences"
+
+const EditorTransactionPreview = lazy(() => import("./EditorTransactionPreview"))
 
 export type { DraftCanvasSaveStatus } from "./DraggableModuleOutline"
 
@@ -378,6 +383,8 @@ function DraftCanvasWorkspace({
   toolbarVisible = true,
   toolbarEnd,
 }: DraftCanvasProps) {
+  const references = useEditorReferences()
+  const preview = references?.preview
   const editorRef = useRef<ResumeRichTextEditorHandle>(null)
   const canvasRootRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<number | null>(null)
@@ -394,7 +401,7 @@ function DraftCanvasWorkspace({
   const sourceCanvasCss = useMemo(
     () => generateWorkspaceTemplateCSS(
       effectiveTemplateStyle,
-      ".td-source-resume-canvas .rm-with-pagination",
+      "[data-td-live-canvas] .rm-with-pagination",
     ),
     [effectiveTemplateStyle],
   )
@@ -622,9 +629,11 @@ function DraftCanvasWorkspace({
     }
   }, [patchFlash])
 
-  return (
+  const liveCanvas = (
     <div
       ref={canvasRootRef}
+      inert={Boolean(preview)}
+      data-td-live-canvas=""
       className="td-source-resume-canvas relative flex h-full min-h-0 flex-col overflow-hidden"
       data-outline-layout={outlineLayout.docked ? "docked" : "floating"}
       data-outline-expanded={outlineReservedWidth > 0 ? "true" : undefined}
@@ -702,6 +711,20 @@ function DraftCanvasWorkspace({
           top={outlineTop}
           onJumpToPage={scrollToPage}
         />
+      ) : null}
+    </div>
+  )
+
+  return (
+    <div className="relative h-full min-h-0">
+      {liveCanvas}
+      {preview && references ? (
+        <Suspense fallback={<div className="absolute inset-0 z-30 grid place-content-center gap-2 bg-background" aria-live="polite">
+          <p className="text-sm text-muted-foreground">正在准备修改预览…</p>
+          <Button variant="outline" size="sm" onClick={references.closePreview}>取消预览</Button>
+        </div>}>
+          <EditorTransactionPreview key={preview.id} transaction={preview} templateStyle={templateStyle} onClose={references.closePreview} />
+        </Suspense>
       ) : null}
     </div>
   )

@@ -21,7 +21,7 @@ import { updateWorkspaceConversation } from "@/agentHost"
 import { AgentChatPanel } from "./AgentChatPanel"
 import { EditorRunBridge } from "./EditorRunBridge"
 import { WorkspaceConversationsProvider, useWorkspaceConversations } from "./WorkspaceConversations"
-import { EditorReferencesProvider } from "./references/EditorReferences"
+import { EditorReferencesProvider, useEditorReferences } from "./references/EditorReferences"
 import { DraftCanvas, type CanvasPatchFlash } from "./DraftCanvas"
 import { PanelResizeHandle } from "./PanelResizeHandle"
 import { prepareCanvasPrintSnapshot } from "./canvasPrintSnapshot"
@@ -109,6 +109,7 @@ export function RevisionWorkspacePage() {
 
 function RevisionWorkspaceContent() {
   const { documentId } = useParams<{ documentId: string }>()
+  const previewOpen = Boolean(useEditorReferences()?.preview)
   const chromeContext = useOutletContext<RevisionWorkspaceChromeContext>()
   const { assistantPanelVisible, setAssistantPanelVisible, workbenchSidebarVisible, panels } = chromeContext
   const {
@@ -420,7 +421,7 @@ function RevisionWorkspaceContent() {
     if (!workspace || !sourceCanvas || !selectedTemplateStyle || exportingFormat) return
     setExportingFormat(format)
     try {
-      const editor = draftPanelRef.current?.querySelector<HTMLElement>(".ProseMirror")
+      const editor = draftPanelRef.current?.querySelector<HTMLElement>("[data-td-live-canvas] .ProseMirror")
       if (!editor) throw new Error("画布尚未准备好")
       const printSnapshot = await prepareCanvasPrintSnapshot(editor)
       const exportDocument = format === "pdf" ? exportCanvasPdf : exportCanvasHtml
@@ -696,7 +697,7 @@ function RevisionWorkspaceContent() {
                 value={workspace.document.template_id}
                 options={themes}
                 onChange={(templateId) => void handleTemplateChange(templateId)}
-                disabled={isSavingTemplate}
+                disabled={isSavingTemplate || previewOpen}
                 ariaLabel="选择模板"
               />
               <Tooltip>
@@ -722,6 +723,7 @@ function RevisionWorkspaceContent() {
                     size="icon-sm"
                     aria-label={editorToolbarVisible ? "隐藏格式工具栏" : "显示格式工具栏"}
                     aria-pressed={editorToolbarVisible}
+                    disabled={previewOpen}
                     onMouseDown={(event) => event.preventDefault()}
                     data-preserve-editor-selection=""
                     onClick={() => setEditorToolbarVisible((visible) => !visible)}

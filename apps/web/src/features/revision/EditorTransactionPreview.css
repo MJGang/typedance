@@ -1,0 +1,48 @@
+.td-preview-region {
+  background: linear-gradient(135deg, #f6f0e7a8, #ecdfcca3);
+  box-shadow: 0 1px 3px #4d39271e, 0 5px 11px -5px #4d39272b;
+  mix-blend-mode: multiply;
+  animation: td-preview-surface 360ms ease-out both;
+}
+
+.td-preview-region::before,
+.td-preview-region::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+}
+
+.td-preview-region::before {
+  background:
+    radial-gradient(circle, #9a7d5525 0 .35px, transparent .66px) 0 0 / 3px 4px,
+    radial-gradient(circle, #b79b7338 0 .38px, transparent .68px) 1px 2px / 7px 5px;
+}
+
+.td-preview-region::after {
+  background: radial-gradient(circle, #8c65468a 0 .72px, transparent 1.1px) 2px 2px / 9px 9px;
+  mask-image: radial-gradient(ellipse 34% 92% at 50% 64%, black 8%, transparent 100%);
+  mask-size: 70% 140%;
+  mask-repeat: no-repeat;
+  animation: td-preview-dot-wave 1.55s ease-in-out both;
+}
+
+@keyframes td-preview-surface {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes td-preview-dot-wave {
+  0% { mask-position: -75% -50%; opacity: 0; }
+  30% { opacity: .86; }
+  75% { opacity: .56; }
+  100% { mask-position: 170% 75%; opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .td-preview-region { animation: none; }
+  .td-preview-region::after { display: none; }
+}
+
+@media print {
+  [data-td-canvas-preview] { display: none; }
+}

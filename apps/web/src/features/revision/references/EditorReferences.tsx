@@ -22,6 +22,9 @@ export type CanvasReferenceBridge = {
 type EditorReferencesValue = {
   documentId: string
   pending: PendingReference[]
+  preview: EditorTransaction | null
+  togglePreview: (transaction: EditorTransaction) => void
+  closePreview: () => void
   registerCanvas: (bridge: CanvasReferenceBridge) => () => void
   registerComposer: (focus: () => void) => () => void
   updateTracked: (references: TrackedCanvasReference[]) => void
@@ -45,6 +48,11 @@ export function useEditorReferences() {
 
 export function EditorReferencesProvider({ documentId, children, onReferenceAdded }: { documentId: string; children: ReactNode; onReferenceAdded?: () => void }) {
   const [pending, setPending] = useState<PendingReference[]>([])
+  const [preview, setPreview] = useState<EditorTransaction | null>(null)
+  const togglePreview = useCallback((transaction: EditorTransaction) => {
+    if (transaction.document_id === documentId) setPreview(current => current?.id === transaction.id ? null : transaction)
+  }, [documentId])
+  const closePreview = useCallback(() => setPreview(null), [])
   const pendingRef = useRef(pending)
   const known = useRef(new Map<string, PendingReference>())
   const canvas = useRef<CanvasReferenceBridge | null>(null)
@@ -156,10 +164,14 @@ export function EditorReferencesProvider({ documentId, children, onReferenceAdde
         const activity = session.activitySignal
         assertAccountSession(session)
         if (activity.aborted) throw new Error("账号活动已暂停，未应用画布修改。")
-        if (request.kind === "transaction" && !approved) return { status: "rejected" }
+        if (request.kind === "transaction" && !approved) {
+          setPreview(current => current?.id === request.transaction?.id ? null : current)
+          return { status: "rejected" }
+        }
         if (request.kind === "transaction") {
           if (!request.transaction) throw new Error("缺少编辑事务")
           applied = bridge.apply(request.transaction)
+          setPreview(current => current?.id === request.transaction?.id ? null : current)
           unchanged = !applied
           if (applied) {
             applications.current.set(request.transaction.id, { bridge, revision: bridge.getRevision() })
@@ -191,9 +203,11 @@ export function EditorReferencesProvider({ documentId, children, onReferenceAdde
       toast.message("已有后续编辑，请使用编辑器的撤销操作。")
       return false
     }
-    return canvas.current.undo()
+    const undone = canvas.current.undo()
+    if (undone) setPreview(current => current?.id === previewId ? null : current)
+    return undone
   }, [])
-  const value = useMemo(() => ({ documentId, pending, registerCanvas, registerComposer, updateTracked, add, editComment, remove, clear, consume, getPayload, locate, handleRequest, completeRequest, undo }),
-    [documentId, pending, registerCanvas, registerComposer, updateTracked, add, editComment, remove, clear, consume, getPayload, locate, handleRequest, completeRequest, undo])
+  const value = useMemo(() => ({ documentId, pending, preview, togglePreview, closePreview, registerCanvas, registerComposer, updateTracked, add, editComment, remove, clear, consume, getPayload, locate, handleRequest, completeRequest, undo }),
+    [documentId, pending, preview, togglePreview, closePreview, registerCanvas, registerComposer, updateTracked, add, editComment, remove, clear, consume, getPayload, locate, handleRequest, completeRequest, undo])
   return <EditorReferencesContext.Provider value={value}>{children}</EditorReferencesContext.Provider>
 }
