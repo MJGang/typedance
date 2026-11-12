@@ -6,12 +6,13 @@ import { applyAccountState, getAccountView, setAccountAction, type AccountState 
 import { testAccountSession } from "@/test/accountFixture"
 import { AccountGate } from "./AccountGate"
 
-const mocks = vi.hoisted(() => ({ login: vi.fn(), logout: vi.fn(), importData: vi.fn(), skip: vi.fn(), finishLock: vi.fn() }))
+const mocks = vi.hoisted(() => ({ login: vi.fn(), logout: vi.fn(), importData: vi.fn(), skip: vi.fn(), finishLock: vi.fn(), history: vi.fn(), localAction: vi.fn() }))
 vi.mock("@/accountState", async (original) => ({ ...await original<object>(), connectAccountState: () => () => {} }))
 vi.mock("@/accountActions", () => ({
   signInAccount: mocks.login, signOutAccount: mocks.logout, importLocalAccountData: mocks.importData, skipLocalAccountData: mocks.skip,
   finishAccountLock: mocks.finishLock, cancelAccountSignIn: vi.fn(),
   prepareAccountUpdate: vi.fn(), finishAccountUpdate: vi.fn(),
+  listLoginAccounts: mocks.history, runLocalAccountAction: mocks.localAction,
 }))
 vi.mock("@/desktopWindow", () => ({ closeDesktopWindow: vi.fn(), minimizeDesktopWindow: vi.fn(), toggleMaximizeDesktopWindow: vi.fn() }))
 
@@ -24,8 +25,16 @@ function publish(status: AccountState["status"], id = "A") {
   })
 }
 
-beforeEach(() => { HTMLElement.prototype.scrollIntoView = vi.fn(); vi.clearAllMocks(); setAccountAction("idle"); publish("signed_out") })
-afterEach(cleanup)
+beforeEach(() => {
+  HTMLElement.prototype.scrollIntoView = vi.fn()
+  vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} })
+  vi.clearAllMocks()
+  mocks.history.mockReset().mockResolvedValue([])
+  mocks.localAction.mockReset()
+  setAccountAction("idle")
+  publish("signed_out")
+})
+afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 describe("account workspace gate", () => {
   it("never mounts the business workspace while signed out or unconfigured", () => {
@@ -106,6 +115,58 @@ describe("account workspace gate", () => {
     expect(screen.getByRole("button", { name: "登录 TypeDance" })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "使用 GitHub 登录" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "最大化" })).not.toBeInTheDocument()
+  })
+
+  it("uses the selected account's saved credential and clears it when remember password is unchecked", async () => {
+    mocks.history.mockResolvedValue([
+      { id: "A", name: "账号 A", email: "a@example.invalid", password_login: true, password_saved: true, github_bound: false },
+      { id: "B", name: "账号 B", email: "b@example.invalid", password_login: true, password_saved: false, github_bound: false },
+    ])
+    mocks.localAction.mockResolvedValue(getAccountView().state)
+    render(<AccountGate><p>工作台</p></AccountGate>)
+    const history = await screen.findByRole("combobox", { name: "历史账号" })
+    fireEvent.keyDown(history, { key: "Enter" })
+    fireEvent.click(screen.getByRole("option", { name: /账号 A/ }))
+    expect(screen.getByLabelText("邮箱")).toHaveValue("a@example.invalid")
+    expect(screen.getByPlaceholderText("已保存密码")).toHaveValue("")
+    const remember = screen.getByRole("checkbox", { name: "记住密码" })
+    expect(remember).toBeChecked()
+    fireEvent.click(remember)
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "登录 TypeDance" })) })
+    expect(mocks.localAction).toHaveBeenCalledWith("login_local_account", {
+      credentials: { kind: "saved", account_id: "A" }, rememberPassword: false,
+    })
+  })
+
+  it("prefills the target email after switching, then saves a password only on opt-in", async () => {
+    mocks.history.mockResolvedValue([
+      { id: "B", name: "账号 B", email: "b@example.invalid", password_login: true, password_saved: false, github_bound: false },
+    ])
+    applyAccountState({ ...getAccountView().state, login_target: "B" })
+    mocks.localAction.mockResolvedValue(getAccountView().state)
+    render(<AccountGate><p>工作台</p></AccountGate>)
+    await screen.findByRole("combobox", { name: "历史账号" })
+    expect(screen.getByLabelText("邮箱")).toHaveValue("b@example.invalid")
+    const remember = screen.getByRole("checkbox", { name: "记住密码" })
+    expect(remember).not.toBeChecked()
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "fixture-password" } })
+    fireEvent.click(remember)
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "登录 TypeDance" })) })
+    expect(mocks.localAction).toHaveBeenCalledWith("login_local_account", {
+      credentials: { kind: "password", email: "b@example.invalid", password: "fixture-password" }, rememberPassword: true,
+    })
+  })
+
+  it("uses GitHub to verify the selected GitHub-only account", async () => {
+    mocks.history.mockResolvedValue([
+      { id: "github-B", name: "账号 B", email: null, password_login: false, password_saved: false, github_bound: true },
+    ])
+    applyAccountState({ ...getAccountView().state, login_target: "github-B" })
+    render(<AccountGate><p>工作台</p></AccountGate>)
+    await screen.findByRole("combobox", { name: "历史账号" })
+    expect(screen.queryByLabelText("密码")).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "使用 GitHub 登录" }))
+    expect(mocks.login).toHaveBeenCalledWith("github", "github-B")
   })
 
   it("opens the workspace from startup without rendering the login screen", () => {

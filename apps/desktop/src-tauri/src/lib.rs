@@ -101,6 +101,8 @@ pub fn run() {
             account::get_account_state,
             account::sign_in_account,
             account::login_local_account,
+            account::list_login_accounts,
+            account::switch_local_account,
             account::register_local_account,
             account::cancel_account_sign_in,
             account::sign_out_account,

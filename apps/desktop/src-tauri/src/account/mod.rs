@@ -25,12 +25,13 @@ use std::{
     },
     time::Duration,
 };
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tauri_plugin_opener::OpenerExt;
 pub(crate) use token::random_token;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use vault::Vault;
+use zeroize::Zeroizing;
 
 #[derive(Clone, Deserialize, Serialize)]
 pub(crate) struct AccountUser {
@@ -61,6 +62,31 @@ pub(crate) struct AccountState {
     github_code: Option<String>,
     github_bound: bool,
     can_login: bool,
+    login_target: Option<String>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct LoginAccount {
+    id: String,
+    name: String,
+    email: Option<String>,
+    password_login: bool,
+    password_saved: bool,
+    github_bound: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum LocalLogin {
+    Password { email: String, password: String },
+    Saved { account_id: String },
+}
+
+fn require_main_window(window: &WebviewWindow) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("请在 TypeDance 主窗口操作账号。".into());
+    }
+    Ok(())
 }
 struct Current {
     account: Account,
@@ -205,6 +231,7 @@ impl AccountManager {
                     github_code: None,
                     github_bound: false,
                     can_login: false,
+                    login_target: None,
                 },
                 current: None,
                 login_cancel: CancellationToken::new(),
@@ -233,6 +260,14 @@ impl AccountManager {
         fs::create_dir_all(&profiles).map_err(|_| "无法创建账号资料空间。")?;
         plain_directory(&profiles)?;
         Ok(profiles.join(id))
+    }
+
+    fn has_login_history(&self, account: &Account) -> bool {
+        // 注册时只创建账号，首次登录进入工作区时才写入归属标识。
+        account.can_log_in()
+            && self
+                .profile_dir(&account.user.id)
+                .is_ok_and(|path| path.join(".local-account.json").is_file())
     }
 
     fn legacy_sources(&self, profile: &str) -> Result<Vec<legacy::LegacyCandidate>, String> {
@@ -332,6 +367,7 @@ impl AccountManager {
         {
             let mut state = self.inner.lock().await;
             state.view.user = Some(account.user.clone());
+            state.view.login_target = None;
             state.view.github_bound = account.github_bound();
             state.view.can_login = account.can_log_in();
             state.current = Some(Current {
@@ -517,6 +553,7 @@ impl AccountManager {
         &self,
         app: &AppHandle,
         bind: bool,
+        target: Option<String>,
     ) -> Result<AccountState, String> {
         let _operation = self.operation.lock().await;
         let owner = if bind {
@@ -536,6 +573,7 @@ impl AccountManager {
             state.view.error = None;
             if !bind {
                 state.view.status = "signing_in".into();
+                state.view.login_target = target.clone();
             }
             Self::publish(app, &mut state.view);
         }
@@ -557,7 +595,18 @@ impl AccountManager {
             if cancelled.is_cancelled() || self.shutting_down.load(Ordering::SeqCst) {
                 return Err("GitHub 授权已取消。".into());
             }
-            let account = Accounts::open(&self.data)?.github(&subject, owner.as_deref())?;
+            let mut accounts = Accounts::open(&self.data)?;
+            let account = if let Some(id) = target {
+                let account = accounts.find(&id)?;
+                if !account.matches_github(&subject) {
+                    return Err(
+                        "GitHub 授权账号与所选账号不匹配，请使用对应的 GitHub 账号。".into(),
+                    );
+                }
+                account
+            } else {
+                accounts.github(&subject, owner.as_deref())?
+            };
             if bind {
                 self.publish_profile(app, account).await
             } else if let Err(error) = self.accept(app, account).await {
@@ -587,7 +636,7 @@ impl AccountManager {
         Ok(state.view.clone())
     }
 
-    async fn logout_local(&self, app: &AppHandle) -> Result<(), String> {
+    async fn logout_local(&self, app: &AppHandle, target: Option<String>) -> Result<(), String> {
         if self
             .inner
             .lock()
@@ -610,10 +659,20 @@ impl AccountManager {
         state.view.github_code = None;
         state.view.github_bound = false;
         state.view.can_login = false;
+        state.view.login_target = target;
         state.view.status = "signed_out".into();
         state.view.error = None;
         Self::publish(app, &mut state.view);
         Ok(())
+    }
+
+    async fn login_local(&self, app: &AppHandle, account: Account) -> Result<AccountState, String> {
+        self.inner.lock().await.login_cancel = CancellationToken::new();
+        if let Err(error) = self.accept(app, account).await {
+            self.report_startup_error(app, error.clone()).await;
+            return Err(error);
+        }
+        Ok(self.snapshot().await)
     }
 
     async fn finish_setup(
@@ -772,10 +831,11 @@ pub(crate) async fn sign_in_account(
     app: AppHandle,
     state: State<'_, Arc<AccountManager>>,
     provider: Provider,
+    target: Option<String>,
 ) -> Result<AccountState, String> {
     state.inner.lock().await.login_cancel.cancel();
     match provider {
-        Provider::Github => state.github_authorization(&app, false).await,
+        Provider::Github => state.github_authorization(&app, false, target).await,
     }
 }
 #[tauri::command]
@@ -801,7 +861,7 @@ pub(crate) async fn sign_out_account(
         }
     }
     state.inner.lock().await.login_cancel = CancellationToken::new();
-    state.logout_local(&app).await?;
+    state.logout_local(&app, None).await?;
     Ok(state.snapshot().await)
 }
 #[tauri::command]
@@ -850,21 +910,99 @@ pub(crate) async fn retry_account_restore(
 }
 
 #[tauri::command]
+pub(crate) async fn list_login_accounts(
+    window: WebviewWindow,
+    state: State<'_, Arc<AccountManager>>,
+) -> Result<Vec<LoginAccount>, String> {
+    require_main_window(&window)?;
+    let _operation = state.operation.lock().await;
+    if !matches!(
+        state.inner.lock().await.view.status.as_str(),
+        "signed_out" | "locked" | "ready"
+    ) {
+        return Err("请先完成当前账号操作。".into());
+    }
+    let accounts = Accounts::open(&state.data)?;
+    Ok(accounts
+        .iter()
+        .filter(|account| state.has_login_history(account))
+        .map(|account| LoginAccount {
+            id: account.user.id.clone(),
+            name: account.user.name.clone(),
+            email: account.user.email.clone(),
+            password_login: account.has_password(),
+            password_saved: account.has_saved_password(&state.data),
+            github_bound: account.github_bound(),
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub(crate) async fn switch_local_account(
+    app: AppHandle,
+    window: WebviewWindow,
+    state: State<'_, Arc<AccountManager>>,
+    target: String,
+) -> Result<AccountState, String> {
+    require_main_window(&window)?;
+    let _operation = state.operation.lock().await;
+    if state.inner.lock().await.view.status != "ready" || state.shutting_down.load(Ordering::SeqCst)
+    {
+        return Err("当前无法切换账号。".into());
+    }
+    if target == state.current_id().await? {
+        return Err("此账号已登录。".into());
+    }
+    let account = Accounts::open(&state.data)?.find(&target)?;
+    if !state.has_login_history(&account) {
+        return Err("所选账号未在本机登录过。".into());
+    }
+    if account
+        .authenticate_saved(&state.data)
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        state.logout_local(&app, None).await?;
+        state.login_local(&app, account).await
+    } else {
+        state.logout_local(&app, Some(target)).await?;
+        Ok(state.snapshot().await)
+    }
+}
+
+#[tauri::command]
 pub(crate) async fn login_local_account(
     app: AppHandle,
+    window: WebviewWindow,
     state: State<'_, Arc<AccountManager>>,
-    email: String,
-    password: String,
+    credentials: LocalLogin,
+    remember_password: bool,
 ) -> Result<AccountState, String> {
+    require_main_window(&window)?;
     let _operation = state.operation.lock().await;
     state.can_sign_in().await?;
-    let account = Accounts::open(&state.data)?.authenticate(&email, &password)?;
-    state.inner.lock().await.login_cancel = CancellationToken::new();
-    if let Err(error) = state.accept(&app, account).await {
-        state.report_startup_error(&app, error.clone()).await;
-        return Err(error);
-    }
-    Ok(state.snapshot().await)
+    let accounts = Accounts::open(&state.data)?;
+    let account = match credentials {
+        LocalLogin::Password { email, password } => {
+            let password = Zeroizing::new(password);
+            let account = accounts.authenticate(&email, &password)?;
+            account
+                .set_saved_password(&state.data, remember_password.then_some(password.as_str()))?;
+            account
+        }
+        LocalLogin::Saved { account_id } => {
+            let account = accounts.find(&account_id)?;
+            account
+                .authenticate_saved(&state.data)?
+                .ok_or("已保存的密码不可用，请输入密码登录。")?;
+            if !remember_password {
+                account.set_saved_password(&state.data, None)?;
+            }
+            account
+        }
+    };
+    state.login_local(&app, account).await
 }
 
 #[tauri::command]
@@ -911,6 +1049,7 @@ pub(crate) async fn change_local_password(
     }
     let id = state.current_id().await?;
     let (account, recovery) = Accounts::open(&state.data)?.change_password(&id, &password)?;
+    let _ = account.set_saved_password(&state.data, None);
     state.publish_profile(&app, account).await?;
     Ok(recovery)
 }
@@ -924,7 +1063,9 @@ pub(crate) async fn recover_local_password(
 ) -> Result<String, String> {
     let _operation = state.operation.lock().await;
     state.can_sign_in().await?;
-    Accounts::open(&state.data)?.recover(&email, &recovery, &password)
+    let (account, next) = Accounts::open(&state.data)?.recover(&email, &recovery, &password)?;
+    let _ = account.set_saved_password(&state.data, None);
+    Ok(next)
 }
 
 #[tauri::command]
@@ -932,7 +1073,7 @@ pub(crate) async fn bind_github_account(
     app: AppHandle,
     state: State<'_, Arc<AccountManager>>,
 ) -> Result<AccountState, String> {
-    state.github_authorization(&app, true).await
+    state.github_authorization(&app, true, None).await
 }
 
 #[cfg(test)]
@@ -958,6 +1099,7 @@ mod tests {
                     github_code: None,
                     github_bound: false,
                     can_login: false,
+                    login_target: None,
                 },
                 current: None,
                 login_cancel: token.clone(),

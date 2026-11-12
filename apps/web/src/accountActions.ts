@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core"
 import { flushAllSourceCanvasSaves, retryAllSourceCanvasSaves } from "./features/revision/useSourceCanvasAutosave"
 import { applyAccountState, getAccountView, lockAccountView, refreshAccountState, setAccountAction, subscribeAccountView, type AccountProvider } from "./accountState"
-import { captureAccountSession, pauseAccountWork, resumeAccountWork, setAccountSession } from "./accountSession"
+import { captureAccountSession, pauseAccountWork, resumeAccountWork } from "./accountSession"
 
 let operation: Promise<void> | null = null
 let operationCommand: string | null = null
@@ -26,7 +26,7 @@ async function changeAccount(command: string, args?: Record<string, unknown>) {
     setAccountAction("idle", "请先保存当前资料，再重新登录。")
     return
   }
-  if (command === "sign_out_account" && getAccountView().state.can_login === false) {
+  if ((command === "sign_out_account" || command === "switch_local_account") && getAccountView().state.can_login === false) {
     setAccountAction("idle", "请先在「账号与安全」设置本机邮箱和密码，或绑定 GitHub，再退出登录。")
     return
   }
@@ -40,14 +40,9 @@ async function changeAccount(command: string, args?: Record<string, unknown>) {
         throw new Error("有内容尚未保存，已保留当前工作区。请先重试保存，再退出或切换账号。")
       }
       setAccountAction("switching")
-      setAccountSession(null)
       applyAccountState(await invoke(command, args))
       setAccountAction("idle")
     } catch (error) {
-      if (captured && getAccountView().phase === "saving" && getAccountView().state.status === "ready") {
-        try { await resumeAccountWork(captured) }
-        catch { setAccountAction("idle", "AI 任务仍暂停，当前编辑内容已保留。请重试退出或切换账号。"); return }
-      }
       // A failed save never calls the desktop transition or invalidates the old workspace.
       if (getAccountView().phase === "switching") {
         try { await refreshAccountState() } catch {
@@ -55,13 +50,30 @@ async function changeAccount(command: string, args?: Record<string, unknown>) {
           return
         }
       }
+      const state = getAccountView().state
+      if (captured && state.status === "ready" && state.session?.id === captured.session.id) {
+        try { await resumeAccountWork(captured) }
+        catch { setAccountAction("idle", "AI 任务仍暂停，当前编辑内容已保留。请重试退出或切换账号。"); return }
+      }
       setAccountAction("idle", error instanceof Error ? error.message : String(error))
     }
   })
 }
 
-export function signInAccount(provider: AccountProvider) {
-  return changeAccount("sign_in_account", { provider })
+export type LoginAccount = {
+  id: string
+  name: string
+  email: string | null
+  password_login: boolean
+  password_saved: boolean
+  github_bound: boolean
+}
+
+export function listLoginAccounts() { return invoke<LoginAccount[]>("list_login_accounts") }
+export function switchLocalAccount(target: string) { return changeAccount("switch_local_account", { target }) }
+
+export function signInAccount(provider: AccountProvider, target?: string) {
+  return changeAccount("sign_in_account", target ? { provider, target } : { provider })
 }
 export function signOutAccount() { return changeAccount("sign_out_account") }
 export function importLocalAccountData(source: string) { return changeAccount("import_local_account_data", { source }) }

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { captureAccountSession } from "./accountSession"
 import { applyAccountState, getAccountView, setAccountAction, type AccountState } from "./accountState"
-import { finishAccountLock, finishAccountUpdate, importLocalAccountData, prepareAccountUpdate, signInAccount, signOutAccount } from "./accountActions"
+import { finishAccountLock, finishAccountUpdate, importLocalAccountData, prepareAccountUpdate, signInAccount, signOutAccount, switchLocalAccount } from "./accountActions"
 import { testAccountSession } from "./test/accountFixture"
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), flush: vi.fn() }))
@@ -167,6 +167,20 @@ describe("safe account transitions", () => {
     expect(getAccountView().state.session).toBeNull()
     expect(getAccountView().actionError).toContain("工作区已锁定")
     expect(() => captureAccountSession()).toThrow()
+  })
+
+  it("resumes the original workspace when native switching fails before signing out", async () => {
+    const original = captureAccountSession()
+    mocks.invoke.mockImplementation(async (command) => {
+      if (command === "get_account_state") return state()
+      throw new Error("所选账号未在本机登录过。")
+    })
+    await switchLocalAccount("B")
+    expect(mocks.flush).toHaveBeenCalledOnce()
+    expect(mocks.invoke).toHaveBeenCalledWith("switch_local_account", { target: "B" })
+    expect(captureAccountSession()).toBe(original)
+    expect(fetch).toHaveBeenLastCalledWith(expect.stringContaining("/account/resume"), expect.anything())
+    expect(getAccountView().actionError).toContain("未在本机登录过")
   })
 
   it("keeps expired-session drafts available for retry and prevents account switching", async () => {

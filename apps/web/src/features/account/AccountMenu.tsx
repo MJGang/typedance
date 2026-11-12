@@ -1,9 +1,10 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ArrowRightLeft, ChevronRight, LogOut, Settings, ShieldCheck } from "lucide-react"
-import { signOutAccount } from "@/accountActions"
+import { listLoginAccounts, signOutAccount, switchLocalAccount, type LoginAccount } from "@/accountActions"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,11 +28,53 @@ function AccountAvatar({ name, avatar }: { name: string; avatar?: string }) {
   )
 }
 
+function SwitchAccountDialog({ currentId, onClose, onCloseAutoFocus }: {
+  currentId: string
+  onClose: () => void
+  onCloseAutoFocus: (event: Event) => void
+}) {
+  const [accounts, setAccounts] = useState<LoginAccount[] | null>(null)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    void listLoginAccounts().then(
+      (history) => { if (active) setAccounts(history.filter(account => account.id !== currentId)) },
+      () => { if (active) setError(true) },
+    )
+    return () => { active = false }
+  }, [currentId])
+
+  return <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
+    <DialogContent className="sm:max-w-sm" onCloseAutoFocus={onCloseAutoFocus}>
+      <DialogHeader>
+        <DialogTitle>切换账号</DialogTitle>
+        <DialogDescription>选择在本机登录过的账号。</DialogDescription>
+      </DialogHeader>
+      {error ? <p role="alert" className="text-sm text-destructive">无法读取历史账号。</p>
+        : !accounts ? <p role="status" className="text-sm text-muted-foreground">正在读取历史账号…</p>
+          : accounts.length === 0 ? <p className="text-sm text-muted-foreground">还没有其他历史账号。</p>
+            : <div className="flex max-h-[45vh] flex-col gap-2 overflow-y-auto">
+              {accounts.map(account => <Button key={account.id} variant="outline" className="h-auto min-h-12 w-full justify-between px-3 py-2 text-left"
+                onClick={() => { onClose(); void switchLocalAccount(account.id) }}>
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate">{account.name}</span>
+                  <span className="truncate text-xs text-muted-foreground">{account.email ?? "GitHub"}</span>
+                </span>
+                <span className="shrink-0 text-xs text-muted-foreground">{account.password_saved ? "直接切换" : "需要登录"}</span>
+              </Button>)}
+            </div>}
+      <Button variant="ghost" onClick={() => { onClose(); void signOutAccount() }}>使用其他账号</Button>
+    </DialogContent>
+  </Dialog>
+}
+
 export function AccountMenu() {
   const { state, phase, actionError } = useAccount()
   const { phase: updatePhase, update } = useClientUpdater()
   const [settingsTab, setSettingsTab] = useState<"ai" | "updates" | null>(null)
   const [accountSettings, setAccountSettings] = useState(false)
+  const [switchingAccount, setSwitchingAccount] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const user = state.user
   if (!user) return null
@@ -78,7 +121,7 @@ export function AccountMenu() {
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
-            <DropdownMenuItem disabled={busy} onSelect={() => void signOutAccount()}><ArrowRightLeft />切换账号</DropdownMenuItem>
+            <DropdownMenuItem disabled={busy} onSelect={() => setSwitchingAccount(true)}><ArrowRightLeft />切换账号</DropdownMenuItem>
             <DropdownMenuItem disabled={busy} variant="destructive" onSelect={() => void signOutAccount()}><LogOut />退出登录</DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
@@ -86,6 +129,8 @@ export function AccountMenu() {
         </DropdownMenuContent>
       </DropdownMenu>
       {actionError ? <p role="alert" className="px-3 pt-2 text-xs leading-5 break-words text-destructive">{actionError}</p> : null}
+      {switchingAccount ? <SwitchAccountDialog currentId={user.id} onClose={() => setSwitchingAccount(false)}
+        onCloseAutoFocus={(event) => { event.preventDefault(); triggerRef.current?.focus() }} /> : null}
       {accountSettings ? <LocalAccountSettings key={user.id} user={user} onClose={() => setAccountSettings(false)}
         onCloseAutoFocus={(event) => { event.preventDefault(); triggerRef.current?.focus() }} /> : null}
       {settingsTab ? <SettingsDialog open initialTab={settingsTab}

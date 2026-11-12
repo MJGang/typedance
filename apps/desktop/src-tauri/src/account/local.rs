@@ -8,6 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use subtle::ConstantTimeEq;
+use zeroize::Zeroizing;
 
 pub(super) const VAULT_NAMESPACE: &str = "app.typedance.desktop.local";
 
@@ -80,6 +81,10 @@ impl Accounts {
         self.accounts.is_empty()
     }
 
+    pub(super) fn iter(&self) -> impl Iterator<Item = &Account> {
+        self.accounts.iter()
+    }
+
     pub(super) fn insert(&mut self, account: Account) -> Result<Account, String> {
         self.accounts.push(account.clone());
         self.save()?;
@@ -99,18 +104,8 @@ impl Accounts {
     }
 
     pub(super) fn authenticate(&self, email: &str, password: &str) -> Result<Account, String> {
-        if password.len() > 1024 {
-            return Err("邮箱或密码不正确。".into());
-        }
         let account = self.by_email(email).ok_or("邮箱或密码不正确。")?;
-        let hash = account
-            .password
-            .as_deref()
-            .and_then(|value| PasswordHash::new(value).ok())
-            .ok_or("邮箱或密码不正确。")?;
-        Argon2::default()
-            .verify_password(password.as_bytes(), &hash)
-            .map_err(|_| "邮箱或密码不正确。")?;
+        account.verify_password(password)?;
         Ok(account.clone())
     }
 
@@ -119,12 +114,10 @@ impl Accounts {
         subject: &str,
         current: Option<&str>,
     ) -> Result<Account, String> {
-        let owner = self.accounts.iter().find(|account| {
-            account
-                .identities
-                .iter()
-                .any(|identity| identity.provider == "github" && identity.subject == subject)
-        });
+        let owner = self
+            .accounts
+            .iter()
+            .find(|account| account.matches_github(subject));
         if let Some(owner) = owner {
             if current.is_some_and(|id| owner.user.id != id) {
                 return Err("此 GitHub 账号已绑定另一个本机账号。".into());
@@ -184,7 +177,7 @@ impl Accounts {
         email: &str,
         recovery: &str,
         password: &str,
-    ) -> Result<String, String> {
+    ) -> Result<(Account, String), String> {
         let account = self.by_email(email).ok_or("邮箱或恢复码不正确。")?;
         let expected = account.recovery.ok_or("邮箱或恢复码不正确。")?;
         let actual: [u8; 32] = Sha256::digest(recovery.trim().as_bytes()).into();
@@ -192,7 +185,6 @@ impl Accounts {
             return Err("邮箱或恢复码不正确。".into());
         }
         self.change_password(&account.user.id.clone(), password)
-            .map(|(_, next)| next)
     }
 
     fn by_email(&self, email: &str) -> Option<&Account> {
@@ -260,8 +252,75 @@ impl Account {
             .any(|identity| identity.provider == "github")
     }
 
+    pub(super) fn matches_github(&self, subject: &str) -> bool {
+        self.identities
+            .iter()
+            .any(|identity| identity.provider == "github" && identity.subject == subject)
+    }
+
+    pub(super) fn has_password(&self) -> bool {
+        self.password.is_some()
+    }
+
     pub(super) fn can_log_in(&self) -> bool {
-        self.password.is_some() || self.github_bound()
+        self.has_password() || self.github_bound()
+    }
+
+    fn verify_password(&self, password: &str) -> Result<(), String> {
+        let invalid = "邮箱或密码不正确。";
+        if password.len() > 1024 {
+            return Err(invalid.into());
+        }
+        let hash = self
+            .password
+            .as_deref()
+            .and_then(|value| PasswordHash::new(value).ok())
+            .ok_or(invalid)?;
+        Argon2::default()
+            .verify_password(password.as_bytes(), &hash)
+            .map_err(|_| invalid.into())
+    }
+
+    fn password_vault_key(&self, root: &Path) -> Result<String, String> {
+        Ok(profile_key(&vault_scope(root)?, &self.user.id))
+    }
+
+    pub(super) fn has_saved_password(&self, root: &Path) -> bool {
+        self.read_saved_password(root).ok().flatten().is_some()
+    }
+
+    pub(super) fn authenticate_saved(
+        &self,
+        root: &Path,
+    ) -> Result<Option<Zeroizing<String>>, String> {
+        let Some(password) = self.read_saved_password(root)? else {
+            return Ok(None);
+        };
+        if self.verify_password(&password).is_err() {
+            self.set_saved_password(root, None)?;
+            return Ok(None);
+        }
+        Ok(Some(password))
+    }
+
+    fn read_saved_password(&self, root: &Path) -> Result<Option<Zeroizing<String>>, String> {
+        if !self.has_password() {
+            return Ok(None);
+        }
+        Vault::new(VAULT_NAMESPACE.into())?.read(&self.password_vault_key(root)?, "login-password")
+    }
+
+    pub(super) fn set_saved_password(
+        &self,
+        root: &Path,
+        password: Option<&str>,
+    ) -> Result<(), String> {
+        let vault = Vault::new(VAULT_NAMESPACE.into())?;
+        let key = self.password_vault_key(root)?;
+        match password {
+            Some(password) => vault.write(&key, "login-password", password),
+            None => vault.delete(&key, "login-password"),
+        }
     }
 
     fn set_password(&mut self, password: &str) -> Result<String, String> {
@@ -384,7 +443,7 @@ mod tests {
         assert!(store
             .recover("test@example.com", "invalid", "new-password")
             .is_err());
-        let next = store
+        let (_, next) = store
             .recover("test@example.com", &code, "new-password")
             .unwrap();
         assert_ne!(next, code);
@@ -405,6 +464,48 @@ mod tests {
         let saved = fs::read_to_string(&store.file).unwrap();
         assert!(!saved.contains("new-password"));
         assert!(!saved.contains(&next));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn saved_password_is_opt_in_and_scoped_to_the_account_and_data_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let other_root = tempfile::tempdir().unwrap();
+        let mut store = Accounts {
+            device: "fixture".into(),
+            accounts: Vec::new(),
+            file: root.path().join("local-accounts.json"),
+        };
+        let (first, _) = store
+            .register("甲", "a@example.invalid", "test-password")
+            .unwrap();
+        let (other, _) = store
+            .register("乙", "b@example.invalid", "other-password")
+            .unwrap();
+        assert!(!first.has_saved_password(root.path()));
+        first
+            .set_saved_password(root.path(), Some("test-password"))
+            .unwrap();
+        assert!(first.authenticate_saved(root.path()).unwrap().is_some());
+        assert!(other.authenticate_saved(root.path()).unwrap().is_none());
+        assert!(first
+            .authenticate_saved(other_root.path())
+            .unwrap()
+            .is_none());
+        assert!(!fs::read_to_string(&store.file)
+            .unwrap()
+            .contains("test-password"));
+
+        first.set_saved_password(root.path(), None).unwrap();
+        assert!(first.authenticate_saved(root.path()).unwrap().is_none());
+        first
+            .set_saved_password(root.path(), Some("test-password"))
+            .unwrap();
+        let (changed, _) = store
+            .change_password(&first.user.id, "new-password")
+            .unwrap();
+        assert!(changed.authenticate_saved(root.path()).unwrap().is_none());
+        assert!(!changed.has_saved_password(root.path()));
     }
 
     #[cfg(windows)]
