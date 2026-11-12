@@ -109,7 +109,9 @@ export function RevisionWorkspacePage() {
 
 function RevisionWorkspaceContent() {
   const { documentId } = useParams<{ documentId: string }>()
-  const previewOpen = Boolean(useEditorReferences()?.preview)
+  const editorReferences = useEditorReferences()
+  const previewOpen = Boolean(editorReferences?.preview)
+  const closePreview = editorReferences?.closePreview
   const chromeContext = useOutletContext<RevisionWorkspaceChromeContext>()
   const { assistantPanelVisible, setAssistantPanelVisible, workbenchSidebarVisible, panels } = chromeContext
   const {
@@ -129,6 +131,10 @@ function RevisionWorkspaceContent() {
   const [titleSaveError, setTitleSaveError] = useState<string | null>(null)
   const [isSavingTitle, setIsSavingTitle] = useState(false)
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>()
+  useEffect(() => {
+    // The AI conversation owns the cancel action.
+    closePreview?.()
+  }, [activeConversationId, assistantPanelVisible, closePreview])
   const { conversations, loaded: conversationsLoaded, revision: conversationRevision, refresh: refreshConversations } = useWorkspaceConversations()
   const [renamingConversation, setRenamingConversation] = useState<AgentConversation | null>(null)
   const [conversationNameDraft, setConversationNameDraft] = useState("")
@@ -421,7 +427,7 @@ function RevisionWorkspaceContent() {
     if (!workspace || !sourceCanvas || !selectedTemplateStyle || exportingFormat) return
     setExportingFormat(format)
     try {
-      const editor = draftPanelRef.current?.querySelector<HTMLElement>("[data-td-live-canvas] .ProseMirror")
+      const editor = draftPanelRef.current?.querySelector<HTMLElement>("[data-td-editor-document] .ProseMirror")
       if (!editor) throw new Error("画布尚未准备好")
       const printSnapshot = await prepareCanvasPrintSnapshot(editor)
       const exportDocument = format === "pdf" ? exportCanvasPdf : exportCanvasHtml
@@ -691,6 +697,7 @@ function RevisionWorkspaceContent() {
               <Badge variant="secondary" className="tabular-nums">
                 共{sourceCanvasPageCount}页
               </Badge>
+              {previewOpen ? <Badge variant="secondary" className="shrink-0 whitespace-nowrap" role="status">预览中 · 只读</Badge> : null}
             </div>
             <div data-testid="revision-workspace-actions" className="ml-auto flex items-center gap-1">
               <ThemeSelector

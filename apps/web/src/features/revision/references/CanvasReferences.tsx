@@ -129,7 +129,7 @@ export function CanvasReferences({ editor, canvasVersion, templateStyle }: { edi
     }
   }, [editor, documentId])
 
-  if (!context || !selection) return null
+  if (!context || context.preview || !selection) return null
   return <ReferenceSelectionPopover key={selection.key} rect={selection.rect} onClose={() => setSelection(null)} onAdd={(comment) => {
     if (selection.text.length > 4000) { toast.error("每处引用最多 4000 字，请缩小选择范围。"); return }
     context.add({ text: selection.text, label: selection.label, source: selection.source, comment })

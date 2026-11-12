@@ -2,7 +2,6 @@ import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from "
 import type { Editor } from "@tiptap/core"
 import type { EditorTransaction, TemplateStyleConfig } from "@typedance/contracts"
 import { generateWorkspaceTemplateCSS } from "@typedance/resume-renderer"
-import { Button } from "@/components/ui/button"
 import { ResumeRichTextEditor } from "../workspace/components/ResumeRichTextEditor"
 import type { ResumeDocJson } from "../workspace/editor"
 import { documentMargins, documentTemplateStyle } from "./documentLayout"
@@ -12,7 +11,7 @@ import "./EditorTransactionPreview.css"
 
 const ignorePreviewChanges = () => {}
 
-function TextParticles({ left, top, width, height, original, font, color }: Omit<PreviewInk, "key">) {
+function TextParticles({ left, top, width, height, original, font, color, playing }: Omit<PreviewInk, "key"> & { playing: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useLayoutEffect(() => {
     const canvas = ref.current
@@ -63,17 +62,18 @@ function TextParticles({ left, top, width, height, original, font, color }: Omit
         context.drawImage(bitmap, piece.x, piece.y, piece.w, piece.h, piece.x + piece.dx * age, piece.y + piece.dy * age, piece.w, piece.h)
       }
       canvas.style.opacity = String(1 - Math.max(0, (progress - 0.46) / 0.54))
-      if (progress < 1) frame = requestAnimationFrame(render)
+      if (playing && progress < 1) frame = requestAnimationFrame(render)
     }
     render(started)
     return () => cancelAnimationFrame(frame)
-  }, [width, height, original, font, color])
+  }, [width, height, original, font, color, playing])
 
   return <canvas ref={ref} className="td-preview-ink pointer-events-none absolute motion-reduce:hidden" style={{ left, top, width, height }} />
 }
 
-function PreviewOverlay({ editor, transaction, onReady }: { editor: Editor; transaction: EditorTransaction; onReady: () => void }) {
+function PreviewOverlay({ editor, transaction, onReady, ready }: { editor: Editor; transaction: EditorTransaction; onReady: () => void; ready: boolean }) {
   const layerRef = useRef<HTMLDivElement>(null)
+  const [playing, setPlaying] = useState(false)
   const [layout, setLayout] = useState<ReturnType<typeof measureEditorPreview> | null>(null)
   useLayoutEffect(() => {
     if (editor.isDestroyed) return
@@ -100,13 +100,6 @@ function PreviewOverlay({ editor, transaction, onReady }: { editor: Editor; tran
             schedule()
             return
           }
-          const first = geometry.cards[0]
-          const scroller = layer.closest<HTMLElement>(".td-editor-print-wrapper")
-          if (first && scroller) {
-            const layerRect = layer.getBoundingClientRect()
-            const scale = layerRect.height / layer.offsetHeight || 1
-            scroller.scrollTop += layerRect.top - scroller.getBoundingClientRect().top + first.top * scale - scroller.clientHeight * 0.28
-          }
           positioned = true
           onReady()
         }
@@ -128,35 +121,73 @@ function PreviewOverlay({ editor, transaction, onReady }: { editor: Editor; tran
     }
   }, [editor, transaction, onReady])
 
-  return <div ref={layerRef} aria-hidden="true" className="pointer-events-none absolute inset-0" data-td-preview-overlay="">
+  const hasLayout = layout !== null
+  useLayoutEffect(() => {
+    const layer = layerRef.current
+    if (!ready || !hasLayout || !layer) return
+    const scroller = layer.closest<HTMLElement>(".td-editor-print-wrapper")
+    if (!scroller) return
+    const viewportTop = scroller.getBoundingClientRect().top + scroller.clientTop
+    const viewportBottom = viewportTop + scroller.clientHeight
+    const regions = Array.from(layer.querySelectorAll("[data-td-preview-region]"), card => card.getBoundingClientRect())
+    if (!regions.length || regions.some(region => region.bottom > viewportTop && region.top < viewportBottom)) {
+      setPlaying(true)
+      return
+    }
+    const firstTop = Math.min(...regions.map(region => region.top))
+    const top = Math.max(0, Math.min(scroller.scrollHeight - scroller.clientHeight,
+      scroller.scrollTop + firstTop - viewportTop - scroller.clientHeight * 0.2))
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    if (reducedMotion || Math.abs(top - scroller.scrollTop) < 1) {
+      scroller.scrollTop = top
+      setPlaying(true)
+      return
+    }
+
+    let timer: number | undefined
+    let frame: number
+    let previous = scroller.scrollTop
+    let lastMovement = performance.now()
+    const waitUntilStill = (now: number) => {
+      const current = scroller.scrollTop
+      if (current !== previous) {
+        previous = current
+        lastMovement = now
+      }
+      if (Math.abs(current - top) < 1 || now - lastMovement >= 150) {
+        timer = window.setTimeout(() => setPlaying(true), 180)
+      } else frame = requestAnimationFrame(waitUntilStill)
+    }
+    scroller.scrollTo({ top, behavior: "smooth" })
+    frame = requestAnimationFrame(waitUntilStill)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.clearTimeout(timer)
+      if (timer === undefined) scroller.scrollTo({ top: scroller.scrollTop, behavior: "auto" })
+    }
+  }, [hasLayout, ready])
+
+  return <div ref={layerRef} aria-hidden="true" className="pointer-events-none absolute inset-0" data-td-preview-overlay="" data-preview-playing={playing}>
     {layout?.cards.map(({ key, ...style }) => <div key={key} data-td-preview-region={key} className="td-preview-region absolute" style={style} />)}
-    {layout?.ink.map(({ key, ...ink }) => <TextParticles key={key} {...ink} />)}
+    {layout?.ink.map(({ key, ...ink }) => <TextParticles key={key} {...ink} playing={playing} />)}
   </div>
 }
 
-export default function EditorTransactionPreview({ transaction, templateStyle, onClose }: {
+export default function EditorTransactionPreview({ transaction, templateStyle, onReady, ready }: {
   transaction: EditorTransaction
   templateStyle: TemplateStyleConfig
-  onClose: () => void
+  onReady: () => void
+  ready: boolean
 }) {
   const id = `editor-preview-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`
   const doc = transaction.doc_json as ResumeDocJson
   const style = useMemo(() => documentTemplateStyle(doc, transaction.before_template_style ?? templateStyle), [doc, transaction.before_template_style, templateStyle])
   const margins = useMemo(() => documentMargins(doc), [doc])
   const css = useMemo(() => generateWorkspaceTemplateCSS(style, `#${id} .rm-with-pagination`), [style, id])
-  const [ready, setReady] = useState(false)
-  const onReady = useCallback(() => setReady(true), [])
-  const renderOverlay = useCallback((editor: Editor) => <PreviewOverlay editor={editor} transaction={transaction} onReady={onReady} />, [transaction, onReady])
+  const renderOverlay = useCallback((editor: Editor) => <PreviewOverlay editor={editor} transaction={transaction} onReady={onReady} ready={ready} />, [transaction, onReady, ready])
 
-  return <section id={id} className="td-source-resume-canvas absolute inset-0 z-30 flex min-h-0 flex-col overflow-hidden bg-background" aria-label="简历修改预览" data-td-canvas-preview="">
-    <div className="border-border flex min-h-10 items-center justify-between gap-2 border-b px-3">
-      <span className="bg-muted text-muted-foreground rounded-full px-2.5 py-0.5 text-xs" role="status">预览中 · 只读</span>
-      <Button variant="ghost" size="sm" onClick={onClose}>取消预览</Button>
-    </div>
-    {!ready ? <p className="absolute inset-x-0 top-14 text-center text-sm text-muted-foreground" role="status">正在准备修改预览…</p> : null}
-    <div className={ready ? "min-h-0 flex-1" : "invisible min-h-0 flex-1"}>
-      <ResumeRichTextEditor ariaLabel="修改后的简历预览" docJson={doc} templateStyle={style} cssText={css} marginConfig={margins}
-        editable={false} toolbarVisible={false} onChange={ignorePreviewChanges} renderDocumentOverlay={renderOverlay} />
-    </div>
+  return <section id={id} className={ready ? "relative" : "invisible h-0 overflow-clip"} aria-label="简历修改预览" data-td-canvas-preview="" data-preview-ready={ready}>
+    <ResumeRichTextEditor ariaLabel="修改后的简历预览" docJson={doc} templateStyle={style} cssText={css} marginConfig={margins}
+      editable={false} embedded onChange={ignorePreviewChanges} renderDocumentOverlay={renderOverlay} />
   </section>
 }

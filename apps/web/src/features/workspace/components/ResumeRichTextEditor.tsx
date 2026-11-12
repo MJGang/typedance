@@ -77,6 +77,9 @@ type ResumeRichTextEditorProps = {
   toolbarVisible?: boolean
   toolbarEnd?: ReactNode
   renderDocumentOverlay?: (editor: Editor) => ReactNode
+  embedded?: boolean
+  documentPreview?: ReactNode
+  showingDocumentPreview?: boolean
 }
 
 export type ResumeSelectionContext = {
@@ -663,6 +666,9 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       toolbarVisible = true,
       toolbarEnd,
       renderDocumentOverlay,
+      embedded = false,
+      documentPreview,
+      showingDocumentPreview = false,
     },
     ref,
   ) {
@@ -1067,6 +1073,13 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
     const increaseIndent = () => updateCurrentBlockStyle({ indent: Math.min(MAX_INDENT, toolbarState.indent + 1) })
     const decreaseIndent = () => updateCurrentBlockStyle({ indent: Math.max(0, toolbarState.indent - 1) })
     const editorContent = <EditorContent editor={editor} className="td-rich-editor-content" />
+    const documentContent = editor && renderDocumentOverlay
+      ? <div className="relative">{editorContent}{renderDocumentOverlay(editor)}</div>
+      : editorContent
+
+    if (embedded) {
+      return <><style>{TIMELINE_CSS}{DIVIDER_EDITOR_CSS}{cssText}</style>{documentContent}</>
+    }
 
     return (
       <div
@@ -1076,7 +1089,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       >
         <style>{TIMELINE_CSS}{DIVIDER_EDITOR_CSS}</style>
         {editable && toolbarVisible && (
-          <EditorToolbar>
+          <EditorToolbar inert={Boolean(documentPreview)}>
             <ToolbarGroup>
               <ToolbarSelect
                 ariaLabel="正文与标题"
@@ -1274,7 +1287,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
           </EditorToolbar>
         )}
         <style>{cssText}</style>
-        {editable && (
+        {editable && !documentPreview && (
           <DragHandle
             editor={editor}
             className={`drag-handle td-resume-drag-handle-floating${dragHandleVisible ? "" : " td-resume-drag-handle-suppressed"}`}
@@ -1285,8 +1298,12 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
             <ResumeDragHandleChrome block={dragHandleBlock} onPointerDown={handleDragHandlePointerDown} />
           </DragHandle>
         )}
-        <div ref={printWrapperRef} className="td-editor-print-wrapper">
-          {editor && renderDocumentOverlay ? <div className="relative">{editorContent}{renderDocumentOverlay(editor)}</div> : editorContent}
+        <div ref={printWrapperRef} className={documentPreview ? "td-editor-print-wrapper [overflow-anchor:none]" : "td-editor-print-wrapper"}>
+          {documentPreview !== undefined ? (
+            <div inert={Boolean(documentPreview)} data-td-editor-document=""
+              className={showingDocumentPreview ? "h-0 overflow-clip" : undefined}>{documentContent}</div>
+          ) : documentContent}
+          {documentPreview}
         </div>
         {editable ? <CanvasReferences editor={editor} canvasVersion={canvasVersion} templateStyle={templateStyle} /> : null}
       </div>
