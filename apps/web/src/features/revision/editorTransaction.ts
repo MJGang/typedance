@@ -141,7 +141,11 @@ function normalizeTextFragments(node: ProseMirrorNode): ProseMirrorNode {
   return node.isLeaf ? node : node.copy(Fragment.fromArray(node.content.content.map(normalizeTextFragments)))
 }
 
-export function applyDocumentChange(editor: Editor, beforeJson: Record<string, unknown>, afterJson: Record<string, unknown>, transactionId: string, nodeOrigins: EditorNodeOrigin[], textOrigins: EditorTextOrigin[], options: { historyBoundary?: boolean; configureTransaction?: (transaction: Transaction) => void } = {}): boolean {
+export function applyDocumentChange(editor: Editor, beforeJson: Record<string, unknown>, afterJson: Record<string, unknown>, transactionId: string, nodeOrigins: EditorNodeOrigin[], textOrigins: EditorTextOrigin[], options: {
+  historyBoundary?: boolean
+  scrollToSelection?: boolean
+  configureTransaction?: (transaction: Transaction) => void
+} = {}): boolean {
   if (editor.isDestroyed || !editor.isEditable) throw new Error("编辑器不可用")
   const before = editor.state.doc
   if (!editor.schema.nodeFromJSON(beforeJson).eq(before)) throw new Error("原文已变化，已阻止覆盖你的编辑")
@@ -157,7 +161,8 @@ export function applyDocumentChange(editor: Editor, beforeJson: Record<string, u
   setReferenceOrigins(tr, nodeOrigins, textOrigins)
   preserveReferenceHistory(tr, referenceTrackerKey.getState(editor.state))
   options.configureTransaction?.(tr)
-  editor.view.dispatch(tr.setMeta("typedance-editor-transaction", transactionId).scrollIntoView())
+  if (options.scrollToSelection !== false) tr.scrollIntoView()
+  editor.view.dispatch(tr.setMeta("typedance-editor-transaction", transactionId))
   if (options.historyBoundary !== false) editor.view.dispatch(closeHistory(editor.state.tr))
   return true
 }

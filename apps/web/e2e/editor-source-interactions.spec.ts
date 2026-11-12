@@ -16,7 +16,7 @@ function runEditorBusiness(payload: Record<string, unknown> = {}) {
   }))
 }
 
-async function openCanvas(page: Page) {
+async function openCanvas(page: Page, precedingParagraphs = 0) {
   // 仅为浏览器夹具模拟桌面 IPC；所有业务请求仍走实际账号会话传输。
   await page.addInitScript(() => {
     let callbackId = 0
@@ -50,6 +50,7 @@ async function openCanvas(page: Page) {
     source_snapshot_hash: "sha256:seed", node_map: [], module_anchors: [],
     created_at: "2026-11-02T00:00:00Z", updated_at: "2026-11-02T00:00:00Z",
     doc_json: { type: "doc", content: [
+      ...Array.from({ length: precedingParagraphs }, (_, index) => paragraph(`第 ${index + 1} 段项目经历，用于构造多页简历并检查输入时的滚动位置。`)),
       { type: "heading", attrs: { level: 2 }, content: [text("项目背景")] },
       paragraph("面向 ETC 业务人员，解决在处理错误码、页面报错及办理问题时依赖微信群人工求助。"),
       { type: "paragraph", content: [text("需求背景", true)] },
@@ -88,6 +89,37 @@ async function openCanvas(page: Page) {
   await page.getByRole("link", { name: "打开简历 源码交互验收", exact: true }).click()
   await expect(page.locator(".td-rich-editor-prosemirror h2")).toHaveText("项目背景")
 }
+
+test("在多页简历的正文光标处逐字输入时保持画布位置", async ({ page }) => {
+  await openCanvas(page, 80)
+  const editor = page.locator(".td-rich-editor-prosemirror")
+  await expect(editor.locator(".rm-page-break").nth(2)).toBeAttached()
+  const paragraph = editor.locator("p").filter({ hasText: "面向 ETC" })
+  const offset = 27
+  const point = await paragraph.evaluate((element, offset) => {
+    const viewport = element.closest(".td-editor-print-wrapper")!
+    viewport.scrollTop += element.getBoundingClientRect().top - viewport.getBoundingClientRect().top - viewport.clientHeight / 2
+    const range = document.createRange()
+    range.setStart(element.firstChild!, offset)
+    range.collapse(true)
+    const rect = range.getBoundingClientRect()
+    return { x: rect.x, y: rect.top + rect.height / 2 }
+  }, offset)
+  const originalText = (await paragraph.textContent())!
+  await page.mouse.click(point.x, point.y)
+  const source = editor.locator("[data-markdown-source-input]")
+  await expect(source).toBeFocused()
+  const getScrollTop = () => source.evaluate((input) => input.closest(".td-editor-print-wrapper")!.scrollTop)
+  const initialScrollTop = await getScrollTop()
+  expect(initialScrollTop).toBeGreaterThan(1000)
+  let inserted = ""
+  for (const key of ["a", "b", "c"]) {
+    await page.keyboard.press(key)
+    inserted += key
+    await expect(source).toHaveValue(originalText.slice(0, offset) + inserted + originalText.slice(offset))
+    expect(await getScrollTop()).toBe(initialScrollTop)
+  }
+})
 
 test("keeps the clicked Chinese caret and paragraph spacing when revealing source", async ({ page }) => {
   await openCanvas(page)

@@ -391,6 +391,8 @@ export const MarkdownSourceEditing = Extension.create({
         try {
           const changed = applyDocumentChange(editor, projected.before, projected.after, crypto.randomUUID(), [], [], {
             historyBoundary: false,
+            // 光标在源码输入框里，ProseMirror 选区指向隐藏的正文。
+            scrollToSelection: false,
             configureTransaction: (transaction) => transaction.setMeta(markdownSourceKey, projected.session),
           })
           if (!changed) view.dispatch(view.state.tr.setMeta(markdownSourceKey, projected.session))
