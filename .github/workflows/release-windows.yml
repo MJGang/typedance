@@ -28,7 +28,10 @@ jobs:
         with:
           node-version: "24"
 
+      # Rust 1.100 fails to start the packaged account migration subprocess.
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.99.1"
 
       - uses: Swatinem/rust-cache@v2
         with:

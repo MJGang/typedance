@@ -59,6 +59,8 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         if: github.ref == 'refs/heads/main' && steps.plan.outputs.runtime == 'true'
+        with:
+          toolchain: "1.99.1"
 
       - name: Restore shared release Rust cache
         if: github.ref == 'refs/heads/main' && steps.plan.outputs.runtime == 'true'
