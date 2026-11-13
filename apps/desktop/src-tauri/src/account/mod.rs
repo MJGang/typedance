@@ -347,6 +347,12 @@ impl AccountManager {
     }
 
     async fn report_startup_error(&self, app: &AppHandle, error: String) {
+        if std::env::var_os("TYPEDANCE_RELEASE_SMOKE_EXIT_AFTER_MS").is_some() {
+            eprintln!(
+                "Smoke account startup error (shutdown={}): {error}",
+                self.shutting_down.load(Ordering::SeqCst)
+            );
+        }
         let mut state = self.inner.lock().await;
         state.view.can_login = state
             .current

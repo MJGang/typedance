@@ -337,6 +337,13 @@ pub(crate) async fn run_offline(
         .await
         .map_err(|_| "资料迁移进程未能启动，原资料已保留。")?;
     if !output.status.success() {
+        if std::env::var_os("TYPEDANCE_RELEASE_SMOKE_EXIT_AFTER_MS").is_some() {
+            eprintln!(
+                "Smoke offline migration exited with {}: {}",
+                output.status.code().unwrap_or_default(),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
         return Err("资料迁移未完成，原资料已保留。请关闭旧客户端后重试。".into());
     }
     Ok(())
