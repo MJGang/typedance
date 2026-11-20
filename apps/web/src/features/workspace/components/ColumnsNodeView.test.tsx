@@ -146,6 +146,28 @@ describe("ColumnsNodeView", () => {
     expect(screen.queryByText("乙")).not.toBeInTheDocument()
   })
 
+  it("keeps the column menu open inside the layout and dismisses it on an outside click", async () => {
+    renderColumnsEditor(vi.fn(), true, {
+      ...columnsDoc,
+      content: [
+        ...(columnsDoc.content ?? []),
+        { type: "paragraph", content: [{ type: "text", text: "分栏外的正文" }] },
+      ],
+    })
+    const columnText = await screen.findByText("左栏")
+    const grip = columnButton("拖动第 1 栏")
+
+    fireEvent.click(grip)
+    fireEvent.pointerDown(columnText)
+    expect(grip).toHaveAttribute("aria-expanded", "true")
+    expect(grip).toHaveAttribute("data-active", "true")
+
+    fireEvent.pointerDown(screen.getByText("分栏外的正文"))
+    expect(grip).toHaveAttribute("aria-expanded", "false")
+    expect(grip).not.toHaveAttribute("data-active")
+    expect(grip.parentElement?.querySelector(".td-column-delete")).toBeNull()
+  })
+
   it("clears the deleted last column's hover highlight", async () => {
     renderColumnsEditor(vi.fn(), true, threeColumnsDoc)
     await screen.findByText("丙")

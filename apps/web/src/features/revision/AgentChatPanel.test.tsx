@@ -4,6 +4,7 @@ import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AgentMessage, ContextSource } from "@typedance/contracts"
 import { AgentChatPanel } from "./AgentChatPanel"
+import { EditorReferencesProvider } from "./references/EditorReferences"
 import { captureAccountSession, pauseAccountWork, resumeAccountWork, setAccountSession } from "@/accountSession"
 import { testAccountSession } from "@/test/accountFixture"
 
@@ -143,6 +144,30 @@ describe("AgentChatPanel", () => {
     expect(await screen.findByText("普通历史回答")).toBeVisible()
     expect(screen.queryByText("正在处理")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /^(已处理|已完成|深度思考)/ })).not.toBeInTheDocument()
+  })
+
+  it("lets users select assistant text without offering to add it as a reference", async () => {
+    agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage("可复制的回答")])
+    render(
+      <EditorReferencesProvider documentId="doc_1">
+        <AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />
+      </EditorReferencesProvider>,
+    )
+    const answer = await screen.findByText("可复制的回答")
+    const selection = window.getSelection()!
+    const range = document.createRange()
+    range.selectNodeContents(answer)
+    range.getBoundingClientRect = () => new DOMRect(40, 40, 80, 20)
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    try {
+      fireEvent.mouseUp(answer)
+      expect(selection.toString()).toBe("可复制的回答")
+      expect(screen.queryByLabelText("引用选中文字")).not.toBeInTheDocument()
+    } finally {
+      selection.removeAllRanges()
+    }
   })
 
   it("resumes the latest recoverable run without sending or clearing the current draft", async () => {

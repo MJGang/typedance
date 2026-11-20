@@ -53,6 +53,20 @@ export function ColumnControls({ editor, getPos, containerRef, count, gridTempla
     setMenuOpenIndex(null)
   }, [count])
 
+  useEffect(() => {
+    const columns = containerRef.current
+    if (menuOpenIndex === null || !columns) return
+
+    const dismissOutside = (event: globalThis.PointerEvent) => {
+      if (event.target instanceof Node && !columns.contains(event.target)) {
+        setMenuOpenIndex(null)
+        setFocusedIndex(null)
+      }
+    }
+    columns.ownerDocument.addEventListener("pointerdown", dismissOutside, true)
+    return () => columns.ownerDocument.removeEventListener("pointerdown", dismissOutside, true)
+  }, [containerRef, menuOpenIndex])
+
   const getColumnElements = useCallback(() => {
     const root = containerRef.current
     if (!root) return []

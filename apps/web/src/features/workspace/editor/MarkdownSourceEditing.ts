@@ -29,9 +29,9 @@ function visibleSource(session: SourceSession) {
 export const markdownSourceKey = new PluginKey<SourceSession | null>("markdownSourceEditing")
 export const MARKDOWN_SOURCE_SELECTION_EVENT = "typedance:markdown-source-selection"
 
-export function markdownSourceSelectionRect(editor: Editor): DOMRect | undefined {
+export function activeMarkdownSourceInput(editor: Editor): HTMLTextAreaElement | undefined {
   const input = editor.view.dom.querySelector<HTMLTextAreaElement>("[data-markdown-source-input]")
-  if (input && input.ownerDocument.activeElement === input && markdownSourceKey.getState(editor.state)) return input.getBoundingClientRect()
+  if (input && input.ownerDocument.activeElement === input && markdownSourceKey.getState(editor.state)) return input
 }
 
 function jsonAt(doc: JSONContent, path: number[]): JSONContent {

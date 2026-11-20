@@ -60,18 +60,15 @@ describe("captureCanvasPrintSnapshot", () => {
     expect(editor.querySelector("[data-rm-pagination-ignore]")).not.toBeNull()
   })
 
-  it("omits reference numbers and highlights while retaining the document text and its own formatting", () => {
+  it("retains the document text and its own formatting", () => {
     const editor = document.createElement("div")
     editor.style.cssText = "width:794px;--rm-page-height:1123px"
-    editor.innerHTML = '<p><span data-editor-reference-marker="ref">3</span><span data-editor-reference-highlight="ref" class="td-editor-reference-highlight bg-primary/15 rounded-sm" style="background-color:tan"><strong style="background-color:yellow">原有加粗和底色</strong></span></p>'
+    editor.innerHTML = '<p><strong style="background-color:yellow">原有加粗和底色</strong></p>'
     document.body.append(editor)
     vi.spyOn(editor, "getBoundingClientRect").mockReturnValue({ top: 0, width: 794 } as DOMRect)
     const exported = document.createElement("div")
     exported.innerHTML = captureCanvasPrintSnapshot(editor).html
     expect(exported.textContent).toBe("原有加粗和底色")
-    expect(exported.querySelector("p > span")?.getAttribute("style")).toContain("background-color: transparent")
     expect(exported.querySelector("strong")?.style.backgroundColor).toBe("rgb(255, 255, 0)")
-    expect(exported.innerHTML).not.toMatch(/data-editor-reference|td-editor-reference|bg-primary/)
-    expect(editor.querySelector("[data-editor-reference-marker]")).not.toBeNull()
   })
 })

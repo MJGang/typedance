@@ -30,7 +30,7 @@ function Bridge({ bridge }: { bridge: CanvasReferenceBridge }) {
 function setup(value = request, active = true, changed = true) {
   vi.mocked(flushSourceCanvasSaves).mockResolvedValue(true)
   const bridge: CanvasReferenceBridge = { getSnapshot: vi.fn(async () => snapshot), getRevision: () => 3,
-    apply: vi.fn(() => changed), undo: vi.fn(() => true), track: vi.fn(), untrack: vi.fn(), setOrdinals: vi.fn(), locate: () => false }
+    apply: vi.fn(() => changed), undo: vi.fn(() => true), track: vi.fn(), untrack: vi.fn(), locate: () => false }
   vi.mocked(getEditorRequest).mockResolvedValue(value)
   vi.mocked(beginEditorRequest).mockResolvedValue(value)
   vi.mocked(respondToEditorRequest).mockResolvedValue(undefined)

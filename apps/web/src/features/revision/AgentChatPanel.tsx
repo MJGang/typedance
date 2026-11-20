@@ -10,7 +10,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import { cn } from "@/lib/utils"
 import { useEditorReferences } from "./references/EditorReferences"
 import { ReferenceComposer, MessageReferences } from "./references/ReferenceComposer"
-import { MessageReferenceSelection } from "./references/MessageReferenceSelection"
 import { EditorRequestCard, editorRequests } from "./EditorRequestCard"
 import { ChatAttachments } from "./ChatAttachments"
 import { AgentInteraction, runtimeEvent } from "./AgentInteraction"
@@ -838,7 +837,7 @@ const ChatMessage = memo(function ChatMessage({
 
   const renderItem = (item: RunTraceItem) => {
     if (item.kind === "tool") return <ToolTraceItemView key={item.id} tool={item} />
-    if (item.kind === "assistant") return <AssistantSegment key={item.id} id={item.id} messageId={message.id} text={item.text} />
+    if (item.kind === "assistant") return <AssistantSegment key={item.id} id={item.id} text={item.text} />
     if (item.kind === "user") {
       const steering = steeringMessages.find((candidate) => candidate.id === item.messageId)
       return steering ? <div key={item.id} className="flex flex-col gap-1">
@@ -884,7 +883,7 @@ const ChatMessage = memo(function ChatMessage({
             </CollapsibleContent>
           </Collapsible>
         ))}
-        {!hasSegments && message.content ? <AssistantSegment id={message.id} messageId={message.id} text={message.content} /> : null}
+        {!hasSegments && message.content ? <AssistantSegment id={message.id} text={message.content} /> : null}
         {terminal?.payload.recoverable === true && onResume && message.run_id ? <Button variant="outline" size="sm" className="self-start" onClick={() => onResume(message.run_id!)}>继续任务</Button> : null}
       </>}
     </article>
@@ -906,11 +905,9 @@ function RunProcessHeader({ label, startedAt, completedAt, expanded, controls, o
   </Button>
 }
 
-const AssistantSegment = memo(function AssistantSegment({ id, messageId, text }: { id: string; messageId: string; text: string }) {
+const AssistantSegment = memo(function AssistantSegment({ id, text }: { id: string; text: string }) {
   return <div data-agent-segment-id={id} className="min-w-0 max-w-none">
-    <MessageReferenceSelection messageId={messageId}>
-      <ReactMarkdown skipHtml remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>{text}</ReactMarkdown>
-    </MessageReferenceSelection>
+    <ReactMarkdown skipHtml remarkPlugins={[remarkGfm]} components={assistantMarkdownComponents}>{text}</ReactMarkdown>
   </div>
 })
 

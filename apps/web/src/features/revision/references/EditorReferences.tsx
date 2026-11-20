@@ -12,7 +12,6 @@ export type CanvasReferenceBridge = {
   getSnapshot: (includePrint?: boolean) => Promise<EditorSnapshot>
   track: (reference: EditorReference) => void
   untrack: (id: string) => void
-  setOrdinals: (ordinals: Pick<EditorReference, "id" | "ordinal">[]) => void
   locate: (reference: EditorReference) => boolean
   apply: (transaction: EditorTransaction) => boolean
   undo: () => boolean
@@ -63,17 +62,13 @@ export function EditorReferencesProvider({ documentId, children, onReferenceAdde
   onAdded.current = onReferenceAdded
 
   const commitPending = useCallback((items: PendingReference[]) => {
-    const ordinals: Pick<EditorReference, "id" | "ordinal">[] = []
     const next = items.map((item, index) => {
       const latest = known.current.get(item.reference.id) ?? item
-      const ordinal = index + 1
-      if (latest.reference.source.kind === "canvas" && latest.reference.ordinal !== ordinal) ordinals.push({ id: latest.reference.id, ordinal })
-      const updated = { ...latest, reference: { ...latest.reference, ordinal } }
+      const updated = { ...latest, reference: { ...latest.reference, ordinal: index + 1 } }
       known.current.set(updated.reference.id, updated)
       return updated
     })
     pendingRef.current = next
-    if (ordinals.length) canvas.current?.setOrdinals(ordinals)
     setPending(next)
   }, [])
   const registerCanvas = useCallback((bridge: CanvasReferenceBridge) => {

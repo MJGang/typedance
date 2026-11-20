@@ -221,17 +221,13 @@ describe("document editing transaction", () => {
     expectTracked(editor, original.text)
   })
 
-  it("does not resurrect removed references and keeps newer marker numbers when undo restores an anchor", () => {
+  it("does not resurrect removed references when undo restores the document", () => {
     const editor = setup(paragraphs("原文引用内容"))
     track(editor, "原文引用内容")
     const change = transaction(editor, (doc) => { doc.content[0].content[0].text = "AI修改" })
     applyEditorTransaction(editor, "doc", "session", change)
-    editor.view.dispatch(editor.state.tr.setMeta(referenceTrackerKey, { type: "renumber", ordinals: [{ id: "ref", ordinal: 3 }] }))
-    editor.commands.undo()
-    expect(expectTracked(editor, "原文引用内容").ordinal).toBe(3)
-    editor.commands.redo()
     editor.view.dispatch(editor.state.tr.setMeta(referenceTrackerKey, { type: "remove", id: "ref" }))
-    editor.commands.undo()
+    expect(editor.commands.undo()).toBe(true)
     expect(referenceTrackerKey.getState(editor.state)!.references).toEqual([])
   })
 

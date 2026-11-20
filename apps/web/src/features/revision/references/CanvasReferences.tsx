@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import type { Editor } from "@tiptap/core"
-import type { Transaction } from "@tiptap/pm/state"
+import { TextSelection, type Transaction } from "@tiptap/pm/state"
 import type { EditorReference, TemplateStyleConfig } from "@typedance/contracts"
 import { toast } from "sonner"
 import { useEditorReferences, type CanvasReferenceBridge } from "./EditorReferences"
@@ -9,7 +9,7 @@ import { ReferenceSelectionPopover } from "./ReferenceSelectionPopover"
 import { prepareCanvasPrintSnapshot } from "../canvasPrintSnapshot"
 import { applyEditorTransaction } from "../editorTransaction"
 import { sameTemplateStyle } from "../documentLayout"
-import { MARKDOWN_SOURCE_SELECTION_EVENT, markdownSourceSelectionRect } from "../../workspace/editor/MarkdownSourceEditing"
+import { activeMarkdownSourceInput, MARKDOWN_SOURCE_SELECTION_EVENT } from "../../workspace/editor/MarkdownSourceEditing"
 
 type CanvasSelection = Pick<EditorReference, "text" | "label" | "source"> & { rect: DOMRect; key: string }
 
@@ -22,6 +22,22 @@ function selectionLabel(editor: Editor, position: number) {
     else if (node.isTextblock) paragraph++
   })
   return `${title.slice(0, 130)} · 第 ${Math.max(1, paragraph)} 段`
+}
+
+function collapseCanvasSelection(editor: Editor) {
+  const sourceInput = activeMarkdownSourceInput(editor)
+  if (sourceInput) {
+    const caret = sourceInput.selectionDirection === "backward" ? sourceInput.selectionStart : sourceInput.selectionEnd
+    sourceInput.setSelectionRange(caret, caret)
+  }
+  const { empty, $head } = editor.state.selection
+  if (!empty) editor.view.dispatch(editor.state.tr.setSelection(TextSelection.between($head, $head)))
+
+  const dom = editor.view.dom
+  const nativeSelection = dom.ownerDocument.getSelection()
+  if (nativeSelection && !nativeSelection.isCollapsed && dom.contains(nativeSelection.anchorNode) && dom.contains(nativeSelection.focusNode)) {
+    nativeSelection.removeAllRanges()
+  }
 }
 
 export function CanvasReferences({ editor, canvasVersion, templateStyle }: { editor: Editor | null; canvasVersion: number; templateStyle: TemplateStyleConfig }) {
@@ -53,7 +69,6 @@ export function CanvasReferences({ editor, canvasVersion, templateStyle }: { edi
       getRevision: () => getState()?.revision ?? 0,
       track: (reference) => editor.view.dispatch(editor.state.tr.setMeta(referenceTrackerKey, { type: "add", reference })),
       untrack: (id) => editor.view.dispatch(editor.state.tr.setMeta(referenceTrackerKey, { type: "remove", id })),
-      setOrdinals: (ordinals) => editor.view.dispatch(editor.state.tr.setMeta(referenceTrackerKey, { type: "renumber", ordinals })),
       locate: (reference) => {
         if (reference.source.kind !== "canvas") return false
         const source = getState()?.references.find((item) => item.id === reference.id)?.source ?? reference.source
@@ -80,7 +95,7 @@ export function CanvasReferences({ editor, canvasVersion, templateStyle }: { edi
     let alive = true
     const capture = () => {
       if (!alive || editor.isDestroyed || dragging) return
-      const sourceRect = markdownSourceSelectionRect(editor)
+      const sourceRect = activeMarkdownSourceInput(editor)?.getBoundingClientRect()
       if (!editor.isFocused && !sourceRect) return
       const { from, to, empty, $from } = editor.state.selection
       if (empty) { setSelection(null); return }
@@ -129,10 +144,11 @@ export function CanvasReferences({ editor, canvasVersion, templateStyle }: { edi
     }
   }, [editor, documentId])
 
-  if (!context || context.preview || !selection) return null
+  if (!context || context.preview || !editor || !selection) return null
   return <ReferenceSelectionPopover key={selection.key} rect={selection.rect} onClose={() => setSelection(null)} onAdd={(comment) => {
     if (selection.text.length > 4000) { toast.error("每处引用最多 4000 字，请缩小选择范围。"); return }
     context.add({ text: selection.text, label: selection.label, source: selection.source, comment })
+    if (!editor.isDestroyed) collapseCanvasSelection(editor)
     setSelection(null)
   }} />
 }
