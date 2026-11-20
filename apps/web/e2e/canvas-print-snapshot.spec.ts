@@ -154,7 +154,7 @@ test("预览控件位于原顶栏，开关预览时顶栏和滚动容器高度�
   await expect(titlebar.getByRole("radio", { name: "只读" })).toBeChecked()
   const edit = titlebar.getByRole("radio", { name: "编辑" })
   await expect(edit).toBeDisabled()
-  await titlebar.locator('[data-slot="tooltip-trigger"]').filter({ has: edit }).hover()
+  await edit.locator("..").hover()
   await expect(page.getByRole("tooltip")).toHaveText("预览场景下为只读模式，不可编辑")
   await expect(page.getByLabel("修改后的简历预览")).toBeVisible()
   await expect(scroller).toHaveCount(1)
@@ -223,7 +223,7 @@ test("只读时可跨段复制纯文本，且退出 AI 预览后保留文档模�
   await page.mouse.move(drag.endX, drag.endY, { steps: 10 })
   await page.mouse.up()
   await page.keyboard.press("Control+c")
-  const clipboardText = () => page.evaluate(() => navigator.clipboard.readText())
+  const clipboardText = () => page.evaluate(async () => (await navigator.clipboard.readText()).replace(/\r\n/g, "\n"))
   await expect.poll(clipboardText).toMatch(/Experience 1:[^\n]+\n+Experience 2:/)
   expect(await page.evaluate(async () => (await navigator.clipboard.read()).flatMap((item) => item.types))).toEqual(["text/plain"])
 
