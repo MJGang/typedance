@@ -84,6 +84,11 @@ export async function beginEditorRequest(runId: string, requestId: string): Prom
   const response = await agentHostFetch(`/agent-runs/${encodeURIComponent(runId)}/editor-requests/${encodeURIComponent(requestId)}/execute`, { method: "POST", signal: AbortSignal.timeout(30_000) })
   return parseAgentHostResponse(response, (value) => editorRequestSchema.parse(value), "当前修改已无法应用")
 }
+
+export async function deferEditorRequest(runId: string, requestId: string): Promise<void> {
+  const response = await agentHostFetch(`/agent-runs/${encodeURIComponent(runId)}/editor-requests/${encodeURIComponent(requestId)}/defer`, { method: "POST", signal: AbortSignal.timeout(30_000) })
+  await parseAgentHostResponse(response, (value) => editorRequestSchema.parse(value), "无法将修改转为待确认")
+}
 export async function listWorkspaceConversations(workspaceId: string, signal?: AbortSignal): Promise<AgentConversation[]> {
   const response = await agentHostFetch(`/workspaces/${encodeURIComponent(workspaceId)}/conversations`, { signal })
   return parseAgentHostResponse(

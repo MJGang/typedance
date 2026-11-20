@@ -522,7 +522,7 @@ function AgentChatContent({
         mentions: resumeFromRunId ? [] : mentions,
         ...(!resumeFromRunId && attachments.length ? { attachments } : {}),
         ...(!resumeFromRunId && editorPayload?.references.length ? { references: editorPayload.references } : {}),
-        mutationMode,
+        mutationMode: mutationMode === "solo" && editorReferences?.isDocumentReadOnly() ? "review" : mutationMode,
         ...(resumeFromRunId ? { resumeFromRunId } : {}),
         context: { document_id: workspaceId, ...(editorPayload?.snapshot ? { editor_snapshot: editorPayload.snapshot } : {}) },
       }
@@ -750,7 +750,7 @@ function AgentChatContent({
               <Button variant="ghost" size="icon-sm" aria-label="添加" title="添加图片或文件" disabled={sending || attachmentLoading} onClick={() => attachmentPicker.current?.click()}>
                 <Plus className="size-4" />
               </Button>
-              <MutationModeMenu value={mutationMode} onChange={setMutationMode} />
+              <MutationModeMenu value={mutationMode} readOnly={editorReferences?.documentReadOnly === true} onChange={setMutationMode} />
             </div>
             <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-1.5">
               <ChatModelMenu disabled={sending} running={!!runningRunId} />
@@ -1030,6 +1030,7 @@ function useElapsedMs(startedAt: string, completedAt?: string): number {
 function buildRunTraceItems(events: AgentRunEvent[]): RunTraceItem[] {
   const items: RunTraceItem[] = []
   const toolStarts = new Map<string, AgentRunEvent>()
+  const editorRequestIds = new Set<string>()
   let thinkingItem: Extract<RunTraceItem, { kind: "thinking" }> | undefined
 
   for (const event of events) {
@@ -1073,7 +1074,10 @@ function buildRunTraceItems(events: AgentRunEvent[]): RunTraceItem[] {
       continue
     }
     if (event.type === "editor_request") {
-      items.push({ id: event.id, kind: "editor", requestId: getRecordString(event.payload.request, "id") ?? "" })
+      const requestId = getRecordString(event.payload.request, "id")
+      if (!requestId || editorRequestIds.has(requestId)) continue
+      editorRequestIds.add(requestId)
+      items.push({ id: event.id, kind: "editor", requestId })
       continue
     }
     if (event.type === "attachments_read") {
@@ -1150,9 +1154,11 @@ function buildRunTraceItems(events: AgentRunEvent[]): RunTraceItem[] {
 
 function MutationModeMenu({
   value,
+  readOnly,
   onChange,
 }: {
   value: CanvasMutationMode
+  readOnly: boolean
   onChange: (value: CanvasMutationMode) => void
 }) {
   const handleChange = (nextValue: CanvasMutationMode) => {
@@ -1162,13 +1168,14 @@ function MutationModeMenu({
     }
     onChange(nextValue)
   }
+  const label = readOnly && value === "solo" ? "只读 · 自动修改已暂停" : mutationModeLabels[value]
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs" aria-label={mutationModeLabels[value]} title={mutationModeLabels[value]}>
+        <Button variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs" aria-label={label} title={label}>
           <ShieldCheck className="size-3.5" />
-          <span className="hidden @min-[480px]/chat:inline">{mutationModeLabels[value]}</span>
+          <span className="hidden @min-[480px]/chat:inline">{label}</span>
           <ChevronDown className="hidden @min-[480px]/chat:inline" />
         </Button>
       </DropdownMenuTrigger>
@@ -1188,7 +1195,8 @@ function MutationModeMenu({
         <ModeItem
           active={value === "solo"}
           title="自动修改"
-          description="允许 AI 直接修改当前画布"
+          description={readOnly ? "切回编辑后可自动修改" : "允许 AI 直接修改当前画布"}
+          disabled={readOnly}
           onSelect={() => handleChange("solo")}
         />
         <p className="px-2 py-1.5 text-xs leading-5 text-muted-foreground">本地文件、文件夹和网页链接始终只读。</p>
@@ -1201,15 +1209,17 @@ function ModeItem({
   active,
   title,
   description,
+  disabled,
   onSelect,
 }: {
   active: boolean
   title: string
   description: string
+  disabled?: boolean
   onSelect: () => void
 }) {
   return (
-    <DropdownMenuItem className="items-start gap-2" onSelect={onSelect}>
+    <DropdownMenuItem className="items-start gap-2" disabled={disabled} onSelect={onSelect}>
       <span className={cn("mt-1 size-2 rounded-full", active ? "bg-primary" : "bg-transparent")} />
       <span>
         <span className="block text-sm">{title}</span>

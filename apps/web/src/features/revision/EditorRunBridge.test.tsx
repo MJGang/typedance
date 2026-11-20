@@ -3,13 +3,13 @@ import { useEffect, useState } from "react"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { EditorRequest, EditorSnapshot } from "@typedance/contracts"
-import { createAgentRunEventSource, getConversationActiveRun, getEditorRequest, listAgentRunEvents, respondToEditorRequest } from "@/agentHost"
+import { createAgentRunEventSource, deferEditorRequest, getConversationActiveRun, getEditorRequest, listAgentRunEvents, respondToEditorRequest } from "@/agentHost"
 import { EditorRunBridge } from "./EditorRunBridge"
 import { EditorReferencesProvider, useEditorReferences, type CanvasReferenceBridge } from "./references/EditorReferences"
 import { installTestAccountSession } from "@/test/accountFixture"
 import { setAccountSaveOnly } from "@/accountSession"
 
-vi.mock("@/agentHost", () => ({ createAgentRunEventSource: vi.fn(), getConversationActiveRun: vi.fn(), getEditorRequest: vi.fn(), listAgentRunEvents: vi.fn(), respondToEditorRequest: vi.fn() }))
+vi.mock("@/agentHost", () => ({ createAgentRunEventSource: vi.fn(), deferEditorRequest: vi.fn(), getConversationActiveRun: vi.fn(), getEditorRequest: vi.fn(), listAgentRunEvents: vi.fn(), respondToEditorRequest: vi.fn() }))
 vi.mock("./useSourceCanvasAutosave", () => ({ flushSourceCanvasSaves: async () => true }))
 const snapshot: EditorSnapshot = { document_id: "doc", editor_session_id: "new", content_revision: 0, canvas_version: 1,
   doc_json: { type: "doc", content: [] }, plain_text: "current canvas" }
@@ -17,9 +17,9 @@ const read: EditorRequest = { id: "read", document_id: "doc", editor_session_id:
 const onCompleted = vi.fn()
 
 function Canvas({ bridge }: { bridge: CanvasReferenceBridge }) {
-  const register = useEditorReferences()!.registerCanvas
+  const { registerCanvas: register, setDocumentReadOnly } = useEditorReferences()!
   useEffect(() => register(bridge), [register, bridge])
-  return null
+  return <><button onClick={() => setDocumentReadOnly(true)}>锁定正文</button><button onClick={() => setDocumentReadOnly(false)}>解锁正文</button></>
 }
 function Workspace({ bridge, revision = 0 }: { bridge: CanvasReferenceBridge; revision?: number }) {
   const [selected, setSelected] = useState("running chat")
@@ -42,6 +42,7 @@ function setup() {
 beforeEach(async () => {
   await installTestAccountSession()
   vi.resetAllMocks()
+  localStorage.clear()
   vi.mocked(getConversationActiveRun).mockResolvedValue({ id: "run", conversation_id: "conv", status: "running" } as Awaited<ReturnType<typeof getConversationActiveRun>>)
   vi.mocked(listAgentRunEvents).mockResolvedValue([])
   vi.mocked(getEditorRequest).mockResolvedValue(read)
@@ -50,6 +51,28 @@ beforeEach(async () => {
 afterEach(cleanup)
 
 describe("workspace editor execution", () => {
+  it("defers an in-flight automatic write after the canvas is locked and later unlocked", async () => {
+    let finishRequest!: (value: EditorRequest) => void
+    vi.mocked(getEditorRequest).mockImplementationOnce(() => new Promise((resolve) => { finishRequest = resolve }))
+    const { bridge, dispatch } = setup()
+    await waitFor(() => expect(createAgentRunEventSource).toHaveBeenCalled())
+    const transaction: EditorRequest = { ...read, id: "deferred-write", editor_session_id: "new", kind: "transaction", mode: "solo", transaction: {
+      id: "deferred-tx", document_id: "doc", editor_session_id: "new", content_revision: 0,
+      before_doc_json: snapshot.doc_json, doc_json: snapshot.doc_json, catalog_revision: "current",
+      summary: "deferred write", effects: [], node_origins: [], text_origins: [],
+    } }
+    dispatch(transaction)
+    await waitFor(() => expect(getEditorRequest).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole("button", { name: "锁定正文" }))
+    fireEvent.click(screen.getByRole("button", { name: "解锁正文" }))
+    await act(async () => { finishRequest(transaction) })
+    expect(deferEditorRequest).toHaveBeenCalledExactlyOnceWith("run", transaction.id)
+    expect(bridge.apply).not.toHaveBeenCalled()
+
+    dispatch(read)
+    await waitFor(() => expect(respondToEditorRequest).toHaveBeenCalledWith("run", read.id, { status: "snapshot", snapshot }))
+  })
+
   it("does not apply a fetched request that resolves after account activities pause", async () => {
     let finishRequest!: (value: EditorRequest) => void
     vi.mocked(getEditorRequest).mockImplementation(() => new Promise((resolve) => { finishRequest = resolve }))

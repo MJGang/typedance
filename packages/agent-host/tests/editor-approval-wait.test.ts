@@ -57,6 +57,28 @@ describe("manual editor approval waiting", () => {
     expect(() => session.pending(latest())).toThrow("已结束");
   });
 
+  it("keeps a deferred automatic write pending for manual confirmation", async () => {
+    vi.useFakeTimers();
+    const { session, events, latest } = setup("solo");
+    const result = session.apply(transaction);
+    const id = latest();
+    expect(session.pending(id).mode).toBe("solo");
+    expect(session.deferExecution(id)).toMatchObject({ id, mode: "review", transaction });
+    session.deferExecution(id);
+    expect(events.map((event) => event.type)).toEqual(["editor_request", "editor_request"]);
+    await vi.advanceTimersByTimeAsync(300_001);
+    expect(() => session.respond(id, { status: "applied", snapshot })).toThrow("先确认");
+    session.beginExecution(id);
+    session.respond(id, { status: "applied", snapshot, persisted: true });
+    await expect(result).resolves.toMatchObject({ status: "applied" });
+
+    const next = session.apply(transaction);
+    expect(session.pending(latest()).mode).toBe("review");
+    session.respond(latest(), { status: "rejected" });
+    await expect(next).resolves.toEqual({ status: "rejected" });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("can reject or cancel an old manual proposal without starting execution", async () => {
     vi.useFakeTimers();
     const first = setup();

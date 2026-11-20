@@ -20,6 +20,9 @@ export type CanvasReferenceBridge = {
 
 type EditorReferencesValue = {
   documentId: string
+  documentReadOnly: boolean
+  isDocumentReadOnly: () => boolean
+  setDocumentReadOnly: (readOnly: boolean) => void
   pending: PendingReference[]
   preview: EditorTransaction | null
   togglePreview: (transaction: EditorTransaction) => void
@@ -34,7 +37,7 @@ type EditorReferencesValue = {
   consume: (ids: string[]) => void
   getPayload: () => Promise<{ references: EditorReference[]; snapshot?: EditorSnapshot }>
   locate: (reference: EditorReference) => void
-  handleRequest: (request: EditorRequest, approved: boolean) => Promise<EditorResponse>
+  handleRequest: (request: EditorRequest, approved: boolean, requireReview?: boolean) => Promise<EditorResponse | null>
   completeRequest: (requestId: string) => void
   undo: (previewId: string) => boolean
 }
@@ -46,6 +49,26 @@ export function useEditorReferences() {
 }
 
 export function EditorReferencesProvider({ documentId, children, onReferenceAdded }: { documentId: string; children: ReactNode; onReferenceAdded?: () => void }) {
+  const modeStorageKey = `typedance:document-read-only:${documentId}`
+  const [documentReadOnly, setReadOnly] = useState(() => {
+    try {
+      return localStorage.getItem(modeStorageKey) === "true"
+    } catch {
+      return false
+    }
+  })
+  const readOnlyRef = useRef(documentReadOnly)
+  const isDocumentReadOnly = useCallback(() => readOnlyRef.current, [])
+  const setDocumentReadOnly = useCallback((readOnly: boolean) => {
+    readOnlyRef.current = readOnly
+    setReadOnly(readOnly)
+    try {
+      if (readOnly) localStorage.setItem(modeStorageKey, "true")
+      else localStorage.removeItem(modeStorageKey)
+    } catch {
+      // The current document still uses the selected mode when storage is unavailable.
+    }
+  }, [modeStorageKey])
   const [pending, setPending] = useState<PendingReference[]>([])
   const [preview, setPreview] = useState<EditorTransaction | null>(null)
   const togglePreview = useCallback((transaction: EditorTransaction) => {
@@ -144,9 +167,11 @@ export function EditorReferencesProvider({ documentId, children, onReferenceAdde
     if (target) target.scrollIntoView({ block: "center", behavior: "smooth" })
     else toast.message("这条引用来自其他对话，原文仍保留在引用卡片中。")
   }, [])
-  const handleRequest = useCallback((request: EditorRequest, approved: boolean): Promise<EditorResponse> => {
+  const handleRequest = useCallback((request: EditorRequest, approved: boolean, requireReview = false): Promise<EditorResponse | null> => {
     const previous = completedRequests.current.get(request.id)
     if (previous) return previous
+    if (request.document_id === documentId && request.kind === "transaction" && approved
+      && (readOnlyRef.current || requireReview)) return Promise.resolve(null)
     const task = (async (): Promise<EditorResponse> => {
       const bridge = canvas.current
       if (!bridge || request.document_id !== documentId) return { status: "failed", error: "当前画布不可用或已切换" }
@@ -193,6 +218,7 @@ export function EditorReferencesProvider({ documentId, children, onReferenceAdde
   }, [documentId])
   const completeRequest = useCallback((requestId: string) => { completedRequests.current.delete(requestId) }, [])
   const undo = useCallback((previewId: string) => {
+    if (readOnlyRef.current) return false
     const application = applications.current.get(previewId)
     if (!canvas.current || application?.bridge !== canvas.current || application.revision !== canvas.current.getRevision()) {
       toast.message("已有后续编辑，请使用编辑器的撤销操作。")
@@ -202,7 +228,7 @@ export function EditorReferencesProvider({ documentId, children, onReferenceAdde
     if (undone) setPreview(current => current?.id === previewId ? null : current)
     return undone
   }, [])
-  const value = useMemo(() => ({ documentId, pending, preview, togglePreview, closePreview, registerCanvas, registerComposer, updateTracked, add, editComment, remove, clear, consume, getPayload, locate, handleRequest, completeRequest, undo }),
-    [documentId, pending, preview, togglePreview, closePreview, registerCanvas, registerComposer, updateTracked, add, editComment, remove, clear, consume, getPayload, locate, handleRequest, completeRequest, undo])
+  const value = useMemo(() => ({ documentId, documentReadOnly, isDocumentReadOnly, setDocumentReadOnly, pending, preview, togglePreview, closePreview, registerCanvas, registerComposer, updateTracked, add, editComment, remove, clear, consume, getPayload, locate, handleRequest, completeRequest, undo }),
+    [documentId, documentReadOnly, isDocumentReadOnly, setDocumentReadOnly, pending, preview, togglePreview, closePreview, registerCanvas, registerComposer, updateTracked, add, editComment, remove, clear, consume, getPayload, locate, handleRequest, completeRequest, undo])
   return <EditorReferencesContext.Provider value={value}>{children}</EditorReferencesContext.Provider>
 }

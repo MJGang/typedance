@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react"
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react"
 import { Extension, Mark, type Editor } from "@tiptap/core"
 import { Markdown } from "@tiptap/markdown"
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model"
@@ -65,6 +65,7 @@ type ResumeRichTextEditorProps = {
   onSelectionUpdate?: (blockType: string, context?: ResumeSelectionContext) => void
   onSourceCanvasModuleChange?: (moduleId: string | null) => void
   editable?: boolean
+  withCanvasReferences?: boolean
   cssText?: string
   marginConfig?: MarginConfig
   onMarginChange?: (margins: MarginConfig) => void
@@ -655,6 +656,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       onSelectionUpdate,
       onSourceCanvasModuleChange,
       editable = true,
+      withCanvasReferences = editable,
       cssText = "",
       marginConfig,
       pageMarginGuidesVisible = false,
@@ -990,12 +992,16 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
       previewPageMargins: (margins) => { if (editor && !editor.isDestroyed) updateEditorPageMargins(editor, margins) },
     }), [editor])
 
-    useEffect(() => {
+    useLayoutEffect(() => {
       if (!editor || editor.isDestroyed) return
       if (editor.isEditable !== editable) {
         if (!editable) editor.view.dom.dispatchEvent(new Event("typedance:render-markdown"))
-        editor.setEditable(editable)
+        editor.setEditable(editable, false)
       }
+    }, [editor, editable])
+
+    useEffect(() => {
+      if (!editor || editor.isDestroyed) return
       const next = editor.schema.nodeFromJSON(normalizedDocJson)
       if (!editor.state.doc.eq(next)) {
         const currentSelection = editor.state.selection
@@ -1020,7 +1026,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
           editor.commands.setContent(normalizedDocJson as unknown as JSONContent, { emitUpdate: false })
         }
       }
-    }, [normalizedDocJson, editor, editable])
+    }, [normalizedDocJson, editor])
 
     useEffect(() => {
       if (!editor || editor.isDestroyed) return
@@ -1305,7 +1311,7 @@ export const ResumeRichTextEditor = forwardRef<ResumeRichTextEditorHandle, Resum
           ) : documentContent}
           {documentPreview}
         </div>
-        {editable ? <CanvasReferences editor={editor} canvasVersion={canvasVersion} templateStyle={templateStyle} /> : null}
+        {withCanvasReferences ? <CanvasReferences editor={editor} canvasVersion={canvasVersion} templateStyle={templateStyle} /> : null}
       </div>
     )
   },
