@@ -23,6 +23,8 @@ import { EditorRunBridge } from "./EditorRunBridge"
 import { WorkspaceConversationsProvider, useWorkspaceConversations } from "./WorkspaceConversations"
 import { EditorReferencesProvider, useEditorReferences } from "./references/EditorReferences"
 import { DraftCanvas, type CanvasPatchFlash } from "./DraftCanvas"
+import { CanvasModeSwitch } from "./CanvasModeSwitch"
+import { CanvasSelectionClipboard } from "./CanvasSelectionClipboard"
 import { PanelResizeHandle } from "./PanelResizeHandle"
 import { prepareCanvasPrintSnapshot } from "./canvasPrintSnapshot"
 import {
@@ -111,6 +113,8 @@ function RevisionWorkspaceContent() {
   const { documentId } = useParams<{ documentId: string }>()
   const editorReferences = useEditorReferences()
   const previewOpen = Boolean(editorReferences?.preview)
+  const documentReadOnly = editorReferences?.documentReadOnly === true
+  const canvasReadOnly = documentReadOnly || previewOpen
   const closePreview = editorReferences?.closePreview
   const chromeContext = useOutletContext<RevisionWorkspaceChromeContext>()
   const { assistantPanelVisible, setAssistantPanelVisible, workbenchSidebarVisible, panels } = chromeContext
@@ -357,6 +361,7 @@ function RevisionWorkspaceContent() {
     if (
       !workspace
       || isSavingTemplate
+      || canvasReadOnly
       || workspace.document.template_id === templateId
       || !themes.some((theme) => theme.id === templateId)
     ) return
@@ -397,7 +402,7 @@ function RevisionWorkspaceContent() {
         setIsSavingTemplate(false)
       }
     }
-  }, [isSavingTemplate, themes, workspace])
+  }, [canvasReadOnly, isSavingTemplate, themes, workspace])
 
   const sourceCanvas = workspace?.source_resume_canvas
     ? {
@@ -697,14 +702,16 @@ function RevisionWorkspaceContent() {
               <Badge variant="secondary" className="tabular-nums">
                 共{sourceCanvasPageCount}页
               </Badge>
-              {previewOpen ? <Badge variant="secondary" className="shrink-0 whitespace-nowrap" role="status">预览中 · 只读</Badge> : null}
+              {sourceCanvas && editorReferences ? (
+                <CanvasModeSwitch readOnly={canvasReadOnly} previewOpen={previewOpen} onChange={editorReferences.setDocumentReadOnly} />
+              ) : null}
             </div>
             <div data-testid="revision-workspace-actions" className="ml-auto flex items-center gap-1">
               <ThemeSelector
                 value={workspace.document.template_id}
                 options={themes}
                 onChange={(templateId) => void handleTemplateChange(templateId)}
-                disabled={isSavingTemplate || previewOpen}
+                disabled={isSavingTemplate || canvasReadOnly}
                 ariaLabel="选择模板"
               />
               <Tooltip>
@@ -730,7 +737,7 @@ function RevisionWorkspaceContent() {
                     size="icon-sm"
                     aria-label={editorToolbarVisible ? "隐藏格式工具栏" : "显示格式工具栏"}
                     aria-pressed={editorToolbarVisible}
-                    disabled={previewOpen}
+                    disabled={canvasReadOnly}
                     onMouseDown={(event) => event.preventDefault()}
                     data-preserve-editor-selection=""
                     onClick={() => setEditorToolbarVisible((visible) => !visible)}
@@ -759,31 +766,34 @@ function RevisionWorkspaceContent() {
               ) : null}
             </div>
           </div>
-          <div
-            ref={draftPanelRef}
-            data-testid="revision-draft-panel"
-            className="td-source-resume-canvas-viewport min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden overscroll-x-contain bg-background px-0 pt-0"
-          >
-            <div className="h-full w-full min-w-[56rem] max-w-none">
-              {sourceCanvas ? (
-                <DraftCanvas
-                  canvas={sourceCanvas}
-                  patchFlash={canvasPatchFlash}
-                  onChange={handleCanvasChange}
-                  onPageCountChange={setSourceCanvasPageCount}
-                  onRetrySave={retryCanvasSave}
-                  saveError={canvasSaveError}
-                  saveStatus={canvasSaveStatus}
-                  templateStyle={selectedTemplateStyle}
-                  toolbarVisible={editorToolbarVisible}
-                />
-              ) : (
-                <div className="m-4 rounded-md border border-border bg-muted/30 p-4">
-                  <p className="text-sm font-medium">原始画布尚未生成</p>
-                </div>
-              )}
+          <CanvasSelectionClipboard viewport={draftPanelRef} readOnly={canvasReadOnly}>
+            <div
+              ref={draftPanelRef}
+              data-testid="revision-draft-panel"
+              className="td-source-resume-canvas-viewport min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden overscroll-x-contain bg-background px-0 pt-0 data-[read-only=true]:selection:bg-accent data-[read-only=true]:selection:text-accent-foreground"
+              data-read-only={canvasReadOnly}
+            >
+              <div className="h-full w-full min-w-[56rem] max-w-none">
+                {sourceCanvas ? (
+                  <DraftCanvas
+                    canvas={sourceCanvas}
+                    patchFlash={canvasPatchFlash}
+                    onChange={handleCanvasChange}
+                    onPageCountChange={setSourceCanvasPageCount}
+                    onRetrySave={retryCanvasSave}
+                    saveError={canvasSaveError}
+                    saveStatus={canvasSaveStatus}
+                    templateStyle={selectedTemplateStyle}
+                    toolbarVisible={editorToolbarVisible}
+                  />
+                ) : (
+                  <div className="m-4 rounded-md border border-border bg-muted/30 p-4">
+                    <p className="text-sm font-medium">原始画布尚未生成</p>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          </CanvasSelectionClipboard>
         </section>
         {conversations.filter((conversation) => conversation.status === "running").map((conversation) => (
           <EditorRunBridge key={conversation.id} conversationId={conversation.id} revision={conversationRevision} onCompleted={refreshConversations} />

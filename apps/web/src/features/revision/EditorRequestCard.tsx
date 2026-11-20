@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Undo2 } from "lucide-react"
 import { editorRequestSchema, type AgentRunEvent, type EditorRequest, type EditorResponse } from "@typedance/contracts"
-import { beginEditorRequest, getEditorRequest, respondToEditorRequest } from "@/agentHost"
+import { beginEditorRequest, deferEditorRequest, getEditorRequest, respondToEditorRequest } from "@/agentHost"
 import { assertAccountSession, captureAccountSession } from "@/accountSession"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -9,11 +9,13 @@ import { Badge } from "@/components/ui/badge"
 import { useEditorReferences } from "./references/EditorReferences"
 
 export function editorRequests(events: AgentRunEvent[]): EditorRequest[] {
-  return events.flatMap((event) => {
-    if (event.type !== "editor_request") return []
+  const requests = new Map<string, EditorRequest>()
+  for (const event of events) {
+    if (event.type !== "editor_request") continue
     const result = editorRequestSchema.safeParse(event.payload.request)
-    return result.success ? [result.data] : []
-  })
+    if (result.success) requests.set(result.data.id, result.data)
+  }
+  return [...requests.values()]
 }
 
 export function EditorRequestCard({ runId, request, events, active }: { runId: string; request: EditorRequest; events: AgentRunEvent[]; active: boolean }) {
@@ -29,6 +31,8 @@ export function EditorRequestCard({ runId, request, events, active }: { runId: s
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const handleRequest = context?.handleRequest
   const completeRequest = context?.completeRequest
+  const documentReadOnly = context?.documentReadOnly === true
+  const isDocumentReadOnly = context?.isDocumentReadOnly
 
   const submit = useCallback(async (approved: boolean) => {
     if (inFlight.current) return
@@ -40,11 +44,18 @@ export function EditorRequestCard({ runId, request, events, active }: { runId: s
       const activity = session.activitySignal
       // 先确认 Host 仍在等待。历史事件、已取消任务和重连回放不能再次写入。
       if (!resultRef.current) {
+        if (approved && request.kind === "transaction" && isDocumentReadOnly?.()) return
         const current = approved && request.kind === "transaction" && request.mode === "review"
           ? await beginEditorRequest(runId, request.id) : await getEditorRequest(runId, request.id)
         assertAccountSession(session)
         if (activity.aborted) throw new Error("账号活动已暂停，未应用画布修改。")
-        resultRef.current = mounted.current && handleRequest ? await handleRequest(current, approved) : { status: "failed", error: "当前编辑器不可用" }
+        const result = mounted.current && handleRequest ? await handleRequest(current, approved) : { status: "failed" as const, error: "当前编辑器不可用" }
+        if (!result) {
+          await deferEditorRequest(runId, request.id)
+          if (mounted.current) setError("")
+          return
+        }
+        resultRef.current = result
       }
       await respondToEditorRequest(runId, request.id, resultRef.current)
       if (mounted.current) setStatus(resultRef.current.status)
@@ -56,13 +67,18 @@ export function EditorRequestCard({ runId, request, events, active }: { runId: s
       inFlight.current = false
       if (mounted.current) setBusy(false)
     }
-  }, [runId, request.id, request.kind, request.mode, handleRequest, completeRequest])
+  }, [runId, request.id, request.kind, request.mode, handleRequest, completeRequest, isDocumentReadOnly])
 
   if (request.kind === "snapshot") return error ? <div><p role="alert" className="text-sm text-destructive">{error}</p>{active ? <Button variant="outline" size="sm" disabled={busy} onClick={() => { void submit(true) }}>重试读取画布</Button> : null}</div> : null
   const transaction = request.transaction
   if (!transaction) return null
   const previewOpen = context?.preview?.id === transaction.id
-  const executing = events.some((event) => event.type === "editor_execution_started" && event.payload.request_id === request.id)
+  let executing = false
+  for (const event of events) {
+    if (event.payload.request_id !== request.id) continue
+    if (event.type === "editor_request") executing = false
+    if (event.type === "editor_execution_started") executing = true
+  }
   const state = undone ? "undone" : String(resolved?.payload.status ?? status ?? (active ? executing ? "applying" : "pending" : "ended"))
   const label = { pending: request.mode === "solo" ? "正在应用" : "等待你应用修改", applying: "正在应用", applied: "已应用", unchanged: "已符合要求", rejected: "保留原文", failed: "未能应用", undone: "已撤销", ended: "请求已结束" }[state] ?? state
   return <Card className="my-3 gap-3" data-testid="editor-transaction">
@@ -72,17 +88,17 @@ export function EditorRequestCard({ runId, request, events, active }: { runId: s
     </CardHeader>
     <CardContent className="flex flex-col gap-3">
       <p className="text-xs text-muted-foreground">仅修改当前简历，模板样式调整不会影响其他简历。</p>
-      {state === "pending" && request.mode === "review" ? <p className="text-xs text-muted-foreground">可以稍后再确认，等待期间不会自动应用或重复提交修改。</p> : null}
+      {state === "pending" && request.mode === "review" ? <p className="text-xs text-muted-foreground">{documentReadOnly ? "文档处于只读模式，切回编辑后可应用修改。" : "可以稍后再确认，等待期间不会自动应用或重复提交修改。"}</p> : null}
       {context?.documentId === transaction.document_id ? <Button type="button" variant="outline" size="sm" aria-pressed={previewOpen} onClick={() => context.togglePreview(transaction)}>{previewOpen ? "取消预览" : "查看修改预览"}</Button> : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
       {(state === "failed" || state === "applied") && resolved?.payload.error ? <p role="alert" className="text-sm text-destructive">{String(resolved.payload.error)}</p> : null}
     </CardContent>
     <CardFooter className="flex-wrap gap-2">
       {state === "pending" && active && request.mode === "review" ? <>
-        <Button type="button" size="sm" disabled={busy || !!error} onClick={() => { void submit(true) }}>应用修改</Button>
+        <Button type="button" size="sm" disabled={documentReadOnly || busy || !!error} onClick={() => { void submit(true) }}>应用修改</Button>
         <Button type="button" variant="outline" size="sm" disabled={busy || !!error} onClick={() => { void submit(false) }}>保留原文</Button>
       </> : null}
-      {state === "applied" ? <Button type="button" variant="outline" size="sm" onClick={() => { if (context?.undo(transaction.id)) setUndone(true) }}><Undo2 data-icon="inline-start" />撤销修改</Button> : null}
+      {state === "applied" ? <Button type="button" variant="outline" size="sm" disabled={documentReadOnly} onClick={() => { if (context?.undo(transaction.id)) setUndone(true) }}><Undo2 data-icon="inline-start" />撤销修改</Button> : null}
       {active && (error || (state === "applying" && !busy)) ? <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => { void submit(true) }}>重试回传结果</Button> : null}
     </CardFooter>
   </Card>

@@ -42,6 +42,7 @@ function collapseCanvasSelection(editor: Editor) {
 
 export function CanvasReferences({ editor, canvasVersion, templateStyle }: { editor: Editor | null; canvasVersion: number; templateStyle: TemplateStyleConfig }) {
   const context = useEditorReferences()
+  const readOnly = context?.documentReadOnly === true
   const [selection, setSelection] = useState<CanvasSelection | null>(null)
   const sessionId = useRef(crypto.randomUUID())
   const version = useRef(canvasVersion)
@@ -94,7 +95,7 @@ export function CanvasReferences({ editor, canvasVersion, templateStyle }: { edi
     let dragging = false
     let alive = true
     const capture = () => {
-      if (!alive || editor.isDestroyed || dragging) return
+      if (!alive || editor.isDestroyed || dragging || contextRef.current?.isDocumentReadOnly()) return
       const sourceRect = activeMarkdownSourceInput(editor)?.getBoundingClientRect()
       if (!editor.isFocused && !sourceRect) return
       const { from, to, empty, $from } = editor.state.selection
@@ -144,7 +145,11 @@ export function CanvasReferences({ editor, canvasVersion, templateStyle }: { edi
     }
   }, [editor, documentId])
 
-  if (!context || context.preview || !editor || !selection) return null
+  useEffect(() => {
+    if (readOnly) setSelection(null)
+  }, [readOnly])
+
+  if (!context || context.preview || readOnly || !editor || !selection) return null
   return <ReferenceSelectionPopover key={selection.key} rect={selection.rect} onClose={() => setSelection(null)} onAdd={(comment) => {
     if (selection.text.length > 4000) { toast.error("每处引用最多 4000 字，请缩小选择范围。"); return }
     context.add({ text: selection.text, label: selection.label, source: selection.source, comment })

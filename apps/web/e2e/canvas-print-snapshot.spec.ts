@@ -151,7 +151,11 @@ test("预览控件位于原顶栏，开关预览时顶栏和滚动容器高度�
   })
   const before = await measure()
   await page.getByRole("button", { name: "查看修改预览" }).click()
-  await expect(titlebar.getByRole("status")).toHaveText("预览中 · 只读")
+  await expect(titlebar.getByRole("radio", { name: "只读" })).toBeChecked()
+  const edit = titlebar.getByRole("radio", { name: "编辑" })
+  await expect(edit).toBeDisabled()
+  await titlebar.locator('[data-slot="tooltip-trigger"]').filter({ has: edit }).hover()
+  await expect(page.getByRole("tooltip")).toHaveText("预览场景下为只读模式，不可编辑")
   await expect(page.getByLabel("修改后的简历预览")).toBeVisible()
   await expect(scroller).toHaveCount(1)
   expect(await measure()).toEqual(before)
@@ -173,15 +177,77 @@ test("预览控件位于原顶栏，开关预览时顶栏和滚动容器高度�
   await standalone.close()
 
   await page.getByRole("button", { name: "取消预览" }).click()
-  await expect(titlebar.getByRole("status")).toHaveCount(0)
+  await expect(edit).toBeChecked()
   await expect(page.getByLabel("原始简历编辑区")).toBeVisible()
   expect(await measure()).toEqual(before)
 
   await page.getByRole("button", { name: "查看修改预览" }).click()
   await expect(page.getByLabel("修改后的简历预览")).toBeVisible()
   await page.getByRole("button", { name: "隐藏 AI 面板" }).click()
-  await expect(titlebar.getByRole("status")).toHaveCount(0)
+  await expect(edit).toBeChecked()
   await expect(page.getByLabel("原始简历编辑区")).toBeVisible()
+})
+
+test("只读时可跨段复制纯文本，且退出 AI 预览后保留文档模式", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"])
+  await page.setViewportSize({ width: 1680, height: 900 })
+  await openWorkspace(page, 0, [], true)
+  const titlebar = page.getByTestId("revision-workspace-titlebar")
+  const readOnly = titlebar.getByRole("radio", { name: "只读" })
+  const original = page.getByLabel("原始简历编辑区")
+  const originalText = await original.textContent()
+  await readOnly.click()
+  await expect(readOnly).toBeChecked()
+  await expect(original).toHaveAttribute("contenteditable", "false")
+  await expect(titlebar.getByLabel("选择模板")).toBeDisabled()
+  await expect(titlebar.getByRole("button", { name: "显示格式工具栏" })).toBeDisabled()
+
+  const drag = await original.evaluate((editor) => {
+    const [first, second] = editor.querySelectorAll("p")
+    const firstText = document.createTreeWalker(first, NodeFilter.SHOW_TEXT).nextNode() as Text
+    const secondText = document.createTreeWalker(second, NodeFilter.SHOW_TEXT).nextNode() as Text
+    const range = document.createRange()
+    range.setStart(firstText, 0)
+    range.collapse(true)
+    const start = range.getBoundingClientRect()
+    range.setStart(secondText, secondText.length)
+    range.collapse(true)
+    const end = range.getBoundingClientRect()
+    return {
+      startX: start.left + 1, startY: start.top + start.height / 2,
+      endX: end.right + 2, endY: end.top + end.height / 2,
+    }
+  })
+  await page.mouse.move(drag.startX, drag.startY)
+  await page.mouse.down()
+  await page.mouse.move(drag.endX, drag.endY, { steps: 10 })
+  await page.mouse.up()
+  await page.keyboard.press("Control+c")
+  const clipboardText = () => page.evaluate(() => navigator.clipboard.readText())
+  await expect.poll(clipboardText).toMatch(/Experience 1:[^\n]+\n+Experience 2:/)
+  expect(await page.evaluate(async () => (await navigator.clipboard.read()).flatMap((item) => item.types))).toEqual(["text/plain"])
+
+  await page.evaluate(() => navigator.clipboard.writeText("temporary clipboard text"))
+  await original.getByText("Experience 1: document layout and export verification.", { exact: true }).click({ button: "right" })
+  await page.getByRole("menuitem", { name: /复制/ }).click()
+  await expect.poll(clipboardText).toMatch(/Experience 1:[^\n]+\n+Experience 2:/)
+
+  await original.getByText("Experience 1: document layout and export verification.", { exact: true }).click()
+  await page.keyboard.press("Backspace")
+  await page.keyboard.press("Control+v")
+  expect(await original.textContent()).toBe(originalText)
+
+  await page.getByRole("button", { name: "预览布局验收" }).click()
+  await page.getByRole("button", { name: "查看修改预览" }).click()
+  await expect(page.getByLabel("修改后的简历预览")).toHaveAttribute("contenteditable", "false")
+  await page.getByRole("button", { name: "取消预览" }).click()
+  await expect(readOnly).toBeChecked()
+  await expect(original).toHaveAttribute("contenteditable", "false")
+
+  await page.reload()
+  await expect(readOnly).toBeChecked()
+  await titlebar.getByRole("radio", { name: "编辑" }).click()
+  await expect(original).toHaveAttribute("contenteditable", "true")
 })
 
 async function captureSnapshot(page: Page): Promise<CanvasPrintSnapshot> {

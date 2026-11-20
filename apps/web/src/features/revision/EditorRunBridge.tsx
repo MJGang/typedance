@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { editorRequestSchema, type AgentRunEvent } from "@typedance/contracts"
 import { toast } from "sonner"
-import { createAgentRunEventSource, getConversationActiveRun, getEditorRequest, listAgentRunEvents, respondToEditorRequest } from "@/agentHost"
+import { createAgentRunEventSource, deferEditorRequest, getConversationActiveRun, getEditorRequest, listAgentRunEvents, respondToEditorRequest } from "@/agentHost"
 import { captureAccountSession } from "@/accountSession"
 import { useAccount } from "../account/useAccount"
 import { useEditorReferences } from "./references/EditorReferences"
@@ -40,6 +40,11 @@ function EditorRunSubscription({ runId, onCompleted }: { runId: string; onComple
   const context = useEditorReferences()
   const handleRequest = context?.handleRequest
   const completeRequest = context?.completeRequest
+  const documentReadOnly = context?.documentReadOnly === true
+  const reviewRequired = useRef(documentReadOnly)
+  useLayoutEffect(() => {
+    if (documentReadOnly) reviewRequired.current = true
+  }, [documentReadOnly])
   useEffect(() => {
     if (!handleRequest) return
     const activity = captureAccountSession().activitySignal
@@ -63,10 +68,18 @@ function EditorRunSubscription({ runId, onCompleted }: { runId: string; onComple
         // A replay can include a timed-out request. Only live Host requests may execute.
         const current = await getEditorRequest(runId, request.id)
         if (disposed || resolved.has(request.id)) return
-        const result = await handleRequest(current, true)
-        await respondToEditorRequest(runId, request.id, result)
+        if (current.kind === "transaction" && current.mode === "review") {
+          resolved.add(request.id)
+          return
+        }
+        const result = await handleRequest(current, true, reviewRequired.current)
+        if (result) {
+          await respondToEditorRequest(runId, request.id, result)
+          completeRequest?.(request.id)
+        } else {
+          await deferEditorRequest(runId, request.id)
+        }
         resolved.add(request.id)
-        completeRequest?.(request.id)
       } catch (error) {
         if (!disposed && !resolved.has(request.id)) {
           const count = (attempts.get(request.id) ?? 0) + 1

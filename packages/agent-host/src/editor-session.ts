@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { editorResponseSchema, type CanvasMutationMode, type EditorRequest, type EditorResponse, type EditorSnapshot, type EditorTransaction } from "@typedance/contracts";
 
-type Pending = { request: EditorRequest; resolve: (response: EditorResponse) => void; cleanup: () => void; startExecution: () => void; executing: boolean };
+type Pending = { request: EditorRequest; resolve: (response: EditorResponse) => void; cleanup: () => void; startExecution: () => void; stopExecution: () => void; executing: boolean };
 type Emit = (type: "editor_request" | "editor_execution_started" | "editor_response", payload: Record<string, unknown>) => void;
 
 /** 活动编辑器的请求/确认通道。Host 不执行文档变换，也不假定事件已被前端执行。 */
@@ -13,6 +13,7 @@ export class EditorSession {
   #emit: Emit;
   #decisions: Array<{ status: EditorResponse["status"]; persisted?: boolean; revision?: number }> = [];
   #auditedDecisions = 0;
+  #reviewRequired = false;
 
   constructor(input: { snapshot: EditorSnapshot; mode: CanvasMutationMode; signal: AbortSignal; emit: Emit }) {
     this.snapshot = input.snapshot;
@@ -55,6 +56,20 @@ export class EditorSession {
       this.#emit("editor_execution_started", { request_id: requestId });
     }
     return request;
+  }
+
+  /** 前端在提交画布改动前发现文档已锁定，改用现有的人工确认流程。 */
+  deferExecution(requestId: string): EditorRequest {
+    const request = this.pending(requestId);
+    const item = this.#pending.get(requestId)!;
+    if (request.kind !== "transaction") throw new Error("只读请求无需人工确认");
+    if (request.mode === "review" && !item.executing) return request;
+    this.#reviewRequired = true;
+    item.stopExecution();
+    item.executing = false;
+    item.request = { ...request, mode: "review" };
+    this.#emit("editor_request", { request: item.request, request_id: requestId });
+    return item.request;
   }
 
   supersedeApproval(): void {
@@ -116,7 +131,7 @@ export class EditorSession {
   #request(kind: EditorRequest["kind"], transaction?: EditorTransaction): Promise<EditorResponse> {
     this.#signal.throwIfAborted();
     const request: EditorRequest = { id: randomUUID(), document_id: this.snapshot.document_id,
-      editor_session_id: this.snapshot.editor_session_id, kind, mode: this.mode === "solo" ? "solo" : "review", ...(transaction ? { transaction } : {}) };
+      editor_session_id: this.snapshot.editor_session_id, kind, mode: this.mode === "solo" && !this.#reviewRequired ? "solo" : "review", ...(transaction ? { transaction } : {}) };
     return new Promise((resolve, reject) => {
       const abort = () => finish(new Error("编辑请求已取消"));
       let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -125,17 +140,18 @@ export class EditorSession {
           ? "编辑执行结果回传超时，修改可能已生效；请先核对当前画布，勿直接重复修改"
           : "读取编辑器超时，请检查当前画布连接后重试")), 300_000);
       };
-      const cleanup = () => { clearTimeout(timeout); this.#signal.removeEventListener("abort", abort); };
+      const stopExecution = () => clearTimeout(timeout);
+      const cleanup = () => { stopExecution(); this.#signal.removeEventListener("abort", abort); };
       const finish = (error: Error) => {
         cleanup(); this.#pending.delete(request.id);
         this.#emit("editor_response", { request_id: request.id, status: "failed", error: error.message });
         reject(error);
       };
       const waitingForApproval = kind === "transaction" && request.mode === "review";
-      this.#pending.set(request.id, { request, resolve, cleanup, startExecution, executing: !waitingForApproval });
+      this.#pending.set(request.id, { request, resolve, cleanup, startExecution, stopExecution, executing: !waitingForApproval });
       this.#signal.addEventListener("abort", abort, { once: true });
       if (!waitingForApproval) startExecution();
-      this.#emit("editor_request", { request });
+      this.#emit("editor_request", { request, request_id: request.id });
     });
   }
 }

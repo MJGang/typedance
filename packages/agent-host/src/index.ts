@@ -23,6 +23,7 @@ import {
   type CanvasMutationMode,
   type ContextMention,
   type EditorReference,
+  type EditorRequest,
   type EditorSnapshot,
 } from "@typedance/contracts";
 import { toModelMessage } from "./model-history";
@@ -267,6 +268,13 @@ export class AgentHost {
     const session = this.#editorSessions.get(runId);
     if (!session) throw new HttpError(409, "editor_session_ended");
     try { return session.beginExecution(requestId); }
+    catch (error) { throw new HttpError(409, error instanceof Error ? error.message : "editor_request_ended"); }
+  }
+
+  deferEditorRequest(runId: string, requestId: string) {
+    const session = this.#editorSessions.get(runId);
+    if (!session) throw new HttpError(409, "editor_session_ended");
+    try { return session.deferExecution(requestId); }
     catch (error) { throw new HttpError(409, error instanceof Error ? error.message : "editor_request_ended"); }
   }
 
@@ -777,13 +785,21 @@ export class AgentHost {
     const runningRuns = this.store.listRuns().filter((run) => run.status === "running");
     for (const run of runningRuns) {
       const events = this.store.listRunEvents(run.id);
-      const resolved = new Set(events.filter((event) => event.type === "editor_response").map((event) => event.payload.request_id));
-      const executing = new Set(events.filter((event) => event.type === "editor_execution_started").map((event) => event.payload.request_id));
-      const pending = events.flatMap((event) => {
-        if (event.type !== "editor_request") return [];
-        const parsed = editorRequestSchema.safeParse(event.payload.request);
-        return parsed.success && !resolved.has(parsed.data.id) ? [parsed.data] : [];
-      });
+      const executing = new Set<unknown>();
+      const requests = new Map<string, EditorRequest>();
+      for (const event of events) {
+        if (event.type === "editor_request") {
+          const parsed = editorRequestSchema.safeParse(event.payload.request);
+          if (!parsed.success) continue;
+          requests.set(parsed.data.id, parsed.data);
+          executing.delete(parsed.data.id);
+        } else if (event.type === "editor_execution_started") {
+          executing.add(event.payload.request_id);
+        } else if (event.type === "editor_response" && typeof event.payload.request_id === "string") {
+          requests.delete(event.payload.request_id);
+        }
+      }
+      const pending = [...requests.values()];
       for (const request of pending) {
         const error = request.kind === "snapshot" ? "客户端已重启，读取请求已结束；请继续任务重新读取当前画布。"
           : request.mode === "review" && !executing.has(request.id) ? "客户端已重启，此预览已结束。请点击继续任务，核对当前画布后重新生成待确认修改。"
@@ -1125,9 +1141,14 @@ async function route(context: RouteContext): Promise<boolean> {
     return true;
   }
 
-  const editorExecutionMatch = /^\/agent-runs\/([^/]+)\/editor-requests\/([^/]+)\/execute$/.exec(pathname);
+  const editorExecutionMatch = /^\/agent-runs\/([^/]+)\/editor-requests\/([^/]+)\/(execute|defer)$/.exec(pathname);
   if (request.method === "POST" && editorExecutionMatch) {
-    writeJson(response, 200, host.beginEditorRequest(decodeURIComponent(editorExecutionMatch[1]!), decodeURIComponent(editorExecutionMatch[2]!)));
+    const runId = decodeURIComponent(editorExecutionMatch[1]!);
+    const requestId = decodeURIComponent(editorExecutionMatch[2]!);
+    const result = editorExecutionMatch[3] === "defer"
+      ? host.deferEditorRequest(runId, requestId)
+      : host.beginEditorRequest(runId, requestId);
+    writeJson(response, 200, result);
     return true;
   }
 

@@ -383,7 +383,9 @@ function DraftCanvasWorkspace({
   toolbarVisible = true,
   toolbarEnd,
 }: DraftCanvasProps) {
-  const preview = useEditorReferences()?.preview ?? null
+  const editorReferences = useEditorReferences()
+  const preview = editorReferences?.preview ?? null
+  const readOnly = editorReferences?.documentReadOnly === true
   const [readyPreview, setReadyPreview] = useState<typeof preview>(null)
   const showingPreview = Boolean(preview && readyPreview === preview)
   const editorRef = useRef<ResumeRichTextEditorHandle>(null)
@@ -411,7 +413,7 @@ function DraftCanvasWorkspace({
   )
   const effectiveTemplateStyle = useMemo(() => documentTemplateStyle(currentDocJson, templateStyle), [currentDocJson, templateStyle])
   const [marginPreview, setMarginPreview] = useState<PageMargins | null>(null)
-  const pageMargins = useMemo(() => marginPreview ?? documentMargins(currentDocJson), [currentDocJson, marginPreview])
+  const pageMargins = useMemo(() => (!readOnly ? marginPreview : null) ?? documentMargins(currentDocJson), [currentDocJson, marginPreview, readOnly])
   const anchors = useMemo<OutlineAnchorWithLevel[]>(
     () => collectHeadingAnchors(currentDocJson),
     [currentDocJson],
@@ -454,6 +456,10 @@ function DraftCanvasWorkspace({
   useEffect(() => {
     setCurrentDocJson(canvas.doc_json as ResumeDocJson)
   }, [canvas.doc_json])
+
+  useEffect(() => {
+    if (readOnly) setMarginPreview(null)
+  }, [readOnly])
 
   useEffect(() => {
     setActiveModuleId((currentModuleId) => {
@@ -666,6 +672,8 @@ function DraftCanvasWorkspace({
         cssText={sourceCanvasCss}
         docJson={currentDocJson}
         canvasVersion={canvas.version}
+        editable={!readOnly}
+        withCanvasReferences
         templateStyle={effectiveTemplateStyle}
         marginConfig={pageMargins}
         pageMarginGuidesVisible={pageMarginGuidesVisible}
@@ -686,7 +694,7 @@ function DraftCanvasWorkspace({
           </Suspense>
         ) : null}
       />
-      {!preview && pageMarginGuidesVisible && pageBounds ? (
+      {!preview && !readOnly && pageMarginGuidesVisible && pageBounds ? (
         <PageMarginGuides
           margins={pageMargins}
           pageBounds={pageBounds}

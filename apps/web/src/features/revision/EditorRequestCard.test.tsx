@@ -23,9 +23,13 @@ const request: EditorRequest = { id: "request", document_id: "doc", editor_sessi
   catalog_revision: "current", summary: "教育经历改为四栏，最后一栏右对齐", effects: [{ capability: "columns.layout", title: "分栏排版", effect: "layout" }], node_origins: [], text_origins: [],
 } }
 function Bridge({ bridge }: { bridge: CanvasReferenceBridge }) {
-  const register = useEditorReferences()!.registerCanvas
+  const { registerCanvas: register, setDocumentReadOnly } = useEditorReferences()!
   useEffect(() => register(bridge), [register, bridge])
-  return <button onClick={() => register({ ...bridge, undo: () => true })}>切换编辑会话</button>
+  return <>
+    <button onClick={() => register({ ...bridge, undo: () => true })}>切换编辑会话</button>
+    <button onClick={() => setDocumentReadOnly(true)}>锁定正文</button>
+    <button onClick={() => setDocumentReadOnly(false)}>解锁正文</button>
+  </>
 }
 function setup(value = request, active = true, changed = true) {
   vi.mocked(flushSourceCanvasSaves).mockResolvedValue(true)
@@ -41,6 +45,22 @@ function setup(value = request, active = true, changed = true) {
 afterEach(() => { cleanup(); vi.resetAllMocks() })
 
 describe("editor request decisions", () => {
+  it("keeps manual approval disabled while the document is read-only", async () => {
+    const { bridge } = setup()
+    const apply = screen.getByRole("button", { name: "应用修改" })
+    fireEvent.click(screen.getByRole("button", { name: "锁定正文" }))
+    expect(apply).toBeDisabled()
+    fireEvent.click(screen.getByRole("button", { name: "查看修改预览" }))
+    expect(screen.getByRole("button", { name: "取消预览" })).toBeInTheDocument()
+    expect(beginEditorRequest).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole("button", { name: "解锁正文" }))
+    expect(bridge.apply).not.toHaveBeenCalled()
+    fireEvent.click(apply)
+    await screen.findByText("已应用")
+    expect(bridge.apply).toHaveBeenCalledOnce()
+  })
+
   it("never applies an approval response from before a pause even after activities resume", async () => {
     const { bridge } = setup()
     let finishApproval!: (value: EditorRequest) => void
