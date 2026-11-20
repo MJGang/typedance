@@ -16,7 +16,7 @@ function PendingReferences() {
   return <pre data-testid="pending">{JSON.stringify(context?.pending)}</pre>
 }
 
-it("captures an AI reference directly from the focused Markdown source selection", async () => {
+it("adds a reference from Markdown source and clears the selection without marking the document", async () => {
   const element = document.createElement("div")
   document.body.append(element)
   const editor = new Editor({ element, extensions: [MarkdownStarterKit, Markdown, MarkdownSourceEditing, ReferenceTracker],
@@ -31,8 +31,15 @@ it("captures an AI reference directly from the focused Markdown source selection
   act(() => { source.setSelectionRange(2, 4); fireEvent.select(source) })
   expect(document.activeElement).toBe(source)
   await screen.findByLabelText("引用选中文字")
+  const doc = editor.state.doc
   fireEvent.click(screen.getByText("添加为引用"))
   const pending = JSON.parse(screen.getByTestId("pending").textContent!)[0].reference
   expect(pending.text).toBe("目标")
   expect(pending.source).toMatchObject({ kind: "canvas", from: 1, to: 3, slice_content: [{ type: "text", text: "目标", marks: [{ type: "bold" }] }] })
+  expect(editor.state.doc.eq(doc)).toBe(true)
+  expect(editor.state.selection).toMatchObject({ from: 3, to: 3 })
+  expect(source.selectionStart).toBe(4)
+  expect(source.selectionEnd).toBe(4)
+  expect(editor.view.dom.querySelector("[data-editor-reference-highlight], [data-editor-reference-marker]")).toBeNull()
+  expect(screen.queryByLabelText("引用选中文字")).toBeNull()
 })

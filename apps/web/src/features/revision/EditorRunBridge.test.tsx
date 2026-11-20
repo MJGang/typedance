@@ -32,7 +32,7 @@ function setup() {
   const source = Object.assign(new EventTarget(), { close: vi.fn() })
   vi.mocked(createAgentRunEventSource).mockReturnValue(source as unknown as ReturnType<typeof createAgentRunEventSource>)
   const bridge: CanvasReferenceBridge = { getSnapshot: vi.fn(async () => snapshot), getRevision: () => 0, apply: vi.fn(() => true), undo: () => true,
-    track: vi.fn(), untrack: vi.fn(), setOrdinals: vi.fn(), locate: () => false }
+    track: vi.fn(), untrack: vi.fn(), locate: () => false }
   const view = render(<Workspace bridge={bridge} />)
   const dispatch = (request: EditorRequest) => act(() => source.dispatchEvent(new MessageEvent("editor_request", { data: JSON.stringify({
     id: request.id, run_id: "run", sequence: 1, type: "editor_request", payload: { request }, created_at: "2026-10-25T00:00:00Z",
@@ -75,7 +75,7 @@ describe("workspace editor execution", () => {
     vi.mocked(createAgentRunEventSource).mockImplementation((id) => sources.get(id)! as unknown as ReturnType<typeof createAgentRunEventSource>);
     vi.mocked(getEditorRequest).mockImplementation(async (_runId, requestId) => ({ ...read, id: requestId }));
     const bridge: CanvasReferenceBridge = { getSnapshot: vi.fn(async () => snapshot), getRevision: () => 0, apply: vi.fn(() => true), undo: () => true,
-      track: vi.fn(), untrack: vi.fn(), setOrdinals: vi.fn(), locate: () => false };
+      track: vi.fn(), untrack: vi.fn(), locate: () => false };
     render(<EditorReferencesProvider documentId="doc"><Canvas bridge={bridge} />
       <EditorRunBridge conversationId="a" onCompleted={onCompleted} /><EditorRunBridge conversationId="b" onCompleted={onCompleted} />
     </EditorReferencesProvider>);
