@@ -188,22 +188,35 @@ describe("AgentChatPanel", () => {
     await screen.findByRole("button", { name: "手动应用" })
   })
 
-  it("shows manual approval as waiting and switches to execution only after the explicit start event", async () => {
+  it.each(["review", "solo"] as const)("keeps one confirmation card in %s mode until explicit execution", async (mode) => {
     const source = controllableEventSource()
     const runId = "approval-run"
-    const request = { id: "approval", kind: "transaction", mode: "review", document_id: "doc_1", editor_session_id: "editor", transaction: {
+    const request = { id: "approval", kind: "transaction", mode, document_id: "doc_1", editor_session_id: "editor", transaction: {
       id: "tx", document_id: "doc_1", editor_session_id: "editor", content_revision: 0, summary: "改写合成内容", before_doc_json: {}, doc_json: {}, catalog_revision: "catalog", effects: [], node_origins: [], text_origins: [],
     } }
     agentHostMocks.listConversationMessages.mockResolvedValue([assistantMessage("", runId)])
-    agentHostMocks.getConversationActiveRun.mockResolvedValue({ id: runId, conversation_id: "conv_1", status: "running", mutation_mode: "review", started_at: "2026-06-16T08:00:00.000Z" })
+    agentHostMocks.getConversationActiveRun.mockResolvedValue({ id: runId, conversation_id: "conv_1", status: "running", mutation_mode: mode, started_at: "2026-06-16T08:00:00.000Z" })
     agentHostMocks.listAgentRunEvents.mockResolvedValue([{ id: "request-event", run_id: runId, sequence: 1, type: "editor_request", payload: { request }, created_at: "2026-06-16T08:00:01.000Z" }])
     agentHostMocks.createAgentRunEventSource.mockReturnValue(source.source)
     render(<AgentChatPanel workspaceId="doc_1" activeConversationId="conv_1" contextSources={[]} onConversationCreated={() => {}} />)
+
+    if (mode === "solo") {
+      const card = await screen.findByTestId("editor-transaction")
+      expect(card).toHaveTextContent("正在应用")
+      await waitFor(() => expect(agentHostMocks.createAgentRunEventSource).toHaveBeenCalled())
+      await act(async () => source.dispatch("editor_request", {
+        id: "deferred-event", run_id: runId, sequence: 2, type: "editor_request",
+        payload: { request_id: request.id, request: { ...request, mode: "review" } },
+        created_at: "2026-06-16T08:00:02.000Z",
+      }))
+      expect(screen.getByTestId("editor-transaction")).toBe(card)
+    }
+
     await screen.findByRole("button", { name: "应用修改" })
     expect(screen.getAllByText(/等待你应用修改/).length).toBeGreaterThanOrEqual(1)
     fireEvent.click(screen.getByRole("button", { name: /^已处理/ }))
     expect(screen.getByRole("button", { name: "应用修改" })).toBeVisible()
-    await act(async () => source.dispatch("editor_execution_started", { id: "start-event", run_id: runId, sequence: 2, type: "editor_execution_started", payload: { request_id: "approval" }, created_at: "2026-06-16T08:00:02.000Z" }))
+    await act(async () => source.dispatch("editor_execution_started", { id: "start-event", run_id: runId, sequence: 3, type: "editor_execution_started", payload: { request_id: "approval" }, created_at: "2026-06-16T08:00:03.000Z" }))
     await screen.findByText("正在应用")
     expect(screen.queryByRole("button", { name: "应用修改" })).not.toBeInTheDocument()
     expect(screen.queryByText(/等待你应用修改/)).not.toBeInTheDocument()

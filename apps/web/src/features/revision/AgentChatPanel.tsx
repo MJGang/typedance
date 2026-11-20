@@ -1030,6 +1030,7 @@ function useElapsedMs(startedAt: string, completedAt?: string): number {
 function buildRunTraceItems(events: AgentRunEvent[]): RunTraceItem[] {
   const items: RunTraceItem[] = []
   const toolStarts = new Map<string, AgentRunEvent>()
+  const editorRequestIds = new Set<string>()
   let thinkingItem: Extract<RunTraceItem, { kind: "thinking" }> | undefined
 
   for (const event of events) {
@@ -1073,7 +1074,10 @@ function buildRunTraceItems(events: AgentRunEvent[]): RunTraceItem[] {
       continue
     }
     if (event.type === "editor_request") {
-      items.push({ id: event.id, kind: "editor", requestId: getRecordString(event.payload.request, "id") ?? "" })
+      const requestId = getRecordString(event.payload.request, "id")
+      if (!requestId || editorRequestIds.has(requestId)) continue
+      editorRequestIds.add(requestId)
+      items.push({ id: event.id, kind: "editor", requestId })
       continue
     }
     if (event.type === "attachments_read") {
